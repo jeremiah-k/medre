@@ -471,7 +471,11 @@ class RenderingContext:
 
 `delivery_strategy` is a **context hint, not a renderer selector**. When the strategy is `"fallback_text"`, the target-native renderer still produces its native output format (e.g. a Matrix renderer produces Matrix msgtype/body, a Meshtastic renderer produces Meshtastic text). The pipeline does **not** bypass target-native renderers or switch to a generic text renderer based on this field. Instead, the target-native renderer uses the hint to degrade relation rendering to inline text within its own format.
 
-`capability_level` tells the renderer the target's support level for the event's relation type. When `"fallback"`, the renderer SHOULD embed relation context as inline text drawn from `EventRelation.fallback_text`. When `"native"`, the renderer SHOULD use the platform's native relation mechanism. When `"unsupported"`, the renderer is not invoked (the planning stage skips delivery).
+`delivery_strategy` is the **authoritative dispatch signal** for renderers. The pipeline populates it from the delivery plan, which is derived from adapter capabilities and routing policy. Renderers **SHOULD** use it as the primary input for deciding how to render.
+
+`max_text_bytes` is wired from the target adapter's `SIZE_LIMITS` capability by the pipeline. When the adapter declares a byte limit, this field carries it; otherwise it is `None`.
+
+`capability_level` and `capability_policy` are **reserved fields**. They are defined in `RenderingContext` for forward compatibility and caller-provided plumbing, but the default pipeline does **not** populate them from adapter capabilities. `capability_level` defaults to `"native"` and `capability_policy` defaults to `None`. These fields only carry meaning when a caller or future pipeline stage sets them explicitly. Renderers **MUST NOT** depend on `capability_level` for dispatch decisions unless they also control the code that populates it.
 
 ### 10.2 RenderingResult
 

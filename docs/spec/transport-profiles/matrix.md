@@ -155,9 +155,13 @@ Matrix is a presentation adapter with rich native relation support. The Matrix r
 | Reactions     | `"native"`       | `direct` | `m.reaction` event type with `m.annotation`                       |
 | Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.   |
 | Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed. |
-| Threads       | `"native"`       | `direct` | Thread relation via `m.relates_to` with `rel_type: m.thread`      |
+| Threads       | _deferred_       | —        | Reserved. Not rendered by any adapter in this branch.             |
 
-Matrix does not use the `"fallback"` capability level for any relation type. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. No fallback text rendering occurs.
+Matrix does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter.
+
+If a future profile revision or a directly constructed `RenderingContext` supplies `fallback_text` for a relation, the Matrix renderer would produce its native message format with the relation context embedded as inline text. This is a renderer contract, not a test-only quirk; any code path that populates `fallback_text` on a routed relation triggers the same inline-text rendering path.
+
+**Thread deferral:** The `"thread"` relation type is defined in the canonical event model (`VALID_RELATION_TYPES`), but no adapter currently renders thread relations natively. Matrix has the underlying protocol support (`m.thread`) but does not exercise it. Thread capability requires a future `AdapterCapabilities.threads` field and planner-level thread routing before any adapter can advertise or render threads. Until then, thread relations are reserved and not capability-driven.
 
 **Payload requirement:** The Matrix renderer produces Matrix-native payloads (`m.room.message` with msgtype/body/`m.relates_to`). The adapter transports these payloads via `room_send` without modification.
 

@@ -737,3 +737,132 @@ class TestTextRendererEditDeleteThread:
         assert result.fallback_applied == "strategy_fallback_text"
         assert result.metadata.get("strategy_relation_type") == "thread"
         assert "[thread:" in result.payload["text"]
+
+
+# ===================================================================
+# TestReactionKeyFromPayload
+# ===================================================================
+
+
+class TestReactionKeyFromPayload:
+    """Verify _resolve_reaction_key falls back to payload["key"] when
+    rel.key is None.
+
+    The resolution order is: rel.key → payload["key"] → payload["emoji"]
+    → payload["body"].  When rel.key is absent but the payload carries a
+    ``"key"`` field, the renderer must pick it up.
+    """
+
+    @pytest.mark.asyncio
+    async def test_payload_key_used_when_rel_key_is_none(self) -> None:
+        """Reaction with rel.key=None and payload={"key": "👍"}: rendered
+        text contains 👍."""
+        renderer = TextRenderer()
+        event = _make_reaction_event(
+            emoji="",
+            target_event_id=None,
+            payload={"key": "👍"},
+        )
+        # Override the relation key to None — _make_reaction_event sets
+        # key=emoji by default but we passed empty string.
+        # Build a fresh event with key=None explicitly.
+        from medre.core.events.canonical import EventRelation as ER
+
+        rel = ER(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="rxn-pkey-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"key": "👍"},
+            metadata=EventMetadata(),
+        )
+        ctx = _ctx(delivery_strategy="fallback_text")
+
+        result = await renderer.render(event, ctx)
+
+        text = result.payload["text"]
+        assert isinstance(text, str)
+        assert "👍" in text
+        assert "reacted" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_rel_key_takes_precedence_over_payload_key(self) -> None:
+        """When both rel.key and payload["key"] exist, rel.key wins."""
+        renderer = TextRenderer()
+        from medre.core.events.canonical import EventRelation as ER
+
+        rel = ER(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="❤️",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="rxn-precedence-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"key": "👍"},
+            metadata=EventMetadata(),
+        )
+        ctx = _ctx()
+
+        result = await renderer.render(event, ctx)
+
+        text = result.payload["text"]
+        assert "❤️" in text
+        assert "👍" not in text
+
+
+# ===================================================================
+# TestRenderingContextStrategyValidation
+# ===================================================================
+
+
+class TestRenderingContextStrategyValidation:
+    """Verify RenderingContext rejects unknown delivery_strategy values
+    at runtime with a ValueError."""
+
+    def test_bogus_strategy_raises_value_error(self) -> None:
+        """Passing 'bogus' as delivery_strategy raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown delivery_strategy"):
+            RenderingContext(
+                delivery_strategy="bogus",  # type: ignore[arg-type]
+                target_adapter="dest",
+            )
+
+    def test_valid_strategies_accepted(self) -> None:
+        """All well-known strategies are accepted without error."""
+        for strategy in (
+            "direct",
+            "fallback_text",
+            "skip",
+            "propagated",
+            "opportunistic",
+            "paper",
+        ):
+            ctx = RenderingContext(
+                delivery_strategy=strategy,  # type: ignore[arg-type]
+                target_adapter="dest",
+            )
+            assert ctx.delivery_strategy == strategy

@@ -2367,9 +2367,10 @@ class PipelineRunner:
             platform_param: str | None = target_platform
         else:
             platform_param = None
-        # Resolve adapter capabilities to pass max_text_chars to renderers.
+        # Resolve adapter capabilities to pass text budgets to renderers.
         _caps = self._get_adapter_capabilities(target)
         _max_text_chars = _caps.max_text_chars
+        _max_text_bytes = _caps.max_text_bytes
 
         # Honor the delivery plan's strategy: validate and narrow the
         # method string to a typed DeliveryStrategyMethod before passing
@@ -2475,6 +2476,7 @@ class PipelineRunner:
                 target.channel,
                 target_platform=platform_param,
                 max_text_chars=_max_text_chars,
+                max_text_bytes=_max_text_bytes,
                 delivery_strategy=_validated_strategy,
             )
         except Exception as exc:

@@ -24,8 +24,16 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.events import CanonicalEvent
+from medre.core.events.bus import EventBus
+from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.rendering.renderer import (
+    RenderingContext,
+    RenderingPipeline,
+    RenderingResult,
+)
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
@@ -1095,5 +1103,149 @@ class TestUnknownAdapterNotCapabilitySuppressed:
             assert outcome.target_adapter == "nonexistent_adapter"
             assert outcome.error is not None
             assert "not registered" in outcome.error
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestMaxTextBytesThreading
+# ===================================================================
+
+
+class _ContextCapturingRenderer(TextRenderer):
+    """TextRenderer subclass that captures the RenderingContext for inspection."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.captured_ctx: RenderingContext | None = None
+
+    async def render(  # type: ignore[override]
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+    ) -> RenderingResult:
+        self.captured_ctx = ctx
+        return await super().render(event, ctx)
+
+
+class TestMaxTextBytesThreading:
+    """Verify max_text_bytes from adapter capabilities reaches RenderingContext."""
+
+    @pytest.mark.asyncio
+    async def test_ctx_max_text_bytes_populated_from_adapter_caps(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with max_text_bytes=512 causes ctx.max_text_bytes == 512."""
+        capturing_renderer = _ContextCapturingRenderer()
+        pipeline = RenderingPipeline()
+        pipeline.register(capturing_renderer, priority=1)
+
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            max_text_bytes=512,
+        )
+
+        route = Route(
+            id="bytes-thread-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"dest": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=pipeline,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="bytes-thread-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": "short message"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            # The renderer received the context with max_text_bytes populated.
+            assert capturing_renderer.captured_ctx is not None
+            assert capturing_renderer.captured_ctx.max_text_bytes == 512
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_ctx_max_text_bytes_none_when_caps_unset(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter without max_text_bytes causes ctx.max_text_bytes == None."""
+        capturing_renderer = _ContextCapturingRenderer()
+        pipeline = RenderingPipeline()
+        pipeline.register(capturing_renderer, priority=1)
+
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        # Default capabilities have max_text_bytes=None.
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+        )
+
+        route = Route(
+            id="bytes-none-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"dest": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=pipeline,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="bytes-none-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": "hello"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            assert capturing_renderer.captured_ctx is not None
+            assert capturing_renderer.captured_ctx.max_text_bytes is None
         finally:
             await runner.stop()

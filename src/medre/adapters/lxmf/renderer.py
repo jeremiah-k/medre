@@ -23,7 +23,9 @@ constraints, and text budgets.  No legacy signature parameters.
 When ``delivery_strategy == "fallback_text"``, relation semantics are
 degraded into inline text within the LXMF content field while
 preserving LXMF payload ownership (content, title, fields,
-destination_hash).  The result carries
+destination_hash).  The MEDRE fields envelope omits structured
+relations (``relations=()``) — the only relation representation is
+the inline text in the content field.  The result carries
 ``fallback_applied="strategy_fallback_text"``.
 """
 
@@ -123,7 +125,13 @@ class LxmfRenderer:
         text = str(event.payload.get("body", event.payload.get("text", "")))
         title = str(event.payload.get("title", ""))
 
-        # Build fields dict with optional MEDRE envelope
+        # Determine fallback behaviour early — controls envelope relations
+        is_fallback = ctx.delivery_strategy == "fallback_text"
+
+        # Build fields dict with optional MEDRE envelope.
+        # Under fallback_text, relations are degraded to inline text only;
+        # the envelope carries an empty relations list to avoid duplicating
+        # relation data as both structured fields and inline text.
         fields: dict[int, Any] = {}
 
         if self._metadata_embedding:
@@ -133,16 +141,13 @@ class LxmfRenderer:
             fields = LxmfFieldsHelper.embed_envelope(
                 fields=fields,
                 event_id=event.event_id,
-                relations=event.relations,
+                relations=() if is_fallback else event.relations,
                 metadata=meta_keys,
                 source_adapter=event.source_adapter,
                 source_transport_id=event.source_transport_id,
                 source_channel_id=event.source_channel_id,
                 lineage=event.lineage,
             )
-
-        # Determine fallback behaviour
-        is_fallback = ctx.delivery_strategy == "fallback_text"
 
         if is_fallback:
             text = self._degrade_relations_inline(event, text)

@@ -183,9 +183,13 @@ Meshtastic is a transport adapter with selective native relation support. The Me
 | Reactions     | `"native"`       | `direct` | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform |
 | Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.                                |
 | Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.                              |
-| Threads       | N/A              | `skip`   | Not applicable. Meshtastic has no thread concept.                                              |
+| Threads       | _deferred_       | —        | Reserved. Meshtastic has no thread concept.                        |
 
-Meshtastic does not use the `"fallback"` capability level for any relation type. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. No fallback text rendering occurs.
+Meshtastic does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter.
+
+If a future profile revision or a directly constructed `RenderingContext` supplies `fallback_text` for a relation, the Meshtastic renderer would produce its native payload format with the relation context embedded as inline text. This is a renderer contract, not a test-only quirk; any code path that populates `fallback_text` on a routed relation triggers the same inline-text rendering path.
+
+**Thread deferral:** The `"thread"` relation type is defined in the canonical event model (`VALID_RELATION_TYPES`), but no adapter currently renders thread relations. Thread capability requires a future `AdapterCapabilities.threads` field and planner-level thread routing. Until then, thread relations are reserved and not capability-driven.
 
 **Cross-platform reaction note:** When a reaction originates from a non-Meshtastic source, the Meshtastic renderer produces a descriptive text reaction (`"reacted {emoji} to \"{text}\""`) with `reply_id` but without `emoji=1`. This is still a native Meshtastic payload, not a fallback text payload. The renderer operates within its native format.
 

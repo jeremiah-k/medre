@@ -39,7 +39,7 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, runtime_checkable
+from typing import ClassVar, Literal, Protocol, runtime_checkable
 
 from medre.core.events import CanonicalEvent
 
@@ -87,14 +87,14 @@ class RenderingContext:
     its native payload fields).  The pipeline does **not** bypass
     target-native renderers based on this field.
 
-    **Reserved and unpopulated fields** — ``capability_level``,
-    ``max_text_bytes``, and ``capability_policy`` are defined as
-    part of the context protocol for forward compatibility and
-    caller-provided plumbing, but the default pipeline does **not**
-    populate them.  Renderers MUST treat ``delivery_strategy`` as
-    the authoritative dispatch signal; ``capability_level`` and
-    ``max_text_bytes`` are only meaningful when explicitly set by a
-    caller or future pipeline stage.
+    **Populated and reserved fields** — ``max_text_bytes`` is wired
+    from adapter capabilities by the pipeline.  ``capability_level``
+    and ``capability_policy`` are defined as part of the context
+    protocol for forward compatibility and caller-provided plumbing,
+    but the default pipeline does **not** populate them; they remain
+    ``"native"`` and ``None`` respectively unless a caller explicitly
+    sets them.  Renderers MUST treat ``delivery_strategy`` as the
+    authoritative dispatch signal.
 
     Attributes
     ----------
@@ -115,9 +115,8 @@ class RenderingContext:
         or ``None`` for no limit.
     max_text_bytes:
         Maximum text length in UTF-8 bytes from adapter capabilities,
-        or ``None`` for no limit.  **Reserved**: the default pipeline
-        does not populate this field; it remains ``None`` unless a
-        caller or future pipeline stage sets it explicitly.
+        or ``None`` for no limit.  Wired from the target adapter's
+        ``SIZE_LIMITS`` capability by the pipeline.
     capability_level:
         The target's capability level for the event's relation type:
         ``"native"`` (full support), ``"fallback"`` (degraded),
@@ -142,6 +141,17 @@ class RenderingContext:
     max_text_bytes: int | None = None
     capability_level: CapabilityLevel = "native"
     capability_policy: str | None = None
+
+    _VALID_STRATEGIES: ClassVar[frozenset[str]] = frozenset(
+        {"direct", "fallback_text", "skip", "propagated", "opportunistic", "paper"}
+    )
+
+    def __post_init__(self) -> None:
+        if self.delivery_strategy not in self._VALID_STRATEGIES:
+            raise ValueError(
+                f"Unknown delivery_strategy {self.delivery_strategy!r}. "
+                f"Must be one of {sorted(self._VALID_STRATEGIES)}."
+            )
 
 
 # ---------------------------------------------------------------------------

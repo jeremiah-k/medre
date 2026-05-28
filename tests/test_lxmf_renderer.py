@@ -7,7 +7,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from medre.adapters.lxmf.renderer import LxmfRenderer
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
@@ -27,6 +28,39 @@ def _make_event(
         lineage=(),
         relations=(),
         payload=payload or {"body": "hello lxmf"},
+        metadata=EventMetadata(),
+    )
+
+
+def _make_event_with_relations(
+    event_id: str = "evt-rel-1",
+    payload: dict | None = None,
+) -> CanonicalEvent:
+    """Create an event with a reply relation for testing fallback behavior."""
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="lxmf-1",
+        source_transport_id="ab" * 16,
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=("parent-1",),
+        relations=(
+            EventRelation(
+                relation_type="reply",
+                target_event_id="evt-original",
+                target_native_ref=NativeRef(
+                    adapter="lxmf-1",
+                    native_channel_id=None,
+                    native_message_id="abc123",
+                ),
+                key=None,
+                fallback_text="original message text",
+            ),
+        ),
+        payload=payload or {"body": "hello reply"},
         metadata=EventMetadata(),
     )
 
@@ -234,3 +268,62 @@ class TestLxmfRenderer:
         )
         assert result.payload["content"] == long_text
         assert result.truncated is False
+
+    async def test_fallback_text_omits_relations_from_envelope(self) -> None:
+        """Under fallback_text, the envelope relations list is empty.
+
+        Relations are represented only as inline text in the content
+        field, not as structured data in the MEDRE fields envelope.
+        """
+        renderer = LxmfRenderer(metadata_embedding=True)
+        event = _make_event_with_relations()
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        fields = result.payload["fields"]
+        assert FIELD_MEDRE_ENVELOPE in fields
+        envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        # Envelope relations MUST be empty under fallback_text
+        assert envelope["relations"] == []
+        # Content text MUST contain the degraded inline relation
+        content = result.payload["content"]
+        assert "[reply to:" in content
+
+    async def test_direct_strategy_keeps_relations_in_envelope(self) -> None:
+        """Under direct strategy, envelope retains structured relations."""
+        renderer = LxmfRenderer(metadata_embedding=True)
+        event = _make_event_with_relations()
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="direct",
+            ),
+        )
+        fields = result.payload["fields"]
+        assert FIELD_MEDRE_ENVELOPE in fields
+        envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        # Envelope relations MUST contain the relation data
+        assert len(envelope["relations"]) == 1
+        assert envelope["relations"][0]["relation_type"] == "reply"
+
+    async def test_fallback_text_envelope_retains_provenance(self) -> None:
+        """Under fallback_text, envelope still has event_id and lineage."""
+        renderer = LxmfRenderer(metadata_embedding=True)
+        event = _make_event_with_relations(event_id="evt-prov-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        fields = result.payload["fields"]
+        envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        assert envelope["event_id"] == "evt-prov-1"
+        assert "lineage" in envelope
+        assert envelope["relations"] == []

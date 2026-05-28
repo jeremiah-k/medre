@@ -230,14 +230,18 @@ class TextRenderer:
         Resolution order:
 
         1. ``rel.key`` — canonical reaction key set by the codec.
-        2. ``payload["emoji"]`` — common convention for emoji payload.
-        3. ``payload["body"]`` — last-resort text body.
+        2. ``payload["key"]`` — reaction key from the event payload.
+        3. ``payload["emoji"]`` — common convention for emoji payload.
+        4. ``payload["body"]`` — last-resort text body.
 
         Returns ``None`` only when no key-like value exists in any of
         these locations.
         """
         if rel.key:
             return rel.key
+        key = event.payload.get("key")
+        if key:
+            return str(key)
         emoji = event.payload.get("emoji")
         if emoji:
             return str(emoji)
