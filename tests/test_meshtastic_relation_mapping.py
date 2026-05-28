@@ -719,7 +719,9 @@ class TestMeshtasticRendererEnrichedReactionText:
             metadata=EventMetadata(),
         )
 
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = str(result.payload["text"])
 
         # Should contain the reaction key and the original text preview.

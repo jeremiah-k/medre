@@ -177,13 +177,13 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 Meshtastic is a transport adapter with selective native relation support. The Meshtastic renderer handles all rendering within its native format.
 
-| Relation type | Capability level | Strategy      | Rendering path                                                                                      |
-| ------------- | ---------------- | ------------- | --------------------------------------------------------------------------------------------------- |
-| Replies       | `"native"`       | `direct`      | `reply_id` (int) set from relation's Meshtastic native ref; plain text body                        |
-| Reactions     | `"native"`       | `direct`      | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform     |
-| Edits         | `"unsupported"`  | `skip`        | No delivery. Edit events targeting this adapter are suppressed.                                     |
-| Deletes       | `"unsupported"`  | `skip`        | No delivery. Delete events targeting this adapter are suppressed.                                   |
-| Threads       | N/A              | `skip`        | Not applicable. Meshtastic has no thread concept.                                                   |
+| Relation type | Capability level | Strategy | Rendering path                                                                                 |
+| ------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| Replies       | `"native"`       | `direct` | `reply_id` (int) set from relation's Meshtastic native ref; plain text body                    |
+| Reactions     | `"native"`       | `direct` | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform |
+| Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.                                |
+| Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.                              |
+| Threads       | N/A              | `skip`   | Not applicable. Meshtastic has no thread concept.                                              |
 
 Meshtastic does not use the `"fallback"` capability level for any relation type. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. No fallback text rendering occurs.
 

@@ -450,7 +450,12 @@ class TestMeshCoreRendererIsolation:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert not isinstance(result, CanonicalEvent)
 

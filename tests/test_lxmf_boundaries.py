@@ -377,7 +377,10 @@ class TestLxmfRendererIsolation:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert not isinstance(result, CanonicalEvent)
 
@@ -769,8 +772,22 @@ class TestLxmfPlatformRendering:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        assert renderer.can_render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct", target_platform="lxmf"))
-        assert not renderer.can_render(event, RenderingContext(target_adapter="matrix_bot", delivery_strategy="direct", target_platform="matrix"))
+        assert renderer.can_render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="direct",
+                target_platform="lxmf",
+            ),
+        )
+        assert not renderer.can_render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_bot",
+                delivery_strategy="direct",
+                target_platform="matrix",
+            ),
+        )
 
     async def test_renderer_produces_valid_result(self) -> None:
         renderer = LxmfRenderer()
@@ -788,7 +805,10 @@ class TestLxmfPlatformRendering:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert "content" in result.payload
         assert "fields" in result.payload

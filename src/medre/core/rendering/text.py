@@ -140,9 +140,7 @@ class TextRenderer:
             The rendered text payload wrapped in a standard result.
         """
         raw_text = self._extract_text(event)
-        text, truncated = self._truncate(
-            raw_text, max_text_chars=ctx.max_text_chars
-        )
+        text, truncated = self._truncate(raw_text, max_text_chars=ctx.max_text_chars)
 
         metadata: dict[str, object] = {
             "renderer": self.name,
@@ -168,9 +166,7 @@ class TextRenderer:
         # degraded relation in a single result.
         if ctx.delivery_strategy == "fallback_text":
             if fallback_applied is not None:
-                metadata["strategy_relation_type"] = event.relations[
-                    0
-                ].relation_type
+                metadata["strategy_relation_type"] = event.relations[0].relation_type
             fallback_applied = "strategy_fallback_text"
 
         return RenderingResult(
@@ -228,9 +224,7 @@ class TextRenderer:
         )
 
     @staticmethod
-    def _resolve_reaction_key(
-        rel: EventRelation, event: CanonicalEvent
-    ) -> str | None:
+    def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | None:
         """Resolve the reaction key (emoji or label).
 
         Resolution order:

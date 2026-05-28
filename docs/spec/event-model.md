@@ -118,14 +118,14 @@ class EventRelation(msgspec.Struct, frozen=True):
 
 ### 2.2 Field Reference
 
-| Field               | Type                                                       | Default | Description                                                                                                                                                                                                          |
-| ------------------- | ---------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `relation_type`     | `Literal["reply", "reaction", "edit", "delete", "thread"]` | —       | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction.                                                                                               |
-| `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                  |
-| `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table. |
-| `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                        |
+| Field               | Type                                                       | Default | Description                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `relation_type`     | `Literal["reply", "reaction", "edit", "delete", "thread"]` | —       | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction.                                                                                                                                                                                                                                                                                 |
+| `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                                                                                                                                                                                                    |
+| `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table.                                                                                                                                                                                   |
+| `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                                                                                                                                                                                                          |
 | `fallback_text`     | `str \| None`                                              | —       | Human-readable text carrying the semantic content of this relation when the target adapter's capability level is `"fallback"`. Used by the target-native renderer to produce degraded text output within its native format (e.g., inline `[Alice] re: original msg > reply text` inside a Matrix message body). Not a generic text payload. Not used when capability is `"native"` or `"unsupported"`. |
-| `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                              |
+| `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                                                                                                                                                                                                                |
 
 ### 2.3 Valid Relation Types
 
@@ -170,11 +170,11 @@ inline text.
 
 **Capability-driven degradation rules:**
 
-| Target capability level | Delivery strategy | Rendering behaviour                                           |
-| ----------------------- | ----------------- | ------------------------------------------------------------- |
-| `"native"`              | `direct`          | Native relation rendering (e.g. `m.in_reply_to` on Matrix)   |
-| `"fallback"`            | `fallback_text`   | Target-native renderer produces its format with inline text   |
-| `"unsupported"`         | `skip`            | No rendering; delivery suppressed before adapter invocation   |
+| Target capability level | Delivery strategy | Rendering behaviour                                         |
+| ----------------------- | ----------------- | ----------------------------------------------------------- |
+| `"native"`              | `direct`          | Native relation rendering (e.g. `m.in_reply_to` on Matrix)  |
+| `"fallback"`            | `fallback_text`   | Target-native renderer produces its format with inline text |
+| `"unsupported"`         | `skip`            | No rendering; delivery suppressed before adapter invocation |
 
 A transport that declares `"unsupported"` for a relation type receives no
 delivery for events carrying that relation. A transport that declares

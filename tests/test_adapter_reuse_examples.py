@@ -78,7 +78,10 @@ class TestMatrixRendererStandalone:
             payload={"body": "hello from mesh"},
         )
         renderer = MatrixRenderer()
-        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
 
         assert isinstance(result, RenderingResult)
         assert result.payload["msgtype"] == "m.text"
@@ -105,7 +108,10 @@ class TestMeshtasticRendererStandalone:
             }
         )
         result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", target_channel="3", delivery_strategy="direct")
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", target_channel="3", delivery_strategy="direct"
+            ),
         )
 
         assert isinstance(result, RenderingResult)

@@ -275,13 +275,13 @@ The runtime reads capabilities from the cached `AdapterInfo` at delivery time. I
 
 ### 6.4 How Capabilities Drive Behavior
 
-| Capability    | `unsupported` Behavior                                                                                | `fallback` Behavior                                           | `native` Behavior             |
-| -------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- |
-| `REPLIES`      | Skip: delivery suppressed. No renderer invoked.                                                       | Passed via metadata fields to aware peers                     | Native reply threading used   |
-| `REACTIONS`    | Skip: delivery suppressed. No renderer invoked.                                                       | Passed via metadata fields                                    | Native reactions used         |
-| `EDITS`        | Skip: delivery suppressed. No renderer invoked.                                                       | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used      |
-| `DELETES`      | Skip: delivery suppressed. No renderer invoked.                                                       | Metadata signaling for aware peers, inline fallback otherwise | Native delete used            |
-| `SIZE_LIMITS`  | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits                | N/A                                                           | Unlimited or platform-handled |
+| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                           | `native` Behavior             |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- |
+| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Passed via metadata fields to aware peers                     | Native reply threading used   |
+| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Passed via metadata fields                                    | Native reactions used         |
+| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used      |
+| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Metadata signaling for aware peers, inline fallback otherwise | Native delete used            |
+| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                           | Unlimited or platform-handled |
 
 ---
 
@@ -752,7 +752,7 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 | --------------------------------------------------------------------- | ----------------------- | ---------------------------------- |
 | Transport lifecycle (connect, disconnect, reconnect)                  | Adapter                 | Read health state                  |
 | Pacing, queueing, duty cycle management                               | Adapter                 | Set rate limit config              |
-| Payload construction within RenderingContext constraints               | Renderer                | Provide RenderingResult            |
+| Payload construction within RenderingContext constraints              | Renderer                | Provide RenderingResult            |
 | Payload formatting (text, rich content, transport-specific layout)    | Renderer                | Provide RenderingResult            |
 | Payload transport delivery (send to external platform)                | Adapter                 | None; receives pre-rendered result |
 | Payload encoding/decoding (native format to CanonicalEvent)           | Codec                   | Read codec output                  |

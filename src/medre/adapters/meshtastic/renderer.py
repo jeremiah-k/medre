@@ -342,16 +342,22 @@ class MeshtasticRenderer:
             if is_fallback:
                 # -- fallback_text: degrade relations into plain text --------
                 content["text"] = self._render_fallback_text(
-                    event, rel, prefix, meshnet_name, target_adapter,
+                    event,
+                    rel,
+                    prefix,
+                    meshnet_name,
+                    target_adapter,
                 )
                 if rel.relation_type == "reaction" and not self._is_native_reaction(
-                    event, target_adapter,
+                    event,
+                    target_adapter,
                 ):
                     is_descriptive_reaction = True
             else:
                 # -- direct: native Meshtastic relation fields ---------------
                 reply_id = self._meshtastic_reply_id_from_relation(
-                    rel, target_adapter,
+                    rel,
+                    target_adapter,
                 )
 
                 if rel.relation_type == "reply":
@@ -376,7 +382,10 @@ class MeshtasticRenderer:
                         # Cross-platform MMRelay-style descriptive reaction
                         orig_preview = self._abbreviated_original_text(event, rel)
                         compact_prefix = self._format_prefix_for(
-                            event, prefix, meshnet_name, compact=True,
+                            event,
+                            prefix,
+                            meshnet_name,
+                            compact=True,
                         )
                         sep = ""
                         if compact_prefix and not compact_prefix[-1:].isspace():
@@ -490,15 +499,15 @@ class MeshtasticRenderer:
             # but without native reply_id.
             orig_preview = self._abbreviated_original_text(event, rel)
             compact_prefix = self._format_prefix_for(
-                event, prefix, meshnet_name, compact=True,
+                event,
+                prefix,
+                meshnet_name,
+                compact=True,
             )
             sep = ""
             if compact_prefix and not compact_prefix[-1:].isspace():
                 sep = " "
-            return (
-                f"{compact_prefix}{sep}reacted {emoji_text} "
-                f'to "{orig_preview}"'
-            )
+            return f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"'
 
         # Other relation types: standard text extraction.
         return self._extract_text(event)

@@ -306,7 +306,8 @@ class MatrixRenderer:
         truncated = False
         if ctx.max_text_chars is not None:
             degraded_text, truncated = TextRenderer._truncate(
-                degraded_text, max_text_chars=ctx.max_text_chars,
+                degraded_text,
+                max_text_chars=ctx.max_text_chars,
             )
 
         # Apply relay prefix for mesh→Matrix direction

@@ -117,7 +117,10 @@ class MeshCoreRenderer:
         bool
             Whether this renderer handles events for the given context.
         """
-        return ctx.target_platform == self._PLATFORM and ctx.target_adapter in self._configs
+        return (
+            ctx.target_platform == self._PLATFORM
+            and ctx.target_adapter in self._configs
+        )
 
     # ------------------------------------------------------------------
     # Rendering

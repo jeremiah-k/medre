@@ -176,7 +176,9 @@ class TestMatrixToMeshtasticReactionComprehensive:
             display_name="Alpha Bravo",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         payload = result.payload
         text = payload["text"]
 
@@ -212,7 +214,9 @@ class TestMatrixToMeshtasticReactionComprehensive:
             display_name="Some User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         # No prefix → text starts directly with "reacted"
         assert text.startswith("reacted 👍 to")
@@ -232,7 +236,9 @@ class TestMatrixToMeshtasticReactionComprehensive:
             display_name="Test User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         # "[TestUser]" (no trailing space) + separator " " + "reacted"
         assert "[TestUser] reacted" in text
@@ -265,7 +271,9 @@ class TestMatrixToMeshtasticNoMapping:
             display_name="Generic User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
 
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
@@ -297,7 +305,9 @@ class TestMatrixToMeshtasticNoMapping:
             payload={"body": "🔥"},
             metadata=EventMetadata(native=NativeMetadata(data={})),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reacted" in result.payload["text"]
         assert "reply_id" not in result.payload
 
@@ -323,7 +333,9 @@ class TestNativeReactionPreserved:
             payload={"body": "👍"},
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["emoji"] == 1
         assert result.payload["reply_id"] == 55
         assert result.payload["text"] == "👍"
@@ -340,7 +352,9 @@ class TestNativeReactionPreserved:
             payload={"body": "❤️"},
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "emoji" not in result.payload
         assert "[reacted: ❤️]" in result.payload["text"]
 
@@ -359,7 +373,9 @@ class TestNativeReactionPreserved:
             payload={"body": "🔥"},
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 77
         assert result.payload["emoji"] == 1
 
@@ -401,7 +417,9 @@ class TestMatrixDisplayNameInPrefix:
                 )
             ),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"].startswith("[Alice Wonderland]: ")
         assert "hello from alice" in result.payload["text"]
 
@@ -434,7 +452,9 @@ class TestMatrixDisplayNameInPrefix:
                 )
             ),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"].startswith("Display Name: ")
         assert "@alice" not in result.payload["text"].split(": hi")[0]
 
@@ -452,7 +472,9 @@ class TestByteBudgetTruncation:
         renderer = _make_renderer("mesh-1")
         text = "hello mesh"
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"] == text
         assert result.truncated is False
 
@@ -482,7 +504,9 @@ class TestByteBudgetTruncation:
                 )
             ),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert text.startswith("[Test]: ")
         assert len(text.encode("utf-8")) <= 20
@@ -494,7 +518,9 @@ class TestByteBudgetTruncation:
         # Each emoji is 4 bytes in UTF-8
         emojis = "😀" * 100  # 400 bytes total
         event = _make_event(payload={"body": emojis})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         # The text should contain only complete emoji characters
         for ch in text:
@@ -506,7 +532,9 @@ class TestByteBudgetTruncation:
         renderer = _make_renderer("mesh-1", max_text_bytes=0)
 
         event = _make_event(payload={"body": "hello world"})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"] == ""
         assert result.truncated is True
         # Metadata reflects the zero-budget truncation.
@@ -522,7 +550,9 @@ class TestByteBudgetTruncation:
         renderer = _make_renderer("mesh-1")
         text = "A" * 500
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         meta = result.metadata
         assert "original_text_bytes" in meta
         assert "rendered_text_bytes" in meta
@@ -542,7 +572,9 @@ class TestByteBudgetTruncation:
         renderer = _make_renderer("mesh-1")
         text = "x" * 300
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         rendered_text = result.payload["text"]
         rendered_bytes = len(rendered_text.encode("utf-8"))
         assert result.metadata["rendered_text_bytes"] == rendered_bytes
@@ -554,7 +586,9 @@ class TestByteBudgetTruncation:
         renderer = _make_renderer("mesh-1")
         text = "short"
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.truncated is False
         assert result.metadata["truncated"] is False
         assert result.metadata["original_text_bytes"] == 5
@@ -662,7 +696,9 @@ class TestDescriptiveReactionByteBudget:
             display_name="User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert len(text.encode("utf-8")) <= 30
         assert result.truncated is True
@@ -683,7 +719,9 @@ class TestDescriptiveReactionByteBudget:
             payload={"body": "👍"},
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["emoji"] == 1
         assert result.payload["reply_id"] == 55
         # The emoji text should be within byte budget
@@ -712,13 +750,19 @@ class TestTargetAwareMeshtasticRenderer:
         event = _make_event(payload={"body": long_text})
 
         # Adapter A: 100-byte budget
-        result_a = await renderer.render(event, RenderingContext(target_adapter="radio-a", delivery_strategy="direct"))
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-a", delivery_strategy="direct"),
+        )
         assert len(result_a.payload["text"].encode("utf-8")) <= 100
         assert result_a.truncated is True
         assert result_a.metadata["max_text_bytes"] == 100
 
         # Adapter B: 500-byte budget
-        result_b = await renderer.render(event, RenderingContext(target_adapter="radio-b", delivery_strategy="direct"))
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
+        )
         assert len(result_b.payload["text"].encode("utf-8")) <= 500
         assert result_b.truncated is False
         assert result_b.metadata["max_text_bytes"] == 500
@@ -742,10 +786,16 @@ class TestTargetAwareMeshtasticRenderer:
 
         event = _make_event(payload={"body": "hello"})
 
-        result_a = await renderer.render(event, RenderingContext(target_adapter="radio-a", delivery_strategy="direct"))
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-a", delivery_strategy="direct"),
+        )
         assert result_a.payload["text"].startswith("[A]: ")
 
-        result_b = await renderer.render(event, RenderingContext(target_adapter="radio-b", delivery_strategy="direct"))
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
+        )
         assert result_b.payload["text"].startswith("[B]: ")
 
     async def test_unknown_target_adapter_raises_key_error(self) -> None:
@@ -759,7 +809,12 @@ class TestTargetAwareMeshtasticRenderer:
 
         event = _make_event(payload={"body": "fallback test"})
         with pytest.raises(KeyError, match="unknown-radio"):
-            await renderer.render(event, RenderingContext(target_adapter="unknown-radio", delivery_strategy="direct"))
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="unknown-radio", delivery_strategy="direct"
+                ),
+            )
 
     async def test_metadata_reports_target_adapter_budget(self) -> None:
         """Metadata max_text_bytes matches the target adapter's config."""
@@ -772,10 +827,16 @@ class TestTargetAwareMeshtasticRenderer:
 
         event = _make_event(payload={"body": "short"})
 
-        result_a = await renderer.render(event, RenderingContext(target_adapter="radio-a", delivery_strategy="direct"))
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-a", delivery_strategy="direct"),
+        )
         assert result_a.metadata["max_text_bytes"] == 100
 
-        result_b = await renderer.render(event, RenderingContext(target_adapter="radio-b", delivery_strategy="direct"))
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
+        )
         assert result_b.metadata["max_text_bytes"] == 500
 
 
@@ -844,22 +905,34 @@ class TestMultiRadioTargetAware:
         """Rendering to radio-alpha uses the alpha prefix template."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert result.payload["text"].startswith("[TestU@alpha] ")
 
     async def test_bravo_prefix_contains_bravo(self) -> None:
         """Rendering to radio-bravo uses the bravo prefix template."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         assert result.payload["text"].startswith("[TestU@bravo] ")
 
     async def test_same_event_different_prefixes(self) -> None:
         """Same event rendered to both adapters produces different prefixes."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
-        result_a = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
-        result_b = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         assert result_a.payload["text"] != result_b.payload["text"]
         assert "[TestU@alpha]" in result_a.payload["text"]
         assert "[TestU@bravo]" in result_b.payload["text"]
@@ -870,14 +943,20 @@ class TestMultiRadioTargetAware:
         """Payload meshnet_name matches alpha config."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert result.payload["meshnet_name"] == "alpha-mesh"
 
     async def test_bravo_meshnet_name(self) -> None:
         """Payload meshnet_name matches bravo config."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         assert result.payload["meshnet_name"] == "bravo-mesh"
 
     # -- distinct byte budgets -----------------------------------------
@@ -886,7 +965,10 @@ class TestMultiRadioTargetAware:
         """Alpha (60-byte budget) truncates a 150-char body."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("A" * 150)
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert result.truncated is True
         assert len(result.payload["text"].encode("utf-8")) <= 60
         assert result.metadata["max_text_bytes"] == 60
@@ -895,7 +977,10 @@ class TestMultiRadioTargetAware:
         """Bravo (200-byte budget) keeps the same 150-char body untruncated."""
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("A" * 150)
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         assert result.truncated is False
         assert "A" * 150 in result.payload["text"]
         assert result.metadata["max_text_bytes"] == 200
@@ -907,7 +992,12 @@ class TestMultiRadioTargetAware:
         renderer = _make_multi_radio_renderer()
         event = self._event_with_native("msg")
         with pytest.raises(KeyError, match="unknown-radio"):
-            await renderer.render(event, RenderingContext(target_adapter="unknown-radio", delivery_strategy="direct"))
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="unknown-radio", delivery_strategy="direct"
+                ),
+            )
 
     # -- reply uses target adapter config ------------------------------
 
@@ -943,13 +1033,19 @@ class TestMultiRadioTargetAware:
             ),
         )
         # Alpha: 60-byte budget, should truncate
-        result_a = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert result_a.payload["reply_id"] == 99
         assert len(result_a.payload["text"].encode("utf-8")) <= 60
         assert result_a.truncated is True
 
         # Bravo: 200-byte budget, should NOT truncate (plain reply text < 200)
-        result_b = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         # No reply_id — native ref is owned by radio-alpha, not radio-bravo
         assert "reply_id" not in result_b.payload
         # But bravo's prefix and budget are used
@@ -988,7 +1084,10 @@ class TestMultiRadioTargetAware:
                 )
             ),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert result.payload["emoji"] == 1
         assert result.payload["reply_id"] == 55
         assert result.payload["text"] == "👍"
@@ -1009,7 +1108,10 @@ class TestMultiRadioTargetAware:
             display_name="Cross User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+        )
         text = result.payload["text"]
         # Compact prefix: shortname5 = "Cross" (first 5 of "Cross"), spaces stripped
         assert "[Cross@bravo]" in text
@@ -1032,7 +1134,10 @@ class TestMultiRadioTargetAware:
             display_name="User",
             relations=(rel,),
         )
-        result = await renderer.render(event, RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
+        )
         assert len(result.payload["text"].encode("utf-8")) <= 60
         assert result.truncated is True
         assert result.payload["reply_id"] == 10

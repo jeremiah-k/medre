@@ -26,7 +26,16 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypedDict, cast, get_args
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Literal,
+    TypedDict,
+    cast,
+    get_args,
+)
 
 import msgspec
 
@@ -111,9 +120,7 @@ def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
     try:
         return _VALID_DELIVERY_STRATEGIES[method]
     except KeyError:
-        raise ValueError(
-            f"Unknown delivery strategy method: {method!r}"
-        ) from None
+        raise ValueError(f"Unknown delivery strategy method: {method!r}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -2413,8 +2420,8 @@ class PipelineRunner:
         # renderer failures because rendering cannot proceed without a
         # valid strategy context.
         try:
-            _validated_strategy: DeliveryStrategyMethod = (
-                _validate_strategy_method(_strategy_method)
+            _validated_strategy: DeliveryStrategyMethod = _validate_strategy_method(
+                _strategy_method
             )
         except ValueError:
             _invalid_error = (

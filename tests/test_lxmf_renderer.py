@@ -42,13 +42,30 @@ class TestLxmfRenderer:
         """Renderer matches when target_platform is lxmf."""
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, RenderingContext(target_adapter="local-rnode", delivery_strategy="direct", target_platform="lxmf")) is True
+        assert (
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="local-rnode",
+                    delivery_strategy="direct",
+                    target_platform="lxmf",
+                ),
+            )
+            is True
+        )
 
     def test_can_render_non_lxmf(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="fake_presentation", delivery_strategy="direct", target_platform="fake"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="fake_presentation",
+                    delivery_strategy="direct",
+                    target_platform="fake",
+                ),
+            )
             is False
         )
 
@@ -56,7 +73,14 @@ class TestLxmfRenderer:
         renderer = LxmfRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct", target_platform="matrix"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="matrix_instance",
+                    delivery_strategy="direct",
+                    target_platform="matrix",
+                ),
+            )
             is False
         )
 
@@ -64,67 +88,102 @@ class TestLxmfRenderer:
         """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct")) is False
+        assert (
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="lxmf_node", delivery_strategy="direct"
+                ),
+            )
+            is False
+        )
 
     async def test_render_basic_content(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "hello lxmf"})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert result.payload["content"] == "hello lxmf"
 
     async def test_render_with_title(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "body", "title": "Subject"})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert result.payload["content"] == "body"
         assert result.payload["title"] == "Subject"
 
     async def test_render_empty_content(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": ""})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert result.payload["content"] == ""
 
     async def test_render_extracts_body_field(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert "body" not in result.payload
         assert result.payload["content"] == "specific body"
 
     async def test_render_falls_back_to_text_field(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"text": "fallback text"})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert result.payload["content"] == "fallback text"
 
     async def test_render_payload_has_content_not_text_key(self) -> None:
         """Payload uses 'content' key, not 'text'."""
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "check keys"})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert "content" in result.payload
         assert "text" not in result.payload
 
     async def test_render_includes_destination_hash(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert "destination_hash" in result.payload
         assert result.payload["destination_hash"] == ""
 
     async def test_render_includes_fields(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert "fields" in result.payload
         assert isinstance(result.payload["fields"], dict)
 
     async def test_render_fields_envelope_embedded(self) -> None:
         renderer = LxmfRenderer(metadata_embedding=True)
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         fields = result.payload["fields"]
         from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 
@@ -136,7 +195,10 @@ class TestLxmfRenderer:
     async def test_render_no_envelope_when_disabled(self) -> None:
         renderer = LxmfRenderer(metadata_embedding=False)
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         fields = result.payload["fields"]
         from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE
 
@@ -145,7 +207,10 @@ class TestLxmfRenderer:
     async def test_render_returns_rendering_result(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "lxmf_node"
@@ -153,13 +218,19 @@ class TestLxmfRenderer:
     async def test_render_metadata_includes_renderer(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert result.metadata["renderer"] == "lxmf"
 
     async def test_render_very_long_text_no_truncation_in_tranche1(self) -> None:
         renderer = LxmfRenderer()
         long_text = "x" * 1000
         event = _make_event(payload={"body": long_text})
-        result = await renderer.render(event, RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
         assert result.payload["content"] == long_text
         assert result.truncated is False

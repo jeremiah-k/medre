@@ -282,7 +282,9 @@ class TestRenderingBoundary:
             payload={"text": "a reply"},
             metadata=EventMetadata(),
         )
-        ctx = RenderingContext(target_adapter="fake_transport", delivery_strategy="direct")
+        ctx = RenderingContext(
+            target_adapter="fake_transport", delivery_strategy="direct"
+        )
         assert renderer.can_render(event, ctx)
         result = await renderer.render(event, ctx)
         assert result.payload["text"] == "[replying to: original message text] a reply"
@@ -316,7 +318,9 @@ class TestRenderingBoundary:
             payload={"text": "👍"},
             metadata=EventMetadata(),
         )
-        ctx = RenderingContext(target_adapter="fake_transport", delivery_strategy="direct")
+        ctx = RenderingContext(
+            target_adapter="fake_transport", delivery_strategy="direct"
+        )
         assert renderer.can_render(event, ctx)
         result = await renderer.render(event, ctx)
         assert result.payload["text"] == "alice reacted with 👍"

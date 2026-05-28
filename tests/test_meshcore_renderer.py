@@ -111,7 +111,14 @@ class TestMeshCoreRendererCanRender:
         renderer = _make_renderer("local-radio")
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="local-radio", delivery_strategy="direct", target_platform="meshcore"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="local-radio",
+                    delivery_strategy="direct",
+                    target_platform="meshcore",
+                ),
+            )
             is True
         )
 
@@ -120,7 +127,14 @@ class TestMeshCoreRendererCanRender:
         renderer = _make_renderer("local-radio")
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="unknown-adapter", delivery_strategy="direct", target_platform="meshcore"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="unknown-adapter",
+                    delivery_strategy="direct",
+                    target_platform="meshcore",
+                ),
+            )
             is False
         )
 
@@ -128,7 +142,14 @@ class TestMeshCoreRendererCanRender:
         renderer = _make_renderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="fake_presentation", delivery_strategy="direct", target_platform="fake"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="fake_presentation",
+                    delivery_strategy="direct",
+                    target_platform="fake",
+                ),
+            )
             is False
         )
 
@@ -136,7 +157,14 @@ class TestMeshCoreRendererCanRender:
         renderer = _make_renderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct", target_platform="matrix"))
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="matrix_instance",
+                    delivery_strategy="direct",
+                    target_platform="matrix",
+                ),
+            )
             is False
         )
 
@@ -144,7 +172,15 @@ class TestMeshCoreRendererCanRender:
         """Without platform info, renderer cannot match."""
         renderer = _make_renderer()
         event = _make_event()
-        assert renderer.can_render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct")) is False
+        assert (
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="meshcore_node", delivery_strategy="direct"
+                ),
+            )
+            is False
+        )
 
 
 # ===================================================================
@@ -160,7 +196,12 @@ class TestMeshCoreRendererBasic:
     async def test_render_basic_text(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello meshcore"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert result.payload["text"] == "hello meshcore"
         assert result.payload["channel_index"] == 0
@@ -168,40 +209,74 @@ class TestMeshCoreRendererBasic:
     async def test_render_empty_text(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"body": ""})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == ""
 
     async def test_render_extracts_body_field(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert "body" not in result.payload
         assert result.payload["text"] == "specific body"
 
     async def test_render_falls_back_to_text_field(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"text": "fallback text"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "fallback text"
 
     async def test_render_target_channel_propagation(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct", target_channel="3"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="direct",
+                target_channel="3",
+            ),
+        )
         assert result.target_channel == "3"
         assert result.payload["channel_index"] == 3
 
     async def test_render_default_channel_when_no_target(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         # Default config has default_channel=0
         assert result.payload["channel_index"] == 0
 
     async def test_render_non_numeric_channel_falls_back_to_config(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct", target_channel="abc"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="direct",
+                target_channel="abc",
+            ),
+        )
         # Default config has default_channel=0
         assert result.payload["channel_index"] == 0
 
@@ -210,7 +285,10 @@ class TestMeshCoreRendererBasic:
         cfg = _make_config("mc-chan", default_channel=7)
         renderer = MeshCoreRenderer(configs={"mc-chan": cfg})
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="mc-chan", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-chan", delivery_strategy="direct"),
+        )
         assert result.payload["channel_index"] == 7
 
     async def test_render_nonzero_default_channel_with_invalid_target(self) -> None:
@@ -218,13 +296,25 @@ class TestMeshCoreRendererBasic:
         cfg = _make_config("mc-chan", default_channel=5)
         renderer = MeshCoreRenderer(configs={"mc-chan": cfg})
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="mc-chan", delivery_strategy="direct", target_channel="invalid"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mc-chan",
+                delivery_strategy="direct",
+                target_channel="invalid",
+            ),
+        )
         assert result.payload["channel_index"] == 5
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "meshcore_node"
@@ -244,7 +334,12 @@ class TestMeshCoreRendererTargetResolution:
         renderer = _make_renderer("meshcore_node")
         event = _make_event()
         with pytest.raises(KeyError, match="unknown_adapter"):
-            await renderer.render(event, RenderingContext(target_adapter="unknown_adapter", delivery_strategy="direct"))
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="unknown_adapter", delivery_strategy="direct"
+                ),
+            )
 
     async def test_render_selects_correct_config(self) -> None:
         """Multi-config renderer resolves correct adapter."""
@@ -255,11 +350,15 @@ class TestMeshCoreRendererTargetResolution:
             }
         )
         event = _make_event(payload={"body": "hello world"})
-        result_a = await r.render(event, RenderingContext(target_adapter="mc-a", delivery_strategy="direct"))
+        result_a = await r.render(
+            event, RenderingContext(target_adapter="mc-a", delivery_strategy="direct")
+        )
         assert result_a.payload["meshnet_name"] == "net-a"
         assert result_a.payload["text"] == "hello world"  # 11 bytes, under 100
 
-        result_b = await r.render(event, RenderingContext(target_adapter="mc-b", delivery_strategy="direct"))
+        result_b = await r.render(
+            event, RenderingContext(target_adapter="mc-b", delivery_strategy="direct")
+        )
         assert result_b.payload["meshnet_name"] == "net-b"
         assert result_b.payload["text"] == "hello worl"  # truncated to 10 bytes
 
@@ -277,13 +376,23 @@ class TestMeshCoreRendererMeshnetName:
     async def test_render_meshnet_name_from_config(self) -> None:
         renderer = _make_renderer(meshnet_name="testnet")
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["meshnet_name"] == "testnet"
 
     async def test_render_meshnet_name_default_empty(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["meshnet_name"] == ""
 
 
@@ -299,13 +408,23 @@ class TestMeshCoreRendererMetadata:
     async def test_metadata_includes_renderer(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["renderer"] == "meshcore"
 
     async def test_metadata_includes_length_fields(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["original_length"] == 5
         assert result.metadata["rendered_length"] == 5
         assert result.metadata["original_text_bytes"] == 5
@@ -314,19 +433,34 @@ class TestMeshCoreRendererMetadata:
     async def test_metadata_includes_max_text_bytes(self) -> None:
         renderer = _make_renderer(max_text_bytes=256)
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["max_text_bytes"] == 256
 
     async def test_metadata_includes_truncated_flag(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["truncated"] is False
 
     async def test_metadata_truncated_when_text_exceeds_budget(self) -> None:
         renderer = _make_renderer(max_text_bytes=5)
         event = _make_event(payload={"body": "hello world"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["truncated"] is True
         assert result.metadata["original_length"] == 11
         assert result.metadata["original_text_bytes"] == 11
@@ -335,7 +469,12 @@ class TestMeshCoreRendererMetadata:
         """All metadata values are JSON-safe primitives."""
         renderer = _make_renderer()
         event = _make_event()
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         for key, value in result.metadata.items():
             assert isinstance(
                 value, (str, int, bool, float, type(None))
@@ -357,7 +496,12 @@ class TestMeshCoreRendererTruncation:
         renderer = _make_renderer()
         text = "x" * 500
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == text
         assert result.truncated is False
 
@@ -366,7 +510,12 @@ class TestMeshCoreRendererTruncation:
         renderer = _make_renderer()
         text = "x" * 600
         event = _make_event(payload={"body": text})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         rendered_text = result.payload["text"]
         assert isinstance(rendered_text, str)
         assert len(rendered_text.encode("utf-8")) <= 512
@@ -376,7 +525,12 @@ class TestMeshCoreRendererTruncation:
         """Custom max_text_bytes is respected."""
         renderer = _make_renderer(max_text_bytes=10)
         event = _make_event(payload={"body": "hello world"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "hello worl"
         assert result.truncated is True
 
@@ -384,7 +538,12 @@ class TestMeshCoreRendererTruncation:
         """max_text_bytes=0 produces empty string."""
         renderer = _make_renderer(max_text_bytes=0)
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == ""
         assert result.truncated is True
 
@@ -392,7 +551,12 @@ class TestMeshCoreRendererTruncation:
         """max_text_bytes=0 with empty input: not truncated (0→0)."""
         renderer = _make_renderer(max_text_bytes=0)
         event = _make_event(payload={"body": ""})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == ""
         assert result.truncated is False
 
@@ -402,7 +566,12 @@ class TestMeshCoreRendererTruncation:
         # Truncate to 6 bytes → should produce "aaaaa" (drop the é).
         renderer = _make_renderer(max_text_bytes=6)
         event = _make_event(payload={"body": "aaaaaé"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "aaaaa"
         rendered_text = result.payload["text"]
         assert isinstance(rendered_text, str)
@@ -414,7 +583,12 @@ class TestMeshCoreRendererTruncation:
         # Truncate to 5 bytes → "ab" (drop the emoji).
         renderer = _make_renderer(max_text_bytes=5)
         event = _make_event(payload={"body": "ab😀cd"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "ab"
         rendered_text = result.payload["text"]
         assert isinstance(rendered_text, str)
@@ -426,14 +600,24 @@ class TestMeshCoreRendererTruncation:
         # Truncate to 4 bytes → "aa" (drop the CJK char).
         renderer = _make_renderer(max_text_bytes=4)
         event = _make_event(payload={"body": "aa中bb"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "aa"
 
     async def test_exact_budget_not_truncated(self) -> None:
         """Text exactly at budget is not truncated."""
         renderer = _make_renderer(max_text_bytes=5)
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "hello"
         assert result.truncated is False
 
@@ -441,7 +625,12 @@ class TestMeshCoreRendererTruncation:
         """Metadata byte counts are accurate after truncation."""
         renderer = _make_renderer(max_text_bytes=3)
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.metadata["original_text_bytes"] == 5
         assert result.metadata["rendered_text_bytes"] == 3
         assert result.metadata["truncated"] is True
@@ -452,7 +641,12 @@ class TestMeshCoreRendererTruncation:
         # Truncate to 5 bytes → "a" (1B) + "é" (2B) = 3 bytes (drop 中, 😀)
         renderer = _make_renderer(max_text_bytes=5)
         event = _make_event(payload={"body": "aé中😀"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         rendered = str(result.payload["text"])
         assert rendered.encode("utf-8") == b"a\xc3\xa9"  # "aé"
         assert len(rendered.encode("utf-8")) <= 5
@@ -462,7 +656,12 @@ class TestMeshCoreRendererTruncation:
         """Budget of 1 byte with 4-byte emoji produces empty string."""
         renderer = _make_renderer(max_text_bytes=1)
         event = _make_event(payload={"body": "😀hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == ""
         assert result.truncated is True
 
@@ -470,7 +669,12 @@ class TestMeshCoreRendererTruncation:
         """A single 3-byte CJK char fits exactly in a 3-byte budget."""
         renderer = _make_renderer(max_text_bytes=3)
         event = _make_event(payload={"body": "中"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "中"
         assert result.truncated is False
 
@@ -478,7 +682,12 @@ class TestMeshCoreRendererTruncation:
         """ASCII text before the truncation boundary is preserved exactly."""
         renderer = _make_renderer(max_text_bytes=10)
         event = _make_event(payload={"body": "1234567890X"})  # 11 bytes
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "1234567890"
         assert result.truncated is True
 
@@ -486,7 +695,12 @@ class TestMeshCoreRendererTruncation:
         """1000-char ASCII text truncated to 50-byte budget."""
         renderer = _make_renderer(max_text_bytes=50)
         event = _make_event(payload={"body": "A" * 1000})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == "A" * 50
         assert len(str(result.payload["text"]).encode("utf-8")) == 50
         assert result.truncated is True
@@ -508,21 +722,38 @@ class TestMeshCoreRendererPrefixFormatting:
         """meshnet_name from config appears in rendered payload."""
         renderer = _make_renderer(meshnet_name="testnet-alpha")
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["meshnet_name"] == "testnet-alpha"
 
     async def test_empty_meshnet_name_default(self) -> None:
         """Default meshnet_name is empty string."""
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["meshnet_name"] == ""
 
     async def test_channel_index_from_target_channel(self) -> None:
         """target_channel is parsed as channel_index in payload."""
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct", target_channel="7"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="direct",
+                target_channel="7",
+            ),
+        )
         assert result.payload["channel_index"] == 7
 
     async def test_default_channel_used_when_no_target(self) -> None:
@@ -530,21 +761,33 @@ class TestMeshCoreRendererPrefixFormatting:
         cfg = _make_config("mc-ch", default_channel=3)
         renderer = MeshCoreRenderer(configs={"mc-ch": cfg})
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="mc-ch", delivery_strategy="direct"))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mc-ch", delivery_strategy="direct")
+        )
         assert result.payload["channel_index"] == 3
 
     async def test_payload_has_exactly_three_keys(self) -> None:
         """Rendered payload has text, channel_index, meshnet_name only."""
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert set(result.payload.keys()) == {"text", "channel_index", "meshnet_name"}
 
     async def test_max_text_bytes_zero_with_multibyte(self) -> None:
         """max_text_bytes=0 produces empty text even with multibyte input."""
         renderer = _make_renderer(max_text_bytes=0)
         event = _make_event(payload={"body": "中é😀abc"})
-        result = await renderer.render(event, RenderingContext(target_adapter="meshcore_node", delivery_strategy="direct"))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["text"] == ""
         assert result.truncated is True
         assert result.metadata["original_text_bytes"] == len("中é😀abc".encode("utf-8"))
