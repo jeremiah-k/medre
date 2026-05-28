@@ -135,13 +135,13 @@ class TestFallbackResolver:
         plan = resolver.resolve_fallback(event, target, AdapterCapabilities())
         assert plan.primary_strategy.method == "direct"
 
-    def test_reaction_downgrades_when_not_supported(self) -> None:
+    def test_reaction_suppressed_when_not_supported(self) -> None:
         event = _make_event(event_kind="message.reacted")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
         caps = AdapterCapabilities(reactions="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
-        assert plan.primary_strategy.method == "direct"
+        assert plan.primary_strategy.method == "skip"
 
     def test_reaction_keeps_direct_when_supported(self) -> None:
         event = _make_event(event_kind="message.reacted")
@@ -151,21 +151,21 @@ class TestFallbackResolver:
         plan = resolver.resolve_fallback(event, target, caps)
         assert plan.primary_strategy.method == "direct"
 
-    def test_edit_downgrades_when_not_supported(self) -> None:
+    def test_edit_suppressed_when_not_supported(self) -> None:
         event = _make_event(event_kind="message.edited")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
         caps = AdapterCapabilities(edits="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
-        assert plan.primary_strategy.method == "direct"
+        assert plan.primary_strategy.method == "skip"
 
-    def test_delete_downgrades_when_not_supported(self) -> None:
+    def test_delete_suppressed_when_not_supported(self) -> None:
         event = _make_event(event_kind="message.deleted")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
         caps = AdapterCapabilities(deletes="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
-        assert plan.primary_strategy.method == "direct"
+        assert plan.primary_strategy.method == "skip"
 
     def test_plan_event_id_matches_source(self) -> None:
         event = _make_event(event_kind="message.created", event_id="evt-x")

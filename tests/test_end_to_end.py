@@ -361,7 +361,7 @@ class TestFullPipeline:
             plan = resolver.resolve_fallback(
                 event, target, AdapterCapabilities(reactions="unsupported")
             )
-            assert plan.primary_strategy.method == "direct"
+            assert plan.primary_strategy.method == "skip"
 
             await storage.close()
         finally:
