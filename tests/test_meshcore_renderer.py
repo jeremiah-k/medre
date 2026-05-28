@@ -10,7 +10,7 @@ import pytest
 
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
@@ -792,3 +792,126 @@ class TestMeshCoreRendererPrefixFormatting:
         assert result.truncated is True
         assert result.metadata["original_text_bytes"] == len("中é😀abc".encode("utf-8"))
         assert result.metadata["rendered_text_bytes"] == 0
+
+
+# ===================================================================
+# Reaction emoji fallback resolution in _degrade_relations_inline
+# ===================================================================
+
+
+class TestMeshCoreRendererReactionEmojiFallback:
+    """Verify the reaction emoji resolution chain:
+    rel.key → payload["key"] → payload["emoji"] → "∟".
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    def _make_event_with_reaction(
+        self,
+        *,
+        rel_key: str | None,
+        payload: dict | None = None,
+        target_event_id: str = "evt-target",
+    ) -> CanonicalEvent:
+        """Build an event with a single reaction relation."""
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=target_event_id,
+            target_native_ref=None,
+            key=rel_key,
+            fallback_text=None,
+        )
+        return CanonicalEvent(
+            event_id="evt-react",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="meshcore-1",
+            source_transport_id="abc123",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload=payload or {"body": "reacted"},
+            metadata=EventMetadata(),
+        )
+
+    async def test_reaction_emoji_from_rel_key(self) -> None:
+        """rel.key is the first choice for the emoji."""
+        renderer = _make_renderer()
+        event = self._make_event_with_reaction(
+            rel_key="👍",
+            payload={"body": "reacted", "key": "💛", "emoji": "❤️"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "[reaction 👍 to:" in result.payload["text"]
+
+    async def test_reaction_emoji_from_payload_key(self) -> None:
+        """When rel.key is None, payload['key'] is used."""
+        renderer = _make_renderer()
+        event = self._make_event_with_reaction(
+            rel_key=None,
+            payload={"body": "reacted", "key": "💛"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "[reaction 💛 to:" in result.payload["text"]
+
+    async def test_reaction_emoji_from_payload_emoji(self) -> None:
+        """When rel.key and payload['key'] are absent, payload['emoji'] is used."""
+        renderer = _make_renderer()
+        event = self._make_event_with_reaction(
+            rel_key=None,
+            payload={"body": "reacted", "emoji": "❤️"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "[reaction ❤️ to:" in result.payload["text"]
+
+    async def test_reaction_emoji_hardcoded_fallback(self) -> None:
+        """When nothing provides an emoji, hardcoded '∟' is used."""
+        renderer = _make_renderer()
+        event = self._make_event_with_reaction(
+            rel_key=None,
+            payload={"body": "reacted"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "[reaction ∟ to:" in result.payload["text"]
+
+    async def test_reaction_emoji_empty_rel_key_falls_through(self) -> None:
+        """Empty string rel.key is falsy and falls through to payload."""
+        renderer = _make_renderer()
+        event = self._make_event_with_reaction(
+            rel_key="",
+            payload={"body": "reacted", "key": "🔥"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "[reaction 🔥 to:" in result.payload["text"]

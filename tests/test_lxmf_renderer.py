@@ -327,3 +327,87 @@ class TestLxmfRenderer:
         assert envelope["event_id"] == "evt-prov-1"
         assert "lineage" in envelope
         assert envelope["relations"] == []
+
+
+def _make_reaction_event(
+    rel_key: str | None = None,
+    payload: dict | None = None,
+) -> CanonicalEvent:
+    """Create an event with a single reaction relation for emoji fallback tests."""
+    return CanonicalEvent(
+        event_id="evt-reaction",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="lxmf-1",
+        source_transport_id="ab" * 16,
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(
+            EventRelation(
+                relation_type="reaction",
+                target_event_id="evt-target",
+                target_native_ref=NativeRef(
+                    adapter="lxmf-1",
+                    native_channel_id=None,
+                    native_message_id="msg123",
+                ),
+                key=rel_key,
+                fallback_text="target msg",
+            ),
+        ),
+        payload=payload or {"body": "reaction body"},
+        metadata=EventMetadata(),
+    )
+
+
+class TestDegradeRelationsInline:
+    """Tests for _degrade_relations_inline reaction emoji fallback resolution."""
+
+    def test_no_relations_returns_text_unchanged(self) -> None:
+        """Early-return path: event with no relations returns text as-is."""
+        renderer = LxmfRenderer()
+        event = _make_event()
+        result = renderer._degrade_relations_inline(event, "original text")
+        assert result == "original text"
+
+    def test_reaction_emoji_from_rel_key(self) -> None:
+        """rel.key takes highest priority for emoji resolution."""
+        renderer = LxmfRenderer()
+        event = _make_reaction_event(
+            rel_key="👍",
+            payload={"body": "hi", "key": "❤️", "emoji": "🎉"},
+        )
+        result = renderer._degrade_relations_inline(event, "msg")
+        assert "[reaction 👍 to:" in result
+
+    def test_reaction_emoji_from_payload_key(self) -> None:
+        """When rel.key is None, payload['key'] is used."""
+        renderer = LxmfRenderer()
+        event = _make_reaction_event(
+            rel_key=None,
+            payload={"body": "hi", "key": "❤️", "emoji": "🎉"},
+        )
+        result = renderer._degrade_relations_inline(event, "msg")
+        assert "[reaction ❤️ to:" in result
+
+    def test_reaction_emoji_from_payload_emoji(self) -> None:
+        """When rel.key and payload['key'] are absent, payload['emoji'] is used."""
+        renderer = LxmfRenderer()
+        event = _make_reaction_event(
+            rel_key=None,
+            payload={"body": "hi", "emoji": "🎉"},
+        )
+        result = renderer._degrade_relations_inline(event, "msg")
+        assert "[reaction 🎉 to:" in result
+
+    def test_reaction_emoji_hardcoded_fallback(self) -> None:
+        """When nothing else is available, hardcoded '∟' fallback is used."""
+        renderer = LxmfRenderer()
+        event = _make_reaction_event(
+            rel_key=None,
+            payload={"body": "hi"},
+        )
+        result = renderer._degrade_relations_inline(event, "msg")
+        assert "[reaction ∟ to:" in result

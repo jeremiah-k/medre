@@ -1249,3 +1249,107 @@ class TestMaxTextBytesThreading:
             assert capturing_renderer.captured_ctx.max_text_bytes is None
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Test validate_strategy_method
+# ===================================================================
+
+
+class TestValidateStrategyMethod:
+    """Direct unit tests for the module-level strategy validation."""
+
+    def test_rejects_unknown_strategy(self) -> None:
+        """_validate_strategy_method raises ValueError for unknown strings."""
+        from medre.core.engine.pipeline import _validate_strategy_method
+
+        with pytest.raises(ValueError, match="Unknown delivery strategy"):
+            _validate_strategy_method("bogus_strategy")
+
+    def test_accepts_all_known_strategies(self) -> None:
+        """All DeliveryStrategyMethod literals pass validation."""
+        from medre.core.engine.pipeline import _validate_strategy_method
+        from medre.core.rendering.renderer import DeliveryStrategyMethod
+        from typing import get_args
+
+        for method in get_args(DeliveryStrategyMethod):
+            result = _validate_strategy_method(method)
+            assert result == method
+
+    def test_rejects_arbitrary_strings(self) -> None:
+        """Empty string, None-like, and case-variant strings are rejected."""
+        from medre.core.engine.pipeline import _validate_strategy_method
+
+        for bogus in ("", "  ", "FALLBACK_TEXT", "Skip", "native"):
+            with pytest.raises(ValueError, match="Unknown delivery strategy"):
+                _validate_strategy_method(bogus)
+
+
+# ===================================================================
+# TestUnknownStrategyPlannerFailure
+# ===================================================================
+
+
+class TestUnknownStrategyPlannerFailure:
+    """Verifies that unknown strategy in deliver_to_target produces
+    PLANNER_FAILURE, not RENDERER_FAILURE."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_strategy_is_planner_failure(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Unknown strategy classified as PLANNER_FAILURE, not RENDERER_FAILURE."""
+        from medre.core.engine.pipeline import _RendererDeliveryError
+        from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
+
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(text=True)
+
+        target = RouteTarget(adapter="dest")
+        route = Route(
+            id="bogus-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[target],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="bogus-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": "hello"},
+        )
+
+        # Build a delivery plan with an invalid strategy method.
+        bad_plan = DeliveryPlan(
+            plan_id="plan-bogus",
+            event_id=event.event_id,
+            target=target,
+            primary_strategy=DeliveryStrategy(method="not_a_real_strategy"),
+        )
+
+        try:
+            with pytest.raises(_RendererDeliveryError) as exc_info:
+                await runner.deliver_to_target(event, route, bad_plan)
+
+            receipt = exc_info.value.receipt
+            assert receipt is not None
+            # Receipt records PLANNER_FAILURE, never RENDERER_FAILURE.
+            assert receipt.failure_kind == DeliveryFailureKind.PLANNER_FAILURE.value
+            # Error message should reference the bad strategy.
+            assert "not_a_real_strategy" in (exc_info.value.error or "")
+        finally:
+            await runner.stop()
