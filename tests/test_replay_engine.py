@@ -1067,6 +1067,19 @@ class TestFilterPlansByCapability:
         result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
         assert len(result) == 0
 
+    def test_missing_adapter_included_conservatively(self) -> None:
+        """Plan targeting adapter NOT in adapters dict is included (conservative)."""
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        # Plan targets "adapter-unknown" which is absent from adapters dict.
+        plan = _make_delivery_plan(adapter="adapter-unknown")
+        result = _filter_plans_by_capability(
+            self._make_event(),
+            [plan],
+            adapters={},
+        )
+        assert result == [plan]
+
 
 # ===================================================================
 # _stage_deliver capability filtering
@@ -1210,3 +1223,83 @@ class TestStageDeliverCapabilityFilter:
 
         snap = accounting.snapshot()
         assert snap["capability_suppressed"] >= 1
+
+    async def test_partial_suppression_accounting(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Partial suppression: only SOME plans filtered, accounting counts correctly."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.events import CanonicalEvent, EventMetadata
+        from medre.core.storage.replay import ReplayRequest
+        from medre.core.supervision.accounting import RuntimeAccounting
+
+        # Build a message.file event — capability check uses caps.attachments.
+        file_event = CanonicalEvent(
+            event_id="file-001",
+            event_kind="message.file",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "see attached", "url": "https://example.com/f.pdf"},
+            metadata=EventMetadata(),
+        )
+
+        # Route with TWO targets: one supports attachments, one does not.
+        route = Route(
+            id="dual-target-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.file",),
+                channel="ch-0",
+            ),
+            targets=[
+                RouteTarget(adapter="adapter-with-attachments", channel="ch-ok"),
+                RouteTarget(adapter="adapter-no-attachments", channel="ch-skip"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        class _AdapterWithAttachments:
+            _capabilities = AdapterCapabilities(attachments=True)
+
+        class _AdapterNoAttachments:
+            _capabilities = AdapterCapabilities(attachments=False)
+
+        class _Config:
+            adapters = {
+                "adapter-with-attachments": _AdapterWithAttachments(),
+                "adapter-no-attachments": _AdapterNoAttachments(),
+            }
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        accounting = RuntimeAccounting()
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline, accounting=accounting)
+        await temp_storage.append(file_event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        # Accounting snapshot: exactly 1 plan suppressed (not 2).
+        snap = accounting.snapshot()
+        assert snap["capability_suppressed"] == 1
+
+        # The supported target should have delivered successfully.
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "passed"
+
+        # The unsupported target is filtered out — only 1 plan survives
+        # in the replay envelope output.
+        output = deliver_results[0].output
+        assert output["replay"] is True
+        adapter_results = output["adapter_results"]
+        assert len(adapter_results) == 1
