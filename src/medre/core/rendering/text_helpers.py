@@ -99,6 +99,8 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             sender_display = (
                 rel.metadata.get("sender_displayname")
                 or rel.metadata.get("displayname")
+                or rel.metadata.get("original_sender_displayname")
+                or rel.metadata.get("original_sender")
                 or rel.metadata.get("sender")
             )
             prefix = f"[replying to: {target}"
@@ -189,3 +191,42 @@ def truncate_text(
     if len(text) <= limit:
         return text, False
     return text[:limit], True
+
+
+def truncate_text_bytes(
+    text: str,
+    max_text_bytes: int | None,
+) -> tuple[str, bool, int, int]:
+    """Cap *text* at a UTF-8 byte limit, splitting safely on character
+    boundaries.
+
+    Parameters
+    ----------
+    text:
+        The text to potentially truncate.
+    max_text_bytes:
+        Maximum UTF-8 bytes to allow.  When ``None`` no truncation is
+        performed and the function returns ``(text, False, …)``.
+
+    Returns
+    -------
+    tuple[str, bool, int, int]
+        ``(truncated_text, was_truncated, original_byte_count,
+        rendered_byte_count)``.
+    """
+    original_bytes = len(text.encode("utf-8"))
+
+    if max_text_bytes is None:
+        return text, False, original_bytes, original_bytes
+
+    if original_bytes <= max_text_bytes:
+        return text, False, original_bytes, original_bytes
+
+    # Binary-search for the longest prefix that fits within *max_text_bytes*.
+    # UTF-8 characters are 1–4 bytes; slicing at a mid-character boundary
+    # would raise, so we trim one char at a time from the right.
+    truncated = text
+    while len(truncated.encode("utf-8")) > max_text_bytes and truncated:
+        truncated = truncated[:-1]
+
+    return truncated, True, original_bytes, len(truncated.encode("utf-8"))

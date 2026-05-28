@@ -60,7 +60,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
-from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.core.rendering.renderer import (
+    RenderingContext,
+    RenderingResult,
+)
 
 if TYPE_CHECKING:
     from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -315,7 +318,11 @@ class MeshtasticRenderer:
 
         prefix = adapter_config.radio_relay_prefix
         meshnet_name = adapter_config.meshnet_name
-        max_text_bytes = adapter_config.max_text_bytes
+        max_text_bytes = (
+            ctx.max_text_bytes
+            if ctx.max_text_bytes is not None
+            else adapter_config.max_text_bytes
+        )
 
         # Resolve channel index: adapter config default, overridden only by
         # a valid numeric target_channel.  Invalid/non-numeric values keep
@@ -367,7 +374,7 @@ class MeshtasticRenderer:
                         content["reply_id"] = reply_id
                 elif rel.relation_type == "reaction":
                     emoji_text = rel.key or str(
-                        event.payload.get("key", event.payload.get("body", ""))
+                        event.payload.get("key", event.payload.get("emoji", event.payload.get("body", "")))
                     )
                     if self._is_native_reaction(event, target_adapter):
                         # Native Meshtastic tapback
@@ -499,7 +506,7 @@ class MeshtasticRenderer:
 
         if rel.relation_type == "reaction":
             emoji_text = rel.key or str(
-                event.payload.get("key", event.payload.get("body", ""))
+                event.payload.get("key", event.payload.get("emoji", event.payload.get("body", "")))
             )
             if self._is_native_reaction(event, target_adapter):
                 # Native reaction degraded to readable text (no tapback).
@@ -530,22 +537,18 @@ class MeshtasticRenderer:
         the target message.
 
         Resolution order:
-        1. ``rel.target_native_ref.native_message_id`` (if present).
-        2. ``rel.target_event_id`` (if present).
+        1. ``rel.target_event_id`` (if present).
+        2. ``rel.target_native_ref.native_message_id`` (if present).
         3. ``None`` — no usable identifier.
         """
+        if rel.target_event_id is not None:
+            return rel.target_event_id
         ref = rel.target_native_ref
         if ref is not None:
             mid = getattr(ref, "native_message_id", None)
             if mid is not None:
                 return str(mid)
-        if rel.target_event_id is not None:
-            return rel.target_event_id
         return None
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int, int]:

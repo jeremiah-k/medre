@@ -1064,8 +1064,8 @@ class TestFallbackTextReplyRelationContext:
         assert "reply_id" not in result.payload
 
     async def test_reply_without_fallback_text_with_native_ref(self) -> None:
-        """When fallback_text is absent but target_native_ref exists,
-        marker uses native_message_id."""
+        """When fallback_text and target_event_id are both absent,
+        marker uses native_message_id from target_native_ref."""
         renderer = _make_renderer("mesh-1")
         native_ref = NativeRef(
             adapter="mesh-1",
@@ -1074,7 +1074,7 @@ class TestFallbackTextReplyRelationContext:
         )
         rel = EventRelation(
             relation_type="reply",
-            target_event_id="evt-0",
+            target_event_id=None,
             target_native_ref=native_ref,
             key=None,
             fallback_text=None,
@@ -1149,9 +1149,9 @@ class TestFallbackTextReplyRelationContext:
         assert "[replying to:" not in text
         assert "reply_id" not in result.payload
 
-    async def test_native_ref_preferred_over_target_event_id(self) -> None:
-        """When both target_native_ref and target_event_id exist,
-        native_message_id is preferred for the marker."""
+    async def test_target_event_id_preferred_over_native_ref(self) -> None:
+        """When both target_event_id and target_native_ref exist,
+        target_event_id is preferred for the marker."""
         renderer = _make_renderer("mesh-1")
         native_ref = NativeRef(
             adapter="mesh-1",
@@ -1176,8 +1176,8 @@ class TestFallbackTextReplyRelationContext:
             ),
         )
         text = result.payload["text"]
-        assert "[replying to: 99]" in text
-        assert "evt-override" not in text
+        assert "[replying to: evt-override]" in text
+        assert "99" not in text
 
     async def test_preserves_channel_index_and_meshnet_name(self) -> None:
         """Fallback-text reply preserves channel_index and meshnet_name."""
@@ -1245,7 +1245,7 @@ class TestFallbackTextReplyRelationContext:
         )
         rel = EventRelation(
             relation_type="reply",
-            target_event_id="evt-0",
+            target_event_id=None,
             target_native_ref=native_ref,
             key=None,
             fallback_text=None,
@@ -1363,9 +1363,10 @@ class TestTargetedCoveragePaths:
         assert "emoji" not in result.payload
 
     def test_resolve_reply_target_marker_returns_native_message_id(self) -> None:
-        """_resolve_reply_target_marker returns native_message_id from a NativeRef.
+        """_resolve_reply_target_marker returns native_message_id when
+        target_event_id is absent.
 
-        Exercises renderer.py lines 540-542:
+        Exercises renderer.py lines:
             ref = rel.target_native_ref
             if ref is not None:
                 mid = getattr(ref, "native_message_id", None)
@@ -1379,7 +1380,7 @@ class TestTargetedCoveragePaths:
         )
         rel = EventRelation(
             relation_type="reply",
-            target_event_id="evt-ignored",
+            target_event_id=None,
             target_native_ref=native_ref,
             key=None,
             fallback_text=None,

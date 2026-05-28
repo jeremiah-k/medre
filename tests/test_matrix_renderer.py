@@ -998,3 +998,211 @@ class TestMatrixFallbackText:
         assert result.payload["meshtastic_id"] == "99"
         assert result.payload["meshtastic_longname"] == "Alice"
         assert result.payload["meshtastic_shortname"] == "A"
+
+    async def test_fallback_without_relations_uses_fallback_path(self) -> None:
+        """Fallback_text strategy without relations still uses _render_fallback_text."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "plain message"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert result.payload["msgtype"] == "m.text"
+        assert "m.relates_to" not in result.payload
+
+    async def test_fallback_byte_truncation_applies(self) -> None:
+        """Byte budget truncation applies to fallback body and reports metadata."""
+        renderer = MatrixRenderer()
+        # Create event with multi-byte content
+        body = "hello" + "é" * 100  # each é is 2 UTF-8 bytes
+        event = self._make_fallback_event(body=body)
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_bytes=20,
+            ),
+        )
+        rendered_body: str = result.payload["body"]
+        assert len(rendered_body.encode("utf-8")) <= 20
+        assert result.truncated is True
+        assert "original_text_bytes" in result.metadata
+        assert "rendered_text_bytes" in result.metadata
+
+    async def test_fallback_byte_truncation_no_truncate_when_within_budget(self) -> None:
+        """No byte truncation when body fits within max_text_bytes."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event(body="short")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_bytes=1000,
+            ),
+        )
+        assert result.truncated is False
+
+
+class TestMatrixReactionEmojiPrecedence:
+    """Reaction emoji extraction follows precedence: rel.key, payload['key'],
+    payload['emoji'], payload['body'], fallback."""
+
+    async def test_emoji_from_rel_key(self) -> None:
+        """rel.key takes highest precedence."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key="❤️",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"key": "👍", "emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "❤️"
+
+    async def test_emoji_from_payload_key(self) -> None:
+        """payload['key'] is used when rel.key is None."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"key": "👍", "emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "👍"
+
+    async def test_emoji_from_payload_emoji(self) -> None:
+        """payload['emoji'] is used when rel.key and payload['key'] are absent."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "🎉"
+
+    async def test_emoji_from_payload_body(self) -> None:
+        """payload['body'] is used when all higher-precedence sources are absent."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "👍"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "👍"
+
+    async def test_emoji_fallback_when_all_blank(self) -> None:
+        """Falls back to ⚠️ when all sources are blank."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": " "},  # whitespace-only body → stripped to blank
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "\u26a0\ufe0f"
+
+
+class TestFallbackAppliedTyping:
+    """fallback_applied uses FallbackApplied literals."""
+
+    async def test_fallback_applied_is_strategy_literal(self) -> None:
+        """fallback_applied for strategy_fallback_text is the correct literal."""
+        from medre.core.rendering.renderer import FallbackApplied
+
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.fallback_applied == "strategy_fallback_text"
+        # Type check: the value is one of the FallbackApplied literals
+        assert result.fallback_applied in FallbackApplied.__args__
+
+    async def test_direct_strategy_has_no_fallback(self) -> None:
+        """Direct strategy yields fallback_applied=None."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="direct",
+            ),
+        )
+        assert result.fallback_applied is None

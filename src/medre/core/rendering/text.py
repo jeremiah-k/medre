@@ -22,10 +22,27 @@ edits, deletes, replies).
 from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
-from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.core.rendering.renderer import (
+    FallbackApplied,
+    RenderingContext,
+    RenderingResult,
+)
+from medre.core.rendering.text_helpers import (
+    extract_relation_text,
+    truncate_text as _shared_truncate_text,
+)
 
 # Maximum characters for rendered text before truncation.
 _MAX_TEXT_LENGTH: int = 500
+
+#: Mapping from relation type to the canonical :data:`FallbackApplied` value.
+_RELATION_FALLBACK_MAP: dict[str, FallbackApplied] = {
+    "reply": "relation_reply",
+    "reaction": "relation_reaction",
+    "edit": "relation_edit",
+    "delete": "relation_delete",
+    "thread": "relation_thread",
+}
 
 
 class TextRenderer:
@@ -147,17 +164,10 @@ class TextRenderer:
             "original_length": len(raw_text),
         }
 
-        fallback_applied: str | None = None
+        fallback_applied: FallbackApplied | None = None
         if event.relations:
             rel = event.relations[0]
-            if rel.relation_type in (
-                "reply",
-                "reaction",
-                "edit",
-                "delete",
-                "thread",
-            ):
-                fallback_applied = f"relation_{rel.relation_type}"
+            fallback_applied = _RELATION_FALLBACK_MAP.get(rel.relation_type)
 
         # Strategy fallback takes precedence over relation-based fallback.
         # When strategy_fallback_text overrides a relation-based fallback,
@@ -254,116 +264,9 @@ class TextRenderer:
     def _extract_text(event: CanonicalEvent) -> str:
         """Extract the raw (pre-truncation) text from *event*.
 
-        When the event carries relations the text is augmented with
-        fallback formatting before kind-based logic is applied.
-
-        Both ``payload["text"]`` and ``payload["body"]`` are checked —
-        adapters use either key depending on their native format (Matrix
-        and Meshtastic codecs store text under ``"body"``, others may
-        use ``"text"``).
-
-        **Relation handling** — When ``event.relations`` is non-empty
-        only the **first** relation is processed.  This is a deliberate
-        design choice: canonical events may carry multiple relations but
-        the generic text renderer produces degraded output for a single
-        relation to keep the text readable on constrained displays.
-        Events carrying more than one relation should be handled by
-        platform-specific renderers where possible.
+        Delegates to :func:`~medre.core.rendering.text_helpers.extract_relation_text`.
         """
-        kind = event.event_kind
-
-        # -- Relation fallback rendering ------------------------------------
-        #
-        # Only the first relation is processed.  See docstring above for
-        # rationale.  Each branch produces deterministic, meaningful
-        # degraded text even when relation metadata is partially or
-        # fully missing — the renderer never emits empty or ambiguous
-        # fallback when relation payload data exists.
-        if event.relations:
-            rel = event.relations[0]
-
-            if rel.relation_type == "reply":
-                payload_text = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
-                target = TextRenderer._resolve_target_display(rel)
-                # Enrich with sender/displayname from relation metadata
-                # when the upstream codec populated it.
-                sender_display = (
-                    rel.metadata.get("sender_displayname")
-                    or rel.metadata.get("displayname")
-                    or rel.metadata.get("sender")
-                )
-                prefix = f"[replying to: {target}"
-                if sender_display:
-                    prefix += f" by {sender_display}"
-                prefix += "]"
-                if payload_text:
-                    return f"{prefix} {payload_text}"
-                return prefix
-
-            if rel.relation_type == "reaction":
-                actor = TextRenderer._resolve_actor(event)
-                key = TextRenderer._resolve_reaction_key(rel, event)
-                if key:
-                    return f"{actor} reacted with {key}"
-                # Degraded: payload has reaction relation but no
-                # identifiable key/emoji/body.  Produce meaningful text
-                # rather than falling through to kind-based rendering.
-                return f"{actor} reacted"
-
-            if rel.relation_type == "edit":
-                payload_text = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
-                if payload_text:
-                    return f"[edited] {payload_text}"
-                # Deterministic degraded output when edit carries no body.
-                return "[edited]"
-
-            if rel.relation_type == "delete":
-                target = TextRenderer._resolve_target_display(rel)
-                # Include target/original context when available.
-                if target != "unknown message":
-                    return f"[deleted: {target}]"
-                return "[deleted]"
-
-            if rel.relation_type == "thread":
-                payload_text = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
-                target = TextRenderer._resolve_target_display(rel)
-                if payload_text:
-                    return f"[thread: {target}] {payload_text}"
-                return f"[thread: {target}]"
-
-        # -- Kind-based rendering -------------------------------------------
-        if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        if kind == EventKind.MESSAGE_EDITED:
-            return "[edited] " + str(
-                event.payload.get("text", event.payload.get("body", ""))
-            )
-
-        if kind == EventKind.MESSAGE_DELETED:
-            return "[deleted]"
-
-        if kind == EventKind.MESSAGE_REACTED:
-            # Without a relation, render the payload text if present.
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        if kind == EventKind.PRESENCE_CHANGED:
-            user = str(event.payload.get("user", "unknown"))
-            status = str(event.payload.get("status", "unknown"))
-            return f"{user} is now {status}"
-
-        if kind == EventKind.PLUGIN_CUSTOM:
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        # Defensive fallback for unrecognised kinds that slip through
-        # can_render (should not happen in practice).
-        return str(event.payload.get("text", event.payload.get("body", "")))
+        return extract_relation_text(event)
 
     @staticmethod
     def _truncate(
@@ -373,24 +276,6 @@ class TextRenderer:
     ) -> tuple[str, bool]:
         """Cap *text* at the configured character limit.
 
-        Parameters
-        ----------
-        text:
-            The text to potentially truncate.
-        max_text_chars:
-            Maximum characters to allow.  When ``None``, falls back to
-            the module-level default :data:`_MAX_TEXT_LENGTH` (500).
-
-        Returns
-        -------
-        tuple[str, bool]
-            The (possibly truncated) text and whether truncation occurred.
+        Delegates to :func:`~medre.core.rendering.text_helpers.truncate_text`.
         """
-        limit = max(
-            0, max_text_chars if max_text_chars is not None else _MAX_TEXT_LENGTH
-        )
-        if limit == 0 and text:
-            return "", True
-        if len(text) <= limit:
-            return text, False
-        return text[:limit], True
+        return _shared_truncate_text(text, max_text_chars=max_text_chars)

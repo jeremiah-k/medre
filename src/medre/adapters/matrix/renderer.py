@@ -21,8 +21,16 @@ from typing import Any, Mapping
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
-from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from medre.core.rendering.text_helpers import extract_relation_text, truncate_text
+from medre.core.rendering.renderer import (
+    FallbackApplied,
+    RenderingContext,
+    RenderingResult,
+)
+from medre.core.rendering.text_helpers import (
+    extract_relation_text,
+    truncate_text,
+    truncate_text_bytes,
+)
 from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
@@ -191,7 +199,7 @@ class MatrixRenderer:
         # ------------------------------------------------------------------
         # Fallback-text path: degrade relations into plain text body
         # ------------------------------------------------------------------
-        if is_fallback and event.relations:
+        if is_fallback:
             return self._render_fallback_text(event, ctx)
 
         # ------------------------------------------------------------------
@@ -267,7 +275,7 @@ class MatrixRenderer:
             "renderer": self.name,
         }
 
-        fallback_applied: str | None = None
+        fallback_applied: FallbackApplied | None = None
         if is_fallback:
             fallback_applied = "strategy_fallback_text"
 
@@ -310,11 +318,21 @@ class MatrixRenderer:
         # context imposes a text budget.
         truncated = False
         original_length = len(body)
+        original_text_bytes = len(body.encode("utf-8"))
         if ctx.max_text_chars is not None:
             body, truncated = truncate_text(
                 body,
                 max_text_chars=ctx.max_text_chars,
             )
+        # Byte-safe truncation when a byte budget is configured.
+        if ctx.max_text_bytes is not None:
+            body, byte_truncated, _orig_bytes, _rendered_bytes = truncate_text_bytes(
+                body,
+                max_text_bytes=ctx.max_text_bytes,
+            )
+            if byte_truncated:
+                truncated = True
+        rendered_text_bytes = len(body.encode("utf-8"))
 
         content: dict[str, object] = {
             "msgtype": "m.text",
@@ -340,6 +358,8 @@ class MatrixRenderer:
         }
         if truncated:
             result_metadata["original_length"] = original_length
+            result_metadata["original_text_bytes"] = original_text_bytes
+            result_metadata["rendered_text_bytes"] = rendered_text_bytes
 
         return RenderingResult(
             event_id=event.event_id,
@@ -387,12 +407,14 @@ class MatrixRenderer:
         """Return the reaction emoji/symbol with a fallback chain.
 
         Preference order: ``rel.key``, ``event.payload['key']``,
-        ``event.payload['body']``.  Leading/trailing whitespace is
-        stripped.  Falls back to ⚠️ when all sources are blank.
+        ``event.payload['emoji']``, ``event.payload['body']``.
+        Leading/trailing whitespace is stripped.  Falls back to ⚠️
+        when all sources are blank.
         """
         for source in (
             rel.key,
             event.payload.get("key"),
+            event.payload.get("emoji"),
             event.payload.get("body"),
         ):
             if source is not None:
