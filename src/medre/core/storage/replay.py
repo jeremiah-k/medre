@@ -1775,6 +1775,39 @@ class ReplayEngine:
                 )
             plan_result = filtered
 
+        # Capability-aware skip: for BEST_EFFORT mode, check if the
+        # event kind is supported by the target adapter.  Skip delivery
+        # with a descriptive error when the adapter lacks the required
+        # capability.  Non-BEST_EFFORT modes are not affected.
+        if mode is ReplayMode.BEST_EFFORT:
+            # Extract adapters dict from the pipeline collaborator.
+            _adapters: dict[str, Any] | None = None
+            if self._pipeline is not None:
+                _cfg = getattr(self._pipeline, "_config", None)
+                if _cfg is not None:
+                    _adapters = getattr(_cfg, "adapters", None)
+            _before_filter = len(plan_result)
+            plan_result = _filter_plans_by_capability(
+                event,
+                plan_result,
+                _adapters,
+            )
+            _suppressed = _before_filter - len(plan_result)
+            if _suppressed > 0 and self._accounting is not None:
+                for _ in range(_suppressed):
+                    self._accounting.record_capability_suppressed()
+            if not plan_result:
+                return ReplayResult(
+                    event_id=event.event_id,
+                    stage="deliver",
+                    status="skipped",
+                    error=(
+                        f"capability_suppressed: {event.event_kind} "
+                        f"not supported by target adapter(s)"
+                    ),
+                    duration_ms=_elapsed_ms(t0),
+                )
+
         # Capacity guard: acquire replay slot for BEST_EFFORT delivery.
         _capacity_acquired = False
         if self._capacity_controller is not None and mode is ReplayMode.BEST_EFFORT:
@@ -2060,4 +2093,70 @@ def _filter_plans_by_adapter(
             result.append(item)
         elif adapter in allowed:
             result.append(item)
+    return result
+
+
+def _filter_plans_by_capability(
+    event: CanonicalEvent,
+    plans: list[Any],
+    adapters: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Filter delivery plans to those whose target adapter supports the event.
+
+    For each plan, resolves the target adapter's capabilities and checks
+    whether the event kind is supported.  Plans with unsupported event
+    kinds are excluded.  When *adapters* is ``None``, plans are included
+    conservatively (include rather than exclude).
+
+    Only meaningful for BEST_EFFORT mode; the caller is responsible for
+    gating on mode.
+
+    Parameters
+    ----------
+    event:
+        The canonical event being replayed.
+    plans:
+        Delivery plans to filter.
+    adapters:
+        Mapping of adapter ID to adapter instance, or ``None`` when
+        unavailable (in which case all plans are included).
+
+    Returns
+    -------
+    list[Any]
+        Plans whose target adapters support the event kind.
+    """
+    # Import here to avoid circular imports at module level.
+    from medre.core.planning.capabilities import (
+        capability_unsupported,
+        resolve_adapter_capabilities,
+    )
+
+    if adapters is None:
+        return plans
+
+    result: list[Any] = []
+    for item in plans:
+        # Unwrap tuple (Route, DeliveryPlan) if present.
+        if isinstance(item, tuple) and len(item) == 2:
+            plan = item[1]
+        else:
+            plan = item
+
+        target = getattr(plan, "target", None)
+        if target is None:
+            # Opaque plan structure – include conservatively.
+            result.append(item)
+            continue
+
+        caps = resolve_adapter_capabilities(adapters, target)
+        if caps is None:
+            # Adapter is missing from the registry — include conservatively
+            # rather than suppressing based on default (all-false) caps.
+            result.append(item)
+            continue
+        reason = capability_unsupported(event, caps)
+        if reason is None:
+            result.append(item)
+        # else: capability-suppressed — exclude from delivery
     return result

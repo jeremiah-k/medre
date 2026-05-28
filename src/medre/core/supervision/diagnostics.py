@@ -33,8 +33,12 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
+from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.planning.capabilities import capability_unsupported
 from medre.core.supervision.health import normalize_adapter_health
 
 # Forward-reference type alias for Router; imported lazily inside
@@ -185,6 +189,7 @@ def capture_runtime_snapshot(
     replay_status: dict[str, Any] | None = None,
     router: _RouterLike | None = None,
     route_stats: Any | None = None,
+    capabilities: dict[str, AdapterCapabilities] | None = None,
     queue_status: dict[str, Any] | None = None,
     backpressure_status: dict[str, Any] | None = None,
     task_status: dict[str, Any] | None = None,
@@ -221,6 +226,12 @@ def capture_runtime_snapshot(
         Optional :class:`~medre.core.routing.stats.RouteStats`.  When
         provided alongside *router*, live per-route counters are
          included in the route topology snapshot.
+    capabilities:
+        Optional mapping of adapter IDs to their declared
+        :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
+        When provided alongside *router*, each route entry is enriched
+        with ``capability_warnings`` for event kinds the target adapter
+        does not support.
     queue_status:
         Optional dict summarising queue state.  Defaults to
         ``{"status": "unavailable"}`` when not provided.
@@ -271,7 +282,11 @@ def capture_runtime_snapshot(
 
     # -- Route topology -----------------------------------------------------
     if router is not None:
-        route_topology_dict = capture_route_topology(router, route_stats=route_stats)
+        route_topology_dict = capture_route_topology(
+            router,
+            route_stats=route_stats,
+            capabilities=capabilities,
+        )
     else:
         route_topology_dict = dict(_UNAVAILABLE_SENTINEL)
 
@@ -331,9 +346,50 @@ def _route_target_to_dict(target: Any) -> dict[str, Any]:
     return result
 
 
+def _check_capability_warning(
+    event_kind: str,
+    caps: AdapterCapabilities,
+    adapter_id: str,
+) -> str | None:
+    """Return a warning string if *event_kind* is unsupported by *caps*.
+
+    Delegates to the shared :func:`capability_unsupported` and formats
+    the result with adapter identity for diagnostics.
+
+    Also checks reply support explicitly, because the shared
+    ``capability_unsupported`` only checks replies when ``relations``
+    is non-empty, but the synthetic event used here has ``relations=()``.
+    """
+    # Construct a minimal event for the shared check (only event_kind and
+    # relations matter for capability checking).
+    event = CanonicalEvent(
+        event_id="diag-00000000-0000-0000-0000-000000000000",
+        event_kind=event_kind,
+        schema_version=1,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        source_adapter="diag",
+        source_transport_id="diag",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={},
+        metadata=EventMetadata(),
+    )
+    reason = capability_unsupported(event, caps)
+    if reason is None:
+        # Route-level warnings are event-kind level and cannot fully
+        # evaluate relation-specific requirements.  Reply support is
+        # only meaningful when the event carries a reply relation, which
+        # the synthetic diagnostic event never does.
+        return None
+    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
+
+
 def capture_route_topology(
     router: _RouterLike,
     route_stats: Any | None = None,
+    capabilities: dict[str, AdapterCapabilities] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic, JSON-safe route topology snapshot.
 
@@ -353,8 +409,8 @@ def capture_route_topology(
     * **Live counters** – when *route_stats* (a
       :class:`~medre.core.routing.stats.RouteStats`) is provided, each
         per-route entry is enriched with ``delivered``, ``failed``,
-        ``skipped``, ``loop_prevented``, ``policy_suppressed``, and
-        ``last_error`` from the live
+        ``skipped``, ``loop_prevented``, ``policy_suppressed``,
+        ``capability_suppressed``, and ``last_error`` from the live
       counters.  When *route_stats* is ``None``, counters remain zeroed
       and ``last_error`` is omitted.
 
@@ -367,6 +423,12 @@ def capture_route_topology(
     route_stats:
         Optional :class:`~medre.core.routing.stats.RouteStats` instance.
         When provided, live counter values replace the zeroed defaults.
+    capabilities:
+        Optional mapping of adapter IDs to their declared
+        :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
+        When provided, each route entry is enriched with a
+        ``capability_warnings`` list identifying event kinds that the
+        target adapter does not support.
 
     Returns
     -------
@@ -416,6 +478,7 @@ def capture_route_topology(
             skipped = live.get("skipped", 0)
             loop_prevented = live.get("loop_prevented", 0)
             policy_suppressed = live.get("policy_suppressed", 0)
+            capability_suppressed = live.get("capability_suppressed", 0)
             last_error = live.get("last_error")
         else:
             delivered = 0
@@ -423,6 +486,7 @@ def capture_route_topology(
             skipped = 0
             loop_prevented = 0
             policy_suppressed = 0
+            capability_suppressed = 0
             last_error = None
 
         route_entry: dict[str, Any] = {
@@ -439,11 +503,33 @@ def capture_route_topology(
             "skipped": skipped,
             "loop_prevented": loop_prevented,
             "policy_suppressed": policy_suppressed,
+            "capability_suppressed": capability_suppressed,
             "error_count": failed,
             "event_count": delivered,
         }
         if last_error is not None:
             route_entry["last_error"] = last_error
+
+        # -- Capability mismatch warnings ---------------------------------
+        capability_warnings: list[str] = []
+        if capabilities is not None:
+            source_event_kinds = (
+                list(getattr(source, "event_kinds", ()) or ())
+                if source is not None
+                else []
+            )
+            for ta in target_adapters:
+                if ta is None:
+                    continue
+                caps = capabilities.get(ta)
+                if caps is None:
+                    continue
+                for ek in source_event_kinds:
+                    warning = _check_capability_warning(ek, caps, ta)
+                    if warning is not None:
+                        capability_warnings.append(warning)
+        route_entry["capability_warnings"] = sorted(set(capability_warnings))
+
         per_route.append(route_entry)
 
         # Build adapter-route relationships

@@ -50,12 +50,12 @@ class TestFreshInstance:
         snap = RuntimeAccounting().snapshot()
         assert all(v == 0 for v in snap.values())
 
-    def test_nine_counters_exactly(self) -> None:
-        """Exactly 9 counters exist — no more, no fewer."""
+    def test_ten_counters_exactly(self) -> None:
+        """Exactly 10 counters exist — no more, no fewer."""
         RuntimeCounters()
-        assert len(RuntimeCounters.__dataclass_fields__) == 9
+        assert len(RuntimeCounters.__dataclass_fields__) == 10
         snap = RuntimeAccounting().snapshot()
-        assert len(snap) == 9
+        assert len(snap) == 10
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +130,11 @@ class TestIndividualIncrements:
         assert c.policy_suppressed == 1
         assert c.capacity_rejections == 0
         assert c.outbound_failed == 0
+
+    def test_record_capability_suppressed(self) -> None:
+        acc = RuntimeAccounting()
+        acc.record_capability_suppressed()
+        assert acc.snapshot()["capability_suppressed"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +381,7 @@ class TestBoundedMemory:
             acc.record_capacity_rejection()
         snap_full = acc.snapshot()
         # Same number of keys
-        assert len(snap_empty) == len(snap_full) == 9
+        assert len(snap_empty) == len(snap_full) == 10
         # Same key set
         assert set(snap_empty.keys()) == set(snap_full.keys())
 

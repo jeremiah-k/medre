@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
-from medre.core.routing import Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import EventFilter, SQLiteStorage
 from medre.core.storage.replay import (
     ReplayMode,
@@ -930,3 +930,376 @@ class TestReplayEngine:
         assert state.events_passed == 2
         assert state.events_failed == 0
         assert state.events_skipped == 0
+
+
+# ===================================================================
+# _filter_plans_by_adapter
+# ===================================================================
+
+
+def _make_delivery_plan(
+    adapter: str | None = "matrix-bridge",
+) -> Any:
+    """Build a minimal DeliveryPlan-like object for filter tests."""
+    from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
+    from medre.core.routing.models import RouteTarget
+
+    target = RouteTarget(adapter=adapter, channel="ch-out")
+    return DeliveryPlan(
+        plan_id="plan-001",
+        event_id="evt-001",
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+
+
+class TestFilterPlansByAdapter:
+    """Tests for _filter_plans_by_adapter matching logic."""
+
+    def test_matching_adapter_included(self) -> None:
+        """Plan with matching target adapter is included."""
+        from medre.core.storage.replay import _filter_plans_by_adapter
+
+        plan = _make_delivery_plan(adapter="matrix-bridge")
+        result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
+        assert len(result) == 1
+
+    def test_non_matching_adapter_excluded(self) -> None:
+        """Plan with non-matching adapter is excluded."""
+        from medre.core.storage.replay import _filter_plans_by_adapter
+
+        plan = _make_delivery_plan(adapter="matrix-bridge")
+        result = _filter_plans_by_adapter([plan], ["other-adapter"])
+        assert len(result) == 0
+
+    def test_none_adapter_included_conservatively(self) -> None:
+        """Plan with adapter=None is included (conservative)."""
+        from medre.core.storage.replay import _filter_plans_by_adapter
+
+        plan = _make_delivery_plan(adapter=None)
+        result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
+        assert len(result) == 1
+
+    def test_tuple_plan_matching_adapter(self) -> None:
+        """Tuple (route, DeliveryPlan) with matching adapter is included."""
+        from medre.core.storage.replay import _filter_plans_by_adapter
+
+        plan = _make_delivery_plan(adapter="matrix-bridge")
+        result = _filter_plans_by_adapter([("route-stub", plan)], ["matrix-bridge"])
+        assert len(result) == 1
+
+    def test_tuple_plan_non_matching_excluded(self) -> None:
+        """Tuple (route, DeliveryPlan) with non-matching adapter excluded."""
+        from medre.core.storage.replay import _filter_plans_by_adapter
+
+        plan = _make_delivery_plan(adapter="matrix-bridge")
+        result = _filter_plans_by_adapter([("route-stub", plan)], ["other-adapter"])
+        assert len(result) == 0
+
+
+# ===================================================================
+# _filter_plans_by_capability
+# ===================================================================
+
+
+class TestFilterPlansByCapability:
+    """Tests for _filter_plans_by_capability early-return paths."""
+
+    def _make_event(self) -> CanonicalEvent:
+        return CanonicalEvent(
+            event_id="cap-001",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="t-0",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+        )
+
+    def test_returns_plans_when_pipeline_is_none(self) -> None:
+        """When adapters is None, all plans pass through."""
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        plans = [_make_delivery_plan()]
+        result = _filter_plans_by_capability(self._make_event(), plans, adapters=None)
+        assert result == plans
+
+    def test_returns_plans_when_pipeline_lacks_method(self) -> None:
+        """Empty adapters dict passes everything conservatively."""
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        plans = [_make_delivery_plan()]
+        result = _filter_plans_by_capability(self._make_event(), plans, adapters={})
+        assert result == plans
+
+    def test_supported_event_kind_passes(self) -> None:
+        """Plan with adapter that supports the event kind is included."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        caps = AdapterCapabilities(text=True)
+
+        class _CapAdapter:
+            _capabilities = caps
+
+        adapters = {"adapter-1": _CapAdapter()}
+        plan = _make_delivery_plan(adapter="adapter-1")
+        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
+        assert len(result) == 1
+
+    def test_unsupported_event_kind_filtered(self) -> None:
+        """Plan with adapter that doesn't support event kind is excluded."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        caps = AdapterCapabilities(text=False)
+
+        class _CapAdapter:
+            _capabilities = caps
+
+        adapters = {"adapter-1": _CapAdapter()}
+        plan = _make_delivery_plan(adapter="adapter-1")
+        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
+        assert len(result) == 0
+
+    def test_missing_adapter_included_conservatively(self) -> None:
+        """Plan targeting adapter NOT in adapters dict is included (conservative)."""
+        from medre.core.storage.replay import _filter_plans_by_capability
+
+        # Plan targets "adapter-unknown" which is absent from adapters dict.
+        plan = _make_delivery_plan(adapter="adapter-unknown")
+        result = _filter_plans_by_capability(
+            self._make_event(),
+            [plan],
+            adapters={},
+        )
+        assert result == [plan]
+
+
+# ===================================================================
+# _stage_deliver capability filtering
+# ===================================================================
+
+
+class TestStageDeliverCapabilityFilter:
+    """Tests for _stage_deliver BEST_EFFORT capability-aware filtering."""
+
+    async def test_best_effort_filters_by_capability(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """BEST_EFFORT filters unsupported event kinds."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.storage.replay import ReplayRequest
+
+        # Create a route that matches sample_event (fake_transport → target-adapter)
+        route = Route(
+            id="cap-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="target-adapter")],
+        )
+        router = Router(routes=[route])
+
+        caps = AdapterCapabilities(text=False)
+
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        await temp_storage.append(sample_event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        # Find the deliver-stage result
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "skipped"
+        assert "capability_suppressed" in (deliver_results[0].error or "")
+
+    async def test_dry_run_skips_capability_filter(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """DRY_RUN mode doesn't filter by capability."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.storage.replay import ReplayRequest
+
+        route = Route(
+            id="cap-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="target-adapter")],
+        )
+        router = Router(routes=[route])
+
+        caps = AdapterCapabilities(text=False)
+
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        await temp_storage.append(sample_event)
+
+        request = ReplayRequest(mode=ReplayMode.DRY_RUN)
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "skipped"
+        assert "dry_run" in (deliver_results[0].error or "")
+
+    async def test_accounting_recorded_when_all_plans_filtered(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """When all plans filtered by capability, accounting is called."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.storage.replay import ReplayRequest
+        from medre.core.supervision.accounting import RuntimeAccounting
+
+        route = Route(
+            id="cap-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="target-adapter")],
+        )
+        router = Router(routes=[route])
+
+        caps = AdapterCapabilities(text=False)
+
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        accounting = RuntimeAccounting()
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline, accounting=accounting)
+        await temp_storage.append(sample_event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "skipped"
+
+        snap = accounting.snapshot()
+        assert snap["capability_suppressed"] >= 1
+
+    async def test_partial_suppression_accounting(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Partial suppression: only SOME plans filtered, accounting counts correctly."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.events import CanonicalEvent, EventMetadata
+        from medre.core.storage.replay import ReplayRequest
+        from medre.core.supervision.accounting import RuntimeAccounting
+
+        # Build a message.file event — capability check uses caps.attachments.
+        file_event = CanonicalEvent(
+            event_id="file-001",
+            event_kind="message.file",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "see attached", "url": "https://example.com/f.pdf"},
+            metadata=EventMetadata(),
+        )
+
+        # Route with TWO targets: one supports attachments, one does not.
+        route = Route(
+            id="dual-target-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.file",),
+                channel="ch-0",
+            ),
+            targets=[
+                RouteTarget(adapter="adapter-with-attachments", channel="ch-ok"),
+                RouteTarget(adapter="adapter-no-attachments", channel="ch-skip"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        class _AdapterWithAttachments:
+            _capabilities = AdapterCapabilities(attachments=True)
+
+        class _AdapterNoAttachments:
+            _capabilities = AdapterCapabilities(attachments=False)
+
+        class _Config:
+            adapters = {
+                "adapter-with-attachments": _AdapterWithAttachments(),
+                "adapter-no-attachments": _AdapterNoAttachments(),
+            }
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        accounting = RuntimeAccounting()
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline, accounting=accounting)
+        await temp_storage.append(file_event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        # Accounting snapshot: exactly 1 plan suppressed (not 2).
+        snap = accounting.snapshot()
+        assert snap["capability_suppressed"] == 1
+
+        # The supported target should have delivered successfully.
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "passed"
+
+        # The unsupported target is filtered out — only 1 plan survives
+        # in the replay envelope output.
+        output = deliver_results[0].output
+        assert output["replay"] is True
+        adapter_results = output["adapter_results"]
+        assert len(adapter_results) == 1

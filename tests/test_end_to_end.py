@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -149,7 +150,9 @@ class TestFullPipeline:
             assert len(targets) == 1
             target = targets[0]
 
-            plan = fallback_resolver.resolve_fallback(event, target, capabilities={})
+            plan = fallback_resolver.resolve_fallback(
+                event, target, capabilities=AdapterCapabilities()
+            )
             assert isinstance(plan, DeliveryPlan)
             assert plan.event_id == event.event_id
             assert plan.primary_strategy.method == "direct"
@@ -356,9 +359,9 @@ class TestFullPipeline:
             target = matched[0].targets[0]
             # fake_transport has reactions="fallback", simulate target without support
             plan = resolver.resolve_fallback(
-                event, target, {"supports_reactions": False}
+                event, target, AdapterCapabilities(reactions="unsupported")
             )
-            assert plan.primary_strategy.method == "direct"
+            assert plan.primary_strategy.method == "skip"
 
             await storage.close()
         finally:

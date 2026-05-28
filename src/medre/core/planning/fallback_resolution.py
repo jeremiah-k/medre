@@ -6,17 +6,27 @@ the delivery strategy to the closest supported alternative.
 
 Fallback rules (Phase 1):
 
-* ``message.reacted`` → deliver as ``message.text`` when the target
-  does not support reactions.
-* ``message.edited`` → deliver as a new ``message.text`` when the
-  target does not support edits.
-* ``message.deleted`` → silently skip delivery when the target does
-  not support deletions.
-* All other event kinds → no fallback needed; use ``"direct"``.
+* ``message.reacted`` → skip when the target does not support
+  reactions (pipeline suppresses before delivery).
+* ``message.edited`` → skip when the target does not support
+  edits (pipeline suppresses before delivery).
+* ``message.deleted`` → skip when the target does not support
+  deletions (pipeline suppresses before delivery).
+* ``message.file`` → skip delivery when the target does not support
+  attachments.
+* ``message.created`` / ``message.text`` → skip when the adapter
+  cannot send text (future-proof).
+* ``presence.changed`` → skip when the adapter does not expose
+  presence.
+* ``telemetry.*`` → skip when the adapter does not support
+  metadata fields.
+* Reply-carrying events → check ``caps.replies``.
+* All other / unknown event kinds → passthrough with ``"direct"``.
 """
 
 from __future__ import annotations
 
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import (
@@ -24,21 +34,6 @@ from medre.core.planning.delivery_plan import (
     DeliveryStrategy,
 )
 from medre.core.routing.models import RouteTarget
-
-# ---------------------------------------------------------------------------
-# Capability helpers
-# ---------------------------------------------------------------------------
-
-# Well-known capability keys that adapters may report.
-_CAP_REACTIONS = "supports_reactions"
-_CAP_EDITS = "supports_edits"
-_CAP_DELETES = "supports_deletes"
-
-
-def _adapter_supports(capabilities: dict, capability: str) -> bool:
-    """Return ``True`` if the capability dict explicitly reports support."""
-    return bool(capabilities.get(capability, False))
-
 
 # ---------------------------------------------------------------------------
 # Fallback resolver
@@ -49,23 +44,23 @@ class FallbackResolver:
     """Resolve delivery plans when adapter capabilities are limited.
 
     The resolver inspects the event kind and the target adapter's
-    reported capabilities, then produces a :class:`DeliveryPlan` that
-    uses the closest supported strategy.
+    :class:`AdapterCapabilities`, then produces a :class:`DeliveryPlan`
+    that uses the closest supported strategy.
 
     Example
     -------
     >>> resolver = FallbackResolver()
-    >>> caps = {"supports_reactions": False}
+    >>> caps = AdapterCapabilities(reactions="unsupported")
     >>> plan = resolver.resolve_fallback(reaction_event, target, caps)
     >>> plan.primary_strategy.method
-    'direct'
+    'skip'
     """
 
     def resolve_fallback(
         self,
         event: CanonicalEvent,
         target: RouteTarget,
-        capabilities: dict,
+        capabilities: AdapterCapabilities,
     ) -> DeliveryPlan:
         """Produce a delivery plan, downgrading if the target lacks support.
 
@@ -76,9 +71,7 @@ class FallbackResolver:
         target:
             The resolved route target.
         capabilities:
-            Adapter capability dictionary.  Expected keys include
-            ``"supports_reactions"``, ``"supports_edits"``, and
-            ``"supports_deletes"``.
+            The adapter's declared :class:`AdapterCapabilities`.
 
         Returns
         -------
@@ -100,27 +93,76 @@ class FallbackResolver:
     def _resolve_strategy(
         self,
         event: CanonicalEvent,
-        capabilities: dict,
+        caps: AdapterCapabilities,
     ) -> DeliveryStrategy:
         """Determine the effective delivery strategy for *event*.
 
-        Checks the event kind against the adapter's reported capabilities
+        Checks the event kind against the adapter's declared capabilities
         and returns a downgraded strategy when the target cannot handle
         the event natively.
+
+        For capability fields that use the three-level string scheme
+        (``"native"``, ``"fallback"``, ``"unsupported"``), both
+        ``"native"`` and ``"fallback"`` are treated as supported.
+        ``"unsupported"`` triggers event-specific behavior (``"skip"``
+        for both lifecycle events and hard-incompatible capabilities).
         """
         kind = event.event_kind
 
+        # -- Message lifecycle ------------------------------------------------
+
         if kind == EventKind.MESSAGE_REACTED:
-            if not _adapter_supports(capabilities, _CAP_REACTIONS):
-                return DeliveryStrategy(method="direct")
+            if caps.reactions == "unsupported":
+                return DeliveryStrategy(method="skip")
+            if caps.reactions == "fallback":
+                return DeliveryStrategy(method="fallback_text")
 
         if kind == EventKind.MESSAGE_EDITED:
-            if not _adapter_supports(capabilities, _CAP_EDITS):
-                return DeliveryStrategy(method="direct")
+            if caps.edits == "unsupported":
+                return DeliveryStrategy(method="skip")
+            if caps.edits == "fallback":
+                return DeliveryStrategy(method="fallback_text")
 
         if kind == EventKind.MESSAGE_DELETED:
-            if not _adapter_supports(capabilities, _CAP_DELETES):
-                return DeliveryStrategy(method="direct")
+            if caps.deletes == "unsupported":
+                return DeliveryStrategy(method="skip")
+            if caps.deletes == "fallback":
+                return DeliveryStrategy(method="fallback_text")
+
+        if kind == EventKind.MESSAGE_FILE:
+            if not caps.attachments:
+                return DeliveryStrategy(method="skip")
+
+        if kind in (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT):
+            # Future-proof: if an adapter cannot send text, skip.
+            if not caps.text:
+                return DeliveryStrategy(method="skip")
+
+        # -- Presence / telemetry ---------------------------------------------
+
+        if kind == EventKind.PRESENCE_CHANGED:
+            if not caps.presence:
+                return DeliveryStrategy(method="skip")
+
+        if kind in (EventKind.TELEMETRY_RECEIVED, EventKind.TELEMETRY_POSITION):
+            if not caps.metadata_fields:
+                return DeliveryStrategy(method="skip")
+
+        # -- Relation-carrying events: reply capability -----------------------
+
+        # Events that carry reply relations require reply support.
+        if event.relations:
+            for rel in event.relations:
+                if rel.relation_type == "reply" and caps.replies == "unsupported":
+                    return DeliveryStrategy(method="skip")
+                if rel.relation_type == "reply" and caps.replies == "fallback":
+                    return DeliveryStrategy(method="fallback_text")
+
+        # -- Identity / delivery / system / plugin → passthrough ---------------
+
+        # These event kinds are always forwarded; adapters that cannot
+        # handle them will be caught by the pipeline's capability-
+        # suppressed check during delivery.
 
         # Default: direct delivery with standard parameters.
         return DeliveryStrategy(method="direct")

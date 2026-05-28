@@ -47,6 +47,10 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
+from medre.core.planning.capabilities import (
+    capability_unsupported,
+    resolve_adapter_capabilities,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -345,7 +349,9 @@ class PipelineRunner:
         """
         return {
             "current_phase": self._current_phase.value if self._current_phase else None,
-            "counts": {phase.value: self._phase_counts[phase] for phase in PipelinePhase},
+            "counts": {
+                phase.value: self._phase_counts[phase] for phase in PipelinePhase
+            },
         }
 
     @property
@@ -1585,6 +1591,62 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
 
+            # ── Phase 2.5: Capability check (no state mutation) ──────
+
+            # Capability suppression: skip delivery when the target
+            # adapter does not support the event kind or required
+            # delivery features.  Runs after route-policy checks but
+            # BEFORE capacity acquisition so that capability-unsupported
+            # targets never consume capacity or increment counters.
+            #
+            # IMPORTANT: Only run the capability check for adapters
+            # that are actually registered.  Unknown / missing adapters
+            # must NOT be capability-suppressed — they need to fall
+            # through to deliver_to_target() which produces the correct
+            # ADAPTER_MISSING outcome with a meaningful error message.
+            _suppression_reason: str | None = None
+            if adapter_id and adapter_id in self._config.adapters:
+                _caps = self._get_adapter_capabilities(target)
+                _suppression_reason = capability_unsupported(event, _caps)
+            if _suppression_reason is not None:
+                self._log.info(
+                    "capability_suppressed: route_id=%s event_id=%s "
+                    "target_adapter=%s reason=%s",
+                    route.id,
+                    event.event_id,
+                    adapter_id,
+                    _suppression_reason,
+                )
+                if self._route_stats is not None:
+                    self._route_stats.record_capability_suppressed(route.id)
+                if self._runtime_accounting is not None:
+                    self._runtime_accounting.record_capability_suppressed()
+                elapsed = (time.monotonic() - t0) * 1000.0
+                cap_error = f"capability_suppressed: {_suppression_reason}"
+                cap_receipt = await self._persist_suppression_receipt(
+                    event_id=event.event_id,
+                    delivery_plan_id=route_plan.plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    error=cap_error,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    status="skipped",
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    receipt=cap_receipt,
+                    error=cap_error,
+                    duration_ms=elapsed,
+                )
+
             # ── Phase 3: Capacity acquisition ────────────────────────
 
             # Per-target capacity guard: acquire a slot before any work.
@@ -2207,12 +2269,16 @@ class PipelineRunner:
             platform_param: str | None = target_platform
         else:
             platform_param = None
+        # Resolve adapter capabilities to pass max_text_chars to renderers.
+        _caps = self._get_adapter_capabilities(target)
+        _max_text_chars = _caps.max_text_chars
         try:
             rendering_result = await self._rendering_pipeline.render(
                 render_event,
                 adapter_id or "",
                 target.channel,
                 target_platform=platform_param,
+                max_text_chars=_max_text_chars,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"
@@ -2493,42 +2559,16 @@ class PipelineRunner:
 
         return list(await asyncio.gather(*[_safe_deliver(r, p) for r, p in deliveries]))
 
-    def _get_adapter_capabilities(self, target: RouteTarget) -> dict:
-        """Retrieve the capabilities dict for a target adapter.
+    def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
+        """Retrieve the :class:`AdapterCapabilities` for a target adapter.
 
-        Returns an empty dict if the adapter is not found or does not
-        report capabilities.
+        Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
+        with the configured adapter registry.  When the adapter is missing
+        from the registry (yields ``None``), falls back to a default
+        :class:`AdapterCapabilities` for backward compatibility — the
+        pipeline has its own adapter-missing check at Phase 2.5.
         """
-        adapter_id = target.adapter
-        if adapter_id is None:
-            return {}
-
-        adapter = self._config.adapters.get(adapter_id)
-        if adapter is None:
-            return {}
-
-        # Try to get capabilities from health_check result; fall back to
-        # looking for a capabilities attribute directly.
-        if hasattr(adapter, "_capabilities"):
-            caps = adapter._capabilities  # type: ignore[attr-defined]
-            if isinstance(caps, AdapterCapabilities):
-                return self._caps_to_dict(caps)
-
-        return {}
-
-    @staticmethod
-    def _caps_to_dict(caps: AdapterCapabilities) -> dict:
-        """Convert an :class:`AdapterCapabilities` to a plain dict.
-
-        Maps capability fields to the keys expected by
-        :class:`FallbackResolver`.
-        """
-        return {
-            "supports_reactions": caps.reactions != "unsupported",
-            "supports_edits": caps.edits != "unsupported",
-            "supports_deletes": caps.deletes != "unsupported",
-            "text": caps.text,
-            "replies": caps.replies,
-            "reactions": caps.reactions,
-            "edits": caps.edits,
-        }
+        caps = resolve_adapter_capabilities(self._config.adapters, target)
+        if caps is None:
+            return AdapterCapabilities()
+        return caps

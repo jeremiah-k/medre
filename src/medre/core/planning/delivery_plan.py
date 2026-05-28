@@ -54,6 +54,16 @@ class DeliveryStrategy:
     max_retries: int = 3
     timeout_seconds: float = 30.0
 
+    #: Well-known method values.  ``method`` is a free-form string; the
+    #: following values have defined semantics:
+    #:
+    #: * ``"direct"``        – native delivery.
+    #: * ``"fallback_text"`` – degraded / textual fallback rendering.
+    #: * ``"propagated"``    – relayed through an intermediate hop.
+    #: * ``"opportunistic"`` – best-effort, no delivery guarantee.
+    #: * ``"paper"``         – store-and-forward.
+    #: * ``"skip"``          – delivery suppressed (capability mismatch).
+
 
 # ---------------------------------------------------------------------------
 # Retry policy
@@ -172,6 +182,10 @@ class DeliveryFailureKind(Enum):
     POLICY_SUPPRESSED:
         Delivery was suppressed by a route-policy denial
         (e.g. target blocked by policy configuration).  Not retryable.
+    CAPABILITY_SUPPRESSED:
+        Target adapter does not support the event kind or required
+        delivery features (e.g. reactions unsupported, no attachment
+        capability).  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -184,6 +198,7 @@ class DeliveryFailureKind(Enum):
     SHUTDOWN_REJECTION = "shutdown_rejection"
     LOOP_SUPPRESSED = "loop_suppressed"
     POLICY_SUPPRESSED = "policy_suppressed"
+    CAPABILITY_SUPPRESSED = "capability_suppressed"
 
     @property
     def is_retryable(self) -> bool:

@@ -115,6 +115,8 @@ class MeshCoreRenderer:
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        max_text_chars: int | None = None,
     ) -> RenderingResult:
         """Render a canonical event into a MeshCore content payload.
 

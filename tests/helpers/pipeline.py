@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import cast
 
 from medre.core.engine.pipeline import PipelineConfig
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
@@ -25,6 +25,7 @@ def make_event(
     source_channel_id: str | None = "ch-0",
     payload: dict | None = None,
     source_native_ref: NativeRef | None = None,
+    relations: tuple | None = None,
 ) -> CanonicalEvent:
     """Create a minimal CanonicalEvent for pipeline tests."""
     return CanonicalEvent(
@@ -37,7 +38,7 @@ def make_event(
         source_channel_id=source_channel_id,
         parent_event_id=None,
         lineage=(),
-        relations=(),
+        relations=relations or (),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
         source_native_ref=source_native_ref,

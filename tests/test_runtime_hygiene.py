@@ -396,12 +396,12 @@ class TestRouteStatsErrorSanitization:
 
 
 class TestRuntimeAccountingConstantMemory:
-    """RuntimeAccounting uses constant memory (exactly 9 counters)."""
+    """RuntimeAccounting uses constant memory (exactly 10 counters)."""
 
     def test_snapshot_size_constant(self) -> None:
         acc = RuntimeAccounting()
         snap0 = acc.snapshot()
-        assert len(snap0) == 9
+        assert len(snap0) == 10
 
         # Record many events — snapshot size stays constant.
         for _ in range(1000):
@@ -409,7 +409,7 @@ class TestRuntimeAccountingConstantMemory:
             acc.record_outbound_attempt()
             acc.record_outbound_delivered()
         snap1 = acc.snapshot()
-        assert len(snap1) == 9
+        assert len(snap1) == 10
         assert set(snap1.keys()) == set(snap0.keys())
 
     def test_snapshot_sorted_keys(self) -> None:
