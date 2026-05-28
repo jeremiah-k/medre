@@ -308,10 +308,10 @@ method values as configuration errors. The well-known methods are:
 ```python
 @dataclass
 class RetryPolicy:
-    max_retries: int
-    backoff_base: float        # Base delay in seconds for exponential backoff
-    backoff_max: float         # Maximum backoff delay
-    backoff_multiplier: float  # Multiplier for each retry (e.g., 2.0 for doubling)
+    max_attempts: int = 5        # Maximum total delivery attempts (including initial)
+    backoff_base: float = 2.0    # Base delay in seconds for exponential backoff
+    max_delay_seconds: float = 60.0  # Upper bound for backoff delay
+    jitter: bool = True          # Whether to add jitter to avoid thundering-herd
 ```
 
 ### 6.4 Fallback Resolution
@@ -347,7 +347,7 @@ When `RetryPolicy` is configured, the following failure kind is auto-retried:
 
 The following failure kinds are never auto-retried:
 
-- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION`
+- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, `CAPABILITY_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION`
 
 ### 7.4 Retry Flow
 
@@ -408,6 +408,10 @@ class DeliveryReceipt:
     parent_receipt_id: str | None = None   # Receipt ID of preceding attempt
     source: str = "live"                   # "live", "retry", or "replay"
     replay_run_id: str | None = None       # Replay run ID when source="replay"
+    retry_max_attempts: int | None = None  # Persisted retry policy: max attempts
+    retry_backoff_base: float | None = None # Persisted retry policy: backoff base
+    retry_max_delay: float | None = None   # Persisted retry policy: max delay
+    retry_jitter: bool | None = None       # Persisted retry policy: jitter enabled
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -501,7 +505,7 @@ The `delivery_status` view is read-only. No code path writes to it. If the "curr
 
 ## 10. DeliveryFailureKind
 
-Every delivery failure is classified into one of ten categories:
+Every delivery failure is classified into one of eleven categories:
 
 ```python
 class DeliveryFailureKind(Enum):
@@ -515,6 +519,7 @@ class DeliveryFailureKind(Enum):
     SHUTDOWN_REJECTION = "shutdown_rejection" # Runtime shutdown cancelled delivery (permanent)
     LOOP_SUPPRESSED = "loop_suppressed"       # Loop-prevention guard fired (permanent)
     POLICY_SUPPRESSED = "policy_suppressed"   # Route-policy denial (permanent, not retryable)
+    CAPABILITY_SUPPRESSED = "capability_suppressed"  # Target adapter lacks capability for event kind (permanent)
 ```
 
 Classification rules:
@@ -531,6 +536,7 @@ Classification rules:
 | `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire |
 | `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                        |
 | `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery                      |
+| `CAPABILITY_SUPPRESSED` | Capability check | No        | Target adapter does not support the event kind or required delivery features |
 
 ## 11. DeliveryOutcome
 

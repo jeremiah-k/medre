@@ -1396,16 +1396,15 @@ class TestTargetedCoveragePaths:
 
 class TestFallbackTextOtherRelationTypes:
     """fallback_text delivery strategy for edit, delete, and thread
-    relation types.  These hit the passthrough to _extract_text path
-    in _render_fallback_text.
+    relation types.  These hit the explicit branches in _render_fallback_text.
     """
 
     @pytest.mark.parametrize(
         "relation_type, body, expected_in_text",
         [
-            ("edit", "updated content", "updated content"),
-            ("delete", "unused", "unused"),
-            ("thread", "thread reply text", "thread reply text"),
+            ("edit", "updated content", "[edited] updated content"),
+            ("delete", "unused", "[deleted: evt-0]"),
+            ("thread", "thread reply text", "[thread: evt-0] thread reply text"),
         ],
         ids=["edit", "delete", "thread"],
     )

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from medre.core.events import CanonicalEvent
 
+__all__ = ["degrade_relations_inline"]
+
 
 def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
     """Degrade relation semantics into inline text.
@@ -40,9 +42,14 @@ def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
 
     parts: list[str] = []
     for rel in event.relations:
+        # Abbreviate target_event_id to match text_helpers convention.
+        raw_eid = rel.target_event_id
+        abbreviated_eid = (
+            f"{raw_eid[:8]}…" if raw_eid and len(raw_eid) > 8 else raw_eid
+        )
         target = (
             rel.fallback_text
-            or rel.target_event_id
+            or abbreviated_eid
             or (
                 rel.target_native_ref.native_message_id
                 if rel.target_native_ref is not None
@@ -54,7 +61,10 @@ def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
             parts.append(f"[reply to: {target}]")
         elif rel.relation_type == "reaction":
             emoji = (
-                rel.key or event.payload.get("key") or event.payload.get("emoji") or "∟"
+                (rel.key.strip() if rel.key else None)
+                or (str(event.payload.get("key")).strip() if event.payload.get("key") else None)
+                or (str(event.payload.get("emoji")).strip() if event.payload.get("emoji") else None)
+                or "∟"
             )
             parts.append(f"[reaction {emoji} to: {target}]")
         elif rel.relation_type == "edit":

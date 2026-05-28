@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 
+__all__ = ["extract_relation_text", "truncate_text", "truncate_text_bytes"]
+
 # Maximum characters for rendered text before truncation.
 _DEFAULT_MAX_TEXT_LENGTH: int = 500
 

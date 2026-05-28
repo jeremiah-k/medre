@@ -185,7 +185,7 @@ class MeshCoreRenderer:
             else adapter_config.max_text_bytes
         )
 
-        text = str(event.payload.get("body", event.payload.get("text", "")))
+        text = str(event.payload.get("text", event.payload.get("body", "")))
 
         # Parse channel index from ctx.target_channel
         try:

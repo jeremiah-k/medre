@@ -89,8 +89,8 @@ class MeshtasticRenderer:
     """
 
     name: str = "meshtastic"
-    """Platform name this renderer handles (used by the rendering pipeline
-    when platform registry is available)."""
+    """Renderer identifier used by the rendering pipeline for platform
+    registry matching (``ctx.target_platform`` comparison)."""
 
     _PLATFORM: str = "meshtastic"
     """Internal platform identifier for matching via ``target_platform``."""
@@ -553,7 +553,26 @@ class MeshtasticRenderer:
                 sep = " "
             return f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"'
 
-        # Other relation types: standard text extraction.
+        if rel.relation_type == "edit":
+            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+            if payload_text:
+                return f"[edited] {payload_text}"
+            return "[edited]"
+
+        if rel.relation_type == "delete":
+            target_marker = self._resolve_reply_target_marker(rel)
+            if target_marker:
+                return f"[deleted: {target_marker}]"
+            return "[deleted]"
+
+        if rel.relation_type == "thread":
+            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+            target_marker = self._resolve_reply_target_marker(rel) or "?"
+            if payload_text:
+                return f"[thread: {target_marker}] {payload_text}"
+            return f"[thread: {target_marker}]"
+
+        # Unknown relation types: standard text extraction.
         return self._extract_text(event)
 
     @staticmethod
@@ -683,7 +702,7 @@ class MeshtasticRenderer:
 
         # 3. Event payload body/text
         if not source_text:
-            source_text = str(event.payload.get("body", event.payload.get("text", "")))
+            source_text = str(event.payload.get("text", event.payload.get("body", "")))
 
         # Normalise: treat str and non-str uniformly
         text = str(source_text) if source_text else ""
@@ -719,7 +738,7 @@ class MeshtasticRenderer:
                 )
                 return f"[replying to: {rel.fallback_text}] {payload_text}"
 
-        return str(event.payload.get("body", event.payload.get("text", "")))
+        return str(event.payload.get("text", event.payload.get("body", "")))
 
     @staticmethod
     def _meshtastic_reply_id_from_relation(
@@ -762,4 +781,4 @@ class MeshtasticRenderer:
     @staticmethod
     def _plain_text(event: CanonicalEvent) -> str:
         """Extract plain text without relation fallback formatting."""
-        return str(event.payload.get("body", event.payload.get("text", "")))
+        return str(event.payload.get("text", event.payload.get("body", "")))

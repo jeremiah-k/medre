@@ -20,6 +20,7 @@ from medre.core.rendering.text_helpers import (
     _resolve_target_display,
     extract_relation_text,
     truncate_text,
+    truncate_text_bytes,
 )
 
 # ---------------------------------------------------------------------------
@@ -149,6 +150,31 @@ class TestResolveReactionKey:
         rel = _rel(relation_type="reaction")
         event = _evt(payload={})
         assert _resolve_reaction_key(rel, event) is None
+
+    def test_whitespace_stripped_from_rel_key(self) -> None:
+        """Whitespace-padded rel.key is stripped."""
+        rel = _rel(relation_type="reaction", key="  👍  ")
+        event = _evt(payload={})
+        assert _resolve_reaction_key(rel, event) == "👍"
+
+    def test_whitespace_stripped_from_payload_key(self) -> None:
+        """Whitespace-padded payload['key'] is stripped."""
+        rel = _rel(relation_type="reaction")
+        event = _evt(payload={"key": "  ❤  "})
+        assert _resolve_reaction_key(rel, event) == "❤"
+
+    def test_whitespace_stripped_from_payload_emoji(self) -> None:
+        """Whitespace-padded payload['emoji'] is stripped."""
+        rel = _rel(relation_type="reaction")
+        event = _evt(payload={"emoji": "  🔥  "})
+        assert _resolve_reaction_key(rel, event) == "🔥"
+
+    def test_whitespace_only_key_returns_empty(self) -> None:
+        """A whitespace-only rel.key is truthy so it returns empty after strip."""
+        rel = _rel(relation_type="reaction", key="   ")
+        event = _evt(payload={"emoji": "👍"})
+        # "   " is truthy → returns "   ".strip() → ""
+        assert _resolve_reaction_key(rel, event) == ""
 
 
 # ===================================================================
@@ -343,3 +369,56 @@ class TestTruncateText:
         """Default limit (500) does not truncate short text."""
         result = truncate_text("short")
         assert result == ("short", False)
+
+
+# ===================================================================
+# truncate_text_bytes
+# ===================================================================
+
+
+class TestTruncateTextBytes:
+    """Cover truncate_text_bytes: None budget, empty text, within budget,
+    multi-byte boundary, and exceeding budget."""
+
+    def test_none_budget_no_truncation(self) -> None:
+        """When max_text_bytes is None, text is returned unchanged."""
+        text, truncated, orig, rendered = truncate_text_bytes("hello world", None)
+        assert text == "hello world"
+        assert truncated is False
+        assert orig == rendered
+
+    def test_empty_text(self) -> None:
+        """Empty text with any budget returns unchanged."""
+        text, truncated, orig, rendered = truncate_text_bytes("", 100)
+        assert text == ""
+        assert truncated is False
+        assert orig == 0
+        assert rendered == 0
+
+    def test_within_budget(self) -> None:
+        """Text within byte budget returned unchanged."""
+        text, truncated, orig, rendered = truncate_text_bytes("hello", 100)
+        assert text == "hello"
+        assert truncated is False
+        assert orig == rendered == 5
+
+    def test_exceeding_budget_ascii(self) -> None:
+        """ASCII text exceeding budget is truncated."""
+        text, truncated, orig, rendered = truncate_text_bytes("abcdefghij", 5)
+        assert text == "abcde"
+        assert truncated is True
+        assert orig == 10
+        assert rendered == 5
+
+    def test_multi_byte_boundary_safe(self) -> None:
+        """Truncation at a multi-byte character boundary splits safely
+        (never inside a codepoint)."""
+        # "ü" is 2 bytes in UTF-8, "a" is 1 byte
+        # "aüa" = 1 + 2 + 1 = 4 bytes total
+        text, truncated, orig, rendered = truncate_text_bytes("aüa", 3)
+        # 3 bytes should allow "aü" (3 bytes) or just "a" (1 byte)
+        # The implementation trims one char at a time from the right
+        assert truncated is True
+        assert rendered <= 3
+        # Verify the result is valid UTF-8
+        text.encode("utf-8")  # should not raise

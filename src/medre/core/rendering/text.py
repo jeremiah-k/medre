@@ -5,7 +5,8 @@ representation — message lifecycle events and presence changes — and convert
 them into a simple ``{"text": ...}`` payload suitable for text-only targets
 such as Meshtastic radio transports, SMS gateways, or terminal adapters.
 
-Text is capped at a default of **500 characters**.  The cap is overridden
+Text is capped at a default of **500 characters** (defined in
+``text_helpers._DEFAULT_MAX_TEXT_LENGTH``).  The cap is overridden
 by ``RenderingContext.max_text_chars`` from adapter capabilities.  Negative or
 zero caps are clamped to zero, producing empty output.  When truncation
 occurs the resulting :class:`~medre.core.rendering.renderer.RenderingResult`
@@ -32,8 +33,6 @@ from medre.core.rendering.text_helpers import (
     truncate_text as _shared_truncate_text,
 )
 
-# Maximum characters for rendered text before truncation.
-_MAX_TEXT_LENGTH: int = 500
 
 #: Mapping from relation type to the canonical :data:`FallbackApplied` value.
 _RELATION_FALLBACK_MAP: dict[str, FallbackApplied] = {

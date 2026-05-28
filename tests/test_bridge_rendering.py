@@ -129,8 +129,8 @@ class TestMatrixRendersForMeshtastic:
         assert isinstance(payload["channel_index"], int)
 
     @pytest.mark.asyncio
-    async def test_body_key_preferred_over_text(self) -> None:
-        """Meshtastic renderer extracts 'body' key first, then 'text'."""
+    async def test_text_key_preferred_over_body(self) -> None:
+        """Meshtastic renderer extracts 'text' key first, then 'body'."""
         event = _make_event(
             source_adapter="matrix-src",
             payload={"body": "body content", "text": "text content"},
@@ -138,7 +138,7 @@ class TestMatrixRendersForMeshtastic:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
-        assert result.payload["text"] == "body content"
+        assert result.payload["text"] == "text content"
 
     @pytest.mark.asyncio
     async def test_channel_index_from_target_channel(self) -> None:
@@ -221,8 +221,8 @@ class TestMeshtasticRendersForMatrix:
         assert envelope["canonical_event_id"] == event.event_id
 
     @pytest.mark.asyncio
-    async def test_body_key_preferred(self) -> None:
-        """Matrix renderer extracts 'body' key first."""
+    async def test_text_key_preferred(self) -> None:
+        """Matrix renderer extracts 'text' key first."""
         event = _make_event(
             source_adapter="mesh-src",
             payload={"body": "body-val", "text": "text-val"},
@@ -230,7 +230,7 @@ class TestMeshtasticRendersForMatrix:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert result.payload["body"] == "body-val"
+        assert result.payload["body"] == "text-val"
 
     @pytest.mark.asyncio
     async def test_metadata_renderer_name(self) -> None:

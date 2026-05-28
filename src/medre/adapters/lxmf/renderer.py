@@ -123,7 +123,7 @@ class LxmfRenderer:
         RenderingResult
             The rendered LXMF content dict wrapped in a result.
         """
-        text = str(event.payload.get("body", event.payload.get("text", "")))
+        text = str(event.payload.get("text", event.payload.get("body", "")))
         title = str(event.payload.get("title", ""))
 
         # Determine fallback behaviour early — controls envelope relations

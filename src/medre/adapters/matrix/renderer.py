@@ -204,7 +204,7 @@ class MatrixRenderer:
         # ------------------------------------------------------------------
         # Native / direct path
         # ------------------------------------------------------------------
-        body = str(event.payload.get("body", event.payload.get("text", "")))
+        body = str(event.payload.get("text", event.payload.get("body", "")))
 
         # Apply relay prefix for mesh→Matrix direction
         body = self._apply_matrix_relay_prefix(event, body)
@@ -631,7 +631,7 @@ class MatrixRenderer:
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        text = str(event.payload.get("body", event.payload.get("text", "")))
+        text = str(event.payload.get("text", event.payload.get("body", "")))
 
         content[KEY_ID] = str(native_data.get("packet_id", ""))
         content[KEY_LONGNAME] = str(native_data.get("longname", ""))
