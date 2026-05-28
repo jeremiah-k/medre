@@ -1299,3 +1299,92 @@ class TestFallbackTextReplyRelationContext:
         )
         assert result.metadata.get("delivery_strategy") == "fallback_text"
         assert result.fallback_applied == "strategy_fallback_text"
+
+
+# ===================================================================
+# Targeted coverage: reaction emoji body fallback, unknown relation
+# catch-all, _resolve_reply_target_marker
+# ===================================================================
+
+
+class TestTargetedCoveragePaths:
+    """Pinpoint tests for code paths that previously lacked coverage."""
+
+    async def test_direct_reaction_emoji_falls_back_to_payload_body(
+        self,
+    ) -> None:
+        """When rel.key is None and payload lacks 'key', emoji resolves to payload['body'].
+
+        Exercises renderer.py lines 368-371:
+            emoji_text = rel.key or str(
+                event.payload.get("key", event.payload.get("body", ""))
+            )
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reaction",
+            native_message_id="99",
+            key=None,
+        )
+        # payload has no "key" field — should fall back to "body"
+        event = _make_event(
+            payload={"body": "🔥"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["text"] == "🔥"
+        assert result.payload["reply_id"] == 99
+        assert result.payload["emoji"] == 1
+
+    async def test_direct_unknown_relation_type_delegates_to_extract_text(
+        self,
+    ) -> None:
+        """An unrecognised relation type (e.g. 'thread') hits the else catch-all.
+
+        Exercises renderer.py lines 400-401:
+            else:
+                content["text"] = self._extract_text(event)
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="thread",
+            native_message_id="10",
+        )
+        event = _make_event(
+            payload={"body": "thread message content"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["text"] == "thread message content"
+        # No reply_id or emoji fields for unknown relation types
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+
+    def test_resolve_reply_target_marker_returns_native_message_id(self) -> None:
+        """_resolve_reply_target_marker returns native_message_id from a NativeRef.
+
+        Exercises renderer.py lines 540-542:
+            ref = rel.target_native_ref
+            if ref is not None:
+                mid = getattr(ref, "native_message_id", None)
+                if mid is not None:
+                    return str(mid)
+        """
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-ignored",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        assert result == "42"
