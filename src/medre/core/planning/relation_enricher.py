@@ -257,38 +257,36 @@ class RelationEnricher:
                             text_changed = True
 
                         # -- Sender info enrichment ---------------------------------
-                        # Extract original sender display info from the target
-                        # event's native metadata into the relation metadata
-                        # so the renderer can use it for reply fallback sender.
                         sender_meta = (
                             dict(current_rel.metadata) if current_rel.metadata else {}
                         )
                         sender_changed = False
 
+                        # Compute target native metadata once for both fields.
+                        target_data = None
+                        _tn = getattr(target_event, "metadata", None)
+                        if _tn is not None:
+                            _tn = getattr(_tn, "native", None)
+                        if _tn is not None:
+                            _td = getattr(_tn, "data", None)
+                            if isinstance(_td, dict):
+                                target_data = _td
+
                         if "original_sender_displayname" not in sender_meta:
                             _dn = None
-                            target_native = getattr(target_event, "metadata", None)
-                            if target_native is not None:
-                                target_native = getattr(target_native, "native", None)
-                            if target_native is not None:
-                                target_data = getattr(target_native, "data", None)
-                                if isinstance(target_data, dict):
-                                    _dn = target_data.get(
-                                        "displayname"
-                                    ) or target_data.get("longname")
+                            if target_data is not None:
+                                _dn = (
+                                    target_data.get("displayname")
+                                    or target_data.get("longname")
+                                )
                             if _dn:
                                 sender_meta["original_sender_displayname"] = str(_dn)
                                 sender_changed = True
 
                         if "original_sender" not in sender_meta:
                             _snd = None
-                            target_native = getattr(target_event, "metadata", None)
-                            if target_native is not None:
-                                target_native = getattr(target_native, "native", None)
-                            if target_native is not None:
-                                target_data = getattr(target_native, "data", None)
-                                if isinstance(target_data, dict):
-                                    _snd = target_data.get("sender")
+                            if target_data is not None:
+                                _snd = target_data.get("sender")
                             if not _snd:
                                 _snd = getattr(
                                     target_event,
