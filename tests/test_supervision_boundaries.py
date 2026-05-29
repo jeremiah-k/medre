@@ -44,12 +44,12 @@ _RUNTIME_MODULES = (
 )
 """Runtime core modules that must remain transport-agnostic."""
 
-_AGNOSTIC_ENGINE_MODULES = (
+_TRANSPORT_AGNOSTIC_CORE_MODULES = (
     "medre.core.storage.sqlite",
     "medre.core.storage.backend",
     "medre.core.engine.replay",
 )
-"""Engine modules (storage, replay) that must remain transport-agnostic."""
+"""Core modules (storage backend, replay engine) that must remain transport-agnostic."""
 
 
 def _import_lines(source: str) -> list[str]:
@@ -200,9 +200,9 @@ class TestDiagnosticContractBoundary:
 
 
 class TestPersistenceBoundary:
-    """Engine modules (storage, replay) must not import transport SDKs."""
+    """Core modules (storage backend, replay engine) must not import transport SDKs."""
 
-    @pytest.mark.parametrize("module_name", _AGNOSTIC_ENGINE_MODULES)
+    @pytest.mark.parametrize("module_name", _TRANSPORT_AGNOSTIC_CORE_MODULES)
     def test_no_transport_sdk_imports(self, module_name: str) -> None:
         source = _source_of(module_name)
         lines = _import_lines(source)
@@ -210,7 +210,7 @@ class TestPersistenceBoundary:
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
         assert banned_sdk == [], f"{module_name} imports transport SDKs: {banned_sdk}"
 
-    @pytest.mark.parametrize("module_name", _AGNOSTIC_ENGINE_MODULES)
+    @pytest.mark.parametrize("module_name", _TRANSPORT_AGNOSTIC_CORE_MODULES)
     def test_no_concrete_adapter_imports(self, module_name: str) -> None:
         source = _source_of(module_name)
         lines = _import_lines(source)

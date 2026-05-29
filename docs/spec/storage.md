@@ -1,7 +1,7 @@
 # Storage Specification
 
 > **Classification:** Normative
-> **Authority:** Authoritative specification for the MEDRE storage layer: SQLite schema, StorageBackend protocol, path resolution, durability guarantees, and replay/recovery interface.
+> **Authority:** Authoritative specification for the MEDRE storage layer: SQLite schema, StorageBackend protocol, path resolution, durability guarantees, and replay/recovery storage semantics.
 > **Audience:** Runtime builders, adapter authors, operators.
 
 ## Conformance

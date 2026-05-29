@@ -64,13 +64,17 @@ Public symbols
 * :class:`ReplayMode` – behavioural mode enum.
 * :class:`ReplayRequest` – filter and targeting for a replay operation.
 * :class:`ReplayResult` – outcome of replaying a single event through one stage.
-* :class:`ReplayState` – aggregate state tracker for a replay operation.
-* :func:`collect_replay_state` – consume results into a :class:`ReplayState`.
 * :class:`ReplaySummary` – immutable, JSON-safe replay summary.
 * :func:`collect_replay_summary` – consume results into a :class:`ReplaySummary`.
 * :func:`_build_summary` – construct a :class:`ReplaySummary` from materialised results.
 * :class:`ReplayEngine` – the main replay orchestrator.
 * :class:`ReplayRouteAttribution` – route attribution captured during route-aware replay.
+
+Internal helpers (available via direct module import but not re-exported
+through the ``engine`` package):
+
+* :class:`ReplayState` – aggregate state tracker for a replay operation.
+* :func:`collect_replay_state` – consume results into a :class:`ReplayState`.
 """
 
 from __future__ import annotations

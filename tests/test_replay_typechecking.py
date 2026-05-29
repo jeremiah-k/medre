@@ -61,9 +61,9 @@ class TestModuleImport:
             "ReplaySummary",
             "collect_replay_summary",
         ):
-            assert not hasattr(storage_mod, attr), (
-                f"storage must not re-export {attr}; replay lives in core.engine"
-            )
+            assert not hasattr(
+                storage_mod, attr
+            ), f"storage must not re-export {attr}; replay lives in core.engine"
 
     def test_engine_package_re_exports_replay_symbols(self) -> None:
         """medre.core.engine re-exports replay symbols for convenience."""

@@ -138,7 +138,7 @@ def _make_limits(
 
 
 def _make_minimal_event(event_id: str = "evt-cancel-001") -> CanonicalEvent:
-    """Create a minimal CanonicalEvent for storage/replay tests."""
+    """Create a minimal CanonicalEvent for storage and replay tests."""
     return CanonicalEvent(
         event_id=event_id,
         event_kind=EventKind.MESSAGE_TEXT,
