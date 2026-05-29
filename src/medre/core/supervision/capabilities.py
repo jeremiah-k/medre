@@ -66,11 +66,16 @@ def summarize_adapter_capabilities(
     operational capability fields are copied directly from
     :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
     """
+    replies_level = capabilities.replies or "unsupported"
+    reactions_level = capabilities.reactions or "unsupported"
+    edits_level = capabilities.edits or "unsupported"
+    deletes_level = capabilities.deletes or "unsupported"
+
     return TransportCapabilities(
         supports_direct_messages=capabilities.direct_messages,
         supports_channels=capabilities.channels,
-        supports_reactions=capabilities.reactions != "unsupported",
-        supports_edits=capabilities.edits != "unsupported",
+        supports_reactions=reactions_level != "unsupported",
+        supports_edits=edits_level != "unsupported",
         supports_binary_payloads=capabilities.attachments,
         supports_delivery_receipts=capabilities.delivery_receipts,
         supports_ack_tracking=capabilities.ack_tracking,
@@ -83,10 +88,10 @@ def summarize_adapter_capabilities(
         supports_priority_delivery=capabilities.priority_delivery,
         max_text_bytes=capabilities.max_text_bytes,
         max_text_chars=capabilities.max_text_chars,
-        replies_level=capabilities.replies or "unsupported",
-        reactions_level=capabilities.reactions or "unsupported",
-        edits_level=capabilities.edits or "unsupported",
-        deletes_level=capabilities.deletes or "unsupported",
+        replies_level=replies_level,
+        reactions_level=reactions_level,
+        edits_level=edits_level,
+        deletes_level=deletes_level,
     )
 
 

@@ -388,11 +388,16 @@ tie-breaking.
 
 #### 6.3.6 Thread Capability Deferral
 
-`AdapterCapabilities.threads` does not exist. Thread relations are not
-mapped to a capability field. The resolver preserves current behaviour:
-thread-carrying events receive native/direct delivery with
-`capability_field=None`. This deferral is documented explicitly and
-MUST NOT be interpreted as native thread support.
+`AdapterCapabilities.threads` does not exist. The thread relation itself
+does not introduce a capability candidate and MUST NOT be considered during
+capability evaluation. Events carrying a thread relation still participate
+in normal capability checks (event-kind, attachments, other relations) which
+can suppress or alter delivery. The resolver preserves current behaviour
+only insofar as the thread relation contributes no candidate: when no other
+candidate overrides, thread-carrying events receive native/direct delivery
+with `capability_field=None`. This deferral MUST NOT be interpreted as
+unconditional native thread support or as an override of other capability
+rules.
 
 #### 6.3.7 Rendering Evidence
 
