@@ -419,14 +419,14 @@ Rendering evidence is derived from two frozen dataclasses produced by the render
 
 **RenderingContext** records the input constraints that governed the render call:
 
-| Field               | Evidence role                                                                                                                                                                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc.                                                                                                                                                                            |
-| `target_adapter`    | Which adapter the render targets.                                                                                                                                                                                                           |
-| `target_platform`   | Platform of the target adapter.                                                                                                                                                                                                             |
-| `max_text_chars`    | Character budget, or `None` for unlimited.                                                                                                                                                                                                  |
-| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                                                                                                                                                                                                 |
-| `capability_level`  | Capability level for the event's relation type. Not authoritative adapter capability evidence unless explicitly populated by a caller-controlled pipeline stage; the default pipeline leaves it at the reserved/default value (`"native"`). |
+| Field               | Evidence role                                                                                                                                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc.                                                                                                                                                                                                                 |
+| `target_adapter`    | Which adapter the render targets.                                                                                                                                                                                                                                                |
+| `target_platform`   | Platform of the target adapter.                                                                                                                                                                                                                                                  |
+| `max_text_chars`    | Character budget, or `None` for unlimited.                                                                                                                                                                                                                                       |
+| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                                                                                                                                                                                                                                      |
+| `capability_level`  | Capability level for the event's relation type, populated from the `CapabilityDecision` resolved by `CapabilityDecisionResolver`. Reflects the same decision used by Phase 2.5 capability suppression, `FallbackResolver` strategy resolution, and replay BEST_EFFORT filtering. |
 
 **RenderingResult** records the output decisions:
 
@@ -481,7 +481,7 @@ Rendering evidence is structured to support replay inspection. The frozen, deter
 - Deterministic loop prevention and replay route attribution.
 - In-memory execution: no durable replay job queue, no automatic resume after crash.
 
-**What replay execution does *not* provide (preserved from prior wording):**
+**What replay execution does _not_ provide (preserved from prior wording):**
 
 - Reconstruction of `RenderingContext` from stored artifacts (re-executing rendering from stored evidence artifacts is not implemented).
 - Cross-process or cross-restart evidence replay.

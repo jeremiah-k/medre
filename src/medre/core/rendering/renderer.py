@@ -419,6 +419,7 @@ class RenderingPipeline:
         max_text_chars: int | None = None,
         max_text_bytes: int | None = None,
         delivery_strategy: DeliveryStrategyMethod | None = None,
+        capability_level: CapabilityLevel | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -450,6 +451,10 @@ class RenderingPipeline:
             renderers via the context as a rendering hint, **not** used
             for renderer selection.  When ``None``, defaults to
             ``"direct"``.
+        capability_level:
+            The target's capability level for the event's relation type,
+            populated from :class:`CapabilityDecision`.  When ``None``,
+            defaults to ``"native"``.
 
         Returns
         -------
@@ -478,6 +483,11 @@ class RenderingPipeline:
                 "delivery_strategy='skip' must be handled before rendering"
             )
 
+        # Normalise capability_level: default to "native" when unset.
+        cap_level: CapabilityLevel = (
+            "native" if capability_level is None else capability_level
+        )
+
         ctx = RenderingContext(
             delivery_strategy=strategy,
             target_adapter=target_adapter,
@@ -485,6 +495,7 @@ class RenderingPipeline:
             target_platform=platform,
             max_text_chars=max_text_chars,
             max_text_bytes=max_text_bytes,
+            capability_level=cap_level,
         )
 
         for _pri, _seq, renderer in self._renderers:

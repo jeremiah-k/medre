@@ -406,6 +406,15 @@ class TargetDeliveryService:
         _max_text_chars = _caps.max_text_chars
         _max_text_bytes = _caps.max_text_bytes
 
+        # Resolve capability level for rendering context from the
+        # capability decision model.  Uses the same resolver as Phase 2.5
+        # and replay so live/replay rendering evidence shares one source.
+        from medre.core.planning.capability_decision import resolver as _resolver
+        from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
+
+        _cap_decision = _resolver.decide(event, _caps, target_adapter=adapter_id)
+        _capability_level: _CapLevel = _cap_decision.capability_level  # type: ignore[assignment]
+
         # Honor the delivery plan's strategy: validate and narrow the
         # method string to a typed DeliveryStrategyMethod before passing
         # it to the rendering pipeline.
@@ -497,6 +506,7 @@ class TargetDeliveryService:
                 max_text_chars=_max_text_chars,
                 max_text_bytes=_max_text_bytes,
                 delivery_strategy=_validated_strategy,
+                capability_level=_capability_level,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"

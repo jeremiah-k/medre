@@ -33,7 +33,6 @@ from __future__ import annotations
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
@@ -102,9 +101,9 @@ class FallbackResolver:
     ) -> DeliveryStrategy:
         """Determine the effective delivery strategy for *event*.
 
-        Checks the event kind against the adapter's declared capabilities
-        and returns a downgraded strategy when the target cannot handle
-        the event natively.
+        Delegates to :class:`CapabilityDecisionResolver` for the actual
+        capability resolution, then maps the decision's delivery strategy
+        to a :class:`DeliveryStrategy` instance.
 
         For capability fields that use the three-level string scheme
         (``"native"``, ``"fallback"``, ``"unsupported"``), both
@@ -112,62 +111,7 @@ class FallbackResolver:
         ``"unsupported"`` triggers event-specific behavior (``"skip"``
         for both lifecycle events and hard-incompatible capabilities).
         """
-        kind = event.event_kind
+        from medre.core.planning.capability_decision import resolver as _resolver
 
-        # -- Message lifecycle ------------------------------------------------
-
-        if kind == EventKind.MESSAGE_REACTED:
-            if caps.reactions == "unsupported":
-                return DeliveryStrategy(method="skip")
-            if caps.reactions == "fallback":
-                return DeliveryStrategy(method="fallback_text")
-
-        if kind == EventKind.MESSAGE_EDITED:
-            if caps.edits == "unsupported":
-                return DeliveryStrategy(method="skip")
-            if caps.edits == "fallback":
-                return DeliveryStrategy(method="fallback_text")
-
-        if kind == EventKind.MESSAGE_DELETED:
-            if caps.deletes == "unsupported":
-                return DeliveryStrategy(method="skip")
-            if caps.deletes == "fallback":
-                return DeliveryStrategy(method="fallback_text")
-
-        if kind == EventKind.MESSAGE_FILE:
-            if not caps.attachments:
-                return DeliveryStrategy(method="skip")
-
-        if kind in (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT):
-            # Future-proof: if an adapter cannot send text, skip.
-            if not caps.text:
-                return DeliveryStrategy(method="skip")
-
-        # -- Presence / telemetry ---------------------------------------------
-
-        if kind == EventKind.PRESENCE_CHANGED:
-            if not caps.presence:
-                return DeliveryStrategy(method="skip")
-
-        if kind in (EventKind.TELEMETRY_RECEIVED, EventKind.TELEMETRY_POSITION):
-            if not caps.metadata_fields:
-                return DeliveryStrategy(method="skip")
-
-        # -- Relation-carrying events: reply capability -----------------------
-
-        # Events that carry reply relations require reply support.
-        if event.relations:
-            for rel in event.relations:
-                if rel.relation_type == "reply" and caps.replies == "unsupported":
-                    return DeliveryStrategy(method="skip")
-                if rel.relation_type == "reply" and caps.replies == "fallback":
-                    return DeliveryStrategy(method="fallback_text")
-
-        # -- Identity / delivery / system / plugin → passthrough ---------------
-
-        # These event kinds are always forwarded; adapters that cannot
-        # handle them will be caught by the pipeline's capability-
-        # suppressed check during delivery.
-
-        # Default: direct delivery with standard parameters.
-        return DeliveryStrategy(method="direct")
+        decision = _resolver.decide(event, caps)
+        return DeliveryStrategy(method=decision.delivery_strategy)

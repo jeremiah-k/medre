@@ -49,7 +49,6 @@ from medre.core.events.canonical import (
 from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
-    capability_unsupported,
     resolve_adapter_capabilities,
 )
 from medre.core.planning.delivery_plan import (
@@ -1169,6 +1168,10 @@ class PipelineRunner:
             # BEFORE capacity acquisition so that capability-unsupported
             # targets never consume capacity or increment counters.
             #
+            # The resolver produces a CapabilityDecision with capability
+            # level, delivery strategy, capability field, and reason —
+            # providing richer diagnostics than the reason string alone.
+            #
             # IMPORTANT: Only run the capability check for adapters
             # that are actually registered.  Unknown / missing adapters
             # must NOT be capability-suppressed — they need to fall
@@ -1177,7 +1180,17 @@ class PipelineRunner:
             _suppression_reason: str | None = None
             if adapter_id and adapter_id in self._config.adapters:
                 _caps = self._get_adapter_capabilities(target)
-                _suppression_reason = capability_unsupported(event, _caps)
+                from medre.core.planning.capability_decision import (
+                    resolver as _resolver,
+                )
+
+                _cap_decision = _resolver.decide(
+                    event,
+                    _caps,
+                    target_adapter=adapter_id,
+                )
+                if not _cap_decision.supported:
+                    _suppression_reason = _cap_decision.reason
             if _suppression_reason is not None:
                 self._log.info(
                     "capability_suppressed: route_id=%s event_id=%s "

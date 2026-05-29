@@ -1,11 +1,11 @@
 """Capability checking helpers for adapter event-kind support.
 
-This module provides the single source of truth for determining whether
-a given event kind is supported (natively or via fallback) by an
-adapter's declared capabilities.  It is used by both the live pipeline
-(:mod:`~medre.core.engine.pipeline`) and the replay engine
-(:mod:`~medre.core.engine.replay`) so that capability semantics are
-consistent across live and replay delivery paths.
+This module provides backwards-compatible helpers that delegate to
+:mod:`~medre.core.planning.capability_decision` for the actual
+resolution logic.  The :func:`capability_unsupported` function is a
+thin wrapper around :class:`CapabilityDecisionResolver` that preserves
+its original return contract (``None`` when deliverable, reason string
+when unsupported).
 
 Capability level semantics (three-level string fields):
 
@@ -29,7 +29,7 @@ from typing import Any
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
+from medre.core.planning.capability_decision import resolver as _resolver
 
 
 def capability_unsupported(
@@ -42,6 +42,11 @@ def capability_unsupported(
     (``"native"``) or via fallback text (``"fallback"``).  Only
     ``"unsupported"`` capability values cause a suppression reason to
     be returned.
+
+    This function delegates to
+    :meth:`CapabilityDecisionResolver.decide` and returns the decision's
+    ``reason`` when unsupported, ``None`` otherwise.  It preserves the
+    original return contract for backwards compatibility.
 
     Parameters
     ----------
@@ -56,37 +61,10 @@ def capability_unsupported(
         A human-readable reason when the event should be suppressed, or
         ``None`` when the event is deliverable.
     """
-    kind = event.event_kind
-
-    if kind == EventKind.MESSAGE_REACTED and caps.reactions == "unsupported":
-        return f"reactions unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_EDITED and caps.edits == "unsupported":
-        return f"edits unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_DELETED and caps.deletes == "unsupported":
-        return f"deletes unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_FILE and not caps.attachments:
-        return f"attachments unsupported by adapter (event_kind={kind})"
-
-    if kind in (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT) and not caps.text:
-        return f"text unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.PRESENCE_CHANGED and not caps.presence:
-        return f"presence unsupported by adapter (event_kind={kind})"
-
-    if kind in (EventKind.TELEMETRY_RECEIVED, EventKind.TELEMETRY_POSITION):
-        if not caps.metadata_fields:
-            return f"metadata_fields unsupported by adapter (event_kind={kind})"
-
-    # Reply-carrying events require reply support.
-    if event.relations:
-        for rel in event.relations:
-            if rel.relation_type == "reply" and caps.replies == "unsupported":
-                return "replies unsupported by adapter (event has reply relation)"
-
-    return None
+    decision = _resolver.decide(event, caps)
+    if decision.supported:
+        return None
+    return decision.reason
 
 
 def resolve_adapter_capabilities(
