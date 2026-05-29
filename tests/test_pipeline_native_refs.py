@@ -15,11 +15,8 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterDeliveryResult
-from medre.core.engine.pipeline import (
-    PipelineConfig,
-    PipelineRunner,
-    _native_metadata_for_ref,
-)
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.engine.pipeline.runner import _native_metadata_for_ref
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
