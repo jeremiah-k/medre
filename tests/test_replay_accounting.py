@@ -10,14 +10,14 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
+from medre.core.engine.replay import (
+    ReplayMode,
+    ReplayRequest,
+)
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
 from medre.core.storage import SQLiteStorage
-from medre.core.storage.replay import (
-    ReplayMode,
-    ReplayRequest,
-)
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.replay import (
     StubPipeline,
@@ -257,7 +257,7 @@ class TestReplayAccounting:
         engine._diagnostician = diag
 
         # STRICT replay -- one passes, one fails (unregistered kind)
-        from medre.core.storage.replay import collect_replay_state
+        from medre.core.engine.replay import collect_replay_state
 
         await collect_replay_state(
             engine.replay(ReplayRequest(mode=ReplayMode.STRICT)),

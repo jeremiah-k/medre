@@ -19,14 +19,7 @@ import pytest
 
 from medre.config.model import RuntimeLimits
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.planning import FallbackResolver
-from medre.core.rendering import RenderingPipeline
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.routing.stats import RouteStats
-from medre.core.storage import SQLiteStorage
-from medre.core.storage.backend import StorageBackend
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,
@@ -37,6 +30,13 @@ from medre.core.storage.replay import (
     collect_replay_state,
     collect_replay_summary,
 )
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.planning import FallbackResolver
+from medre.core.rendering import RenderingPipeline
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing.stats import RouteStats
+from medre.core.storage import SQLiteStorage
+from medre.core.storage.backend import StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 
@@ -769,7 +769,7 @@ class TestObservabilityConsistency:
 
     def test_summary_error_truncation(self) -> None:
         """_build_summary truncates error messages to _MAX_ERROR_LENGTH."""
-        from medre.core.storage.replay import _MAX_ERROR_LENGTH
+        from medre.core.engine.replay import _MAX_ERROR_LENGTH
 
         long_error = "x" * 600
         results = [
@@ -786,7 +786,7 @@ class TestObservabilityConsistency:
 
     def test_summary_error_count_cap(self) -> None:
         """_build_summary caps the number of retained errors."""
-        from medre.core.storage.replay import _MAX_SUMMARY_ERRORS
+        from medre.core.engine.replay import _MAX_SUMMARY_ERRORS
 
         results = [
             ReplayResult(

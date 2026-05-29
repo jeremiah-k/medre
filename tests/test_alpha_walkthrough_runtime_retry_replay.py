@@ -191,13 +191,13 @@ class TestAlphaReplayScenario:
             StorageConfig,
         )
         from medre.config.paths import MedrePaths
-        from medre.core.events.canonical import CanonicalEvent, EventMetadata
-        from medre.core.storage.replay import (
+        from medre.core.engine.replay import (
             ReplayEngine,
             ReplayMode,
             ReplayRequest,
             collect_replay_summary,
         )
+        from medre.core.events.canonical import CanonicalEvent, EventMetadata
 
         db_path = tmp_path / "replay_walkthrough.db"
         paths = MedrePaths(

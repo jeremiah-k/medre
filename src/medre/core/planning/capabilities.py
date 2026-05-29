@@ -4,7 +4,7 @@ This module provides the single source of truth for determining whether
 a given event kind is supported (natively or via fallback) by an
 adapter's declared capabilities.  It is used by both the live pipeline
 (:mod:`~medre.core.engine.pipeline`) and the replay engine
-(:mod:`~medre.core.storage.replay`) so that capability semantics are
+(:mod:`~medre.core.engine.replay`) so that capability semantics are
 consistent across live and replay delivery paths.
 
 Capability level semantics (three-level string fields):

@@ -7,15 +7,15 @@ existing traceability tests and new replay bridge condition tests.
 
 from __future__ import annotations
 
-from medre.core.events import CanonicalEvent
-from medre.core.storage import SQLiteStorage
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
     ReplayState,
     collect_replay_state,
 )
+from medre.core.events import CanonicalEvent
+from medre.core.storage import SQLiteStorage
 from tests.helpers.replay import (
     make_engine,
     make_second_event,
@@ -102,7 +102,7 @@ class TestReplayTraceability:
 
     def test_resolve_stages_all_modes(self) -> None:
         """_resolve_stages returns correct stages for each mode."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         strict = _resolve_stages(ReplayRequest(mode=ReplayMode.STRICT))
         assert strict == ("store",)
@@ -121,7 +121,7 @@ class TestReplayTraceability:
 
     def test_resolve_stages_with_target_stages(self) -> None:
         """target_stages intersects with mode-allowed stages."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         request = ReplayRequest(
             mode=ReplayMode.BEST_EFFORT,
@@ -132,7 +132,7 @@ class TestReplayTraceability:
 
     def test_resolve_stages_target_stages_subset(self) -> None:
         """target_stages only returns stages allowed by the mode."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         # STRICT only allows "store"; requesting "render" is a no-op
         request = ReplayRequest(

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from medre.core.engine.replay import (
+    ReplayMode,
+    ReplayRequest,
+)
 from medre.core.events import CanonicalEvent, DeliveryReceipt
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
 from medre.core.storage import EventFilter, SQLiteStorage
-from medre.core.storage.replay import (
-    ReplayMode,
-    ReplayRequest,
-)
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,

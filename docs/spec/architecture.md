@@ -80,8 +80,8 @@ src/medre/
   core/           event model, storage, pipeline, routing, rendering
     contracts/    adapter protocol and contract types
     events/       bus, canonical event, schema, kinds
-    storage/      backend, SQLite implementation, replay
-    engine/       pipeline runner
+    storage/      backend, SQLite implementation
+    engine/       pipeline runner, replay
     routing/      models, router, stats
     planning/     delivery plan, fallback resolution, relation resolution
     rendering/    renderer pipeline, text renderer

@@ -12,15 +12,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
-from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering import RenderingPipeline
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import EventFilter, SQLiteStorage
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayMode,
     ReplayRequest,
     collect_replay_state,
 )
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.rendering import RenderingPipeline
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage import EventFilter, SQLiteStorage
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,
@@ -867,7 +867,7 @@ class TestReplayEngine:
 
     def test_resolve_stages_all_modes(self) -> None:
         """_resolve_stages returns correct stages for each mode."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         strict = _resolve_stages(ReplayRequest(mode=ReplayMode.STRICT))
         assert strict == ("store",)
@@ -886,7 +886,7 @@ class TestReplayEngine:
 
     def test_resolve_stages_with_target_stages(self) -> None:
         """target_stages intersects with mode-allowed stages."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         request = ReplayRequest(
             mode=ReplayMode.BEST_EFFORT,
@@ -897,7 +897,7 @@ class TestReplayEngine:
 
     def test_resolve_stages_target_stages_subset(self) -> None:
         """target_stages only returns stages allowed by the mode."""
-        from medre.core.storage.replay import _resolve_stages
+        from medre.core.engine.replay import _resolve_stages
 
         # STRICT only allows "store"; requesting "render" is a no-op
         request = ReplayRequest(
@@ -958,7 +958,7 @@ class TestFilterPlansByAdapter:
 
     def test_matching_adapter_included(self) -> None:
         """Plan with matching target adapter is included."""
-        from medre.core.storage.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
@@ -966,7 +966,7 @@ class TestFilterPlansByAdapter:
 
     def test_non_matching_adapter_excluded(self) -> None:
         """Plan with non-matching adapter is excluded."""
-        from medre.core.storage.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([plan], ["other-adapter"])
@@ -974,7 +974,7 @@ class TestFilterPlansByAdapter:
 
     def test_none_adapter_included_conservatively(self) -> None:
         """Plan with adapter=None is included (conservative)."""
-        from medre.core.storage.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter=None)
         result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
@@ -982,7 +982,7 @@ class TestFilterPlansByAdapter:
 
     def test_tuple_plan_matching_adapter(self) -> None:
         """Tuple (route, DeliveryPlan) with matching adapter is included."""
-        from medre.core.storage.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([("route-stub", plan)], ["matrix-bridge"])
@@ -990,7 +990,7 @@ class TestFilterPlansByAdapter:
 
     def test_tuple_plan_non_matching_excluded(self) -> None:
         """Tuple (route, DeliveryPlan) with non-matching adapter excluded."""
-        from medre.core.storage.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([("route-stub", plan)], ["other-adapter"])
@@ -1023,7 +1023,7 @@ class TestFilterPlansByCapability:
 
     def test_returns_plans_when_pipeline_is_none(self) -> None:
         """When adapters is None, all plans pass through."""
-        from medre.core.storage.replay import _filter_plans_by_capability
+        from medre.core.engine.replay import _filter_plans_by_capability
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters=None)
@@ -1031,7 +1031,7 @@ class TestFilterPlansByCapability:
 
     def test_returns_plans_when_pipeline_lacks_method(self) -> None:
         """Empty adapters dict passes everything conservatively."""
-        from medre.core.storage.replay import _filter_plans_by_capability
+        from medre.core.engine.replay import _filter_plans_by_capability
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters={})
@@ -1040,7 +1040,7 @@ class TestFilterPlansByCapability:
     def test_supported_event_kind_passes(self) -> None:
         """Plan with adapter that supports the event kind is included."""
         from medre.core.contracts.adapter import AdapterCapabilities
-        from medre.core.storage.replay import _filter_plans_by_capability
+        from medre.core.engine.replay import _filter_plans_by_capability
 
         caps = AdapterCapabilities(text=True)
 
@@ -1049,13 +1049,15 @@ class TestFilterPlansByCapability:
 
         adapters = {"adapter-1": _CapAdapter()}
         plan = _make_delivery_plan(adapter="adapter-1")
-        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
+        result = _filter_plans_by_capability(
+            self._make_event(), [plan], adapters=adapters
+        )
         assert len(result) == 1
 
     def test_unsupported_event_kind_filtered(self) -> None:
         """Plan with adapter that doesn't support event kind is excluded."""
         from medre.core.contracts.adapter import AdapterCapabilities
-        from medre.core.storage.replay import _filter_plans_by_capability
+        from medre.core.engine.replay import _filter_plans_by_capability
 
         caps = AdapterCapabilities(text=False)
 
@@ -1064,12 +1066,14 @@ class TestFilterPlansByCapability:
 
         adapters = {"adapter-1": _CapAdapter()}
         plan = _make_delivery_plan(adapter="adapter-1")
-        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
+        result = _filter_plans_by_capability(
+            self._make_event(), [plan], adapters=adapters
+        )
         assert len(result) == 0
 
     def test_missing_adapter_included_conservatively(self) -> None:
         """Plan targeting adapter NOT in adapters dict is included (conservative)."""
-        from medre.core.storage.replay import _filter_plans_by_capability
+        from medre.core.engine.replay import _filter_plans_by_capability
 
         # Plan targets "adapter-unknown" which is absent from adapters dict.
         plan = _make_delivery_plan(adapter="adapter-unknown")
@@ -1096,7 +1100,7 @@ class TestStageDeliverCapabilityFilter:
     ) -> None:
         """BEST_EFFORT filters unsupported event kinds."""
         from medre.core.contracts.adapter import AdapterCapabilities
-        from medre.core.storage.replay import ReplayRequest
+        from medre.core.engine.replay import ReplayRequest
 
         # Create a route that matches sample_event (fake_transport → target-adapter)
         route = Route(
@@ -1141,7 +1145,7 @@ class TestStageDeliverCapabilityFilter:
     ) -> None:
         """DRY_RUN mode doesn't filter by capability."""
         from medre.core.contracts.adapter import AdapterCapabilities
-        from medre.core.storage.replay import ReplayRequest
+        from medre.core.engine.replay import ReplayRequest
 
         route = Route(
             id="cap-route",
@@ -1184,7 +1188,7 @@ class TestStageDeliverCapabilityFilter:
     ) -> None:
         """When all plans filtered by capability, accounting is called."""
         from medre.core.contracts.adapter import AdapterCapabilities
-        from medre.core.storage.replay import ReplayRequest
+        from medre.core.engine.replay import ReplayRequest
         from medre.core.supervision.accounting import RuntimeAccounting
 
         route = Route(
@@ -1230,8 +1234,8 @@ class TestStageDeliverCapabilityFilter:
     ) -> None:
         """Partial suppression: only SOME plans filtered, accounting counts correctly."""
         from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.engine.replay import ReplayRequest
         from medre.core.events import CanonicalEvent, EventMetadata
-        from medre.core.storage.replay import ReplayRequest
         from medre.core.supervision.accounting import RuntimeAccounting
 
         # Build a message.file event — capability check uses caps.attachments.

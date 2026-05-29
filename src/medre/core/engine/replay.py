@@ -5,7 +5,7 @@ already been persisted in storage through selected pipeline stages.  Different
 :class:`ReplayMode` values control which stages are executed and whether
 side-effects (delivery to adapters) are allowed.
 
-Replay is **read-only** for STRICT, RE_RENDER, RE_ROUTE, and DRY_RUN modes –
+Replay is **read-only** for STRICT, RE_RENDER, RE_ROUTE, and DRY_RUN modes --
 stored canonical events are never mutated.  Only BEST_EFFORT mode permits the
 delivery side-effect.
 
@@ -22,7 +22,7 @@ BEST_EFFORT delivery semantics
    records for adapter delivery attempts.  It **may** create
    ``NativeMessageRef`` records when adapter delivery returns native
    identifiers.  Native refs are not directly source-tagged; correlate
-   via delivery receipts.  **Traceability is not deduplication** — replay
+   via delivery receipts.  **Traceability is not deduplication** --- replay
    may produce duplicate sends, and no storage-level deduplication
    prevents this.
 
@@ -54,23 +54,27 @@ Mode guarantees
 +------------+----------+--------+------+---------+---------+-------------------+
 |            | Receipts carry ``source="replay"`` + ``replay_run_id``.       |
 |            | Native refs correlate via receipt ``event_id`` linkage.       |
-|            | Traceability ≠ dedupe; duplicate-send risk applies.          |
+|            | Traceability != dedupe; duplicate-send risk applies.          |
 +------------+----------+--------+------+---------+---------+-------------------+
 | DRY_RUN    | verify   | route  | plan | capture | skip    | None (read-only)  |
 +------------+----------+--------+------+---------+---------+-------------------+
 
 Public symbols
 --------------
-* :class:`ReplayMode` – behavioural mode enum.
-* :class:`ReplayRequest` – filter and targeting for a replay operation.
-* :class:`ReplayResult` – outcome of replaying a single event through one stage.
-* :class:`ReplayState` – aggregate state tracker for a replay operation.
-* :func:`collect_replay_state` – consume results into a :class:`ReplayState`.
-* :class:`ReplaySummary` – immutable, JSON-safe replay summary.
-* :func:`collect_replay_summary` – consume results into a :class:`ReplaySummary`.
-* :func:`_build_summary` – construct a :class:`ReplaySummary` from materialised results.
-* :class:`ReplayEngine` – the main replay orchestrator.
-* :class:`ReplayRouteAttribution` – route attribution captured during route-aware replay.
+* :class:`ReplayMode` -- behavioural mode enum.
+* :class:`ReplayRequest` -- filter and targeting for a replay operation.
+* :class:`ReplayResult` -- outcome of replaying a single event through one stage.
+* :class:`ReplaySummary` -- immutable, JSON-safe replay summary.
+* :func:`collect_replay_summary` -- consume results into a :class:`ReplaySummary`.
+* :func:`_build_summary` -- construct a :class:`ReplaySummary` from materialised results.
+* :class:`ReplayEngine` -- the main replay orchestrator.
+* :class:`ReplayRouteAttribution` -- route attribution captured during route-aware replay.
+
+Internal helpers (available via direct module import but not re-exported
+through the ``engine`` package):
+
+* :class:`ReplayState` -- aggregate state tracker for a replay operation.
+* :func:`collect_replay_state` -- consume results into a :class:`ReplayState`.
 """
 
 from __future__ import annotations
@@ -117,7 +121,7 @@ class ReplayMode(Enum):
     Attributes
     ----------
     STRICT:
-        Exact replay – verify event existence and integrity without
+        Exact replay -- verify event existence and integrity without
         invoking any pipeline stages.  No side effects.  Useful for
         integrity checks and migration validation.
 
@@ -219,7 +223,7 @@ class _PipelineProtocol(Protocol):
         Execute delivery plans to adapters.  (Stub pipelines only; real
         pipelines use ``deliver_to_targets`` instead.)
     deliver_to_targets:
-        Deliver an event to route–plan pairs.  (Real PipelineRunner only;
+        Deliver an event to route--plan pairs.  (Real PipelineRunner only;
         stub pipelines use ``deliver`` instead.)
     """
 
@@ -382,13 +386,13 @@ class ReplayResult:
         The pipeline stage that produced this result (``"store"``,
         ``"route"``, ``"plan"``, ``"render"``, ``"deliver"``).
     status:
-        ``"passed"`` – stage completed successfully.
-        ``"skipped"`` – stage was not executed because an upstream
+        ``"passed"`` -- stage completed successfully.
+        ``"skipped"`` -- stage was not executed because an upstream
         dependency was unavailable, delivery was suppressed (dry_run),
         or the target adapter was excluded by ``target_adapters``.
-        ``"failed"`` – stage ran but the result was negative (e.g.
+        ``"failed"`` -- stage ran but the result was negative (e.g.
         integrity check failed, no routes matched).
-        ``"error"`` – an exception was raised during stage execution.
+        ``"error"`` -- an exception was raised during stage execution.
     output:
         Stage-specific output, if applicable.
     error:
@@ -432,7 +436,7 @@ class ReplayRouteAttribution:
     replay_mode:
         The :class:`ReplayMode` used for this replay.
     is_replay:
-        Always ``True`` – distinguishes replay attribution from
+        Always ``True`` -- distinguishes replay attribution from
         live-routing metadata.
     loop_warnings:
         Tuple of human-readable loop-prevention warnings, if any routes
@@ -536,7 +540,7 @@ async def collect_replay_state(
 
 
 # ---------------------------------------------------------------------------
-# Replay summary – immutable operator-facing snapshot
+# Replay summary -- immutable operator-facing snapshot
 # ---------------------------------------------------------------------------
 
 
@@ -761,7 +765,7 @@ async def collect_replay_summary(
         Override for the events-scanned count.  When ``None``, defaults
         to the number of distinct ``event_id`` values in *results*.
     elapsed_ms:
-        Wall-clock duration in milliseconds.  ``None`` → ``0.0``.
+        Wall-clock duration in milliseconds.  ``None`` -> ``0.0``.
     mode:
         The :class:`ReplayMode` used.  ``None`` if unknown.
     run_id:
@@ -869,7 +873,7 @@ def _verify_immutability(original: CanonicalEvent, event_id: str) -> None:
     and verifies that key identity fields remain stable.
 
     Replay must never mutate historical CanonicalEvents.  This guarantee
-    holds across all replay modes — even BEST_EFFORT reads events from
+    holds across all replay modes --- even BEST_EFFORT reads events from
     storage without modification.
     """
     # The frozen=True on CanonicalEvent prevents mutation at the
@@ -1013,7 +1017,7 @@ class ReplayEngine:
             async for event_id, event in self._iter_by_ids(request):
                 if self._cancel_event.is_set():
                     _logger.info(
-                        "Replay cancelled — stopping correlation-id iteration",
+                        "Replay cancelled --- stopping correlation-id iteration",
                     )
                     return
                 if event is None:
@@ -1030,7 +1034,7 @@ class ReplayEngine:
             event_filter = _request_to_filter(request)
             async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
                 if self._cancel_event.is_set():
-                    _logger.info("Replay cancelled — stopping event iteration")
+                    _logger.info("Replay cancelled --- stopping event iteration")
                     return
                 async for result in self._replay_event_safe(
                     event,
@@ -1124,7 +1128,7 @@ class ReplayEngine:
         try:
             async for result in self._replay_event(event, stages, request):
                 yield result
-            # All stages completed for this event → processed.
+            # All stages completed for this event -> processed.
             if self._accounting is not None:
                 self._accounting.record_replay_processed()
         except asyncio.CancelledError:
@@ -1204,7 +1208,7 @@ class ReplayEngine:
         _verify_immutability(event, event.event_id)
 
         for stage in stages:
-            # Check cancellation between stages — skip remaining stages
+            # Check cancellation between stages --- skip remaining stages
             # for this event if cancellation was requested mid-event.
             if self._cancel_event.is_set():
                 yield ReplayResult(
@@ -1318,7 +1322,7 @@ class ReplayEngine:
     ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None, CanonicalEvent | None]:
         """Route *event* against current routes.
 
-        Returns the :class:`ReplayResult`, the route–plan pairs for
+        Returns the :class:`ReplayResult`, the route--plan pairs for
         use by downstream stages, and the enriched event (or ``None``
         if routing failed before enrichment).  If no routes match, the
         result status is ``"failed"`` and the route data is an empty
@@ -1371,7 +1375,7 @@ class ReplayEngine:
         try:
             # Save routing metadata *before* route_event enriches the event.
             # _filter_replay_loops must check original routing to avoid
-            # false positives — route_event populates matched_routes and
+            # false positives --- route_event populates matched_routes and
             # route_trace with the *current* pass, which should not be
             # treated as "previously matched".
             original_routing = event.metadata.routing
@@ -1535,7 +1539,7 @@ class ReplayEngine:
         by downstream stages.
 
         When *route_result* already contains ``DeliveryPlan`` objects
-        (i.e. from the real PipelineRunner), the route–plan pairs are
+        (i.e. from the real PipelineRunner), the route--plan pairs are
         preserved as ``list[tuple[Route, DeliveryPlan]]`` so that
         :meth:`_stage_deliver` can call ``deliver_to_targets``.
         For stub pipelines where the second element is not a
@@ -1557,7 +1561,7 @@ class ReplayEngine:
             )
 
         # Empty route_result means routes were filtered out (e.g. loop
-        # prevention) — nothing to plan.
+        # prevention) --- nothing to plan.
         if not route_result:
             return (
                 ReplayResult(
@@ -1572,14 +1576,14 @@ class ReplayEngine:
 
         # If route_result items already contain DeliveryPlan objects
         # (real pipeline returns list[tuple[Route, DeliveryPlan]]),
-        # preserve the route–plan pairs.  For stub pipelines where the
+        # preserve the route--plan pairs.  For stub pipelines where the
         # second element is not a DeliveryPlan, we fall through to the
         # plan_delivery path below.
         plans: list[Any] = []
         all_delivery_plans = True
         for route, plan_or_target in route_result:
             if hasattr(plan_or_target, "target") and hasattr(plan_or_target, "plan_id"):
-                # Preserve route–plan pairs so that _stage_deliver can
+                # Preserve route--plan pairs so that _stage_deliver can
                 # call deliver_to_targets with the correct shape.
                 plans.append((route, plan_or_target))
             else:
@@ -1712,7 +1716,7 @@ class ReplayEngine:
     ) -> ReplayResult:
         """Execute delivery plans for *event*.
 
-        This is the **only** stage with side effects – it delivers to
+        This is the **only** stage with side effects -- it delivers to
         adapters.  Only executed in :attr:`ReplayMode.BEST_EFFORT` mode.
         In :attr:`ReplayMode.DRY_RUN` mode the delivery is suppressed
         and the result is ``"skipped"``.
@@ -1956,7 +1960,7 @@ def _filter_replay_loops(
     event:
         The event being replayed (enriched by route_event).
     routes:
-        Matched route–plan pairs from the current routing pass.
+        Matched route--plan pairs from the current routing pass.
     previous_routing:
         The routing metadata from *before* route_event enriched the
         event.  When provided (including ``None`` for a fresh event),
@@ -1973,7 +1977,7 @@ def _filter_replay_loops(
     filtered: list[tuple[Any, Any]] = []
 
     # Pre-compute previously matched routes.  When previous_routing is
-    # explicitly provided (called from _stage_route), use it — even if
+    # explicitly provided (called from _stage_route), use it --- even if
     # it is None (fresh event, no prior routing).  When left as the
     # default sentinel, fall back to the event's current routing
     # metadata as a fallback when no explicit routing context is provided.
@@ -1986,7 +1990,7 @@ def _filter_replay_loops(
         prev_matched = set(routing_meta.matched_routes)
     # Also check route_trace for historical traversal.  A route ID that
     # appears only once in the trace was added by the current routing pass
-    # — do NOT filter it.  Only filter when the same route ID appears
+    # --- do NOT filter it.  Only filter when the same route ID appears
     # multiple times (indicating a prior routing pass).
     if routing_meta is not None and routing_meta.route_trace:
         trace = routing_meta.route_trace
@@ -2089,7 +2093,7 @@ def _filter_plans_by_adapter(
         target = getattr(plan, "target", None)
         adapter = getattr(target, "adapter", None) if target is not None else None
         if adapter is None:
-            # Opaque plan structure – include conservatively.
+            # Opaque plan structure -- include conservatively.
             result.append(item)
         elif adapter in allowed:
             result.append(item)
@@ -2145,18 +2149,18 @@ def _filter_plans_by_capability(
 
         target = getattr(plan, "target", None)
         if target is None:
-            # Opaque plan structure – include conservatively.
+            # Opaque plan structure -- include conservatively.
             result.append(item)
             continue
 
         caps = resolve_adapter_capabilities(adapters, target)
         if caps is None:
-            # Adapter is missing from the registry — include conservatively
+            # Adapter is missing from the registry --- include conservatively
             # rather than suppressing based on default (all-false) caps.
             result.append(item)
             continue
         reason = capability_unsupported(event, caps)
         if reason is None:
             result.append(item)
-        # else: capability-suppressed — exclude from delivery
+        # else: capability-suppressed --- exclude from delivery
     return result

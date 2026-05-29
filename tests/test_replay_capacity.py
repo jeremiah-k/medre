@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering import RenderingPipeline
-from medre.core.routing import Router
-from medre.core.storage import EventFilter, SQLiteStorage
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayMode,
     ReplayRequest,
     collect_replay_state,
 )
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.rendering import RenderingPipeline
+from medre.core.routing import Router
+from medre.core.storage import EventFilter, SQLiteStorage
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,

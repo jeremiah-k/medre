@@ -138,7 +138,7 @@ def _make_limits(
 
 
 def _make_minimal_event(event_id: str = "evt-cancel-001") -> CanonicalEvent:
-    """Create a minimal CanonicalEvent for storage/replay tests."""
+    """Create a minimal CanonicalEvent for storage and replay tests."""
     return CanonicalEvent(
         event_id=event_id,
         event_kind=EventKind.MESSAGE_TEXT,
@@ -737,7 +737,7 @@ class TestShutdownDuringReplay:
             # Stop accepting new work.
             cc.stop_accepting()
 
-            from medre.core.storage.replay import ReplayMode, ReplayRequest
+            from medre.core.engine.replay import ReplayMode, ReplayRequest
 
             request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
 
@@ -784,7 +784,7 @@ class TestShutdownDuringReplay:
             assert cc is not None
             cc.stop_accepting()
 
-            from medre.core.storage.replay import ReplayMode, ReplayRequest
+            from medre.core.engine.replay import ReplayMode, ReplayRequest
 
             request = ReplayRequest(mode=ReplayMode.STRICT)
             results = []
@@ -861,7 +861,7 @@ class TestShutdownDuringReplay:
             evt = _make_minimal_event(event_id=f"inflight-evt-{i}")
             await storage.append(evt)
 
-        from medre.core.storage.replay import ReplayMode, ReplayRequest
+        from medre.core.engine.replay import ReplayMode, ReplayRequest
 
         request = ReplayRequest(mode=ReplayMode.STRICT)
 

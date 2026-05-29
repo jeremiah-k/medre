@@ -673,8 +673,8 @@ class TestCoreModulesTransportAgnostic:
 
     _CORE_MODULES = [
         "medre.core.engine.pipeline",
+        "medre.core.engine.replay",
         "medre.core.storage.sqlite",
-        "medre.core.storage.replay",
         "medre.core.storage.backend",
         "medre.core.events.bus",
         "medre.core.events.canonical",
