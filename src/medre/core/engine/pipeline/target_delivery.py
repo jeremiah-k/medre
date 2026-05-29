@@ -35,6 +35,7 @@ import asyncio
 import json
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import (
     Any,
@@ -529,6 +530,12 @@ class TargetDeliveryService:
                 receipt=receipt,
                 failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
             ) from None
+
+        # Stamp the delivery_plan_id onto the rendering result so that
+        # queue-based adapters can propagate it through their queue into
+        # OutboundNativeRefRecord for deterministic queued→sent receipt
+        # correlation.  RenderingResult is frozen; use dataclass replace().
+        rendering_result = replace(rendering_result, delivery_plan_id=plan.plan_id)
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)

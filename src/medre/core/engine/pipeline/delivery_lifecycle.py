@@ -51,6 +51,13 @@ Retry representation
     failure kind + ``next_retry_at`` on the receipt - **not** as a distinct
     receipt status.
 
+``delivery_plan_id`` correlation key
+    ``delivery_plan_id`` is an internal lifecycle correlation key: it is
+    not sent over transports, not persisted in ``native_message_refs``,
+    and adapters propagate it only through internal local queues and
+    callback records.  It provides deterministic correlation for
+    queued→sent receipt pairing.
+
 Observed transitions
     - Receipt: ``queued`` -> ``sent`` (supplemental, via callback)
     - Receipt: ``failed`` -> ``dead_lettered`` (exhausted retry)
@@ -69,6 +76,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.engine.pipeline.delivery_state import (
+    is_terminal_outbox_status as _is_terminal_outbox_status,
+)
+from medre.core.engine.pipeline.delivery_state import (
+    is_valid_queued_to_sent_transition as _is_valid_queued_to_sent_transition,
+)
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -83,16 +96,6 @@ from medre.core.storage.backend import StorageBackend
 # ---------------------------------------------------------------------------
 
 _logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Module-level constants
-# ---------------------------------------------------------------------------
-
-#: Terminal outbox statuses - once entered, the outbox item is never
-#: transitioned to a different status.
-_TERMINAL_OUTBOX_STATUSES: frozenset[str] = frozenset(
-    {"sent", "dead_lettered", "cancelled", "abandoned"}
-)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +305,9 @@ class DeliveryLifecycleService:
         Terminal statuses: ``sent``, ``dead_lettered``, ``cancelled``,
         ``abandoned``.
 
+        Delegates to
+        :func:`~medre.core.engine.pipeline.delivery_state.is_terminal_outbox_status`.
+
         Parameters
         ----------
         status:
@@ -311,7 +317,7 @@ class DeliveryLifecycleService:
         -------
         bool
         """
-        return status in _TERMINAL_OUTBOX_STATUSES
+        return _is_terminal_outbox_status(status)
 
     # -- Dead-letter receipt creation ---------------------------------------
 
@@ -470,11 +476,44 @@ class DeliveryLifecycleService:
         """Append a supplemental ``status="sent"`` receipt for a
         queue-based delivery that transitioned from enqueued to sent.
 
-        Finds the most recent ``status="queued"`` receipt for this
-        event_id + adapter, inherits its plan/route context, and
-        appends a new immutable receipt with ``status="sent"`` and the
-        real ``adapter_message_id``.  Also transitions the matching
-        outbox item from ``queued`` -> ``sent``.
+        **Correlation strategy (priority order)**:
+
+        1. **Exact ``delivery_plan_id`` match** (deterministic, preferred).
+           When *record.delivery_plan_id* is present, only queued receipts
+           with the same ``delivery_plan_id`` are considered.  If no
+           exact match is found, the method logs and returns — it does
+           **not** fall back to the heuristic, preventing wrong-plan
+           attachment.  When no ``native_channel_id`` is available on
+           the record and multiple plan matches exist:
+
+           - If all plan matches share the same ``target_channel``
+             (retry lineage): choose the latest (last appended) queued
+             receipt.
+           - If plan matches span multiple ``target_channel`` values:
+             log a warning and return (ambiguous).
+
+        2. **Legacy degraded path** (no ``delivery_plan_id``).  When
+           *record.delivery_plan_id* is ``None``, the method filters by
+           event_id + adapter and applies a disambiguation rule:
+
+           - If exactly one candidate: use it.
+           - If multiple candidates: collect unique
+             ``delivery_plan_id`` values and unique ``target_channel``
+             values.  If exactly one ``delivery_plan_id`` AND exactly
+             one ``target_channel`` (unambiguous retry lineage): choose
+             the latest (last appended) queued receipt.
+           - Otherwise (cross-plan or cross-channel ambiguity): log a
+             warning and return without creating a supplemental sent
+             receipt.  Ambiguity must not silently pick a winner.
+
+        After correlation, the method validates that the selected queued
+        receipt can transition to ``sent`` using the delivery_state
+        transition helper.  If the status is invalid, the method logs
+        and returns.
+
+        Finally, the method appends a new immutable receipt with
+        ``status="sent"`` and the real ``adapter_message_id``, and
+        transitions the matching outbox item from ``queued`` -> ``sent``.
 
         If no matching ``"queued"`` receipt is found (e.g. non-queued
         adapter or replay context), the method returns silently.
@@ -488,21 +527,6 @@ class DeliveryLifecycleService:
         now:
             Timestamp for the new receipt.
         """
-        # Look up existing receipts for this event to find the
-        # queued receipt we want to supplement.
-        #
-        # TODO(correlation-ambiguity): OutboundNativeRefRecord carries
-        # event_id + adapter + native_channel_id but no delivery-attempt
-        # correlation field (delivery_plan_id, outbox_id, receipt_id, or
-        # delivery attempt id).  When the same event + adapter + channel
-        # combination has multiple delivery plans (e.g. overlapping routes),
-        # the supplemental sent receipt may be attached to the wrong queued
-        # receipt.  The current "most recent" heuristic mitigates this for
-        # retries (same plan, later attempt wins) but cannot disambiguate
-        # across different plans targeting the same adapter + channel.
-        # A future fix needs either a stable correlation field on
-        # OutboundNativeRefRecord or a delivery-attempt-level identifier
-        # that the adapter can propagate back with the native ref.
         try:
             existing = await storage.list_receipts_for_event(record.event_id)
         except Exception:
@@ -515,7 +539,7 @@ class DeliveryLifecycleService:
             )
             return
 
-        # Find the most recent "queued" receipt targeting this adapter.
+        # Find queued receipts targeting this adapter.
         candidates: list[DeliveryReceipt] = [
             r
             for r in existing
@@ -525,36 +549,156 @@ class DeliveryLifecycleService:
         if not candidates:
             return
 
-        if record.native_channel_id is not None:
-            # Narrow to exact channel match.
-            channel_matches = [
-                r for r in candidates if r.target_channel == record.native_channel_id
+        queued_receipt: DeliveryReceipt | None = None
+
+        if record.delivery_plan_id is not None:
+            # --- Deterministic correlation by delivery_plan_id ---
+            plan_matches = [
+                r for r in candidates if r.delivery_plan_id == record.delivery_plan_id
             ]
-            if not channel_matches:
+
+            if not plan_matches:
                 self._log.debug(
-                    "No queued receipt matched channel %s for "
-                    "event_id=%s adapter=%s; skipping supplemental receipt",
-                    record.native_channel_id,
+                    "No queued receipt matched delivery_plan_id=%s for "
+                    "event_id=%s adapter=%s; skipping supplemental receipt "
+                    "(deterministic correlation — no heuristic fallback)",
+                    record.delivery_plan_id,
                     record.event_id,
                     record.adapter,
                 )
                 return
-            # Most recent (last in list) wins - handles retries.
-            queued_receipt = channel_matches[-1]
-        else:
-            # No channel on record - disambiguate by count.
-            if len(candidates) == 1:
-                queued_receipt = candidates[0]
+
+            # Narrow by channel if the record carries one.
+            if record.native_channel_id is not None:
+                channel_matches = [
+                    r
+                    for r in plan_matches
+                    if r.target_channel == record.native_channel_id
+                ]
+                if not channel_matches:
+                    self._log.debug(
+                        "No queued receipt matched delivery_plan_id=%s + "
+                        "channel=%s for event_id=%s adapter=%s; "
+                        "skipping supplemental receipt",
+                        record.delivery_plan_id,
+                        record.native_channel_id,
+                        record.event_id,
+                        record.adapter,
+                    )
+                    return
+                # Most recent (last in append-order) wins for retries
+                # under the same plan.
+                queued_receipt = channel_matches[-1]
+            elif len(plan_matches) == 1:
+                queued_receipt = plan_matches[0]
             else:
-                self._log.debug(
-                    "Ambiguous queued receipt correlation: %d candidates "
-                    "for event_id=%s adapter=%s with no channel; "
-                    "skipping supplemental receipt",
-                    len(candidates),
-                    record.event_id,
-                    record.adapter,
-                )
-                return
+                # Multiple candidates under same plan_id, no channel.
+                # Check target_channel uniformity for retry lineage.
+                channels = {r.target_channel for r in plan_matches}
+                if len(channels) == 1:
+                    # Same plan, same channel → retry lineage → latest wins.
+                    queued_receipt = plan_matches[-1]
+                else:
+                    self._log.warning(
+                        "Ambiguous queued receipt correlation: %d "
+                        "plan_id=%s candidates span %d target_channel "
+                        "values for event_id=%s adapter=%s with no "
+                        "native_channel_id; skipping supplemental receipt",
+                        len(plan_matches),
+                        record.delivery_plan_id,
+                        len(channels),
+                        record.event_id,
+                        record.adapter,
+                    )
+                    return
+        else:
+            # --- Legacy degraded path: no delivery_plan_id on record ---
+            if record.native_channel_id is not None:
+                channel_matches = [
+                    r
+                    for r in candidates
+                    if r.target_channel == record.native_channel_id
+                ]
+                if not channel_matches:
+                    self._log.debug(
+                        "No queued receipt matched channel %s for "
+                        "event_id=%s adapter=%s; skipping supplemental receipt",
+                        record.native_channel_id,
+                        record.event_id,
+                        record.adapter,
+                    )
+                    return
+                # Disambiguate by delivery_plan_id uniformity.
+                plan_ids = {r.delivery_plan_id for r in channel_matches}
+                if len(plan_ids) == 1:
+                    # All same plan_id: retry lineage → latest wins.
+                    queued_receipt = channel_matches[-1]
+                else:
+                    self._log.warning(
+                        "Ambiguous legacy queued receipt correlation: %d "
+                        "candidates span %d delivery_plan_id values for "
+                        "event_id=%s adapter=%s native_channel_id=%s; "
+                        "skipping supplemental receipt",
+                        len(channel_matches),
+                        len(plan_ids),
+                        record.event_id,
+                        record.adapter,
+                        record.native_channel_id,
+                    )
+                    return
+            else:
+                # No channel on record.
+                if len(candidates) == 1:
+                    queued_receipt = candidates[0]
+                else:
+                    # Disambiguate by delivery_plan_id AND target_channel
+                    # uniformity.
+                    plan_ids = {r.delivery_plan_id for r in candidates}
+                    channels = {r.target_channel for r in candidates}
+                    if len(plan_ids) == 1 and len(channels) == 1:
+                        # Same plan, same channel → retry lineage →
+                        # latest wins.
+                        queued_receipt = candidates[-1]
+                    else:
+                        self._log.warning(
+                            "Ambiguous legacy queued receipt correlation: "
+                            "%d candidates span %d delivery_plan_id and %d "
+                            "target_channel values for event_id=%s adapter=%s "
+                            "with no native_channel_id; skipping supplemental "
+                            "receipt",
+                            len(candidates),
+                            len(plan_ids),
+                            len(channels),
+                            record.event_id,
+                            record.adapter,
+                        )
+                        return
+
+        # Defensive guard: every branch above should either set queued_receipt
+        # or return early.  This catch-all prevents an unguarded None from
+        # reaching the transition-validation logic below if a new branch is
+        # added without updating the exit paths.
+        if queued_receipt is None:
+            self._log.warning(
+                "Logic error: queued_receipt is None after correlation "
+                "for event_id=%s adapter=%s; skipping supplemental receipt",
+                record.event_id,
+                record.adapter,
+            )
+            return
+
+        # Validate that the selected queued receipt can transition to sent.
+        if not _is_valid_queued_to_sent_transition(queued_receipt.status):
+            self._log.warning(
+                "Selected queued receipt %s has status=%s which cannot "
+                "transition to sent; skipping supplemental receipt for "
+                "event_id=%s adapter=%s",
+                queued_receipt.receipt_id,
+                queued_receipt.status,
+                record.event_id,
+                record.adapter,
+            )
+            return
 
         supplemental = DeliveryReceipt(
             sequence=0,

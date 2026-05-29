@@ -203,6 +203,13 @@ class RenderingResult:
         Immutable evidence snapshot built by the pipeline after a
         renderer returns.  ``None`` when the result was not produced
         by :meth:`RenderingPipeline.render` (e.g. manually constructed).
+    delivery_plan_id:
+        Stable correlation key from the delivery plan.  Set by
+        :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        after rendering, before adapter delivery.  Queue-based adapters
+        propagate this through their queue into
+        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
+        deterministic queued→sent receipt correlation.
     """
 
     event_id: str
@@ -213,6 +220,7 @@ class RenderingResult:
     truncated: bool = False
     fallback_applied: FallbackApplied | None = None
     rendering_evidence: RenderingEvidence | None = None
+    delivery_plan_id: str | None = None
 
 
 # ---------------------------------------------------------------------------

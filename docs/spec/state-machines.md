@@ -67,15 +67,15 @@ Receipts are append-only. There is no explicit transition table because every
 receipt is a new row. The implicit transition is temporal: receipt N+1
 supersedes receipt N for the same delivery chain.
 
-| From (prev receipt status) | To (next receipt status) | Condition                                     |
-| -------------------------- | ------------------------ | --------------------------------------------- |
-| —                          | `queued`                 | Queue-based adapter accepts event             |
-| —                          | `sent`                   | Synchronous adapter reports successful handoff  |
-| —                          | `failed`                 | Adapter raises transient or permanent error   |
-| —                          | `suppressed`             | Loop/policy/capacity suppression              |
-| `queued`                   | `sent`                   | Queue-based adapter reports native message ID |
-| `failed`                   | `failed`                 | Retry attempt also fails                      |
-| `failed`                   | `dead_lettered`          | Retry exhausted                               |
+| From (prev receipt status) | To (next receipt status) | Condition                                      |
+| -------------------------- | ------------------------ | ---------------------------------------------- |
+| —                          | `queued`                 | Queue-based adapter accepts event              |
+| —                          | `sent`                   | Synchronous adapter reports successful handoff |
+| —                          | `failed`                 | Adapter raises transient or permanent error    |
+| —                          | `suppressed`             | Loop/policy/capacity suppression               |
+| `queued`                   | `sent`                   | Queue-based adapter reports native message ID  |
+| `failed`                   | `failed`                 | Retry attempt also fails                       |
+| `failed`                   | `dead_lettered`          | Retry exhausted                                |
 
 Receipts with `parent_receipt_id = None` are initial attempts. Subsequent
 receipts in a retry chain set `parent_receipt_id` to the previous receipt's
@@ -110,16 +110,16 @@ type at construction time.
 
 The outbox state machine has eight statuses:
 
-| Status          | Terminal | Meaning                                                      |
-| --------------- | -------- | ------------------------------------------------------------ |
-| `pending`       | No       | Work exists but has not started.                             |
-| `in_progress`   | No       | Claimed by a worker for active delivery processing.          |
-| `queued`        | No       | Handed to adapter-local queue (e.g., Meshtastic send queue). |
+| Status          | Terminal | Meaning                                                         |
+| --------------- | -------- | --------------------------------------------------------------- |
+| `pending`       | No       | Work exists but has not started.                                |
+| `in_progress`   | No       | Claimed by a worker for active delivery processing.             |
+| `queued`        | No       | Handed to adapter-local queue (e.g., Meshtastic send queue).    |
 | `sent`          | Yes      | Operational work item completed after adapter-reported handoff. |
-| `retry_wait`    | No       | Transient failure; awaiting next scheduled retry attempt.    |
-| `dead_lettered` | Yes      | Retries exhausted or terminal failure.                       |
-| `cancelled`     | Yes      | Operator or shutdown cancelled the delivery.                 |
-| `abandoned`     | Yes      | Drain timeout or ambiguous loss during shutdown.             |
+| `retry_wait`    | No       | Transient failure; awaiting next scheduled retry attempt.       |
+| `dead_lettered` | Yes      | Retries exhausted or terminal failure.                          |
+| `cancelled`     | Yes      | Operator or shutdown cancelled the delivery.                    |
+| `abandoned`     | Yes      | Drain timeout or ambiguous loss during shutdown.                |
 
 ### 2.2 Transition Graph
 
@@ -142,9 +142,12 @@ The outbox state machine has eight statuses:
                                 │ │ │ │
   ┌────────────┐  cancel/abandon │ │ │ │
   │  queued    │ ◄──────────────┘ │ │ │
-  └────┬───────┘                  │ │ │
-       │  adapter reports handoff │ │ │
-       ▼                          │ │ │
+  └──┬────┬────┘                  │ │ │
+     │    │  stale queued reclaim │ │ │
+     │    └──────────────────────►│ │ │
+     │                            │ │ │
+     │  adapter reports handoff   │ │ │
+     ▼                            │ │ │
   ┌────────────┐                  │ │ │
   │    sent    │ ◄────────────────┘ │ │
   │ (terminal) │  (success)         │ │
@@ -167,30 +170,54 @@ The outbox state machine has eight statuses:
 
 ### 2.3 Legal Transitions
 
-| From          | To              | Method                        | Condition                              |
-| ------------- | --------------- | ----------------------------- | -------------------------------------- |
-| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot          |
-| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance         |
-| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery |
+| From          | To              | Method                        | Condition                               |
+| ------------- | --------------- | ----------------------------- | --------------------------------------- |
+| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot           |
+| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance          |
+| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery  |
 | `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff      |
-| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send      |
-| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled     |
-| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy    |
-| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry           |
-| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
-| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
-| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
-| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
-| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
-| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
-| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
-| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
-| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item         |
-| `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item      |
+| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send       |
+| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled      |
+| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy     |
+| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry            |
+| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
+| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
+| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
+| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
+| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
+| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
+| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
+| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
+| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item          |
+| `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item       |
+| `queued`      | `in_progress`   | `claim_due_outbox_items()`    | Stale queued reclaim after grace period |
 
 Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) have no
 outgoing transitions. The storage layer enforces `allowed_from` guards on
 every transition method.
+
+> **Authoritative source:** The `OUTBOX_TRANSITIONS` table in
+> `delivery_state.py` (§4) is the authoritative internal transition table.
+> §2.3 is a human-readable rendering that must be kept in sync when
+> transitions are added or changed.
+
+#### Stale Queued Reclaim
+
+The `queued` → `in_progress` transition is a **reclaim** path, not a direct
+claim. It occurs when `claim_due_outbox_items()` detects outbox rows in
+`status = 'queued'` whose `updated_at` is older than the configured grace
+threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s). This reclaims items
+that were handed to an adapter-local queue but never reached `sent` — for
+example because the worker crashed or the adapter lost the queued message.
+
+**Direct claimability and stale reclaim are different concepts:**
+
+- **Directly claimable** statuses (`pending`, `retry_wait`) can be claimed by
+  any worker at any time. `is_claimable_outbox_status()` returns `True`.
+- **Stale reclaim** statuses (`in_progress` with expired lease, `queued` past
+  the grace threshold) require storage-level staleness queries and are not
+  reflected by `is_claimable_outbox_status()`. `queued` remains **not**
+  directly claimable.
 
 ### 2.4 Mutable Operational State
 
@@ -262,7 +289,46 @@ ingress → dedup → resolve_relations → store → reaction-to-reaction check
 
 ---
 
-## 4. Conformance Requirements
+## 4. Internal Source of Truth
+
+### 4.1 delivery_state Module
+
+The module `src/medre/core/engine/pipeline/delivery_state.py` is the internal source of truth for status vocabularies, terminal/claimable/accepted classification sets, and observed transition tables. It is a leaf module with no external imports.
+
+The module defines four status vocabularies as `frozenset` constants:
+
+| Constant                    | Values                                                                                              | Used by                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           | `DeliveryReceipt.status`         |
+| `OUTBOX_STATUSES`           | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` | `DeliveryOutboxItem.status`      |
+| `OUTCOME_STATUSES`          | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            | `DeliveryOutcome.status`         |
+| `ADAPTER_DELIVERY_STATUSES` | `sent`, `enqueued`                                                                                  | `OutboundResult.delivery_status` |
+
+Classification subsets:
+
+| Constant                    | Subset of          | Values                                            |
+| --------------------------- | ------------------ | ------------------------------------------------- |
+| `TERMINAL_RECEIPT_STATUSES` | `RECEIPT_STATUSES` | `sent`, `dead_lettered`, `suppressed`             |
+| `TERMINAL_OUTBOX_STATUSES`  | `OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned` |
+| `CLAIMABLE_OUTBOX_STATUSES` | `OUTBOX_STATUSES`  | `pending`, `retry_wait`                           |
+| `ACCEPTED_OUTCOME_STATUSES` | `OUTCOME_STATUSES` | `success`, `queued`                               |
+
+Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
+
+The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout).
+
+### 4.2 Design Constraints
+
+The `delivery_state` module follows these constraints:
+
+1. **No enums.** Statuses are plain strings throughout the codebase.
+2. **No state-machine engine.** Transition tables are declarative; they do not drive behavior.
+3. **No exceptions.** Validation helpers return `bool`; callers decide how to handle invalid states.
+4. **No external imports.** The module must not import from storage, pipeline, or planning layers. This avoids circular import chains.
+
+---
+
+## 5. Conformance Requirements
 
 1. The pipeline MUST NOT create receipt rows with statuses not listed in
    §1.1.

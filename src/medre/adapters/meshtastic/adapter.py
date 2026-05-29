@@ -384,7 +384,12 @@ class MeshtasticAdapter(AdapterContract):
             channel_index = self._config.default_channel
 
         try:
-            await self._queue.enqueue(payload, channel_index, event_id=result.event_id)
+            await self._queue.enqueue(
+                payload,
+                channel_index,
+                event_id=result.event_id,
+                delivery_plan_id=result.delivery_plan_id,
+            )
         except asyncio.CancelledError:
             raise
         except MeshtasticSendError as exc:
@@ -979,6 +984,7 @@ class MeshtasticAdapter(AdapterContract):
             native_message_id=delivery.native_message_id,
             native_thread_id=delivery.native_thread_id,
             native_relation_id=delivery.native_relation_id,
+            delivery_plan_id=result.item.get("delivery_plan_id"),
             metadata=send_meta,
         )
         callback = self.ctx.record_outbound_native_ref if self.ctx else None

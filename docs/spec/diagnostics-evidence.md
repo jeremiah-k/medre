@@ -419,13 +419,13 @@ Rendering evidence is derived from two frozen dataclasses produced by the render
 
 **RenderingContext** records the input constraints that governed the render call:
 
-| Field               | Evidence role                                                    |
-| ------------------- | ---------------------------------------------------------------- |
-| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc. |
-| `target_adapter`    | Which adapter the render targets.                                |
-| `target_platform`   | Platform of the target adapter.                                  |
-| `max_text_chars`    | Character budget, or `None` for unlimited.                       |
-| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                      |
+| Field               | Evidence role                                                                                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc.                                                                                                                                                                            |
+| `target_adapter`    | Which adapter the render targets.                                                                                                                                                                                                           |
+| `target_platform`   | Platform of the target adapter.                                                                                                                                                                                                             |
+| `max_text_chars`    | Character budget, or `None` for unlimited.                                                                                                                                                                                                  |
+| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                                                                                                                                                                                                 |
 | `capability_level`  | Capability level for the event's relation type. Not authoritative adapter capability evidence unless explicitly populated by a caller-controlled pipeline stage; the default pipeline leaves it at the reserved/default value (`"native"`). |
 
 **RenderingResult** records the output decisions:
@@ -499,3 +499,38 @@ An operator inspecting these signals can answer: "Why was this message truncated
 4. The `RenderingContext` passed to the renderer MUST accurately reflect the delivery strategy and adapter constraints.
 5. Rendering evidence MUST NOT duplicate the payload content.
 6. Rendering evidence is observational. It explains decisions; it does not control them.
+
+## 15. Queued-to-Sent Correlation Evidence
+
+### 15.1 Purpose
+
+Queue-based adapters (e.g., Meshtastic) produce two receipts per delivery: a `queued` receipt at enqueue time and a `sent` receipt when the adapter confirms handoff. Correlating these two receipts requires deterministic matching because multiple deliveries to the same adapter and channel may be in-flight simultaneously.
+
+### 15.2 Deterministic Correlation via delivery_plan_id
+
+The `delivery_plan_id` field provides the correlation key. The pipeline threads `plan.plan_id` through:
+
+1. `RenderingResult.delivery_plan_id` — stamped by `TargetDeliveryService` before adapter delivery.
+2. `OutboundNativeRefRecord.delivery_plan_id` — populated by adapter queue processing at send-confirmation time.
+
+When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against existing `queued` receipts. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
+
+### 15.3 Evidence Signals
+
+| Signal                          | Source                          | Meaning                                                                                        |
+| ------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt     | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated and finalized                                       |
+| No supplemental receipt created | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                         |
+| Ambiguity warning               | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt  |
+| Legacy degraded path applied    | `append_queued_to_sent_receipt` | `delivery_plan_id` was `None`; fallback to adapter match with plan_id and channel uniformity   |
+| Same-channel latest-wins        | `append_queued_to_sent_receipt` | Unambiguous retry lineage: same plan_id, same target_channel; latest appended receipt selected |
+
+### 15.4 Normative Requirements
+
+1. When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID correlation. Legacy fallback MUST only activate when `delivery_plan_id` is `None`.
+2. When `delivery_plan_id` is present but no `native_channel_id` is available and multiple plan matches exist, the pipeline MUST check `target_channel` uniformity. If all matches share the same `target_channel` (unambiguous retry lineage), the pipeline MAY select the latest candidate (last appended). If `target_channel` values differ, the pipeline MUST NOT create a supplemental receipt and MUST log a warning.
+3. When `delivery_plan_id` is `None` and multiple candidates match by adapter, the pipeline MUST check both `delivery_plan_id` and `target_channel` uniformity. Unambiguous correlation requires exactly one unique `delivery_plan_id` AND exactly one unique `target_channel`. If ambiguous (multiple plans or multiple channels), the pipeline MUST NOT create a supplemental receipt and MUST log a warning.
+4. When `delivery_plan_id` is `None` and candidates are unambiguous (exactly one `delivery_plan_id` and exactly one `target_channel`), the pipeline MAY select the latest candidate (last appended).
+5. All ambiguous correlation skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
+6. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
+7. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.

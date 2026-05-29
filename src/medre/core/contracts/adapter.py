@@ -326,6 +326,14 @@ class OutboundNativeRefRecord:
         ID of the related native entity, if applicable.
         **Reserved** — no adapter currently populates this field; it
         is always ``None`` at runtime.
+    delivery_plan_id:
+        Stable correlation key that identifies which delivery plan
+        produced this outbound send.  When present,
+        :meth:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService.append_queued_to_sent_receipt`
+        uses it for deterministic queued→sent receipt correlation,
+        avoiding the older event_id+adapter+channel+latest heuristic.
+        ``None`` when the adapter did not propagate a plan ID (legacy
+        path or non-queue adapters).
     metadata:
         Adapter-specific metadata about this mapping.  Must contain only
         JSON-safe, simple values.
@@ -337,6 +345,7 @@ class OutboundNativeRefRecord:
     native_message_id: str
     native_thread_id: str | None = None
     native_relation_id: str | None = None
+    delivery_plan_id: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

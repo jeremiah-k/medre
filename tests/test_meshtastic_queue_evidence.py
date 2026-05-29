@@ -219,7 +219,7 @@ class TestQueueProcessingCounters:
     async def test_process_one_increments_sent_on_success(self) -> None:
         q = MeshtasticOutboundQueue()
 
-        async def fake_send(item):
+        async def fake_send(_item):
             return {"packet_id": "42"}
 
         await q.enqueue({"text": "hello"}, channel_index=0)
@@ -239,7 +239,7 @@ class TestQueueProcessingCounters:
         """
         q = MeshtasticOutboundQueue(max_attempts=1)
 
-        async def failing_send(item):
+        async def failing_send(_item):
             raise RuntimeError("send failed")
 
         await q.enqueue({"text": "hello"}, channel_index=0)
@@ -768,11 +768,12 @@ class TestSupplementalReceiptChannelCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Two queued receipts on the same channel (retry scenario).
+        # Same plan_id = retry lineage.
         await temp_storage.append_receipt(
             DeliveryReceipt(
                 receipt_id="rcpt-first",
                 event_id=event_id,
-                delivery_plan_id="plan-v1",
+                delivery_plan_id="plan-retry",
                 target_adapter="mesh-1",
                 target_channel="0",
                 route_id="route-r",
@@ -785,7 +786,7 @@ class TestSupplementalReceiptChannelCorrelation:
             DeliveryReceipt(
                 receipt_id="rcpt-retry",
                 event_id=event_id,
-                delivery_plan_id="plan-v2",
+                delivery_plan_id="plan-retry",
                 target_adapter="mesh-1",
                 target_channel="0",
                 route_id="route-r",
@@ -819,5 +820,178 @@ class TestSupplementalReceiptChannelCorrelation:
         assert len(sent) == 1
         # Should parent the RETRY (most recent) receipt, not the first.
         assert sent[0].parent_receipt_id == "rcpt-retry"
-        assert sent[0].delivery_plan_id == "plan-v2"
+        assert sent[0].delivery_plan_id == "plan-retry"
         assert sent[0].attempt_number == 2
+
+
+# ===================================================================
+# delivery_plan_id propagation through Meshtastic queue (Tranche 5)
+# ===================================================================
+
+
+class TestDeliveryPlanIdQueuePropagation:
+    """Verify delivery_plan_id flows through the Meshtastic queue path
+    from enqueue → queue item → OutboundNativeRefRecord.
+    """
+
+    async def test_enqueue_stores_delivery_plan_id(self) -> None:
+        """enqueue() stores delivery_plan_id in the queue item dict."""
+        q = MeshtasticOutboundQueue()
+        await q.enqueue(
+            {"text": "hello"},
+            channel_index=0,
+            event_id="evt-1",
+            delivery_plan_id="plan-42",
+        )
+
+        item = await q.dequeue()
+        assert item is not None
+        assert item["delivery_plan_id"] == "plan-42"
+        assert item["event_id"] == "evt-1"
+
+    async def test_enqueue_without_delivery_plan_id_stores_none(self) -> None:
+        """enqueue() without delivery_plan_id stores None."""
+        q = MeshtasticOutboundQueue()
+        await q.enqueue(
+            {"text": "hello"},
+            channel_index=0,
+            event_id="evt-2",
+        )
+
+        item = await q.dequeue()
+        assert item is not None
+        assert item["delivery_plan_id"] is None
+
+    async def test_process_one_preserves_delivery_plan_id_in_item(self) -> None:
+        """process_one() returns item with delivery_plan_id intact."""
+        q = MeshtasticOutboundQueue()
+
+        async def fake_send(_item):
+            return {"packet_id": "42"}
+
+        await q.enqueue(
+            {"text": "hello"},
+            channel_index=0,
+            event_id="evt-3",
+            delivery_plan_id="plan-xyz",
+        )
+        result = await q.process_one(send_fn=fake_send)
+
+        assert result is not None
+        assert result.item["delivery_plan_id"] == "plan-xyz"
+
+    async def test_adapter_deliver_propagates_delivery_plan_id(self) -> None:
+        """MeshtasticAdapter.deliver() propagates delivery_plan_id to queue."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.events.bus import EventBus
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = MeshtasticConfig(
+            adapter_id="test-dpid",
+            connection_type="fake",
+        )
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="test-dpid",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            result = RenderingResult(
+                event_id="evt-dpid",
+                target_adapter="test-dpid",
+                target_channel="0",
+                payload={"text": "hello", "channel_index": 0},
+                delivery_plan_id="plan-via-adapter",
+            )
+            await adapter.deliver(result)
+
+            # Dequeue and verify delivery_plan_id propagated.
+            item = await adapter._queue.dequeue()
+            assert item is not None
+            assert item["delivery_plan_id"] == "plan-via-adapter"
+            assert item["event_id"] == "evt-dpid"
+        finally:
+            await adapter.stop()
+
+    async def test_record_delayed_outbound_ref_includes_delivery_plan_id(
+        self,
+    ) -> None:
+        """_record_delayed_outbound_ref builds record with delivery_plan_id."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(
+            adapter_id="test-rec",
+            connection_type="fake",
+        )
+        adapter = MeshtasticAdapter(config)
+
+        recorded_refs: list[object] = []
+
+        async def mock_record_callback(record: object) -> None:
+            recorded_refs.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-rec",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=mock_record_callback,
+        )
+        await adapter.start(ctx)
+        try:
+            # Simulate a queue delivery result with delivery_plan_id.
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {"text": "test msg"},
+                    "channel_index": 0,
+                    "event_id": "evt-rec",
+                    "delivery_plan_id": "plan-propagated",
+                },
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="pkt-123",
+                    native_channel_id="0",
+                    delivery_status="sent",
+                ),
+            )
+
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-rec",
+                delivery=queue_result.delivery_result,
+            )
+
+            # Verify the OutboundNativeRefRecord has delivery_plan_id.
+            assert len(recorded_refs) == 1
+            ref = recorded_refs[0]
+            assert hasattr(ref, "delivery_plan_id")
+            assert ref.delivery_plan_id == "plan-propagated"
+            assert ref.event_id == "evt-rec"
+            assert ref.native_message_id == "pkt-123"
+        finally:
+            await adapter.stop()
