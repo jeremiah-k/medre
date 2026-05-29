@@ -58,6 +58,7 @@ class TestModuleImport:
             "ReplayMode",
             "ReplayRequest",
             "ReplayResult",
+            "ReplayRouteAttribution",
             "ReplaySummary",
             "collect_replay_summary",
         ):

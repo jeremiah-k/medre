@@ -481,7 +481,7 @@ Rendering evidence is structured to support replay inspection. The frozen, deter
 - Deterministic loop prevention and replay route attribution.
 - In-memory execution: no durable replay job queue, no automatic resume after crash.
 
-**What replay execution does not provide (preserved from prior wording):**
+**What replay execution does *not* provide (preserved from prior wording):**
 
 - Reconstruction of `RenderingContext` from stored artifacts (re-executing rendering from stored evidence artifacts is not implemented).
 - Cross-process or cross-restart evidence replay.

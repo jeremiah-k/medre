@@ -221,6 +221,7 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.diagnostics.snapshot",
         "medre.core.engine",
         "medre.core.engine.pipeline",
+        "medre.core.engine.replay",
         "medre.core.events",
         "medre.core.events.bus",
         "medre.core.events.canonical",
@@ -257,7 +258,6 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.supervision.supervision",
         "medre.core.storage",
         "medre.core.storage.backend",
-        "medre.core.engine.replay",
         "medre.core.storage.sqlite",
     ]
 
