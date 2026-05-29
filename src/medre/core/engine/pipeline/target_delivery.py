@@ -57,11 +57,16 @@ from medre.core.events.canonical import (
 )
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import resolve_adapter_capabilities
+from medre.core.planning.capability_decision import resolver as _resolver
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
 )
-from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
+from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
+from medre.core.rendering.renderer import (
+    DeliveryStrategyMethod,
+    RenderingPipeline,
+)
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 
@@ -409,11 +414,13 @@ class TargetDeliveryService:
         # Resolve capability level for rendering context from the
         # capability decision model.  Uses the same resolver as Phase 2.5
         # and replay so live/replay rendering evidence shares one source.
-        from medre.core.planning.capability_decision import resolver as _resolver
-        from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
-
         _cap_decision = _resolver.decide(event, _caps, target_adapter=adapter_id)
-        assert _cap_decision.capability_level in ("native", "fallback", "unsupported")
+        if _cap_decision.capability_level not in ("native", "fallback", "unsupported"):
+            raise ValueError(
+                f"Unexpected capability_level "
+                f"{_cap_decision.capability_level!r} from resolver "
+                f"(expected 'native', 'fallback', or 'unsupported')"
+            )
         _capability_level: _CapLevel = _cap_decision.capability_level
 
         # Honor the delivery plan's strategy: validate and narrow the

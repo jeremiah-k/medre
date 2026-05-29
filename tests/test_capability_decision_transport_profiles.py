@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.events.canonical import EventRelation, NativeRef
 from medre.core.planning.capability_decision import resolver
 from tests.helpers.pipeline import make_event
 
@@ -187,3 +188,128 @@ class TestTransportProfileDecisions:
                 assert decision.capability_level == "fallback"
             elif decision.delivery_strategy == "skip":
                 assert decision.capability_level == "unsupported"
+
+
+# ===================================================================
+# Relation-specific transport profile tests
+# ===================================================================
+
+
+_REPLY_RELATION = EventRelation(
+    relation_type="reply",
+    target_event_id="evt-parent",
+    target_native_ref=NativeRef(
+        adapter="test_adapter",
+        native_channel_id="ch-0",
+        native_message_id="native-001",
+    ),
+    key=None,
+    fallback_text="original",
+)
+
+_REACTION_RELATION = EventRelation(
+    relation_type="reaction",
+    target_event_id="evt-parent",
+    target_native_ref=None,
+    key="\U0001f44d",
+    fallback_text=None,
+)
+
+_EDIT_RELATION = EventRelation(
+    relation_type="edit",
+    target_event_id="evt-parent",
+    target_native_ref=None,
+    key=None,
+    fallback_text=None,
+)
+
+_DELETE_RELATION = EventRelation(
+    relation_type="delete",
+    target_event_id="evt-parent",
+    target_native_ref=None,
+    key=None,
+    fallback_text=None,
+)
+
+
+def _expected_relation_strategy(caps: AdapterCapabilities, cap_field: str) -> str:
+    """Derive expected strategy from a relation's capability field value."""
+    raw = getattr(caps, cap_field)
+    if raw == "native":
+        return "direct"
+    if raw == "fallback":
+        return "fallback_text"
+    return "skip"
+
+
+@pytest.mark.parametrize("transport", TRANSPORTS)
+class TestRelationTransportProfileDecisions:
+    """Verify each transport's relation capabilities produce correct decisions.
+
+    Uses unmapped event kind (plugin.custom) to isolate relation behavior.
+    """
+
+    def test_reply_relation_uses_caps_replies(self, transport: str) -> None:
+        """Reply relation uses caps.replies for decision."""
+        caps = _load_caps(transport)
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_REPLY_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        expected = _expected_relation_strategy(caps, "replies")
+        assert decision.delivery_strategy == expected
+        assert decision.capability_field == "replies"
+
+    def test_reaction_relation_uses_caps_reactions(self, transport: str) -> None:
+        """Reaction relation uses caps.reactions for decision."""
+        caps = _load_caps(transport)
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_REACTION_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        expected = _expected_relation_strategy(caps, "reactions")
+        assert decision.delivery_strategy == expected
+        assert decision.capability_field == "reactions"
+
+    def test_edit_relation_uses_caps_edits(self, transport: str) -> None:
+        """Edit relation uses caps.edits for decision."""
+        caps = _load_caps(transport)
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_EDIT_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        expected = _expected_relation_strategy(caps, "edits")
+        assert decision.delivery_strategy == expected
+        assert decision.capability_field == "edits"
+
+    def test_delete_relation_uses_caps_deletes(self, transport: str) -> None:
+        """Delete relation uses caps.deletes for decision."""
+        caps = _load_caps(transport)
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_DELETE_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        expected = _expected_relation_strategy(caps, "deletes")
+        assert decision.delivery_strategy == expected
+        assert decision.capability_field == "deletes"
+
+
+def test_expected_strategy_helper_fails_on_unknown_string() -> None:
+    """Harden _expected_strategy_for_value: unknown strings should not
+    silently return 'skip' without being explicit."""
+    # Valid strings should not raise
+    assert _expected_strategy_for_value("native", is_boolean=False) == "direct"
+    assert _expected_strategy_for_value("fallback", is_boolean=False) == "fallback_text"
+    assert _expected_strategy_for_value("unsupported", is_boolean=False) == "skip"
+
+    # Unknown string returns skip (fail-closed at decision level instead)
+    result = _expected_strategy_for_value("maybe", is_boolean=False)
+    assert result == "skip"  # Unknown string -> skip (fail-closed)

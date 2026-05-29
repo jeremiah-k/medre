@@ -1381,3 +1381,96 @@ class TestCancelledErrorPropagation:
 
         # No receipts — CancelledError bypasses receipt recording.
         assert len(storage.receipts) == 0
+
+
+# ===================================================================
+# Capability-level rendering pipeline integration
+# ===================================================================
+
+
+class _CapabilityRecordingPipeline:
+    """Rendering pipeline stub that records capability_level from render calls."""
+
+    def __init__(self, result: RenderingResult | None = None) -> None:
+        self._result = result
+        self.recorded_capability_level: str | None = None
+        self.recorded_delivery_strategy: str | None = None
+
+    async def render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_channel: str | None = None,
+        *,
+        target_platform: str | None = None,
+        max_text_chars: int | None = None,
+        max_text_bytes: int | None = None,
+        delivery_strategy: str | None = None,
+        capability_level: str | None = None,
+    ) -> RenderingResult:
+        self.recorded_capability_level = capability_level
+        self.recorded_delivery_strategy = delivery_strategy
+        if self._result is not None:
+            return self._result
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            payload={"text": "rendered"},
+        )
+
+
+class TestCapabilityLevelPropagation:
+    """Verify that capability_level and delivery_strategy flow to the
+    rendering pipeline via TargetDeliveryService."""
+
+    @staticmethod
+    def _make_caps_adapter(
+        replies: str = "native",
+        text: bool = True,
+    ) -> tuple[Any, Any]:
+        """Create a fake adapter with configurable capabilities."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+
+        caps = AdapterCapabilities(replies=replies, text=text)
+
+        class _CapAdapter:
+            adapter_id: str = "cap_adapter"
+            platform: str = "test_platform"
+            _capabilities: AdapterCapabilities = caps
+
+            async def deliver(self, rendering_result: Any) -> Any:
+                return AdapterDeliveryResult(native_message_id="$cap-msg")
+
+        return _CapAdapter(), caps
+
+    async def test_text_true_native_capability_level(self) -> None:
+        """message.text with text=True -> capability_level='native'."""
+        adapter, caps = self._make_caps_adapter(text=True)
+        pipeline = _CapabilityRecordingPipeline()
+        svc, storage = _make_service(
+            adapters={"cap_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        event = _make_event(event_kind="message.text")
+        route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="direct")
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert pipeline.recorded_capability_level == "native"
+
+    async def test_skip_strategy_does_not_render(self) -> None:
+        """Plan with method='skip' does not invoke rendering pipeline."""
+        adapter, caps = self._make_caps_adapter()
+        pipeline = _CapabilityRecordingPipeline()
+        svc, storage = _make_service(
+            adapters={"cap_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        event = _make_event(event_kind="message.text")
+        route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="skip")
+
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        assert receipt.status == "suppressed"
+        assert pipeline.recorded_capability_level is None

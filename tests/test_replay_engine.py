@@ -1307,3 +1307,210 @@ class TestStageDeliverCapabilityFilter:
         assert output["replay"] is True
         adapter_results = output["adapter_results"]
         assert len(adapter_results) == 1
+
+
+# ===================================================================
+# Relation-aware BEST_EFFORT capability filtering
+# ===================================================================
+
+
+class TestReplayRelationCapabilityFiltering:
+    """Verify BEST_EFFORT replay filters by relation capability."""
+
+    @staticmethod
+    def _make_reply_event() -> CanonicalEvent:
+        from medre.core.events.canonical import EventRelation, NativeRef
+
+        return CanonicalEvent(
+            event_id="evt-rel-reply-001",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(tz=timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(
+                EventRelation(
+                    relation_type="reply",
+                    target_event_id="parent-001",
+                    target_native_ref=NativeRef(
+                        adapter="src",
+                        native_channel_id="ch-0",
+                        native_message_id="native-001",
+                    ),
+                    key=None,
+                    fallback_text="original",
+                ),
+            ),
+            payload={"text": "reply content"},
+            metadata=EventMetadata(),
+        )
+
+    @staticmethod
+    def _make_reaction_event() -> CanonicalEvent:
+        from medre.core.events.canonical import EventRelation
+
+        return CanonicalEvent(
+            event_id="evt-rel-reaction-001",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(tz=timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(
+                EventRelation(
+                    relation_type="reaction",
+                    target_event_id="parent-001",
+                    target_native_ref=None,
+                    key="\U0001f44d",
+                    fallback_text=None,
+                ),
+            ),
+            payload={"text": "reaction"},
+            metadata=EventMetadata(),
+        )
+
+    async def test_reply_unsupported_filters_plan(self, temp_storage: Any) -> None:
+        """Reply relation with replies unsupported -> plan filtered."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.engine.replay import (
+            ReplayEngine,
+            ReplayMode,
+            ReplayRequest,
+        )
+        from medre.core.routing.models import Route, RouteSource, RouteTarget
+
+        caps = AdapterCapabilities(replies="unsupported", text=True)
+
+        class _NoReplyAdapter:
+            adapter_id = "no-reply"
+            platform = "test"
+            _capabilities = caps
+
+            async def deliver(self, rendering_result: Any) -> Any:
+                from medre.core.contracts.adapter import AdapterDeliveryResult
+
+                return AdapterDeliveryResult(native_message_id="$delivered")
+
+        adapters = {"no-reply": _NoReplyAdapter()}
+        target = RouteTarget(adapter="no-reply")
+        route = Route(
+            id="reply-filter-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.text",),
+                channel=None,
+            ),
+            targets=[target],
+        )
+        from medre.core.routing.router import Router
+
+        router = Router(routes=[route])
+        from medre.core.engine.pipeline.runner import PipelineConfig
+        from medre.core.events.bus import EventBus
+        from medre.core.planning import FallbackResolver, RelationResolver
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+        )
+        from medre.core.engine.pipeline import PipelineRunner
+
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            engine = ReplayEngine(
+                temp_storage,
+                pipeline=runner,
+            )
+            event = self._make_reply_event()
+            await temp_storage.append(event)
+
+            request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+            results = [r async for r in engine.replay(request)]
+
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert len(deliver_results) == 1
+            assert deliver_results[0].status == "skipped"
+            assert "capability_suppressed" in (deliver_results[0].error or "")
+        finally:
+            await runner.stop()
+
+    async def test_fallback_relation_not_filtered(self, temp_storage: Any) -> None:
+        """Fallback relation capability remains deliverable."""
+        from medre.core.contracts.adapter import AdapterCapabilities
+        from medre.core.engine.replay import (
+            ReplayEngine,
+            ReplayMode,
+            ReplayRequest,
+        )
+        from medre.core.routing.models import Route, RouteSource, RouteTarget
+
+        caps = AdapterCapabilities(replies="fallback", text=True)
+
+        class _FallbackReplyAdapter:
+            adapter_id = "fallback-reply"
+            platform = "test"
+            _capabilities = caps
+
+            async def deliver(self, rendering_result: Any) -> Any:
+                from medre.core.contracts.adapter import AdapterDeliveryResult
+
+                return AdapterDeliveryResult(native_message_id="$fb-delivered")
+
+        adapters = {"fallback-reply": _FallbackReplyAdapter()}
+        target = RouteTarget(adapter="fallback-reply")
+        route = Route(
+            id="fallback-reply-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.text",),
+                channel=None,
+            ),
+            targets=[target],
+        )
+        from medre.core.routing.router import Router
+
+        router = Router(routes=[route])
+        from medre.core.engine.pipeline.runner import PipelineConfig
+        from medre.core.events.bus import EventBus
+        from medre.core.planning import FallbackResolver, RelationResolver
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+        )
+        from medre.core.engine.pipeline import PipelineRunner
+
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            engine = ReplayEngine(
+                temp_storage,
+                pipeline=runner,
+            )
+            event = self._make_reply_event()
+            await temp_storage.append(event)
+
+            request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+            results = [r async for r in engine.replay(request)]
+
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert len(deliver_results) == 1
+            # Fallback is supported, so delivery should pass
+            assert deliver_results[0].status == "passed"
+        finally:
+            await runner.stop()

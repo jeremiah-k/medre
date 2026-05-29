@@ -1,51 +1,51 @@
-"""Capability decision model — single source of truth for capability resolution.
+"""Capability decision model - single source of truth for capability resolution.
 
 This module provides the :class:`CapabilityDecision` frozen dataclass and the
 :class:`CapabilityDecisionResolver` stateless resolver that together form the
 operational decision model for capability-driven delivery.
 
-Every capability check in the system — live delivery (Phase 2.5),
+Every capability check in the system - live delivery (Phase 2.5),
 FallbackResolver strategy resolution, plan-level skip (Phase 2.75),
-replay BEST_EFFORT filtering, rendering evidence, and diagnostics —
+replay BEST_EFFORT filtering, rendering evidence, and diagnostics -
 delegates to the resolver so that capability semantics are consistent
 across live and replay delivery paths.
 
 Capability level semantics (three-level string values):
 
-* ``"native"``      – first-class support; deliver natively via ``"direct"``.
-* ``"fallback"``    – no native support, but the adapter can receive a
+* ``"native"``      - first-class support; deliver natively via ``"direct"``.
+* ``"fallback"``    - no native support, but the adapter can receive a
   degraded / textual representation via ``"fallback_text"``.  The event
   is **not** suppressed.
-* ``"unsupported"`` – the adapter cannot handle this feature at all;
+* ``"unsupported"`` - the adapter cannot handle this feature at all;
   delivery is suppressed via ``"skip"``.
 
 Boolean capability fields (``text``, ``attachments``, ``presence``,
-``metadata_fields``) are mapped to native/unsupported: ``True`` → native,
-``False`` → unsupported.
+``metadata_fields``) are mapped to native/unsupported: ``True`` -> native,
+``False`` -> unsupported.
 
 Three-level string fields (``reactions``, ``edits``, ``deletes``,
-``replies``) map directly: ``"native"`` → native, ``"fallback"`` →
-fallback, ``"unsupported"`` → unsupported.
+``replies``) map directly: ``"native"`` -> native, ``"fallback"`` ->
+fallback, ``"unsupported"`` -> unsupported.
 
 Event-kind to capability field mapping
 --------------------------------------
-* ``message.reacted``       → ``reactions``
-* ``message.edited``        → ``edits``
-* ``message.deleted``       → ``deletes``
-* ``message.file``          → ``attachments`` (boolean)
-* ``message.created``       → ``text`` (boolean)
-* ``message.text``          → ``text`` (boolean)
-* ``presence.changed``      → ``presence`` (boolean)
-* ``telemetry.received``    → ``metadata_fields`` (boolean)
-* ``telemetry.position``    → ``metadata_fields`` (boolean)
+* ``message.reacted``       -> ``reactions``
+* ``message.edited``        -> ``edits``
+* ``message.deleted``       -> ``deletes``
+* ``message.file``          -> ``attachments`` (boolean)
+* ``message.created``       -> ``text`` (boolean)
+* ``message.text``          -> ``text`` (boolean)
+* ``presence.changed``      -> ``presence`` (boolean)
+* ``telemetry.received``    -> ``metadata_fields`` (boolean)
+* ``telemetry.position``    -> ``metadata_fields`` (boolean)
 
 Relation to capability field mapping
 ------------------------------------
-* ``reply``    → ``replies``
-* ``reaction`` → ``reactions``
-* ``edit``     → ``edits``
-* ``delete``   → ``deletes``
-* ``thread``   → **DEFERRED** — thread capability is not yet modelled.
+* ``reply``    -> ``replies``
+* ``reaction`` -> ``reactions``
+* ``edit``     -> ``edits``
+* ``delete``   -> ``deletes``
+* ``thread``   -> **DEFERRED** - thread capability is not yet modelled.
   Thread relations do not produce a capability candidate; current
   behaviour (native / direct, no ``capability_field``) is preserved.
 
@@ -78,17 +78,25 @@ passthrough decision (``capability_field=None``, ``reason=None``).
 
 Public symbols
 --------------
-* :class:`CapabilityDecision` – frozen decision record.
-* :class:`CapabilityDecisionResolver` – stateless resolver.
+* :class:`CapabilityDecision` - frozen decision record.
+* :class:`CapabilityDecisionResolver` - stateless resolver.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
+
+# ---------------------------------------------------------------------------
+# Type aliases for capability level and delivery strategy
+# ---------------------------------------------------------------------------
+
+CapabilityLevel = Literal["native", "fallback", "unsupported"]
+CapabilityDeliveryStrategy = Literal["direct", "fallback_text", "skip"]
 
 # ---------------------------------------------------------------------------
 # Event-kind → capability field mapping
@@ -108,7 +116,7 @@ _EVENT_KIND_FIELDS: dict[str, str] = {
     EventKind.TELEMETRY_POSITION: "metadata_fields",
 }
 
-#: Boolean capability fields: ``True`` → native/direct, ``False`` → unsupported/skip.
+#: Boolean capability fields: ``True`` -> native/direct, ``False`` -> unsupported/skip.
 _BOOLEAN_FIELDS: frozenset[str] = frozenset(
     {"text", "attachments", "presence", "metadata_fields"}
 )
@@ -127,7 +135,7 @@ _RELATION_FIELDS: dict[str, str] = {
     "reaction": "reactions",
     "edit": "edits",
     "delete": "deletes",
-    # thread: DEFERRED — no AdapterCapabilities.threads field.
+    # thread: DEFERRED - no AdapterCapabilities.threads field.
 }
 
 # ---------------------------------------------------------------------------
@@ -145,7 +153,7 @@ _SEVERITY: dict[str, int] = {
 # Strategy mapping: capability_level → delivery_strategy
 # ---------------------------------------------------------------------------
 
-_STRATEGY_FOR_LEVEL: dict[str, str] = {
+_STRATEGY_FOR_LEVEL: dict[str, CapabilityDeliveryStrategy] = {
     "native": "direct",
     "fallback": "fallback_text",
     "unsupported": "skip",
@@ -161,7 +169,7 @@ _STRATEGY_FOR_LEVEL: dict[str, str] = {
 class _Candidate:
     """Internal resolution candidate produced for one check point."""
 
-    capability_level: str  # "native" | "fallback" | "unsupported"
+    capability_level: CapabilityLevel
     capability_field: str
     reason: str | None
 
@@ -169,37 +177,64 @@ class _Candidate:
 def _resolve_field_level(
     field_name: str,
     caps: AdapterCapabilities,
-) -> tuple[str, str | None]:
-    """Resolve a single capability field to (level, reason_fragment).
+) -> CapabilityLevel:
+    """Resolve a single capability field to a capability level.
 
-    Returns ``(capability_level, None)`` for native; ``(level, fragment)``
-    for fallback or unsupported.  The reason fragment is the field name
-    (e.g. ``"reactions"``) and the caller assembles the full reason string.
+    Fail-closed semantics for mapped capability fields:
+
+    * **Mapped field missing** from ``AdapterCapabilities`` raises
+      :class:`AttributeError`.  This indicates capability-field drift and
+      must be caught during development, not silently treated as native.
+    * **Mapped field is ``None``** -- treated as unsupported (fail-closed).
+    * **Boolean fields**: ``True`` -> native, ``False`` -> unsupported.
+    * **String fields**: ``"native"`` / ``"fallback"`` / ``"unsupported"``
+      accepted; any other string or type raises :class:`ValueError`.
+    * **Thread relation** remains deferred (native/direct, no capability
+      field).  See :attr:`_RELATION_FIELDS`.
+    * **Unknown/unmapped event kinds** produce no candidate and default to
+      native/direct passthrough at the resolver level (not here).
     """
-    raw_value = getattr(caps, field_name, None)
+    try:
+        raw_value = getattr(caps, field_name)
+    except AttributeError:
+        raise AttributeError(
+            f"Capability field {field_name!r} missing from "
+            f"AdapterCapabilities — capability-field drift detected"
+        ) from None
+
     if raw_value is None:
-        # Field not found — treat as native (defensive).
-        return ("native", None)
+        return "unsupported"
 
     if field_name in _BOOLEAN_FIELDS:
-        if raw_value:
-            return ("native", None)
-        return ("unsupported", field_name)
+        if isinstance(raw_value, bool):
+            return "native" if raw_value else "unsupported"
+        raise ValueError(
+            f"Capability field {field_name!r} expected bool, "
+            f"got {type(raw_value).__name__}: {raw_value!r}"
+        )
 
     if field_name in _STRING_FIELDS:
         if raw_value == "native":
-            return ("native", None)
+            return "native"
         if raw_value == "fallback":
-            return ("fallback", field_name)
-        # "unsupported" or any other value.
-        return ("unsupported", field_name)
+            return "fallback"
+        if raw_value == "unsupported":
+            return "unsupported"
+        raise ValueError(
+            f"Capability field {field_name!r} expected one of "
+            f"'native', 'fallback', 'unsupported', "
+            f"got {type(raw_value).__name__}: {raw_value!r}"
+        )
 
-    # Unknown field type — treat as native.
-    return ("native", None)
+    # Safety net for fields not in _BOOLEAN_FIELDS or _STRING_FIELDS.
+    raise ValueError(
+        f"Capability field {field_name!r} is not a recognised boolean "
+        f"or string capability field"
+    )
 
 
 def _make_event_kind_reason(
-    capability_level: str,
+    capability_level: CapabilityLevel,
     field_name: str,
     event_kind: str,
 ) -> str | None:
@@ -213,7 +248,7 @@ def _make_event_kind_reason(
 
 
 def _make_relation_reason(
-    capability_level: str,
+    capability_level: CapabilityLevel,
     field_name: str,
     relation_type: str,
 ) -> str | None:
@@ -238,7 +273,7 @@ def _make_relation_reason(
 
 @dataclass(frozen=True)
 class CapabilityDecision:
-    """Immutable capability decision for one event × adapter pair.
+    """Immutable capability decision for one event x adapter pair.
 
     Produced by :meth:`CapabilityDecisionResolver.decide`.  Carries all
     information needed by the pipeline (delivery strategy), replay
@@ -269,8 +304,8 @@ class CapabilityDecision:
 
     target_adapter: str | None
     event_kind: str
-    capability_level: str
-    delivery_strategy: str
+    capability_level: CapabilityLevel
+    delivery_strategy: CapabilityDeliveryStrategy
     supported: bool
     capability_field: str | None
     reason: str | None
@@ -286,7 +321,7 @@ class CapabilityDecisionResolver:
 
     Synchronous, stateless, no caching, no framework dependency.  Instantiate
     once (or use the module-level ``resolver`` singleton) and call
-    :meth:`decide` for each event × capabilities pair.
+    :meth:`decide` for each event x capabilities pair.
 
     Example
     -------
@@ -329,7 +364,7 @@ class CapabilityDecisionResolver:
         # 1. Event-kind candidate.
         ek_field = _EVENT_KIND_FIELDS.get(kind)
         if ek_field is not None:
-            level, _fragment = _resolve_field_level(ek_field, caps)
+            level = _resolve_field_level(ek_field, caps)
             reason = _make_event_kind_reason(level, ek_field, kind)
             candidates.append(
                 _Candidate(
@@ -344,9 +379,13 @@ class CapabilityDecisionResolver:
             for rel in event.relations:
                 rel_field = _RELATION_FIELDS.get(rel.relation_type)
                 if rel_field is None:
-                    # thread or unknown relation type — deferred / skip.
+                    # thread or unknown relation type -- deferred.  Unknown
+                    # relation types MUST NOT silently behave like thread;
+                    # they produce no candidate and the event falls through
+                    # to passthrough (native/direct) only if no other
+                    # candidate exists.
                     continue
-                level, _fragment = _resolve_field_level(rel_field, caps)
+                level = _resolve_field_level(rel_field, caps)
                 reason = _make_relation_reason(level, rel_field, rel.relation_type)
                 candidates.append(
                     _Candidate(

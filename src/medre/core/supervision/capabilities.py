@@ -21,6 +21,11 @@ class TransportCapabilities:
     The fields intentionally describe broad runtime semantics rather than
     adapter implementation details.  A ``False`` value means MEDRE must not
     assume the capability exists for this adapter instance.
+
+    Relation-level fields (``replies_level``, ``reactions_level``,
+    ``edits_level``, ``deletes_level``) expose the raw three-level string
+    from :class:`AdapterCapabilities` for diagnostics and planning.
+    Threads are explicitly not included.
     """
 
     supports_direct_messages: bool = False
@@ -39,6 +44,12 @@ class TransportCapabilities:
     supports_priority_delivery: bool = False
     max_text_bytes: int | None = None
     max_text_chars: int | None = None
+
+    # Relation-level capability strings from AdapterCapabilities.
+    replies_level: str = "unsupported"
+    reactions_level: str = "unsupported"
+    edits_level: str = "unsupported"
+    deletes_level: str = "unsupported"
 
     def to_dict(self) -> dict[str, bool | int | None]:
         """Return deterministic JSON-safe capability metadata."""
@@ -72,6 +83,10 @@ def summarize_adapter_capabilities(
         supports_priority_delivery=capabilities.priority_delivery,
         max_text_bytes=capabilities.max_text_bytes,
         max_text_chars=capabilities.max_text_chars,
+        replies_level=capabilities.replies,
+        reactions_level=capabilities.reactions,
+        edits_level=capabilities.edits,
+        deletes_level=capabilities.deletes,
     )
 
 

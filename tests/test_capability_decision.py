@@ -807,3 +807,117 @@ class TestModuleSingleton:
 
         assert isinstance(decision, CapabilityDecision)
         assert decision.delivery_strategy == "skip"
+
+
+# ===================================================================
+# TestFailClosedSemantics
+# ===================================================================
+
+
+class TestFailClosedSemantics:
+    """Verify fail-closed behaviour for mapped capability fields.
+
+    Mapped fields missing from AdapterCapabilities or set to None/invalid
+    values must not silently default to native.
+    """
+
+    def test_mapped_field_none_is_unsupported(self) -> None:
+        """A mapped string field set to None resolves to unsupported."""
+        import dataclasses
+
+        caps = dataclasses.replace(_DEFAULT_CAPS, reactions=None)
+        event = make_event(event_kind="message.reacted")
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "unsupported"
+        assert decision.supported is False
+
+    def test_mapped_field_invalid_string_raises(self) -> None:
+        """A mapped string field with an invalid string raises ValueError."""
+        import dataclasses
+
+        caps = dataclasses.replace(_DEFAULT_CAPS, reactions="maybe")
+        event = make_event(event_kind="message.reacted")
+        with pytest.raises(ValueError, match="reactions"):
+            resolver.decide(event, caps)
+
+    def test_mapped_field_invalid_type_raises(self) -> None:
+        """A mapped string field with a non-string non-bool type raises ValueError."""
+        import dataclasses
+
+        caps = dataclasses.replace(_DEFAULT_CAPS, reactions=42)
+        event = make_event(event_kind="message.reacted")
+        with pytest.raises(ValueError, match="reactions"):
+            resolver.decide(event, caps)
+
+    def test_mapped_boolean_field_non_bool_raises(self) -> None:
+        """A mapped boolean field with a non-bool value raises ValueError."""
+        import dataclasses
+
+        caps = dataclasses.replace(_DEFAULT_CAPS, text="yes")
+        event = make_event(event_kind="message.text")
+        with pytest.raises(ValueError, match="text"):
+            resolver.decide(event, caps)
+
+    def test_mapped_boolean_field_none_is_unsupported(self) -> None:
+        """A mapped boolean field set to None resolves to unsupported."""
+        import dataclasses
+
+        caps = dataclasses.replace(_DEFAULT_CAPS, text=None)
+        event = make_event(event_kind="message.text")
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "unsupported"
+        assert decision.supported is False
+
+    def test_unknown_event_kind_passthrough(self) -> None:
+        """Unmapped event kinds always produce native/direct passthrough."""
+        event = make_event(event_kind="plugin.custom")
+        caps = AdapterCapabilities()
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "native"
+        assert decision.delivery_strategy == "direct"
+        assert decision.supported is True
+        assert decision.capability_field is None
+        assert decision.reason is None
+
+    def test_unknown_relation_not_treated_as_thread(self) -> None:
+        """Thread relation type produces no candidate and is not treated
+        as a mapped relation.  Only the four mapped relation types
+        (reply, reaction, edit, delete) produce candidates."""
+        caps = AdapterCapabilities()
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_THREAD_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        # Thread relation produces no candidate, event kind is unmapped,
+        # so the result is passthrough (native/direct) with no capability_field.
+        assert decision.capability_level == "native"
+        assert decision.delivery_strategy == "direct"
+        assert decision.capability_field is None
+        # This is NOT because thread was treated as a mapped relation;
+        # it is because thread produces no candidate at all.
+
+
+# ===================================================================
+# TestLiteralTypeAliases
+# ===================================================================
+
+
+class TestLiteralTypeAliases:
+    """Verify CapabilityLevel and CapabilityDeliveryStrategy type aliases."""
+
+    def test_capability_level_alias_exists(self) -> None:
+        from medre.core.planning.capability_decision import CapabilityLevel
+
+        assert CapabilityLevel is not None
+
+    def test_delivery_strategy_alias_exists(self) -> None:
+        from medre.core.planning.capability_decision import (
+            CapabilityDeliveryStrategy,
+        )
+
+        assert CapabilityDeliveryStrategy is not None

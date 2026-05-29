@@ -1283,3 +1283,69 @@ class TestEvidenceSerializationHardening:
         result = _serialize_rendering_evidence_for_receipt(broken)
         # Must not raise; must return None.
         assert result is None
+
+
+# ===================================================================
+# Pipeline render capability-level tests
+# ===================================================================
+
+
+class TestPipelineCapabilityLevelRendering:
+    """RenderingPipeline.render() propagates capability_level to evidence."""
+
+    async def test_fallback_capability_level_creates_fallback_evidence(
+        self,
+    ) -> None:
+        """render(..., capability_level='fallback') creates fallback evidence."""
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+
+        pipeline = RenderingPipeline()
+        pipeline.register(TextRenderer(), priority=100)
+
+        event = _make_event(event_id="evt-cap-fallback")
+        result = await pipeline.render(
+            event,
+            target_adapter="target-1",
+            target_channel=None,
+            capability_level="fallback",
+        )
+        assert result.rendering_evidence is not None
+        assert result.rendering_evidence.capability_level == "fallback"
+
+    async def test_omitted_capability_level_normalizes_to_native(
+        self,
+    ) -> None:
+        """When capability_level is omitted/None, normalizes to 'native'."""
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+
+        pipeline = RenderingPipeline()
+        pipeline.register(TextRenderer(), priority=100)
+
+        event = _make_event(event_id="evt-cap-default")
+        result = await pipeline.render(
+            event,
+            target_adapter="target-1",
+            target_channel=None,
+        )
+        assert result.rendering_evidence is not None
+        assert result.rendering_evidence.capability_level == "native"
+
+    async def test_native_capability_level_evidence(self) -> None:
+        """render(..., capability_level='native') records native in evidence."""
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+
+        pipeline = RenderingPipeline()
+        pipeline.register(TextRenderer(), priority=100)
+
+        event = _make_event(event_id="evt-cap-native")
+        result = await pipeline.render(
+            event,
+            target_adapter="target-1",
+            target_channel=None,
+            capability_level="native",
+        )
+        assert result.rendering_evidence is not None
+        assert result.rendering_evidence.capability_level == "native"

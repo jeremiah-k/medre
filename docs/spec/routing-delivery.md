@@ -419,7 +419,7 @@ class RetryPolicy:
     jitter: bool = True          # Whether to add jitter to avoid thundering-herd
 ```
 
-### 6.4 Fallback Resolution
+### 6.5 Fallback Resolution
 
 When primary delivery fails, the fallback resolution chain executes in order:
 

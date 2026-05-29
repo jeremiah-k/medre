@@ -38,7 +38,7 @@ from typing import Any, Sequence
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.planning.capabilities import capability_unsupported
+from medre.core.planning.capability_decision import resolver as _cap_resolver
 from medre.core.supervision.health import normalize_adapter_health
 
 # Forward-reference type alias for Router; imported lazily inside
@@ -353,11 +353,12 @@ def _check_capability_warning(
 ) -> str | None:
     """Return a warning string if *event_kind* is unsupported by *caps*.
 
-    Delegates to :func:`capability_unsupported` with a synthetic event
-    whose ``relations=()`` is empty, so only event-kind-level capability
-    checks are diagnosed.  Relation-specific requirements (reply,
-    reaction, edit, delete) cannot be evaluated here because the
-    synthetic diagnostics event carries no relation context.
+    Uses :class:`CapabilityDecisionResolver` directly so that diagnostics
+    share the same resolution logic as live delivery and replay.  Constructs
+    a synthetic event whose ``relations=()`` is empty, so only event-kind-level
+    capability checks are diagnosed.  Relation-specific requirements (reply,
+    reaction, edit, delete) cannot be evaluated here because the synthetic
+    diagnostics event carries no relation context.
     """
     # Construct a minimal event for the shared check.  Only event_kind
     # matters here; relations are empty because route-level warnings
@@ -376,14 +377,14 @@ def _check_capability_warning(
         payload={},
         metadata=EventMetadata(),
     )
-    reason = capability_unsupported(event, caps)
-    if reason is None:
+    decision = _cap_resolver.decide(event, caps, target_adapter=adapter_id)
+    if decision.supported:
         # Route-level warnings use relations=(), so only event-kind
         # capability checks are evaluated.  Relation-specific support
         # (replies, reactions, edits, deletes) is not diagnosable at
         # this level.
         return None
-    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
+    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {decision.reason}"
 
 
 def capture_route_topology(

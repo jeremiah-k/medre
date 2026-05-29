@@ -51,6 +51,7 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
 )
+from medre.core.planning.capability_decision import resolver as _cap_resolver
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -1180,11 +1181,8 @@ class PipelineRunner:
             _suppression_reason: str | None = None
             if adapter_id and adapter_id in self._config.adapters:
                 _caps = self._get_adapter_capabilities(target)
-                from medre.core.planning.capability_decision import (
-                    resolver as _resolver,
-                )
 
-                _cap_decision = _resolver.decide(
+                _cap_decision = _cap_resolver.decide(
                     event,
                     _caps,
                     target_adapter=adapter_id,
@@ -1242,7 +1240,7 @@ class PipelineRunner:
             # IMPORTANT: Only apply plan-level skip for adapters that
             # are actually registered, mirroring the Phase 2.5 capability
             # guard.  Unknown / missing adapters must NOT be classified as
-            # CAPABILITY_SUPPRESSED here — they need to fall through to
+            # CAPABILITY_SUPPRESSED here - they need to fall through to
             # deliver_to_target() which produces the correct ADAPTER_MISSING
             # permanent failure with a meaningful error message.
             if (

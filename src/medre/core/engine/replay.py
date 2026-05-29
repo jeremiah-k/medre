@@ -99,6 +99,8 @@ from typing import (
 import msgspec
 
 from medre.core.events import CanonicalEvent, is_registered
+from medre.core.planning.capabilities import resolve_adapter_capabilities
+from medre.core.planning.capability_decision import resolver as _resolver
 from medre.core.storage.backend import DEFAULT_QUERY_LIMIT, EventFilter, StorageBackend
 
 if TYPE_CHECKING:
@@ -2130,12 +2132,6 @@ def _filter_plans_by_capability(
     list[Any]
         Plans whose target adapters support the event kind.
     """
-    # Import here to avoid circular imports at module level.
-    from medre.core.planning.capabilities import (
-        resolve_adapter_capabilities,
-    )
-    from medre.core.planning.capability_decision import resolver as _resolver
-
     if adapters is None:
         return plans
 
@@ -2159,7 +2155,10 @@ def _filter_plans_by_capability(
             # rather than suppressing based on default (all-false) caps.
             result.append(item)
             continue
-        decision = _resolver.decide(event, caps)
+
+        # Extract target adapter name for traceability in the decision.
+        adapter_name = getattr(target, "adapter", None)
+        decision = _resolver.decide(event, caps, target_adapter=adapter_name)
         if decision.supported:
             result.append(item)
         # else: capability-suppressed --- exclude from delivery
