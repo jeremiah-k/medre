@@ -276,7 +276,7 @@ class TestDuplicateSuppression:
             # Second event with same native ref: suppressed.
             event2 = _meshtastic_inbound_event(body="Duplicate mesh", packet_id=42)
             snr2 = event2.source_native_ref
-            assert snr2 is not None  # CodeRabbit quick fix
+            assert snr2 is not None  # Verify source_native_ref is present for the dedup lookup.
 
             outcomes2 = await runner.handle_ingress(event2)
             assert outcomes2 == []
