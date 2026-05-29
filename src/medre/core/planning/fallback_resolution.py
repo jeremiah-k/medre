@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
+from medre.core.planning.capability_decision import resolver as _resolver
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
@@ -92,7 +93,5 @@ class FallbackResolver:
         ``"unsupported"`` triggers event-specific behavior (``"skip"``
         for both lifecycle events and hard-incompatible capabilities).
         """
-        from medre.core.planning.capability_decision import resolver as _resolver
-
         decision = _resolver.decide(event, caps)
         return DeliveryStrategy(method=decision.delivery_strategy)

@@ -901,6 +901,38 @@ class TestFailClosedSemantics:
         # This is NOT because thread was treated as a mapped relation;
         # it is because thread produces no candidate at all.
 
+    def test_unknown_non_thread_relation_is_passthrough(self) -> None:
+        """An unmapped non-thread relation type (e.g. 'forward') produces
+        no candidate and results in native/direct passthrough with
+        capability_field is None."""
+        import msgspec.structs
+
+        forward_relation = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-parent",
+            target_native_ref=NativeRef(
+                adapter="test_adapter",
+                native_channel_id="ch-0",
+                native_message_id="native-001",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        # Bypass frozen + __post_init__ validation to inject an unknown type.
+        msgspec.structs.force_setattr(forward_relation, "relation_type", "forward")
+
+        caps = AdapterCapabilities()
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(forward_relation,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "native"
+        assert decision.delivery_strategy == "direct"
+        assert decision.supported is True
+        assert decision.capability_field is None
+
 
 # ===================================================================
 # TestLiteralTypeAliases

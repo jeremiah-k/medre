@@ -51,7 +51,7 @@ class TransportCapabilities:
     edits_level: str = "unsupported"
     deletes_level: str = "unsupported"
 
-    def to_dict(self) -> dict[str, bool | int | None]:
+    def to_dict(self) -> dict[str, bool | int | str | None]:
         """Return deterministic JSON-safe capability metadata."""
         return {field.name: getattr(self, field.name) for field in fields(self)}
 
@@ -92,7 +92,7 @@ def summarize_adapter_capabilities(
 
 def serialize_adapter_capabilities(
     capabilities: AdapterCapabilities,
-) -> dict[str, bool | int | None]:
+) -> dict[str, bool | int | str | None]:
     """Serialize adapter capabilities for diagnostics and logging."""
     return summarize_adapter_capabilities(capabilities).to_dict()
 
