@@ -12,9 +12,15 @@ events are delivered to adapters.  Package-level imports:
   ``RelationResolver``.
 * From :mod:`~medre.core.planning.capabilities`:
   ``capability_unsupported``.
+* From :mod:`~medre.core.planning.capability_decision`:
+  ``CapabilityDecision``, ``CapabilityDecisionResolver``.
 """
 
 from medre.core.planning.capabilities import capability_unsupported
+from medre.core.planning.capability_decision import (
+    CapabilityDecision,
+    CapabilityDecisionResolver,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -27,6 +33,8 @@ from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 
 __all__ = [
+    "CapabilityDecision",
+    "CapabilityDecisionResolver",
     "DeliveryFailureKind",
     "DeliveryOutcome",
     "DeliveryPlan",

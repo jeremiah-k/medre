@@ -57,12 +57,14 @@ class TestTransportCapabilities:
             tc.supports_direct_messages = True  # type: ignore[misc]
 
     def test_default_values(self) -> None:
-        """All boolean fields default to False; optional ints to None."""
+        """All boolean fields default to False; optional ints to None; level strings to 'unsupported'."""
         tc = TransportCapabilities()
         for f in fields(tc):
             val = getattr(tc, f.name)
             if f.name.startswith("max_"):
                 assert val is None, f"{f.name} should default to None"
+            elif f.name.endswith("_level"):
+                assert val == "unsupported", f"{f.name} should default to 'unsupported'"
             else:
                 assert val is False, f"{f.name} should default to False"
 
@@ -94,10 +96,10 @@ class TestTransportCapabilities:
         assert set(tc.to_dict().keys()) == _capability_field_names()
 
     def test_to_dict_values_are_json_safe(self) -> None:
-        """All values are bool, int, or None (JSON-safe)."""
+        """All values are bool, int, str, or None (JSON-safe)."""
         tc = TransportCapabilities(supports_channels=True, max_text_bytes=100)
         for val in tc.to_dict().values():
-            assert isinstance(val, (bool, int)) or val is None
+            assert isinstance(val, (bool, int, str)) or val is None
 
     def test_to_dict_deterministic(self) -> None:
         """Two calls produce identical output."""
@@ -138,7 +140,7 @@ class TestSerializeAdapterCapabilities:
     def test_all_values_json_safe(self) -> None:
         result = serialize_adapter_capabilities(AdapterCapabilities())
         for val in result.values():
-            assert isinstance(val, (bool, int)) or val is None
+            assert isinstance(val, (bool, int, str)) or val is None
 
     def test_json_round_trip(self) -> None:
         result = serialize_adapter_capabilities(AdapterCapabilities())
@@ -247,6 +249,23 @@ class TestSummarizeAdapterCapabilities:
         tc = summarize_adapter_capabilities(caps)
         assert tc.supports_reactions is True
         assert tc.supports_edits is True
+
+    def test_relation_none_normalizes_to_unsupported(self) -> None:
+        """Relation fields set to None are normalized to 'unsupported'."""
+        import dataclasses
+
+        caps = dataclasses.replace(
+            AdapterCapabilities(),
+            replies=None,
+            reactions=None,
+            edits=None,
+            deletes=None,
+        )
+        tc = summarize_adapter_capabilities(caps)
+        assert tc.replies_level == "unsupported"
+        assert tc.reactions_level == "unsupported"
+        assert tc.edits_level == "unsupported"
+        assert tc.deletes_level == "unsupported"
 
     def test_max_text_passthrough(self) -> None:
         """max_text_bytes and max_text_chars pass through directly."""
@@ -656,7 +675,7 @@ class TestNoMutationSideEffects:
         assert isinstance(result, dict)
         for key, val in result.items():
             assert isinstance(key, str)
-            assert isinstance(val, (bool, int)) or val is None
+            assert isinstance(val, (bool, int, str)) or val is None
 
     def test_snapshot_does_not_mutate_adapter_info(self) -> None:
         """capture_runtime_snapshot must not mutate AdapterInfo or capabilities."""

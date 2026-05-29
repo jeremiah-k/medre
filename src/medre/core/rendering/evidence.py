@@ -143,9 +143,12 @@ class RenderingEvidence:
     max_text_bytes:
         UTF-8 byte budget from adapter capabilities, or ``None``.
     capability_level:
-        Capability level from the rendering context.  Reflects what the
-        context carried — the default pipeline does **not** populate this
-        from adapter capabilities, so it is typically ``"native"``.
+        Capability level from the rendering context.  Reflects the
+        ``capability_level`` field of
+        :class:`~medre.core.rendering.renderer.RenderingContext`,
+        which the normal pipeline populates from the capability decision
+        (via :class:`CapabilityDecisionResolver`) when available.  Defaults
+        to ``"native"`` when no capability decision is supplied.
     capability_policy:
         Optional policy hint from the context, or ``None``.  Reserved
         for forward compatibility; the default pipeline does not set it.

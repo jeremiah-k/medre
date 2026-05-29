@@ -109,12 +109,14 @@ class RenderingContext:
 
     **Populated and reserved fields** — ``max_text_bytes`` is wired
     from adapter capabilities by the pipeline.  ``capability_level``
-    and ``capability_policy`` are defined as part of the context
-    protocol for forward compatibility and caller-provided plumbing,
-    but the default pipeline does **not** populate them; they remain
-    ``"native"`` and ``None`` respectively unless a caller explicitly
-    sets them.  Renderers MUST treat ``delivery_strategy`` as the
-    authoritative dispatch signal.
+    is populated from the :class:`CapabilityDecisionResolver` via
+    :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+    when rendering occurs through the normal pipeline.  ``capability_policy``
+    is defined as part of the context protocol for forward compatibility
+    and caller-provided plumbing, but the default pipeline does **not**
+    populate it; it remains ``None`` unless a caller explicitly sets it.
+    Renderers MUST treat ``delivery_strategy`` as the authoritative
+    dispatch signal.
 
     Attributes
     ----------
@@ -140,11 +142,13 @@ class RenderingContext:
     capability_level:
         The target's capability level for the event's relation type:
         ``"native"`` (full support), ``"fallback"`` (degraded),
-        ``"unsupported"`` (cannot handle).  Defaults to ``"native"``.
-        **Reserved**: the default pipeline does not set this field
-        from adapter capabilities; renderers should rely on
-        ``delivery_strategy`` for dispatch unless a caller explicitly
-        provides it.
+        ``"unsupported"`` (cannot handle).  Populated from
+        :class:`CapabilityDecisionResolver` via
+        :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        when rendering occurs through the normal pipeline.  Defaults
+        to ``"native"`` when no capability decision is available.
+        Renderers should rely on ``delivery_strategy`` as the
+        authoritative dispatch signal.
     capability_policy:
         Optional policy hint governing rendering behaviour (e.g.
         ``"strict"`` for hard reject on capability mismatch,
@@ -166,11 +170,20 @@ class RenderingContext:
         get_args(DeliveryStrategyMethod)
     )
 
+    _VALID_CAPABILITY_LEVELS: ClassVar[frozenset[str]] = frozenset(
+        get_args(CapabilityLevel)
+    )
+
     def __post_init__(self) -> None:
         if self.delivery_strategy not in self._VALID_STRATEGIES:
             raise ValueError(
                 f"Unknown delivery_strategy {self.delivery_strategy!r}. "
                 f"Must be one of {sorted(self._VALID_STRATEGIES)}."
+            )
+        if self.capability_level not in self._VALID_CAPABILITY_LEVELS:
+            raise ValueError(
+                f"Unknown capability_level {self.capability_level!r}. "
+                f"Must be one of {sorted(self._VALID_CAPABILITY_LEVELS)}."
             )
 
 
@@ -419,6 +432,7 @@ class RenderingPipeline:
         max_text_chars: int | None = None,
         max_text_bytes: int | None = None,
         delivery_strategy: DeliveryStrategyMethod | None = None,
+        capability_level: CapabilityLevel | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -450,6 +464,10 @@ class RenderingPipeline:
             renderers via the context as a rendering hint, **not** used
             for renderer selection.  When ``None``, defaults to
             ``"direct"``.
+        capability_level:
+            The target's capability level for the event's relation type,
+            populated from :class:`CapabilityDecision`.  When ``None``,
+            defaults to ``"native"``.
 
         Returns
         -------
@@ -478,6 +496,11 @@ class RenderingPipeline:
                 "delivery_strategy='skip' must be handled before rendering"
             )
 
+        # Normalise capability_level: default to "native" when unset.
+        cap_level: CapabilityLevel = (
+            "native" if capability_level is None else capability_level
+        )
+
         ctx = RenderingContext(
             delivery_strategy=strategy,
             target_adapter=target_adapter,
@@ -485,6 +508,7 @@ class RenderingPipeline:
             target_platform=platform,
             max_text_chars=max_text_chars,
             max_text_bytes=max_text_bytes,
+            capability_level=cap_level,
         )
 
         for _pri, _seq, renderer in self._renderers:

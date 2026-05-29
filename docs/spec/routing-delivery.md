@@ -303,7 +303,117 @@ method values as configuration errors. The well-known methods are:
 | `"opportunistic"` | Best-effort delivery with no guarantee. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `"paper"`         | Store-and-forward. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
-### 6.3 RetryPolicy
+### 6.3 Capability Decision Model
+
+Capability decisions are resolved by a single stateless resolver:
+`CapabilityDecisionResolver.decide(event, caps, *, target_adapter=None)`.
+The resolver is used by Phase 2.5 (pipeline), `FallbackResolver`,
+replay BEST_EFFORT filtering, rendering evidence, and diagnostics so
+that live and replay delivery share one source of truth.
+
+#### 6.3.1 CapabilityDecision
+
+```python
+@dataclass(frozen=True)
+class CapabilityDecision:
+    target_adapter: str | None
+    event_kind: str
+    capability_level: str       # "native" | "fallback" | "unsupported"
+    delivery_strategy: str      # "direct" | "fallback_text" | "skip"
+    supported: bool             # True when native or fallback
+    capability_field: str | None  # AdapterCapabilities field that decided
+    reason: str | None          # Human-readable reason for fallback/unsupported
+```
+
+#### 6.3.2 Capability Level Semantics
+
+| Level           | Delivery Strategy | Meaning                                                       |
+| --------------- | ----------------- | ------------------------------------------------------------- |
+| `"native"`      | `"direct"`        | First-class support; deliver natively.                        |
+| `"fallback"`    | `"fallback_text"` | No native support; target-native renderer embeds inline text. |
+| `"unsupported"` | `"skip"`          | Adapter cannot handle; delivery suppressed before rendering.  |
+
+Boolean capability fields (`text`, `attachments`, `presence`,
+`metadata_fields`) map `True` → native, `False` → unsupported.
+
+Three-level string fields (`reactions`, `edits`, `deletes`, `replies`)
+map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported.
+
+#### 6.3.3 Event-Kind Mapping
+
+| Event Kind           | Capability Field  | Field Type |
+| -------------------- | ----------------- | ---------- |
+| `message.reacted`    | `reactions`       | String     |
+| `message.edited`     | `edits`           | String     |
+| `message.deleted`    | `deletes`         | String     |
+| `message.file`       | `attachments`     | Boolean    |
+| `message.created`    | `text`            | Boolean    |
+| `message.text`       | `text`            | Boolean    |
+| `presence.changed`   | `presence`        | Boolean    |
+| `telemetry.received` | `metadata_fields` | Boolean    |
+| `telemetry.position` | `metadata_fields` | Boolean    |
+
+Event kinds not in this table produce no event-kind candidate and
+default to native/direct (passthrough).
+
+#### 6.3.4 Relation Mapping
+
+| Relation Type | Capability Field | Note                                                                                                           |
+| ------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `reply`       | `replies`        | Checked for every reply relation.                                                                              |
+| `reaction`    | `reactions`      | Checked for every reaction relation.                                                                           |
+| `edit`        | `edits`          | Checked for every edit relation.                                                                               |
+| `delete`      | `deletes`        | Checked for every delete relation.                                                                             |
+| `thread`      | —                | **Deferred.** No `AdapterCapabilities.threads` field exists. Thread relations produce no capability candidate. |
+
+Relation-level capability checking for `reaction`, `edit`, and `delete`
+is intentionally centralized in the resolver alongside `reply`. All
+four relation types follow the same three-level semantics (native /
+fallback / unsupported) and the same precedence rules. The resolver
+evaluates every relation in `event.relations` order; there is no
+relation-type-specific short-circuit or special case.
+
+#### 6.3.5 Multiple-Relation Precedence
+
+When an event has multiple capability candidates (event-kind + relations),
+the resolver picks the **most severe** decision:
+
+1. `unsupported` (severity 2) > `fallback` (severity 1) > `native` (severity 0).
+2. At the same severity, the **first candidate in evaluation order** breaks ties.
+3. Evaluation order: event-kind candidate first, then relations in `event.relations` order.
+
+This ensures `unsupported` always wins over `fallback` or `native`,
+regardless of candidate ordering, while maintaining deterministic
+tie-breaking.
+
+#### 6.3.6 Thread Capability Deferral
+
+`AdapterCapabilities.threads` does not exist. The thread relation itself
+does not introduce a capability candidate and MUST NOT be considered during
+capability evaluation. Events carrying a thread relation still participate
+in normal capability checks (event-kind, attachments, other relations) which
+can suppress or alter delivery. The resolver preserves current behaviour
+only insofar as the thread relation contributes no candidate: when no other
+candidate overrides, thread-carrying events receive native/direct delivery
+with `capability_field=None`. This deferral MUST NOT be interpreted as
+unconditional native thread support or as an override of other capability
+rules.
+
+#### 6.3.7 Rendering Evidence
+
+When a delivery proceeds to rendering, `RenderingContext.capability_level`
+is populated from the `CapabilityDecision` so that rendering evidence
+captures the capability context. `RenderingEvidence.capability_level`
+reflects this value, providing durable capability context per delivery.
+
+#### 6.3.8 Replay Parity
+
+Replay BEST_EFFORT mode uses the same `CapabilityDecisionResolver`
+as live delivery. Plans filtered by `_filter_plans_by_capability`
+use `decision.supported` to determine inclusion, ensuring live and
+replay capability logic share one source of truth.
+
+### 6.4 RetryPolicy
 
 ```python
 @dataclass
@@ -314,7 +424,7 @@ class RetryPolicy:
     jitter: bool = True          # Whether to add jitter to avoid thundering-herd
 ```
 
-### 6.4 Fallback Resolution
+### 6.5 Fallback Resolution
 
 When primary delivery fails, the fallback resolution chain executes in order:
 

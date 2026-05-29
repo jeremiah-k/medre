@@ -934,6 +934,15 @@ class TestDiagnosticsCapabilityWarning:
         assert "message.reacted" in result
         assert "adapter-x" in result
 
+    def test_warning_does_not_end_with_colon_none(self) -> None:
+        """Warning string must not end with ': None'."""
+        from medre.core.supervision.diagnostics import _check_capability_warning
+
+        caps = AdapterCapabilities(reactions="unsupported")
+        result = _check_capability_warning("message.reacted", caps, "adapter-x")
+        assert result is not None
+        assert not result.endswith(": None")
+
 
 # ===================================================================
 # capture_route_topology capability warnings
