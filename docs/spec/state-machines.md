@@ -142,9 +142,12 @@ The outbox state machine has eight statuses:
                                 │ │ │ │
   ┌────────────┐  cancel/abandon │ │ │ │
   │  queued    │ ◄──────────────┘ │ │ │
-  └────┬───────┘                  │ │ │
-       │  adapter reports handoff │ │ │
-       ▼                          │ │ │
+  └──┬────┬────┘                  │ │ │
+     │    │  stale queued reclaim │ │ │
+     │    └──────────────────────►│ │ │
+     │                            │ │ │
+     │  adapter reports handoff   │ │ │
+     ▼                            │ │ │
   ┌────────────┐                  │ │ │
   │    sent    │ ◄────────────────┘ │ │
   │ (terminal) │  (success)         │ │
@@ -187,10 +190,29 @@ The outbox state machine has eight statuses:
 | `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
 | `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item         |
 | `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item      |
+| `queued`      | `in_progress`   | `claim_due_outbox_items()`    | Stale queued reclaim after grace period |
 
 Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) have no
 outgoing transitions. The storage layer enforces `allowed_from` guards on
 every transition method.
+
+#### Stale Queued Reclaim
+
+The `queued` → `in_progress` transition is a **reclaim** path, not a direct
+claim. It occurs when `claim_due_outbox_items()` detects outbox rows in
+`status = 'queued'` whose `updated_at` is older than the configured grace
+threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s). This reclaims items
+that were handed to an adapter-local queue but never reached `sent` — for
+example because the worker crashed or the adapter lost the queued message.
+
+**Direct claimability and stale reclaim are different concepts:**
+
+- **Directly claimable** statuses (`pending`, `retry_wait`) can be claimed by
+  any worker at any time. `is_claimable_outbox_status()` returns `True`.
+- **Stale reclaim** statuses (`in_progress` with expired lease, `queued` past
+  the grace threshold) require storage-level staleness queries and are not
+  reflected by `is_claimable_outbox_status()`. `queued` remains **not**
+  directly claimable.
 
 ### 2.4 Mutable Operational State
 
@@ -288,7 +310,7 @@ Classification subsets:
 
 Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
 
-The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout).
+The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout).
 
 ### 4.2 Design Constraints
 

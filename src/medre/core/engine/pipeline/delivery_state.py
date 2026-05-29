@@ -79,6 +79,13 @@ TERMINAL_OUTBOX_STATUSES: frozenset[str] = frozenset(
 #: ``claim_due_outbox_items``.  Items in ``in_progress`` or ``queued``
 #: may become reclaimable through lease-expiry or staleness queries but
 #: are not directly claimable.
+#:
+#: **Direct claimability ≠ reclaimability.**  ``queued`` appears in
+#: ``OUTBOX_TRANSITIONS`` with ``in_progress`` as a legal target, but
+#: that transition is only valid for *stale queued reclaim* after the
+#: configured grace period (see ``STALE_QUEUED_GRACE_SECONDS`` in the
+#: SQLite storage layer).  ``is_claimable_outbox_status("queued")``
+#: returns ``False``.
 CLAIMABLE_OUTBOX_STATUSES: frozenset[str] = frozenset({"pending", "retry_wait"})
 
 # ---------------------------------------------------------------------------
@@ -119,11 +126,16 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 
 #: Observed outbox transitions.  Terminal statuses (sent, dead_lettered,
 #: cancelled, abandoned) have no outgoing entries.
+#:
+#: ``queued`` → ``in_progress`` is legal only for stale queued reclaim
+#: after the configured grace period (``STALE_QUEUED_GRACE_SECONDS``).
+#: It does **not** make ``queued`` a directly-claimable status; see
+#: ``CLAIMABLE_OUTBOX_STATUSES``.
 OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
     # Lease acquisition paths.
     "pending": frozenset({"in_progress", "cancelled", "abandoned"}),
     "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered", "abandoned"}),
-    "queued": frozenset({"sent", "cancelled", "abandoned"}),
+    "queued": frozenset({"in_progress", "sent", "cancelled", "abandoned"}),
     # Delivery outcome from in_progress.
     "in_progress": frozenset(
         {
@@ -138,6 +150,28 @@ OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     # sent, dead_lettered, cancelled, abandoned are terminal.
 }
+
+
+# ---------------------------------------------------------------------------
+# Safe-update guidance
+# ---------------------------------------------------------------------------
+# When adding or changing statuses, terminal sets, claimable sets, or
+# transition tables, the following MUST be updated together:
+#
+# 1. Status vocabulary frozensets (OUTBOX_STATUSES / RECEIPT_STATUSES / …).
+# 2. Terminal sets (TERMINAL_OUTBOX_STATUSES / TERMINAL_RECEIPT_STATUSES).
+# 3. Claimable sets (CLAIMABLE_OUTBOX_STATUSES).
+# 4. Transition tables (OUTBOX_TRANSITIONS / RECEIPT_TRANSITIONS) — these
+#    describe observed legal storage/runtime transitions, not direct
+#    claimability alone.
+# 5. ``docs/spec/state-machines.md`` §2.3 Legal Transitions.
+# 6. ``tests/test_delivery_state.py`` — vocabulary, classification, and
+#    transition tests.
+#
+# Transition tables capture every observed legal status change, including
+# reclaim paths (e.g. queued→in_progress via stale queued reclaim) that are
+# not direct claims.  Adding a transition here does not make the source
+# status directly claimable; that is governed by CLAIMABLE_OUTBOX_STATUSES.
 
 
 # ---------------------------------------------------------------------------

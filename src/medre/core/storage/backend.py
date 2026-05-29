@@ -22,6 +22,40 @@ from medre.core.events import (
     NativeMessageRef,
 )
 
+
+# ---------------------------------------------------------------------------
+# Lazy cached helpers for circular-import-safe access to delivery_state
+# ---------------------------------------------------------------------------
+# backend -> delivery_state -> engine package init -> pipeline init
+# -> delivery_lifecycle -> backend creates a circular import.  The
+# module-level helpers below defer the import until first use and cache
+# the result so subsequent calls are a single dict/attribute lookup.
+
+_IS_TERMINAL_OUTBOX_STATUS = None
+_IS_CLAIMABLE_OUTBOX_STATUS = None
+
+
+def _get_is_terminal_outbox_status():  # type: ignore[no-untyped-def]
+    global _IS_TERMINAL_OUTBOX_STATUS
+    if _IS_TERMINAL_OUTBOX_STATUS is None:
+        from medre.core.engine.pipeline.delivery_state import (
+            is_terminal_outbox_status,
+        )
+
+        _IS_TERMINAL_OUTBOX_STATUS = is_terminal_outbox_status
+    return _IS_TERMINAL_OUTBOX_STATUS
+
+
+def _get_is_claimable_outbox_status():  # type: ignore[no-untyped-def]
+    global _IS_CLAIMABLE_OUTBOX_STATUS
+    if _IS_CLAIMABLE_OUTBOX_STATUS is None:
+        from medre.core.engine.pipeline.delivery_state import (
+            is_claimable_outbox_status,
+        )
+
+        _IS_CLAIMABLE_OUTBOX_STATUS = is_claimable_outbox_status
+    return _IS_CLAIMABLE_OUTBOX_STATUS
+
 # ---------------------------------------------------------------------------
 # Shared defaults
 # ---------------------------------------------------------------------------
@@ -201,14 +235,7 @@ class DeliveryOutboxItem:
     @property
     def is_terminal(self) -> bool:
         """Return ``True`` if the status is a terminal (non-recoverable) state."""
-        # Deferred import to avoid circular dependency at module load time
-        # (backend -> delivery_state -> engine package init -> pipeline init
-        # -> delivery_lifecycle -> backend).
-        from medre.core.engine.pipeline.delivery_state import (
-            is_terminal_outbox_status,
-        )
-
-        return is_terminal_outbox_status(self.status)
+        return _get_is_terminal_outbox_status()(self.status)
 
     @property
     def is_claimable(self) -> bool:
@@ -230,12 +257,7 @@ class DeliveryOutboxItem:
         -------
         bool
         """
-        # Deferred import to avoid circular dependency (see is_terminal).
-        from medre.core.engine.pipeline.delivery_state import (
-            is_claimable_outbox_status,
-        )
-
-        return is_claimable_outbox_status(self.status)
+        return _get_is_claimable_outbox_status()(self.status)
 
 
 # ---------------------------------------------------------------------------

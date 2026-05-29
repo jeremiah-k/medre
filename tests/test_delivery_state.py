@@ -331,9 +331,15 @@ class TestOutboxTransitions:
     def test_pending_to_dead_lettered_invalid(self) -> None:
         assert validate_outbox_transition("pending", "dead_lettered") is False
 
-    def test_queued_to_in_progress_invalid(self) -> None:
-        """queued -> in_progress is not a documented or observed transition."""
-        assert validate_outbox_transition("queued", "in_progress") is False
+    def test_queued_to_in_progress_is_stale_reclaim(self) -> None:
+        """queued -> in_progress is legal for stale queued reclaim.
+
+        Storage reclaims stale queued outbox rows whose ``updated_at`` is
+        older than the configured grace period (STALE_QUEUED_GRACE_SECONDS).
+        This does NOT make ``queued`` directly claimable — see
+        ``is_claimable_outbox_status("queued")`` which returns False.
+        """
+        assert validate_outbox_transition("queued", "in_progress") is True
 
     # Terminal states have no outgoing transitions.
     @pytest.mark.parametrize("source", sorted(TERMINAL_OUTBOX_STATUSES))
