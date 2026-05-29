@@ -196,9 +196,9 @@ A successful bring-up produces:
    events. Remember: this confirms local adapter or radio acceptance, not
    remote delivery confirmation.
 
-## Deterministic Operational Harness
+## Deterministic Operational Test Suite
 
-Before live validation, run the deterministic operational test harness. These
+Before live validation, run the deterministic operational test suite. These
 tests exercise the full Matrix ↔ Meshtastic rendering, codec, queue, lifecycle,
 and capability paths using fake adapters — no homeserver or radio required.
 

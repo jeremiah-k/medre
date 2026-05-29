@@ -1,1 +1,1 @@
-"""Tranche 8 operational tests: Matrix ↔ Meshtastic path."""
+"""Operational tests for the Matrix ↔ Meshtastic path."""

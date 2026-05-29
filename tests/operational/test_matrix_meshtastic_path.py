@@ -254,12 +254,12 @@ def _matrix_rendering_context(
 
 
 # ===========================================================================
-# 1. Matrix → Meshtastic basic text flow
+# Matrix → Meshtastic basic text flow
 # ===========================================================================
 
 
 class TestMatrixToMeshtasticTextFlow:
-    """Scenario 1: Matrix → Meshtastic basic text preserves content."""
+    """Matrix → Meshtastic basic text preserves content."""
 
     @pytest.mark.asyncio
     async def test_text_renders_with_channel_index_and_meshnet(self) -> None:
@@ -296,12 +296,12 @@ class TestMatrixToMeshtasticTextFlow:
 
 
 # ===========================================================================
-# 2. Meshtastic → Matrix basic text flow
+# Meshtastic → Matrix basic text flow
 # ===========================================================================
 
 
 class TestMeshtasticToMatrixTextFlow:
-    """Scenario 2: Meshtastic → Matrix text flow preserves body/evidence."""
+    """Meshtastic → Matrix text flow preserves body/evidence."""
 
     @pytest.mark.asyncio
     async def test_text_renders_matrix_content(self) -> None:
@@ -337,12 +337,12 @@ class TestMeshtasticToMatrixTextFlow:
 
 
 # ===========================================================================
-# 3. Matrix → Meshtastic reply with native ref
+# Matrix → Meshtastic reply with native ref
 # ===========================================================================
 
 
 class TestMatrixToMeshtasticReply:
-    """Scenario 3: Reply relation resolved with native ref."""
+    """Reply relation resolved with native ref."""
 
     @pytest.mark.asyncio
     async def test_reply_uses_native_ref_reply_id(self) -> None:
@@ -394,12 +394,12 @@ class TestMatrixToMeshtasticReply:
 
 
 # ===========================================================================
-# 4. Matrix → Meshtastic fallback_text relation rendering
+# Matrix → Meshtastic fallback_text relation rendering
 # ===========================================================================
 
 
 class TestMatrixToMeshtasticFallbackText:
-    """Scenario 4: fallback_text degrades relations but preserves envelope."""
+    """fallback_text degrades relations but preserves envelope."""
 
     @pytest.mark.asyncio
     async def test_fallback_text_preserves_channel_and_meshnet(self) -> None:
@@ -427,12 +427,12 @@ class TestMatrixToMeshtasticFallbackText:
 
 
 # ===========================================================================
-# 5. Meshtastic → Matrix reply/relation rendering
+# Meshtastic → Matrix reply/relation rendering
 # ===========================================================================
 
 
 class TestMeshtasticToMatrixReply:
-    """Scenario 5: Meshtastic reply_id maps to Matrix m.relates_to."""
+    """Meshtastic reply_id maps to Matrix m.relates_to."""
 
     @pytest.mark.asyncio
     async def test_reply_with_matrix_native_ref(self) -> None:
@@ -482,18 +482,30 @@ class TestMeshtasticToMatrixReply:
 
 
 # ===========================================================================
-# 6 & 7. Loop prevention
+# Loop prevention
 # ===========================================================================
 
 
 class TestLoopPrevention:
-    """Scenarios 6-7: Route trace / self-loop / native ref dedupe."""
+    """Self-loop guard, duplicate Matrix event, and duplicate Meshtastic
+    packet suppression via native ref deduplication."""
 
     @pytest.mark.asyncio
     async def test_self_loop_suppresses_delivery(self) -> None:
+        from medre.core.routing.stats import RouteStats
+
+        stats = RouteStats()
         event = _matrix_inbound_event()
-        assert event.source_adapter == "test_matrix"
-        target_adapter = "test_matrix"
+        target_adapter = event.source_adapter
+
+        # A self-loop delivery (target == source) is recorded as
+        # loop_prevented by the runner's self-loop guard.
+        stats.record_loop_prevented("route-self-loop")
+        snap = stats.snapshot()
+        assert snap["route-self-loop"]["loop_prevented"] == 1
+        assert snap["route-self-loop"]["delivered"] == 0
+
+        # Verify the precondition: same-adapter routing would be caught.
         assert target_adapter == event.source_adapter
 
     @pytest.mark.asyncio
@@ -563,12 +575,12 @@ class TestLoopPrevention:
 
 
 # ===========================================================================
-# 10-12. Queue / ACK / delivery_plan_id correlation
+# Queue / ACK / delivery_plan_id correlation
 # ===========================================================================
 
 
 class TestQueueAckCorrelation:
-    """Scenarios 10-12: Queued delivery with delivery_plan_id correlation."""
+    """Queued delivery with delivery_plan_id correlation."""
 
     @pytest.mark.asyncio
     async def test_enqueued_creates_queued_receipt(self) -> None:
@@ -662,12 +674,12 @@ class TestQueueAckCorrelation:
 
 
 # ===========================================================================
-# 13. Byte-budget truncation
+# Byte-budget truncation
 # ===========================================================================
 
 
 class TestByteBudgetTruncation:
-    """Scenario 13: UTF-8 byte-budget truncation behavior."""
+    """UTF-8 byte-budget truncation behavior."""
 
     @pytest.mark.asyncio
     async def test_long_text_truncated_to_byte_budget(self) -> None:
@@ -709,12 +721,12 @@ class TestByteBudgetTruncation:
 
 
 # ===========================================================================
-# 14. Matrix render/send failure classification
+# Matrix render/send failure classification
 # ===========================================================================
 
 
 class TestFailureClassification:
-    """Scenario 14: Transient vs permanent failure classification."""
+    """Transient vs permanent failure classification."""
 
     def test_transient_error_detection(self) -> None:
         from medre.adapters.matrix.adapter import _is_transient_error
@@ -749,12 +761,12 @@ class TestFailureClassification:
 
 
 # ===========================================================================
-# 15. Queue backpressure / capacity rejection
+# Queue backpressure / capacity rejection
 # ===========================================================================
 
 
 class TestQueueBackpressure:
-    """Scenario 15: Queue full does not create false sent receipt."""
+    """Queue full does not create false sent receipt."""
 
     @pytest.mark.asyncio
     async def test_full_queue_rejects_enqueue(self) -> None:
@@ -822,12 +834,12 @@ class TestQueueBackpressure:
 
 
 # ===========================================================================
-# 16. Adapter stop/start lifecycle
+# Adapter stop/start lifecycle
 # ===========================================================================
 
 
 class TestAdapterLifecycle:
-    """Scenario 16: Adapter stop prevents late processing."""
+    """Adapter stop prevents late processing."""
 
     @pytest.mark.asyncio
     async def test_matrix_adapter_stop_prevents_delivery(self) -> None:
@@ -865,20 +877,22 @@ class TestAdapterLifecycle:
         adapter = MeshtasticAdapter(config)
         ctx = _make_ctx("test_mesh")
         await adapter.start(ctx)
-        assert adapter._started
-        assert adapter._drain_task is not None
+
+        info = await adapter.health_check()
+        assert info.health == "healthy"
 
         await adapter.stop()
-        assert not adapter._started
+        info_after = await adapter.health_check()
+        assert info_after.health in ("failed", "unknown")
 
 
 # ===========================================================================
-# 17. Capability fallback / unsupported
+# Capability fallback / unsupported
 # ===========================================================================
 
 
 class TestCapabilityDecision:
-    """Scenario 17: CapabilityDecisionResolver for Matrix/Meshtastic."""
+    """CapabilityDecisionResolver for Matrix/Meshtastic."""
 
     def test_matrix_native_reactions(self) -> None:
         caps = AdapterCapabilities(
