@@ -20,6 +20,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -151,11 +152,15 @@ def _make_service(
         )
     )
     _diag = Diagnostician()
+    _lifecycle = DeliveryLifecycleService(
+        logger=logging.getLogger("test.target_delivery.lifecycle"),
+    )
     svc = TargetDeliveryService(
         adapters=adapters or {},
         rendering_pipeline=_pipeline,  # type: ignore[arg-type]
         storage=_storage,  # type: ignore[arg-type]
         diagnostician=_diag,
+        lifecycle=_lifecycle,
         logger=logging.getLogger("test.target_delivery"),
     )
     return svc, _storage
@@ -1189,6 +1194,30 @@ class TestDeadLetterOnExhaustedRetry:
         # Only the primary failure receipt — no dead-letter yet.
         assert len(storage.receipts) == 1
         assert storage.receipts[0].status == "failed"
+
+    async def test_dead_letter_preserves_source_and_replay_run_id(self) -> None:
+        """Dead-letter receipt inherits source/replay_run_id from caller."""
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        adapter = _FakeAdapter(error=RuntimeError("boom"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.retry_policy = RetryPolicy(max_attempts=1)
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(
+                event,
+                route,
+                plan,
+                source="replay",
+                replay_run_id="run-99",
+            )
+
+        dead_letter = storage.receipts[1]
+        assert dead_letter.status == "dead_lettered"
+        assert dead_letter.source == "replay"
+        assert dead_letter.replay_run_id == "run-99"
 
 
 # ===================================================================

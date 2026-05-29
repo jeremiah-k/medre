@@ -31,6 +31,7 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.engine.phases import PipelinePhase
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -52,7 +53,6 @@ from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
     DeliveryPlan,
-    RetryExecutor,
     RetryPolicy,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
@@ -278,11 +278,13 @@ class PipelineRunner:
             storage=config.storage,
             logger=self._log,
         )
+        self._lifecycle = DeliveryLifecycleService(logger=self._log)
         self._target_delivery = TargetDeliveryService(
             adapters=config.adapters,
             rendering_pipeline=self._rendering_pipeline,
             storage=config.storage,
             diagnostician=self._diagnostician,
+            lifecycle=self._lifecycle,
             logger=self._log,
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
@@ -802,132 +804,15 @@ class PipelineRunner:
         """Append a supplemental ``status="sent"`` receipt for a queue-based
         delivery that transitioned from enqueued to sent.
 
-        Finds the most recent ``status="queued"`` receipt for this
-        event_id + adapter, inherits its plan/route context, and appends
-        a new immutable receipt with ``status="sent"`` and the real
-        ``adapter_message_id``.
+        Thin wrapper that delegates to
+        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
 
-        If no matching ``"queued"`` receipt is found (e.g. non-queued
-        adapter or replay context), the method returns silently.
-
-        Parameters
-        ----------
-        record:
-            The outbound native reference record from the adapter.
-        now:
-            Timestamp for the new receipt.
+        See :meth:`DeliveryLifecycleService.append_queued_to_sent_receipt`
+        for full documentation.
         """
-        # Look up existing receipts for this event to find the
-        # queued receipt we want to supplement.
-        try:
-            existing = await self._config.storage.list_receipts_for_event(
-                record.event_id
-            )
-        except Exception:
-            return
-
-        # Find the most recent "queued" receipt targeting this adapter.
-        # Match by event_id (implicit via list_receipts_for_event),
-        # adapter, and — when available — target_channel.
-        candidates: list[DeliveryReceipt] = [
-            r
-            for r in existing
-            if r.status == "queued" and r.target_adapter == record.adapter
-        ]
-
-        if not candidates:
-            return
-
-        if record.native_channel_id is not None:
-            # Narrow to exact channel match.
-            channel_matches = [
-                r for r in candidates if r.target_channel == record.native_channel_id
-            ]
-            if not channel_matches:
-                self._log.debug(
-                    "No queued receipt matched channel %s for "
-                    "event_id=%s adapter=%s; skipping supplemental receipt",
-                    record.native_channel_id,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-            # Most recent (last in list) wins — handles retries.
-            queued_receipt = channel_matches[-1]
-        else:
-            # No channel on record — disambiguate by count.
-            if len(candidates) == 1:
-                queued_receipt = candidates[0]
-            else:
-                self._log.debug(
-                    "Ambiguous queued receipt correlation: %d candidates "
-                    "for event_id=%s adapter=%s with no channel; "
-                    "skipping supplemental receipt",
-                    len(candidates),
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-
-        supplemental = DeliveryReceipt(
-            sequence=0,
-            receipt_id=f"rcpt-{uuid.uuid4()}",
-            event_id=record.event_id,
-            delivery_plan_id=queued_receipt.delivery_plan_id,
-            target_adapter=record.adapter,
-            target_channel=record.native_channel_id or queued_receipt.target_channel,
-            route_id=queued_receipt.route_id,
-            status="sent",
-            error=None,
-            failure_kind=None,
-            adapter_message_id=record.native_message_id,
-            next_retry_at=None,
-            created_at=now,
-            attempt_number=queued_receipt.attempt_number,
-            parent_receipt_id=queued_receipt.receipt_id,
-            source=queued_receipt.source,
-            replay_run_id=getattr(queued_receipt, "replay_run_id", None),
-            retry_max_attempts=getattr(queued_receipt, "retry_max_attempts", None),
-            retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
-            retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
-            retry_jitter=getattr(queued_receipt, "retry_jitter", None),
-            rendering_evidence=getattr(queued_receipt, "rendering_evidence", None),
+        await self._lifecycle.append_queued_to_sent_receipt(
+            self._config.storage, record=record, now=now
         )
-        await self._config.storage.append_receipt(supplemental)
-
-        # Transition the matching outbox item from queued → sent.
-        # The item may still be in_progress if the callback fires before
-        # _deliver_one() marks the outbox row as queued.  Prefer queued
-        # status over in_progress so that a fully-queued row is always
-        # selected first.
-        try:
-            _obi = await self._config.storage.get_outbox_item_for_delivery(
-                event_id=record.event_id,
-                delivery_plan_id=queued_receipt.delivery_plan_id,
-                target_adapter=record.adapter,
-                target_channel=queued_receipt.target_channel,
-                status="queued",
-            )
-            if _obi is None:
-                _obi = await self._config.storage.get_outbox_item_for_delivery(
-                    event_id=record.event_id,
-                    delivery_plan_id=queued_receipt.delivery_plan_id,
-                    target_adapter=record.adapter,
-                    target_channel=queued_receipt.target_channel,
-                    status="in_progress",
-                )
-            if _obi is not None:
-                await self._config.storage.mark_outbox_sent(
-                    _obi.outbox_id,
-                    receipt_id=supplemental.receipt_id,
-                    attempt_number=supplemental.attempt_number,
-                )
-        except Exception:
-            self._log.exception(
-                "Failed to transition outbox queued→sent: " "event_id=%s adapter=%s",
-                record.event_id,
-                record.adapter,
-            )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
@@ -1077,59 +962,24 @@ class PipelineRunner:
     ) -> DeliveryReceipt:
         """Build and persist a lightweight suppression/rejection receipt.
 
-        Creates a ``status="suppressed"`` :class:`DeliveryReceipt` with
-        ``attempt_number=1``, no ``next_retry_at``, and the given
-        *failure_kind*.  The receipt is appended to storage so downstream
-        reporting can inspect loop suppression, capacity rejection, and
-        shutdown rejection events.
+        Delegates to
+        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
 
-        Parameters
-        ----------
-        event_id:
-            The canonical event ID (must already be persisted).
-        delivery_plan_id:
-            ID of the delivery plan.
-        target_adapter:
-            Name of the target adapter.
-        target_channel:
-            Channel on the target adapter, if applicable.
-        route_id:
-            ID of the route that triggered this delivery.
-        failure_kind:
-            The :class:`DeliveryFailureKind` for the suppression reason.
-        error:
-            Human-readable error/reason string.
-        source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
-        replay_run_id:
-            When ``source="replay"``, the replay run identifier.
-
-        Returns
-        -------
-        DeliveryReceipt
-            The persisted suppression receipt.
+        See :meth:`DeliveryLifecycleService.build_and_persist_suppression_receipt`
+        for full documentation.
         """
-        now = datetime.now(tz=timezone.utc)
-        receipt = DeliveryReceipt(
-            sequence=0,
-            receipt_id=f"rcpt-{uuid.uuid4()}",
+        return await self._lifecycle.build_and_persist_suppression_receipt(
+            self._config.storage,
             event_id=event_id,
             delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
             target_channel=target_channel,
             route_id=route_id,
-            status="suppressed",
+            failure_kind=failure_kind,
             error=error,
-            failure_kind=failure_kind.value,
-            next_retry_at=None,
-            created_at=now,
-            attempt_number=1,
-            parent_receipt_id=None,
             source=source,
             replay_run_id=replay_run_id,
         )
-        await self._config.storage.append_receipt(receipt)
-        return receipt
 
     async def _deliver_to_targets_inner(
         self,
@@ -1444,9 +1294,7 @@ class PipelineRunner:
                     # can inspect capacity/shutdown rejections via receipts.
                     suppression_receipt = await self._persist_suppression_receipt(
                         event_id=event.event_id,
-                        delivery_plan_id=(
-                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
-                        ),
+                        delivery_plan_id=route_plan.plan_id,
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
@@ -1460,9 +1308,7 @@ class PipelineRunner:
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
-                        delivery_plan_id=(
-                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
-                        ),
+                        delivery_plan_id=route_plan.plan_id,
                         status="permanent_failure",
                         failure_kind=capacity_failure_kind,
                         receipt=suppression_receipt,
@@ -1571,7 +1417,7 @@ class PipelineRunner:
                     if exc.failure_kind is not None:
                         failure_kind = exc.failure_kind
                     elif exc.original is not None:
-                        failure_kind = RetryExecutor.classify_failure(
+                        failure_kind = self._lifecycle.classify_failure(
                             exc.original,
                             adapter_registered=True,
                         )
@@ -1631,7 +1477,7 @@ class PipelineRunner:
                     elapsed = (time.monotonic() - t0) * 1000.0
                     _outcome_error = f"{type(exc).__name__}: {exc}"
                     exc_type = type(exc)
-                    failure_kind = RetryExecutor.classify_failure(
+                    failure_kind = self._lifecycle.classify_failure(
                         exc,
                         adapter_registered=(adapter_id in self._config.adapters),
                     )
@@ -1802,90 +1648,21 @@ class PipelineRunner:
     ) -> None:
         """Update the outbox item status based on the delivery outcome.
 
-        Handles the queued / sent / retry_wait / dead_lettered state
-        transitions.  Silently skips when no outbox item was created.
+        Thin wrapper that delegates to
+        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
+
+        See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
+        for full documentation.
         """
-        if outbox_id is None or not outbox_created:
-            return
-        try:
-            if receipt is not None and receipt.status not in ("failed",):
-                _r_status = receipt.status
-                if _r_status == "queued":
-                    await self._config.storage.mark_outbox_queued(
-                        outbox_id,
-                        receipt_id=receipt.receipt_id,
-                        attempt_number=receipt.attempt_number,
-                    )
-                else:
-                    await self._config.storage.mark_outbox_sent(
-                        outbox_id,
-                        receipt_id=receipt.receipt_id,
-                        attempt_number=receipt.attempt_number,
-                    )
-            elif failure_kind_val is not None:
-                _rec_id: str | None = (
-                    receipt.receipt_id if receipt is not None else None
-                )
-                _att: int | None = (
-                    receipt.attempt_number if receipt is not None else None
-                )
-                if failure_kind_val.is_retryable:
-                    if retry_policy is None:
-                        # No retry policy — treat as terminal.
-                        await self._config.storage.mark_outbox_dead_lettered(
-                            outbox_id,
-                            receipt_id=_rec_id,
-                            failure_kind=failure_kind_val.value,
-                            error_summary=(error[:512] if error else None),
-                        )
-                    else:
-                        _attempt = _att or 1
-                        _backoff = RetryExecutor(retry_policy).compute_backoff(_attempt)
-                        _next_at = (datetime.now(timezone.utc) + _backoff).isoformat()
-                        await self._config.storage.mark_outbox_retry_wait(
-                            outbox_id,
-                            next_attempt_at=_next_at,
-                            receipt_id=_rec_id,
-                            failure_kind=failure_kind_val.value,
-                            error_summary=(error[:512] if error else None),
-                            attempt_number=_attempt,
-                        )
-                else:
-                    await self._config.storage.mark_outbox_dead_lettered(
-                        outbox_id,
-                        receipt_id=_rec_id,
-                        failure_kind=failure_kind_val.value,
-                        error_summary=(error[:512] if error else None),
-                    )
-        except Exception:
-            self._log.exception(
-                "Failed to update outbox %s after delivery",
-                outbox_id,
-            )
-
-    @staticmethod
-    def _classify_adapter_error(
-        exc: Exception,
-    ) -> Literal["transient_failure", "permanent_failure"]:
-        """Classify an adapter exception as transient or permanent.
-
-        Uses the :class:`RetryExecutor.classify_failure` taxonomy to
-        determine retryability.  Transient failures are retryable
-        (timeouts, connection errors, temporary OS-level issues).
-        All other exceptions are treated as permanent failures.
-
-        Parameters
-        ----------
-        exc:
-            The exception raised by the adapter.
-
-        Returns
-        -------
-        str
-            ``"transient_failure"`` or ``"permanent_failure"``.
-        """
-        kind = RetryExecutor.classify_failure(exc)
-        return "transient_failure" if kind.is_retryable else "permanent_failure"
+        await self._lifecycle.finalize_outbox_outcome(
+            self._config.storage,
+            outbox_id=outbox_id,
+            outbox_created=outbox_created,
+            receipt=receipt,
+            failure_kind_val=failure_kind_val,
+            error=error,
+            retry_policy=retry_policy,
+        )
 
     async def deliver_to_target(
         self,
