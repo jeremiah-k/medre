@@ -257,9 +257,15 @@ def validate_outbox_transition(source: str, target: str) -> bool:
 
 
 def is_valid_queued_to_sent_transition(source_status: str) -> bool:
-    """Return ``True`` if *source_status* can transition to ``sent``.
+    """Return ``True`` if *source_status* may transition to ``sent``.
 
-    Convenience alias for ``validate_receipt_transition(source_status, "sent")``.
-    Used by the common queued→sent receipt correlation path.
+    Delegates to ``validate_receipt_transition(source_status, "sent")``.
+    Under the current :data:`RECEIPT_TRANSITIONS` table, only ``"queued"``
+    has ``"sent"`` as a legal target, so this helper effectively answers
+    "is *source_status* ``queued``?" — but the check is table-driven so
+    it stays correct if future receipt transitions to ``sent`` are added.
+
+    Used by the queued→sent supplemental receipt correlation path in
+    :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
     """
     return validate_receipt_transition(source_status, "sent")

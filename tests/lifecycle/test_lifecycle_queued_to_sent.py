@@ -1029,6 +1029,61 @@ class TestDeterministicPlanIdCorrelation:
         assert sent[0].parent_receipt_id == "rcpt-att3"
         assert sent[0].attempt_number == 3
 
+    async def test_legacy_no_plan_no_channel_empty_plan_id_uniform_latest_wins(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """(F) legacy no plan + no channel + multiple candidates all with
+        delivery_plan_id="" + same target_channel → {""} plan uniformity
+        → supplemental sent receipt, parent latest queued attempt.
+
+        Regression: confirms that the empty-string plan_id set {""}
+        satisfies the uniformity check (len == 1) just like any other
+        single-value plan set.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-f1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="",
+                attempt_number=1,
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-f2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="",
+                attempt_number=2,
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id=None,
+            native_message_id="pkt-f",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-f2"
+        assert sent[0].attempt_number == 2
+        assert sent[0].delivery_plan_id == ""
+
     async def test_legacy_cross_plan_no_channel_skips(
         self,
         temp_storage: StorageBackend,

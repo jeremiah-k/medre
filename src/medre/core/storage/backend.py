@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
 from medre.core.events import (
@@ -22,39 +23,33 @@ from medre.core.events import (
     NativeMessageRef,
 )
 
-
 # ---------------------------------------------------------------------------
 # Lazy cached helpers for circular-import-safe access to delivery_state
 # ---------------------------------------------------------------------------
 # backend -> delivery_state -> engine package init -> pipeline init
 # -> delivery_lifecycle -> backend creates a circular import.  The
-# module-level helpers below defer the import until first use and cache
-# the result so subsequent calls are a single dict/attribute lookup.
-
-_IS_TERMINAL_OUTBOX_STATUS = None
-_IS_CLAIMABLE_OUTBOX_STATUS = None
+# module-level helpers below defer the import until first call and
+# memoise the result via functools.cache so subsequent calls are
+# a single dict/attribute lookup.
 
 
+@cache
 def _get_is_terminal_outbox_status():  # type: ignore[no-untyped-def]
-    global _IS_TERMINAL_OUTBOX_STATUS
-    if _IS_TERMINAL_OUTBOX_STATUS is None:
-        from medre.core.engine.pipeline.delivery_state import (
-            is_terminal_outbox_status,
-        )
+    from medre.core.engine.pipeline.delivery_state import (
+        is_terminal_outbox_status,
+    )
 
-        _IS_TERMINAL_OUTBOX_STATUS = is_terminal_outbox_status
-    return _IS_TERMINAL_OUTBOX_STATUS
+    return is_terminal_outbox_status
 
 
+@cache
 def _get_is_claimable_outbox_status():  # type: ignore[no-untyped-def]
-    global _IS_CLAIMABLE_OUTBOX_STATUS
-    if _IS_CLAIMABLE_OUTBOX_STATUS is None:
-        from medre.core.engine.pipeline.delivery_state import (
-            is_claimable_outbox_status,
-        )
+    from medre.core.engine.pipeline.delivery_state import (
+        is_claimable_outbox_status,
+    )
 
-        _IS_CLAIMABLE_OUTBOX_STATUS = is_claimable_outbox_status
-    return _IS_CLAIMABLE_OUTBOX_STATUS
+    return is_claimable_outbox_status
+
 
 # ---------------------------------------------------------------------------
 # Shared defaults

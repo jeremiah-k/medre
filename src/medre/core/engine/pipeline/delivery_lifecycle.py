@@ -674,6 +674,10 @@ class DeliveryLifecycleService:
                         )
                         return
 
+        # Defensive guard: every branch above should either set queued_receipt
+        # or return early.  This catch-all prevents an unguarded None from
+        # reaching the transition-validation logic below if a new branch is
+        # added without updating the exit paths.
         if queued_receipt is None:
             self._log.warning(
                 "Logic error: queued_receipt is None after correlation "

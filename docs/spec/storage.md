@@ -757,6 +757,12 @@ Creating an item with the same key tuple `(delivery_plan_id, target_adapter, tar
 
 When the existing row is terminal, it is deleted and a new row is inserted (re-delivery).
 
+### 9.4 Stale Queued Reclaim
+
+The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaims outbox rows whose `updated_at` is older than the configured grace threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s). This recovers items that were handed to an adapter-local queue but never reached `sent` — for example because the worker crashed or the adapter lost the queued message.
+
+`queued` is **not** directly claimable; stale reclaim requires a storage-level staleness query and is distinct from the directly claimable statuses (`pending`, `retry_wait`). See [state-machines.md](state-machines.md) §2.3 "Stale Queued Reclaim" for the full transition semantics.
+
 ## 10. Pre-Release Database Policy
 
 MEDRE has not yet made its first release. There is no automatic migration support. The `initialize()` method **MUST** perform two validation checks:
