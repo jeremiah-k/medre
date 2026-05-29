@@ -112,7 +112,7 @@ class TestEventKindMapping:
     """Verify event-kind → capability field mapping via the resolver."""
 
     @pytest.mark.parametrize(
-        "event_kind,cap_field,cap_value,expected_level,expected_strategy",
+        ("event_kind", "cap_field", "cap_value", "expected_level", "expected_strategy"),
         [
             # -- Reactions (3-level string) ---
             ("message.reacted", "reactions", "native", "native", "direct"),
@@ -439,7 +439,7 @@ class TestReasonStability:
     """Verify reason strings match existing user-visible format."""
 
     @pytest.mark.parametrize(
-        "event_kind,cap_field,cap_value,expected_reason_fragment",
+        ("event_kind", "cap_field", "cap_value", "expected_reason_fragment"),
         [
             (
                 "message.reacted",
@@ -503,6 +503,34 @@ class TestReasonStability:
         assert decision.reason is not None
         assert "replies unsupported" in decision.reason
         assert "reply relation" in decision.reason
+
+    def test_reply_relation_fallback_reason_exact(self) -> None:
+        """Exact fallback relation reason string for reply."""
+        caps = AdapterCapabilities(replies="fallback")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_REPLY_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "replies fallback for adapter (event has reply relation)"
+        )
+
+    def test_reaction_relation_fallback_reason_exact(self) -> None:
+        """Exact fallback relation reason string for reaction."""
+        caps = AdapterCapabilities(reactions="fallback")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_REACTION_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "reactions fallback for adapter (event has reaction relation)"
+        )
 
     def test_native_has_no_reason(self) -> None:
         caps = AdapterCapabilities(reactions="native")
@@ -600,7 +628,7 @@ class TestWrapperParity:
     """Verify capability_unsupported() wrapper matches resolver.decide()."""
 
     @pytest.mark.parametrize(
-        "event_kind,cap_field,cap_value",
+        ("event_kind", "cap_field", "cap_value"),
         [
             ("message.reacted", "reactions", "unsupported"),
             ("message.reacted", "reactions", "native"),
@@ -633,9 +661,9 @@ class TestWrapperParity:
                 f"returned: {reason}"
             )
         else:
-            assert reason is not None, (
-                "Decision is unsupported but capability_unsupported " "returned None"
-            )
+            assert (
+                reason is not None
+            ), "Decision is unsupported but capability_unsupported returned None"
             # Reason should match the decision's reason.
             assert reason == decision.reason
 
@@ -654,7 +682,7 @@ class TestWrapperParity:
         assert reason == decision.reason
 
     @pytest.mark.parametrize(
-        "relation,cap_field,cap_value",
+        ("relation", "cap_field", "cap_value"),
         [
             (_REACTION_RELATION, "reactions", "unsupported"),
             (_REACTION_RELATION, "reactions", "fallback"),
@@ -700,7 +728,7 @@ class TestFallbackResolverParity:
     """Verify FallbackResolver strategy matches resolver's delivery_strategy."""
 
     @pytest.mark.parametrize(
-        "event_kind,cap_field,cap_value",
+        ("event_kind", "cap_field", "cap_value"),
         [
             ("message.reacted", "reactions", "native"),
             ("message.reacted", "reactions", "fallback"),
@@ -758,7 +786,7 @@ class TestFallbackResolverParity:
             )
 
     @pytest.mark.parametrize(
-        "relation,cap_field",
+        ("relation", "cap_field"),
         [
             (_REACTION_RELATION, "reactions"),
             (_EDIT_RELATION, "edits"),
@@ -823,8 +851,6 @@ class TestFailClosedSemantics:
 
     def test_mapped_field_none_is_unsupported(self) -> None:
         """A mapped string field set to None resolves to unsupported."""
-        import dataclasses
-
         caps = dataclasses.replace(_DEFAULT_CAPS, reactions=None)
         event = make_event(event_kind="message.reacted")
         decision = resolver.decide(event, caps)
@@ -834,8 +860,6 @@ class TestFailClosedSemantics:
 
     def test_mapped_field_invalid_string_raises(self) -> None:
         """A mapped string field with an invalid string raises ValueError."""
-        import dataclasses
-
         caps = dataclasses.replace(_DEFAULT_CAPS, reactions="maybe")
         event = make_event(event_kind="message.reacted")
         with pytest.raises(ValueError, match="reactions"):
@@ -843,8 +867,6 @@ class TestFailClosedSemantics:
 
     def test_mapped_field_invalid_type_raises(self) -> None:
         """A mapped string field with a non-string non-bool type raises ValueError."""
-        import dataclasses
-
         caps = dataclasses.replace(_DEFAULT_CAPS, reactions=42)
         event = make_event(event_kind="message.reacted")
         with pytest.raises(ValueError, match="reactions"):
@@ -852,8 +874,6 @@ class TestFailClosedSemantics:
 
     def test_mapped_boolean_field_non_bool_raises(self) -> None:
         """A mapped boolean field with a non-bool value raises ValueError."""
-        import dataclasses
-
         caps = dataclasses.replace(_DEFAULT_CAPS, text="yes")
         event = make_event(event_kind="message.text")
         with pytest.raises(ValueError, match="text"):
@@ -861,8 +881,6 @@ class TestFailClosedSemantics:
 
     def test_mapped_boolean_field_none_is_unsupported(self) -> None:
         """A mapped boolean field set to None resolves to unsupported."""
-        import dataclasses
-
         caps = dataclasses.replace(_DEFAULT_CAPS, text=None)
         event = make_event(event_kind="message.text")
         decision = resolver.decide(event, caps)
@@ -901,10 +919,10 @@ class TestFailClosedSemantics:
         # This is NOT because thread was treated as a mapped relation;
         # it is because thread produces no candidate at all.
 
-    def test_unknown_non_thread_relation_is_passthrough(self) -> None:
+    def test_unknown_non_thread_relation_is_unsupported(self) -> None:
         """An unmapped non-thread relation type (e.g. 'forward') produces
-        no candidate and results in native/direct passthrough with
-        capability_field is None."""
+        an unsupported candidate and results in unsupported/skip with
+        supported=False."""
         import msgspec.structs
 
         forward_relation = EventRelation(
@@ -928,10 +946,12 @@ class TestFailClosedSemantics:
         )
         decision = resolver.decide(event, caps)
 
-        assert decision.capability_level == "native"
-        assert decision.delivery_strategy == "direct"
-        assert decision.supported is True
-        assert decision.capability_field is None
+        assert decision.capability_level == "unsupported"
+        assert decision.delivery_strategy == "skip"
+        assert decision.supported is False
+        assert decision.capability_field == "relation"
+        assert decision.reason is not None
+        assert "unsupported relation type 'forward'" == decision.reason
 
 
 # ===================================================================

@@ -384,7 +384,8 @@ def _check_capability_warning(
         # (replies, reactions, edits, deletes) is not diagnosable at
         # this level.
         return None
-    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {decision.reason}"
+    reason = decision.reason or "unsupported"
+    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
 
 
 def capture_route_topology(

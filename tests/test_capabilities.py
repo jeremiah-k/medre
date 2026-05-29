@@ -250,6 +250,23 @@ class TestSummarizeAdapterCapabilities:
         assert tc.supports_reactions is True
         assert tc.supports_edits is True
 
+    def test_relation_none_normalizes_to_unsupported(self) -> None:
+        """Relation fields set to None are normalized to 'unsupported'."""
+        import dataclasses
+
+        caps = dataclasses.replace(
+            AdapterCapabilities(),
+            replies=None,
+            reactions=None,
+            edits=None,
+            deletes=None,
+        )
+        tc = summarize_adapter_capabilities(caps)
+        assert tc.replies_level == "unsupported"
+        assert tc.reactions_level == "unsupported"
+        assert tc.edits_level == "unsupported"
+        assert tc.deletes_level == "unsupported"
+
     def test_max_text_passthrough(self) -> None:
         """max_text_bytes and max_text_chars pass through directly."""
         caps = AdapterCapabilities(max_text_bytes=1024, max_text_chars=500)

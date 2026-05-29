@@ -83,10 +83,10 @@ def summarize_adapter_capabilities(
         supports_priority_delivery=capabilities.priority_delivery,
         max_text_bytes=capabilities.max_text_bytes,
         max_text_chars=capabilities.max_text_chars,
-        replies_level=capabilities.replies,
-        reactions_level=capabilities.reactions,
-        edits_level=capabilities.edits,
-        deletes_level=capabilities.deletes,
+        replies_level=capabilities.replies or "unsupported",
+        reactions_level=capabilities.reactions or "unsupported",
+        edits_level=capabilities.edits or "unsupported",
+        deletes_level=capabilities.deletes or "unsupported",
     )
 
 

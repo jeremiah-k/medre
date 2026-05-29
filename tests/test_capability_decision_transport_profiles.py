@@ -73,7 +73,12 @@ def _expected_strategy_for_value(
         return "direct"
     if value == "fallback":
         return "fallback_text"
-    return "skip"
+    if value == "unsupported":
+        return "skip"
+    raise AssertionError(
+        f"Unexpected capability string value: {value!r} "
+        f"(expected 'native', 'fallback', or 'unsupported')"
+    )
 
 
 def _expected_supported_for_value(
@@ -188,6 +193,10 @@ class TestTransportProfileDecisions:
                 assert decision.capability_level == "fallback"
             elif decision.delivery_strategy == "skip":
                 assert decision.capability_level == "unsupported"
+            else:
+                pytest.fail(
+                    f"Unexpected delivery_strategy: " f"{decision.delivery_strategy!r}"
+                )
 
 
 # ===================================================================
@@ -303,13 +312,12 @@ class TestRelationTransportProfileDecisions:
 
 
 def test_expected_strategy_helper_fails_on_unknown_string() -> None:
-    """Harden _expected_strategy_for_value: unknown strings should not
-    silently return 'skip' without being explicit."""
+    """Harden _expected_strategy_for_value: unknown strings should raise."""
     # Valid strings should not raise
     assert _expected_strategy_for_value("native", is_boolean=False) == "direct"
     assert _expected_strategy_for_value("fallback", is_boolean=False) == "fallback_text"
     assert _expected_strategy_for_value("unsupported", is_boolean=False) == "skip"
 
-    # Unknown string returns skip (fail-closed at decision level instead)
-    result = _expected_strategy_for_value("maybe", is_boolean=False)
-    assert result == "skip"  # Unknown string -> skip (fail-closed)
+    # Unknown string must raise AssertionError.
+    with pytest.raises(AssertionError, match="Unexpected capability string value"):
+        _expected_strategy_for_value("maybe", is_boolean=False)

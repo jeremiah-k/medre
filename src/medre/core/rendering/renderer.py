@@ -170,11 +170,20 @@ class RenderingContext:
         get_args(DeliveryStrategyMethod)
     )
 
+    _VALID_CAPABILITY_LEVELS: ClassVar[frozenset[str]] = frozenset(
+        get_args(CapabilityLevel)
+    )
+
     def __post_init__(self) -> None:
         if self.delivery_strategy not in self._VALID_STRATEGIES:
             raise ValueError(
                 f"Unknown delivery_strategy {self.delivery_strategy!r}. "
                 f"Must be one of {sorted(self._VALID_STRATEGIES)}."
+            )
+        if self.capability_level not in self._VALID_CAPABILITY_LEVELS:
+            raise ValueError(
+                f"Unknown capability_level {self.capability_level!r}. "
+                f"Must be one of {sorted(self._VALID_CAPABILITY_LEVELS)}."
             )
 
 

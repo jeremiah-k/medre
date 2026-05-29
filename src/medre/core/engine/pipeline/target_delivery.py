@@ -416,11 +416,42 @@ class TargetDeliveryService:
         # and replay so live/replay rendering evidence shares one source.
         _cap_decision = _resolver.decide(event, _caps, target_adapter=adapter_id)
         if _cap_decision.capability_level not in ("native", "fallback", "unsupported"):
-            raise ValueError(
+            _invalid_cap_error = (
                 f"Unexpected capability_level "
                 f"{_cap_decision.capability_level!r} from resolver "
-                f"(expected 'native', 'fallback', or 'unsupported')"
+                f"(expected 'native', 'fallback', or 'unsupported') "
+                f"for event_kind={event.event_kind!r}"
             )
+            self._diagnostician.record_planner_failure(
+                event.event_id, _invalid_cap_error
+            )
+            now = datetime.now(tz=timezone.utc)
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+                route_id=route.id,
+                status="failed",
+                error=_invalid_cap_error,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
+                next_retry_at=None,
+                created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                **self._lifecycle.extract_retry_fields(plan),
+            )
+            await self._storage.append_receipt(receipt)
+            raise _RendererDeliveryError(
+                adapter_id or "",
+                _invalid_cap_error,
+                receipt=receipt,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
+            ) from None
         _capability_level: _CapLevel = _cap_decision.capability_level
 
         # Honor the delivery plan's strategy: validate and narrow the

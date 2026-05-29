@@ -1474,3 +1474,155 @@ class TestCapabilityLevelPropagation:
 
         assert receipt.status == "suppressed"
         assert pipeline.recorded_capability_level is None
+
+    async def test_reply_fallback_capability_level(self) -> None:
+        """Reply relation + replies='fallback' -> capability_level='fallback',
+        delivery_strategy='fallback_text'."""
+        from medre.core.events.canonical import EventRelation, NativeRef
+
+        adapter, _caps = self._make_caps_adapter(replies="fallback", text=True)
+        pipeline = _CapabilityRecordingPipeline()
+        svc, storage = _make_service(
+            adapters={"cap_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        reply_relation = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-parent",
+            target_native_ref=NativeRef(
+                adapter="cap_adapter",
+                native_channel_id="ch-0",
+                native_message_id="native-001",
+            ),
+            key=None,
+            fallback_text="original",
+        )
+        event = CanonicalEvent(
+            event_id="evt-reply-fallback",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(tz=timezone.utc),
+            source_adapter="src_adapter",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_relation,),
+            payload={"text": "a reply"},
+            metadata=EventMetadata(),
+        )
+        route, plan = _make_route_and_plan(
+            adapter_id="cap_adapter", method="fallback_text"
+        )
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert pipeline.recorded_capability_level == "fallback"
+        assert pipeline.recorded_delivery_strategy == "fallback_text"
+
+    async def test_reply_native_capability_level(self) -> None:
+        """Reply relation + replies='native' -> capability_level='native',
+        delivery_strategy='direct'."""
+        from medre.core.events.canonical import EventRelation, NativeRef
+
+        adapter, _caps = self._make_caps_adapter(replies="native", text=True)
+        pipeline = _CapabilityRecordingPipeline()
+        svc, storage = _make_service(
+            adapters={"cap_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        reply_relation = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-parent",
+            target_native_ref=NativeRef(
+                adapter="cap_adapter",
+                native_channel_id="ch-0",
+                native_message_id="native-001",
+            ),
+            key=None,
+            fallback_text="original",
+        )
+        event = CanonicalEvent(
+            event_id="evt-reply-native",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(tz=timezone.utc),
+            source_adapter="src_adapter",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_relation,),
+            payload={"text": "a reply"},
+            metadata=EventMetadata(),
+        )
+        route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="direct")
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert pipeline.recorded_capability_level == "native"
+        assert pipeline.recorded_delivery_strategy == "direct"
+
+
+# ===================================================================
+# Invalid capability decision from resolver
+# ===================================================================
+
+
+class TestInvalidCapabilityDecision:
+    """Verify invalid resolver capability_level is treated as planner failure."""
+
+    async def test_invalid_capability_level_planner_failure(self) -> None:
+        """Invalid capability_level from resolver produces PLANNER_FAILURE."""
+        from unittest.mock import patch
+
+        from medre.core.planning.capability_decision import CapabilityDecision
+
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        pipeline = _FakeRenderingPipeline(
+            result=RenderingResult(
+                event_id="evt-001",
+                target_adapter="test_adapter",
+                target_channel=None,
+                payload={"text": "hello"},
+            )
+        )
+        diag = Diagnostician()
+        svc, storage = _make_service(
+            adapters={"test_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        svc._diagnostician = diag
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        # Monkeypatch resolver to return invalid capability_level.
+        bad_decision = CapabilityDecision(
+            target_adapter="test_adapter",
+            event_kind="message.created",
+            capability_level="bogus",  # type: ignore[arg-type]
+            delivery_strategy="direct",
+            supported=True,
+            capability_field=None,
+            reason=None,
+        )
+        with patch(
+            "medre.core.engine.pipeline.target_delivery._resolver.decide",
+            return_value=bad_decision,
+        ):
+            with pytest.raises(_RendererDeliveryError) as exc_info:
+                await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert err.failure_kind == DeliveryFailureKind.PLANNER_FAILURE
+        assert err.receipt is not None
+        assert err.receipt.failure_kind == DeliveryFailureKind.PLANNER_FAILURE.value
+        assert err.receipt.status == "failed"
+        # Receipt was persisted.
+        assert len(storage.receipts) == 1
+        assert storage.receipts[0] is err.receipt
+        # Diagnostician was notified.
+        snap = diag.snapshot()
+        assert "planner_failures" in snap
+        assert "evt-001" in snap["planner_failures"]
+        assert snap["planner_failures"]["evt-001"] >= 1

@@ -379,11 +379,19 @@ class CapabilityDecisionResolver:
             for rel in event.relations:
                 rel_field = _RELATION_FIELDS.get(rel.relation_type)
                 if rel_field is None:
-                    # thread or unknown relation type -- deferred.  Unknown
-                    # relation types MUST NOT silently behave like thread;
-                    # they produce no candidate and the event falls through
-                    # to passthrough (native/direct) only if no other
-                    # candidate exists.
+                    if rel.relation_type == "thread":
+                        # Thread capability is deferred — no candidate.
+                        continue
+                    # Unknown non-thread relation: fail closed.
+                    candidates.append(
+                        _Candidate(
+                            capability_level="unsupported",
+                            capability_field="relation",
+                            reason=(
+                                f"unsupported relation type " f"{rel.relation_type!r}"
+                            ),
+                        )
+                    )
                     continue
                 level = _resolve_field_level(rel_field, caps)
                 reason = _make_relation_reason(level, rel_field, rel.relation_type)
