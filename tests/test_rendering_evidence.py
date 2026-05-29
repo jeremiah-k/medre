@@ -40,7 +40,9 @@ from medre.core.rendering.renderer import (
 # ---------------------------------------------------------------------------
 
 try:
-    from medre.core.rendering.evidence import RenderingEvidence  # type: ignore[import-not-found]
+    from medre.core.rendering.evidence import (
+        RenderingEvidence,  # type: ignore[import-not-found]
+    )
 
     HAS_RENDERING_EVIDENCE = True
 except ImportError:
@@ -765,7 +767,7 @@ class TestByteTruncationEdgeCases:
 
     async def test_multibyte_utf8_not_split(self) -> None:
         """UTF-8 multi-byte characters are never split in truncation.
-        
+
         Uses MeshCore renderer (no prefix formatting) to get clean output.
         """
         text = "🎉" * 50  # 200 bytes

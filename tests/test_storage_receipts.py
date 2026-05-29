@@ -1307,22 +1307,24 @@ class TestReceiptRenderingEvidence:
     @staticmethod
     def _sample_evidence_json() -> str:
         """Return a sample rendering evidence JSON string."""
-        return json.dumps({
-            "schema_version": "1",
-            "renderer": "text",
-            "delivery_strategy": "direct",
-            "target_adapter": "fake_presentation",
-            "target_platform": None,
-            "target_channel": "ch-1",
-            "max_text_chars": None,
-            "max_text_bytes": None,
-            "capability_level": "native",
-            "fallback_applied": None,
-            "truncated": False,
-            "rendered_text_chars": 5,
-            "rendered_text_bytes": 5,
-            "original_text_chars": None,
-        })
+        return json.dumps(
+            {
+                "schema_version": "1",
+                "renderer": "text",
+                "delivery_strategy": "direct",
+                "target_adapter": "fake_presentation",
+                "target_platform": None,
+                "target_channel": "ch-1",
+                "max_text_chars": None,
+                "max_text_bytes": None,
+                "capability_level": "native",
+                "fallback_applied": None,
+                "truncated": False,
+                "rendered_text_chars": 5,
+                "rendered_text_bytes": 5,
+                "original_text_chars": None,
+            }
+        )
 
     async def test_sent_receipt_with_evidence_persists(
         self, temp_storage: SQLiteStorage

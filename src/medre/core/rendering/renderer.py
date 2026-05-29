@@ -39,7 +39,14 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, get_args, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Literal,
+    Protocol,
+    get_args,
+    runtime_checkable,
+)
 
 from medre.core.events import CanonicalEvent
 

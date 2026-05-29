@@ -242,15 +242,15 @@ class CapabilityLevel(str, Enum):
     FUTURE                      = "future"
 ```
 
-| Level                         | Meaning                                                                                              |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `TRUE`                        | Fully supported natively                                                                             |
-| `FALSE`                       | Not supported                                                                                        |
-| `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format   |
-| `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise      |
+| Level                         | Meaning                                                                                            |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `TRUE`                        | Fully supported natively                                                                           |
+| `FALSE`                       | Not supported                                                                                      |
+| `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format |
+| `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise    |
 
 > **Note on `METADATA_*` naming.** The `METADATA_NATIVE` and `METADATA_NATIVE_OR_FALLBACK` level names are historical. They originated when relation context was primarily carried as metadata fields. In the current architecture, both levels mean **inline fallback semantics**: the target-native renderer embeds relation context as inline text within its own native payload format (e.g. a Meshtastic renderer produces Meshtastic text with `[replying to: …]` prefixes). The renderer owns the degradation logic; the adapter sees only a normal native payload. The `METADATA_` prefix is retained for enum stability but should be read as "inline fallback within native format."
-| `FUTURE`                      | Planned, not yet implemented                                                                         |
+> | `FUTURE` | Planned, not yet implemented |
 
 ### 6.3 AdapterCapabilities Mapping
 
@@ -277,13 +277,13 @@ The runtime reads capabilities from the cached `AdapterInfo` at delivery time. I
 
 ### 6.4 How Capabilities Drive Behavior
 
-| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                           | `native` Behavior             |
-| ------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- |
-| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reply context as inline text within native payload format       | Native reply threading used   |
-| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reaction as inline text within native payload format            | Native reactions used         |
-| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds edit context as inline text within native payload format        | Native edit support used      |
-| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds delete notice as inline text within native payload format       | Native delete used            |
-| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                                                           | Unlimited or platform-handled |
+| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                     | `native` Behavior             |
+| ------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------- |
+| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reply context as inline text within native payload format | Native reply threading used   |
+| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reaction as inline text within native payload format      | Native reactions used         |
+| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds edit context as inline text within native payload format  | Native edit support used      |
+| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds delete notice as inline text within native payload format | Native delete used            |
+| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                                                     | Unlimited or platform-handled |
 
 ---
 
@@ -519,20 +519,20 @@ The renderer owns payload construction. The adapter owns transport delivery.
 
 **Evidence signals on `RenderingResult`:**
 
-| Field              | Signal                                                         |
-| ------------------ | -------------------------------------------------------------- |
-| `truncated`        | `True` when the renderer shortened content to fit a budget.   |
-| `fallback_applied` | Identifies which fallback was used, or `None` if none.        |
+| Field              | Signal                                                      |
+| ------------------ | ----------------------------------------------------------- |
+| `truncated`        | `True` when the renderer shortened content to fit a budget. |
+| `fallback_applied` | Identifies which fallback was used, or `None` if none.      |
 
 These fields are not operational flags. They are evidence that lets operators understand why a particular rendering output looks the way it does. `truncated=True` means content was lost to fit adapter constraints. `fallback_applied="strategy_fallback_text"` means the target-native renderer degraded relation context to inline text. The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reaction"`, `"relation_edit"`, `"relation_delete"`, `"relation_thread"`, `"strategy_fallback_text"`) is a closed set of fallback reasons.
 
 **Evidence signals on `RenderingContext`:**
 
-| Field               | Signal                                                  |
-| ------------------- | ------------------------------------------------------- |
-| `delivery_strategy` | The strategy that governed rendering.                   |
-| `max_text_chars`    | Character budget that may have caused truncation.       |
-| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.      |
+| Field               | Signal                                                   |
+| ------------------- | -------------------------------------------------------- |
+| `delivery_strategy` | The strategy that governed rendering.                    |
+| `max_text_chars`    | Character budget that may have caused truncation.        |
+| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.       |
 | `capability_level`  | Target's capability level for the event's relation type. |
 
 The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.

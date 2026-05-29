@@ -184,8 +184,8 @@ class RenderingEvidence:
         result:
             The rendering result returned by the renderer.
         """
-        rendered_chars, rendered_bytes, original_chars = (
-            _text_char_byte_metrics(result.payload, result.metadata)
+        rendered_chars, rendered_bytes, original_chars = _text_char_byte_metrics(
+            result.payload, result.metadata
         )
 
         return cls(

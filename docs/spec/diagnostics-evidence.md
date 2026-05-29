@@ -419,23 +419,23 @@ Rendering evidence is derived from two frozen dataclasses produced by the render
 
 **RenderingContext** records the input constraints that governed the render call:
 
-| Field                | Evidence role                                                   |
-| -------------------- | --------------------------------------------------------------- |
-| `delivery_strategy`  | Which strategy was selected: `"direct"`, `"fallback_text"`, etc. |
-| `target_adapter`     | Which adapter the render targets.                               |
-| `target_platform`    | Platform of the target adapter.                                 |
-| `max_text_chars`     | Character budget, or `None` for unlimited.                      |
-| `max_text_bytes`     | UTF-8 byte budget, or `None` for unlimited.                     |
-| `capability_level`   | Capability level for the event's relation type.                 |
+| Field               | Evidence role                                                    |
+| ------------------- | ---------------------------------------------------------------- |
+| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc. |
+| `target_adapter`    | Which adapter the render targets.                                |
+| `target_platform`   | Platform of the target adapter.                                  |
+| `max_text_chars`    | Character budget, or `None` for unlimited.                       |
+| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                      |
+| `capability_level`  | Capability level for the event's relation type.                  |
 
 **RenderingResult** records the output decisions:
 
-| Field              | Evidence role                                                                |
-| ------------------ | ---------------------------------------------------------------------------- |
-| `truncated`        | `True` when the rendered content exceeded a budget and was shortened.        |
+| Field              | Evidence role                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `truncated`        | `True` when the rendered content exceeded a budget and was shortened.                                                           |
 | `fallback_applied` | Which fallback strategy was applied: `"strategy_fallback_text"`, `"relation_reply"`, etc., or `None` when no fallback occurred. |
-| `payload`          | The rendered content itself. This is the adapter-ready payload, not evidence. |
-| `metadata`         | Additional rendering metadata (format hints, truncation details).            |
+| `payload`          | The rendered content itself. This is the adapter-ready payload, not evidence.                                                   |
+| `metadata`         | Additional rendering metadata (format hints, truncation details).                                                               |
 
 Together, these two dataclasses answer the question: "Given these constraints (context), the renderer produced this output (result) with these adjustments (truncated, fallback_applied)."
 
@@ -445,12 +445,12 @@ The **payload** is the rendered content intended for adapter delivery. It is the
 
 **Rendering evidence** is the why: the constraints, decisions, and adjustments that produced that payload. Evidence does not duplicate the payload. It explains the rendering decision.
 
-| Aspect  | Payload                                | Evidence                                              |
-| ------- | -------------------------------------- | ----------------------------------------------------- |
-| Purpose | Content delivered to the transport     | Explanation of how and why content was shaped         |
-| Carried | `RenderingResult.payload`              | `RenderingContext` fields + `truncated` + `fallback_applied` |
-| Size    | Variable, transport-dependent          | Fixed-structure, small                                |
-| Use     | Adapter transports it as-is            | Operator inspects it for debugging and auditing       |
+| Aspect  | Payload                            | Evidence                                                     |
+| ------- | ---------------------------------- | ------------------------------------------------------------ |
+| Purpose | Content delivered to the transport | Explanation of how and why content was shaped                |
+| Carried | `RenderingResult.payload`          | `RenderingContext` fields + `truncated` + `fallback_applied` |
+| Size    | Variable, transport-dependent      | Fixed-structure, small                                       |
+| Use     | Adapter transports it as-is        | Operator inspects it for debugging and auditing              |
 
 The `RenderingResult.metadata` dict sits between these two: it MAY carry rendering hints (format, truncation byte counts) that are useful for evidence without being the payload itself. Metadata fields are informational and consumers MUST NOT parse them for control-flow decisions.
 
@@ -481,13 +481,13 @@ Deferred replay invariants (deterministic re-rendering given identical context, 
 
 ### 14.6 Evidence Signals Summary
 
-| Signal              | Source                | Meaning                                                       |
-| -------------------- | --------------------- | ------------------------------------------------------------- |
-| `truncated=True`     | `RenderingResult`     | Content was shortened to fit adapter text budgets.            |
-| `fallback_applied`   | `RenderingResult`     | A specific fallback strategy was applied. Value identifies which. |
-| `delivery_strategy`  | `RenderingContext`    | The strategy that governed the render call.                   |
-| `max_text_bytes`     | `RenderingContext`    | The byte budget that may have caused truncation.              |
-| `max_text_chars`     | `RenderingContext`    | The character budget that may have caused truncation.         |
+| Signal              | Source             | Meaning                                                           |
+| ------------------- | ------------------ | ----------------------------------------------------------------- |
+| `truncated=True`    | `RenderingResult`  | Content was shortened to fit adapter text budgets.                |
+| `fallback_applied`  | `RenderingResult`  | A specific fallback strategy was applied. Value identifies which. |
+| `delivery_strategy` | `RenderingContext` | The strategy that governed the render call.                       |
+| `max_text_bytes`    | `RenderingContext` | The byte budget that may have caused truncation.                  |
+| `max_text_chars`    | `RenderingContext` | The character budget that may have caused truncation.             |
 
 An operator inspecting these signals can answer: "Why was this message truncated?" (check `max_text_bytes`/`max_text_chars`), "Why does this message have inline text instead of a native reply?" (check `fallback_applied="relation_reply"`), and "What strategy was active?" (check `delivery_strategy`).
 

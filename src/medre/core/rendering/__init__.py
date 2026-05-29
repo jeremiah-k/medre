@@ -36,6 +36,7 @@ Exported names
   cap text at a UTF-8 byte limit.
 """
 
+from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import (
     CapabilityLevel,
     DeliveryStrategyMethod,
@@ -45,7 +46,6 @@ from medre.core.rendering.renderer import (
     RenderingPipeline,
     RenderingResult,
 )
-from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.text import TextRenderer
 from medre.core.rendering.text_helpers import (
     extract_relation_text,
