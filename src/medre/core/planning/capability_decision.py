@@ -71,9 +71,10 @@ Thread capability deferral
 ``AdapterCapabilities.threads`` does not exist.  Thread relations are
 not mapped to a capability field.  The resolver preserves current
 behaviour: thread-carrying events receive native / direct delivery
-with ``capability_field=None``, and the deferral is documented
-explicitly in the decision's ``reason`` field when the only candidate
-is a thread relation.
+with ``capability_field=None`` and ``reason=None``.  Thread relations
+do not produce a capability candidate; if no other event-kind or
+relation candidate determines the decision, the resolver returns a
+passthrough decision (``capability_field=None``, ``reason=None``).
 
 Public symbols
 --------------

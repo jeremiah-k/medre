@@ -109,12 +109,14 @@ class RenderingContext:
 
     **Populated and reserved fields** — ``max_text_bytes`` is wired
     from adapter capabilities by the pipeline.  ``capability_level``
-    and ``capability_policy`` are defined as part of the context
-    protocol for forward compatibility and caller-provided plumbing,
-    but the default pipeline does **not** populate them; they remain
-    ``"native"`` and ``None`` respectively unless a caller explicitly
-    sets them.  Renderers MUST treat ``delivery_strategy`` as the
-    authoritative dispatch signal.
+    is populated from the :class:`CapabilityDecisionResolver` via
+    :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+    when rendering occurs through the normal pipeline.  ``capability_policy``
+    is defined as part of the context protocol for forward compatibility
+    and caller-provided plumbing, but the default pipeline does **not**
+    populate it; it remains ``None`` unless a caller explicitly sets it.
+    Renderers MUST treat ``delivery_strategy`` as the authoritative
+    dispatch signal.
 
     Attributes
     ----------
@@ -140,11 +142,13 @@ class RenderingContext:
     capability_level:
         The target's capability level for the event's relation type:
         ``"native"`` (full support), ``"fallback"`` (degraded),
-        ``"unsupported"`` (cannot handle).  Defaults to ``"native"``.
-        **Reserved**: the default pipeline does not set this field
-        from adapter capabilities; renderers should rely on
-        ``delivery_strategy`` for dispatch unless a caller explicitly
-        provides it.
+        ``"unsupported"`` (cannot handle).  Populated from
+        :class:`CapabilityDecisionResolver` via
+        :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        when rendering occurs through the normal pipeline.  Defaults
+        to ``"native"`` when no capability decision is available.
+        Renderers should rely on ``delivery_strategy`` as the
+        authoritative dispatch signal.
     capability_policy:
         Optional policy hint governing rendering behaviour (e.g.
         ``"strict"`` for hard reject on capability mismatch,

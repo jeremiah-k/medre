@@ -48,9 +48,9 @@ def _caps_with(field: str, value: object) -> AdapterCapabilities:
     dict is passed through ``dataclasses.replace(..., **changes: Any)``
     which Pyright accepts without a cast or ignore.
     """
-    assert isinstance(value, (bool, str)), (
-        f"Expected bool|str for {field!r}, got {type(value).__name__}"
-    )
+    assert isinstance(
+        value, (bool, str)
+    ), f"Expected bool|str for {field!r}, got {type(value).__name__}"
     return dataclasses.replace(_DEFAULT_CAPS, **{field: value})
 
 
