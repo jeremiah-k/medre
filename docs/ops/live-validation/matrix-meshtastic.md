@@ -196,6 +196,22 @@ A successful bring-up produces:
    events. Remember: this confirms local adapter or radio acceptance, not
    remote delivery confirmation.
 
+## Deterministic Operational Harness
+
+Before live validation, run the deterministic operational test harness. These
+tests exercise the full Matrix ↔ Meshtastic rendering, codec, queue, lifecycle,
+and capability paths using fake adapters — no homeserver or radio required.
+
+```bash
+# 48 tests covering bidirectional flow, relations, loop prevention,
+# queue backpressure, byte-budget truncation, failure classification,
+# adapter lifecycle, capability decisions, and cross-platform reactions
+pytest tests/operational/test_matrix_meshtastic_path.py -v
+```
+
+All tests must pass before proceeding to live bring-up. They complete in under
+3 seconds on commodity hardware.
+
 ## See Also
 
 - [examples/configs/live-matrix-meshtastic.toml](../../../examples/configs/live-matrix-meshtastic.toml) — canonical real-device bridge config
