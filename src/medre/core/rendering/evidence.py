@@ -213,10 +213,13 @@ class RenderingEvidence:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe plain dict representation.
 
-        ``capability_policy`` is omitted when ``None`` to reduce noise
-        (the default pipeline never sets it).
+        All fields are always included (even when ``None``) so that the
+        serialised shape is stable and deterministic regardless of whether
+        ``json.dumps`` or ``msgspec.json.encode`` is used as the encoder.
+        This eliminates shape drift between the ``to_dict`` path and
+        ``msgspec`` which includes ``null`` for unset fields.
         """
-        d: dict[str, Any] = {
+        return {
             "schema_version": self.schema_version,
             "renderer": self.renderer,
             "delivery_strategy": self.delivery_strategy,
@@ -226,12 +229,10 @@ class RenderingEvidence:
             "max_text_chars": self.max_text_chars,
             "max_text_bytes": self.max_text_bytes,
             "capability_level": self.capability_level,
+            "capability_policy": self.capability_policy,
             "fallback_applied": self.fallback_applied,
             "truncated": self.truncated,
             "rendered_text_chars": self.rendered_text_chars,
             "rendered_text_bytes": self.rendered_text_bytes,
             "original_text_chars": self.original_text_chars,
         }
-        if self.capability_policy is not None:
-            d["capability_policy"] = self.capability_policy
-        return d

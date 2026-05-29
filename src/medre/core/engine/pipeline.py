@@ -21,6 +21,7 @@ Pipeline stages
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -2413,15 +2414,20 @@ class PipelineRunner:
         # naturally leave rendering_evidence=None.  Uses getattr for forward
         # compatibility when RenderingResult.rendering_evidence has not yet
         # been added by the parallel evidence model task.
+        #
+        # Canonical path: to_dict() + json.dumps(sort_keys=True) ensures a
+        # stable, deterministic field order so that msgspec vs json shape
+        # drift cannot cause test/production asymmetry.
         _rendering_evidence: str | None = None
         if status in ("sent", "queued"):
             _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
             if _raw_evidence is not None:
-                _rendering_evidence = (
-                    _raw_evidence
-                    if isinstance(_raw_evidence, str)
-                    else msgspec.json.encode(_raw_evidence).decode()
-                )
+                if isinstance(_raw_evidence, str):
+                    _rendering_evidence = _raw_evidence
+                else:
+                    _rendering_evidence = json.dumps(
+                        _raw_evidence.to_dict(), sort_keys=True
+                    )
 
         receipt = DeliveryReceipt(
             sequence=0,

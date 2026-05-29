@@ -1469,3 +1469,68 @@ class TestReceiptRenderingEvidence:
         assert status is not None
         assert status.status == "queued"
         assert status.rendering_evidence == evidence_json
+
+    async def test_e2e_render_evidence_receipt_sqlite_roundtrip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """End-to-end: render → RenderingEvidence → DeliveryReceipt →
+        SQLite append/readback → JSON parsed → key fields match.
+
+        Exercises the full canonical serialization path
+        (to_dict() + json.dumps) rather than msgspec.
+        """
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+
+        # Build evidence via the real rendering pipeline.
+        pipeline = RenderingPipeline()
+        pipeline.register(TextRenderer(), priority=100)
+
+        event = make_storage_event(event_id="evt-e2e-evidence")
+        await temp_storage.append(event)
+
+        rendering_result = await pipeline.render(
+            event,
+            target_adapter="fake_presentation",
+            target_channel="ch-1",
+            target_platform=None,
+        )
+
+        # The pipeline must have attached evidence.
+        assert rendering_result.rendering_evidence is not None
+        evidence = rendering_result.rendering_evidence
+
+        # Serialize using the canonical path (to_dict + json.dumps).
+        evidence_json = json.dumps(evidence.to_dict(), sort_keys=True)
+
+        # Build a receipt with the serialized evidence.
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-e2e",
+            event_id="evt-e2e-evidence",
+            delivery_plan_id="plan-e2e",
+            target_adapter="fake_presentation",
+            target_channel="ch-1",
+            status="sent",
+            rendering_evidence=evidence_json,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        # Read back via delivery_status.
+        status = await temp_storage.delivery_status(
+            "plan-e2e", "fake_presentation", "ch-1"
+        )
+        assert status is not None
+        assert status.rendering_evidence is not None
+
+        # Parse and verify key fields survive the round-trip.
+        parsed = json.loads(status.rendering_evidence)
+        assert parsed["schema_version"] == "1"
+        assert parsed["renderer"] == "text"
+        assert parsed["delivery_strategy"] == "direct"
+        assert parsed["target_adapter"] == "fake_presentation"
+        assert parsed["target_channel"] == "ch-1"
+        assert parsed["truncated"] is False
+        # Stable shape: None fields must be present as null.
+        assert parsed["capability_policy"] is None
+        assert parsed["fallback_applied"] is None
+        assert "rendered_text_chars" in parsed

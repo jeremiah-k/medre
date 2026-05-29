@@ -27,10 +27,9 @@ from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -979,6 +978,60 @@ class TestRenderingEvidenceModel:
         assert "payload" not in d
         json.dumps(d)  # must not raise
 
+    def test_to_dict_includes_all_fields_even_none(self) -> None:
+        """to_dict() always includes every field, including those that are
+        None, for a stable deterministic serialisation shape."""
+        assert RenderingEvidence is not None
+        evidence = RenderingEvidence(  # type: ignore[union-attr]
+            schema_version="1",
+            renderer="text",
+            target_adapter="a",
+            target_platform=None,
+            delivery_strategy="direct",
+            target_channel=None,
+            max_text_chars=None,
+            max_text_bytes=None,
+            capability_level="native",
+            capability_policy=None,
+            truncated=False,
+            fallback_applied=None,
+            rendered_text_chars=None,
+            rendered_text_bytes=None,
+            original_text_chars=None,
+        )
+        d = evidence.to_dict()  # type: ignore[union-attr]
+
+        # Every field must be present — even those that are None.
+        expected_keys = {
+            "schema_version",
+            "renderer",
+            "delivery_strategy",
+            "target_adapter",
+            "target_platform",
+            "target_channel",
+            "max_text_chars",
+            "max_text_bytes",
+            "capability_level",
+            "capability_policy",
+            "fallback_applied",
+            "truncated",
+            "rendered_text_chars",
+            "rendered_text_bytes",
+            "original_text_chars",
+        }
+        assert set(d.keys()) == expected_keys
+
+        # None fields must be explicitly present (not omitted).
+        assert d["target_platform"] is None
+        assert d["target_channel"] is None
+        assert d["capability_policy"] is None
+        assert d["fallback_applied"] is None
+
+        # The dict must round-trip through JSON without error.
+        serialized = json.dumps(d, sort_keys=True)
+        parsed = json.loads(serialized)
+        assert set(parsed.keys()) == expected_keys
+
 
 # ===================================================================
 # DeliveryReceipt rendering_evidence (gated on implementation)
@@ -1013,16 +1066,38 @@ class TestDeliveryReceiptRenderingEvidence:
         reason="RenderingEvidence not yet implemented",
     )
     def test_receipt_rendering_evidence_serializable(self) -> None:
-        """DeliveryReceipt.rendering_evidence is JSON-serializable."""
+        """DeliveryReceipt.rendering_evidence is JSON-serializable when
+        populated with a RenderingEvidence snapshot."""
         assert DeliveryReceipt is not None
         assert RenderingEvidence is not None
+        evidence = RenderingEvidence(  # type: ignore[union-attr]
+            schema_version="1",
+            renderer="text",
+            target_adapter="adapter-2",
+            target_platform=None,
+            delivery_strategy="direct",
+            target_channel=None,
+            max_text_chars=None,
+            max_text_bytes=None,
+            capability_level="native",
+            capability_policy=None,
+            truncated=False,
+            fallback_applied=None,
+            rendered_text_chars=5,
+            rendered_text_bytes=5,
+            original_text_chars=5,
+        )
+        evidence_json = json.dumps(evidence.to_dict())  # type: ignore[union-attr]
         receipt = DeliveryReceipt(
             sequence=1,
             receipt_id="rcpt-2",
             event_id="evt-2",
             target_adapter="adapter-2",
+            rendering_evidence=evidence_json,
         )
-        # When evidence is attached, it must be serializable
-        if receipt.rendering_evidence is not None:
-            serialized = json.dumps(receipt.rendering_evidence)
-            assert isinstance(serialized, str)
+        assert receipt.rendering_evidence is not None
+        parsed = json.loads(receipt.rendering_evidence)
+        assert isinstance(parsed, dict)
+        assert parsed["renderer"] == "text"
+        assert parsed["target_adapter"] == "adapter-2"
+        assert parsed["truncated"] is False
