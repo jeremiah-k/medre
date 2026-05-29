@@ -423,19 +423,22 @@ CREATE TABLE delivery_receipts (
 ### 4.5 delivery_status View
 
 ```sql
-CREATE VIEW IF NOT EXISTS delivery_status AS
+DROP VIEW IF EXISTS delivery_status;
+CREATE VIEW delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base, dr.retry_max_delay, dr.retry_jitter,
-       dr.created_at
+       dr.rendering_evidence, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
     FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 ```
+
+The view is dropped and recreated on every `initialize()` call to ensure the column shape stays current when new columns are added to `delivery_receipts` (e.g. `rendering_evidence`). `DROP VIEW IF EXISTS` followed by `CREATE VIEW` guarantees the view definition always matches the table schema.
 
 The current delivery status for any plan is a projection: the latest receipt row for a given `(delivery_plan_id, target_adapter, target_channel)` tuple. Uses `MAX(sequence)` for deterministic ordering. No code path **SHALL** write to this view directly. To change the current status, append a new receipt row.
 

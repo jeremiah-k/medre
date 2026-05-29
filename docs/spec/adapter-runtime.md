@@ -528,14 +528,16 @@ These fields are not operational flags. They are evidence that lets operators un
 
 **Evidence signals on `RenderingContext`:**
 
-| Field               | Signal                                                   |
-| ------------------- | -------------------------------------------------------- |
-| `delivery_strategy` | The strategy that governed rendering.                    |
-| `max_text_chars`    | Character budget that may have caused truncation.        |
-| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.       |
-| `capability_level`  | Target's capability level for the event's relation type. |
+| Field               | Signal                                                                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delivery_strategy` | The strategy that governed rendering.                                                                                                               |
+| `max_text_chars`    | Character budget that may have caused truncation.                                                                                                   |
+| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.                                                                                                  |
+| `capability_level`  | The level from `RenderingContext.capability_level`. Defaults to `"native"` — the default pipeline does not populate this from adapter capabilities. |
 
 The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
+
+**Receipt attachment scope.** The `rendering_evidence` field on `DeliveryReceipt` is populated only for `sent` and `queued` statuses. Suppressed, rendering-failure, and adapter-failure paths leave `rendering_evidence` as `None`. Pre-outbox skip paths (loop guard, policy denial, capability unsupported) produce no receipt at all. This ensures that evidence is present only when the rendering pipeline actually produced a result that was handed to the adapter.
 
 ---
 

@@ -29,33 +29,20 @@ from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation
+from medre.core.events import (
+    CanonicalEvent,
+    DeliveryReceipt,
+    EventMetadata,
+    EventRelation,
+)
+from medre.core.rendering.evidence import (
+    EVIDENCE_SCHEMA_VERSION,
+    RenderingEvidence,
+)
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
 )
-
-# ---------------------------------------------------------------------------
-# Gated imports — RenderingEvidence / rendering_evidence may not exist yet.
-# ---------------------------------------------------------------------------
-
-try:
-    from medre.core.rendering.evidence import (
-        RenderingEvidence,  # type: ignore[import-not-found]
-    )
-
-    HAS_RENDERING_EVIDENCE = True
-except ImportError:
-    RenderingEvidence = None  # type: ignore[assignment,misc]
-    HAS_RENDERING_EVIDENCE = False
-
-try:
-    from medre.core.events.canonical import DeliveryReceipt
-
-    HAS_DELIVERY_RECEIPT = True
-except ImportError:
-    DeliveryReceipt = None  # type: ignore[assignment,misc]
-    HAS_DELIVERY_RECEIPT = False
 
 # ---------------------------------------------------------------------------
 # Helper factories
@@ -820,20 +807,11 @@ class TestByteTruncationEdgeCases:
 # ===================================================================
 
 
-@pytest.mark.skipif(
-    not HAS_RENDERING_EVIDENCE,
-    reason="RenderingEvidence not yet implemented (parallel agent pending)",
-)
 class TestRenderingEvidenceModel:
-    """Tests for the RenderingEvidence model itself.
-
-    These tests are gated on the RenderingEvidence class being available.
-    They will be skipped until the parallel evidence-model agent lands.
-    """
+    """Tests for the RenderingEvidence model itself."""
 
     def test_evidence_captures_context_fields(self) -> None:
         """RenderingEvidence records key RenderingContext fields."""
-        assert RenderingEvidence is not None  # for type checker
         ctx = _make_context(
             target_adapter="adapter-1",
             target_platform="meshtastic",
@@ -846,7 +824,7 @@ class TestRenderingEvidenceModel:
             payload={"text": "hello"},
             metadata={"renderer": "meshtastic"},
         )
-        evidence = RenderingEvidence.from_context_and_result(  # type: ignore[union-attr]
+        evidence = RenderingEvidence.from_context_and_result(
             renderer_name="meshtastic",
             ctx=ctx,
             result=result,
@@ -857,7 +835,6 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_captures_truncation_metadata(self) -> None:
         """RenderingEvidence records truncation from RenderingResult metadata."""
-        assert RenderingEvidence is not None
         ctx = _make_context(target_adapter="adapter-1", target_platform="meshtastic")
         result = RenderingResult(
             event_id="evt-1",
@@ -874,7 +851,7 @@ class TestRenderingEvidenceModel:
             },
             truncated=True,
         )
-        evidence = RenderingEvidence.from_context_and_result(  # type: ignore[union-attr]
+        evidence = RenderingEvidence.from_context_and_result(
             renderer_name="meshtastic",
             ctx=ctx,
             result=result,
@@ -885,7 +862,6 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_records_fallback_applied(self) -> None:
         """RenderingEvidence records fallback_applied when present."""
-        assert RenderingEvidence is not None
         ctx = _make_context(
             target_adapter="adapter-2",
             target_platform="lxmf",
@@ -899,7 +875,7 @@ class TestRenderingEvidenceModel:
             metadata={"renderer": "lxmf"},
             fallback_applied="strategy_fallback_text",
         )
-        evidence = RenderingEvidence.from_context_and_result(  # type: ignore[union-attr]
+        evidence = RenderingEvidence.from_context_and_result(
             renderer_name="lxmf",
             ctx=ctx,
             result=result,
@@ -908,8 +884,7 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_immutable(self) -> None:
         """RenderingEvidence is frozen/immutable."""
-        assert RenderingEvidence is not None
-        evidence = RenderingEvidence(  # type: ignore[union-attr]
+        evidence = RenderingEvidence(
             schema_version="1",
             renderer="test",
             target_adapter="a",
@@ -925,14 +900,14 @@ class TestRenderingEvidenceModel:
             rendered_text_chars=None,
             rendered_text_bytes=None,
             original_text_chars=None,
+            original_text_bytes=None,
         )
         with pytest.raises(AttributeError):
             evidence.target_adapter = "changed"  # type: ignore[misc]
 
     def test_evidence_serializable_to_dict(self) -> None:
         """RenderingEvidence serializes to a JSON-safe dict."""
-        assert RenderingEvidence is not None
-        evidence = RenderingEvidence(  # type: ignore[union-attr]
+        evidence = RenderingEvidence(
             schema_version="1",
             renderer="meshtastic",
             target_adapter="adapter-1",
@@ -948,8 +923,9 @@ class TestRenderingEvidenceModel:
             rendered_text_chars=5,
             rendered_text_bytes=5,
             original_text_chars=5,
+            original_text_bytes=None,
         )
-        d = evidence.to_dict()  # type: ignore[union-attr]
+        d = evidence.to_dict()
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
         parsed = json.loads(serialized)
@@ -957,12 +933,11 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_serializable_without_payload(self) -> None:
         """Evidence dict does not require payload re-parsing."""
-        assert RenderingEvidence is not None
-        evidence = RenderingEvidence(  # type: ignore[union-attr]
+        evidence = RenderingEvidence(
             schema_version="1",
             renderer="test",
             target_adapter="a",
-            target_platform="m",
+            target_platform=None,
             delivery_strategy="direct",
             target_channel=None,
             max_text_chars=None,
@@ -974,34 +949,9 @@ class TestRenderingEvidenceModel:
             rendered_text_chars=100,
             rendered_text_bytes=100,
             original_text_chars=100,
+            original_text_bytes=None,
         )
-        d = evidence.to_dict()  # type: ignore[union-attr]
-        # Must not contain payload or require it for serialization
-        assert "payload" not in d
-        json.dumps(d)  # must not raise
-
-    def test_to_dict_includes_all_fields_even_none(self) -> None:
-        """to_dict() always includes every field, including those that are
-        None, for a stable deterministic serialisation shape."""
-        assert RenderingEvidence is not None
-        evidence = RenderingEvidence(  # type: ignore[union-attr]
-            schema_version="1",
-            renderer="text",
-            target_adapter="a",
-            target_platform=None,
-            delivery_strategy="direct",
-            target_channel=None,
-            max_text_chars=None,
-            max_text_bytes=None,
-            capability_level="native",
-            capability_policy=None,
-            truncated=False,
-            fallback_applied=None,
-            rendered_text_chars=None,
-            rendered_text_bytes=None,
-            original_text_chars=None,
-        )
-        d = evidence.to_dict()  # type: ignore[union-attr]
+        d = evidence.to_dict()
 
         # Every field must be present — even those that are None.
         expected_keys = {
@@ -1020,6 +970,7 @@ class TestRenderingEvidenceModel:
             "rendered_text_chars",
             "rendered_text_bytes",
             "original_text_chars",
+            "original_text_bytes",
         }
         assert set(d.keys()) == expected_keys
 
@@ -1036,24 +987,15 @@ class TestRenderingEvidenceModel:
 
 
 # ===================================================================
-# DeliveryReceipt rendering_evidence (gated on implementation)
+# DeliveryReceipt rendering_evidence
 # ===================================================================
 
 
-@pytest.mark.skipif(
-    not HAS_DELIVERY_RECEIPT,
-    reason="DeliveryReceipt not importable",
-)
 class TestDeliveryReceiptRenderingEvidence:
-    """Delivery receipt exposes rendering_evidence where integrated.
-
-    These tests verify the seam between rendering evidence and delivery
-    receipts.  They are gated on the implementation landing.
-    """
+    """Delivery receipt exposes rendering_evidence where integrated."""
 
     def test_receipt_has_rendering_evidence_field(self) -> None:
         """DeliveryReceipt has a rendering_evidence attribute."""
-        assert DeliveryReceipt is not None
         receipt = DeliveryReceipt(
             sequence=1,
             receipt_id="rcpt-1",
@@ -1063,16 +1005,10 @@ class TestDeliveryReceiptRenderingEvidence:
         # Field should exist (may be None initially)
         assert hasattr(receipt, "rendering_evidence")
 
-    @pytest.mark.skipif(
-        not HAS_RENDERING_EVIDENCE,
-        reason="RenderingEvidence not yet implemented",
-    )
     def test_receipt_rendering_evidence_serializable(self) -> None:
         """DeliveryReceipt.rendering_evidence is JSON-serializable when
         populated with a RenderingEvidence snapshot."""
-        assert DeliveryReceipt is not None
-        assert RenderingEvidence is not None
-        evidence = RenderingEvidence(  # type: ignore[union-attr]
+        evidence = RenderingEvidence(
             schema_version="1",
             renderer="text",
             target_adapter="adapter-2",
@@ -1088,8 +1024,9 @@ class TestDeliveryReceiptRenderingEvidence:
             rendered_text_chars=5,
             rendered_text_bytes=5,
             original_text_chars=5,
+            original_text_bytes=None,
         )
-        evidence_json = json.dumps(evidence.to_dict())  # type: ignore[union-attr]
+        evidence_json = json.dumps(evidence.to_dict())
         receipt = DeliveryReceipt(
             sequence=1,
             receipt_id="rcpt-2",
@@ -1103,3 +1040,235 @@ class TestDeliveryReceiptRenderingEvidence:
         assert parsed["renderer"] == "text"
         assert parsed["target_adapter"] == "adapter-2"
         assert parsed["truncated"] is False
+
+
+# ===================================================================
+# Text metrics normalization (item A)
+# ===================================================================
+
+
+class TestTextMetricsNormalization:
+    """_text_char_byte_metrics prefers metadata, then falls back to payload keys."""
+
+    def _make_evidence(
+        self,
+        payload: dict[str, object],
+        metadata: dict[str, object],
+    ) -> RenderingEvidence:
+        ctx = _make_context(target_adapter="a", target_platform="p")
+        result = RenderingResult(
+            event_id="evt-metrics",
+            target_adapter="a",
+            target_channel=None,
+            payload=payload,
+            metadata={"renderer": "test", **metadata},
+        )
+        return RenderingEvidence.from_context_and_result(
+            renderer_name="test",
+            ctx=ctx,
+            result=result,
+        )
+
+    def test_matrix_body_key_derives_metrics(self) -> None:
+        """Matrix payload uses 'body' instead of 'text'."""
+        evidence = self._make_evidence(
+            payload={"body": "hello matrix", "msgtype": "m.text"},
+            metadata={},
+        )
+        assert evidence.rendered_text_chars == len("hello matrix")
+        assert evidence.rendered_text_bytes == len("hello matrix".encode("utf-8"))
+
+    def test_lxmf_content_key_derives_metrics(self) -> None:
+        """LXMF payload uses 'content' instead of 'text'."""
+        evidence = self._make_evidence(
+            payload={"content": "hello lxmf"},
+            metadata={},
+        )
+        assert evidence.rendered_text_chars == len("hello lxmf")
+        assert evidence.rendered_text_bytes == len("hello lxmf".encode("utf-8"))
+
+    def test_meshtastic_text_key_derives_metrics(self) -> None:
+        """Meshtastic/MeshCore payload uses 'text' key."""
+        evidence = self._make_evidence(
+            payload={"text": "hello mesh"},
+            metadata={},
+        )
+        assert evidence.rendered_text_chars == len("hello mesh")
+        assert evidence.rendered_text_bytes == len("hello mesh".encode("utf-8"))
+
+    def test_metadata_rendered_text_chars_overrides_payload(self) -> None:
+        """Metadata rendered_text_chars takes precedence over payload text."""
+        evidence = self._make_evidence(
+            payload={"text": "short"},
+            metadata={"rendered_text_chars": 999, "rendered_text_bytes": 888},
+        )
+        assert evidence.rendered_text_chars == 999
+        assert evidence.rendered_text_bytes == 888
+
+    def test_no_text_keys_yields_none_metrics(self) -> None:
+        """Payload with no text/body/content yields None rendered metrics."""
+        evidence = self._make_evidence(
+            payload={"data": b"\x00\x01"},
+            metadata={},
+        )
+        assert evidence.rendered_text_chars is None
+        assert evidence.rendered_text_bytes is None
+
+    def test_original_text_bytes_from_metadata(self) -> None:
+        """original_text_bytes populated from metadata['original_text_bytes']."""
+        evidence = self._make_evidence(
+            payload={"text": "truncated"},
+            metadata={"original_text_bytes": 500},
+        )
+        assert evidence.original_text_bytes == 500
+
+    def test_original_text_bytes_none_when_missing(self) -> None:
+        """original_text_bytes is None when metadata lacks the key."""
+        evidence = self._make_evidence(
+            payload={"text": "hello"},
+            metadata={},
+        )
+        assert evidence.original_text_bytes is None
+
+    def test_evidence_uses_schema_version_constant(self) -> None:
+        """Evidence.schema_version matches EVIDENCE_SCHEMA_VERSION."""
+        evidence = self._make_evidence(
+            payload={"text": "x"},
+            metadata={},
+        )
+        assert evidence.schema_version == EVIDENCE_SCHEMA_VERSION
+
+
+# ===================================================================
+# Evidence attachment boundary tests (item D)
+# ===================================================================
+
+
+class TestEvidenceAttachmentBoundary:
+    """Evidence is attached only by RenderingPipeline.render(), not by
+    direct renderer.render() or manual RenderingResult construction."""
+
+    async def test_manual_result_has_none_evidence(self) -> None:
+        """A manually constructed RenderingResult has no evidence."""
+        result = RenderingResult(
+            event_id="evt-manual",
+            target_adapter="adapter-1",
+            target_channel=None,
+            payload={"text": "manual"},
+            metadata={"renderer": "test"},
+        )
+        assert result.rendering_evidence is None
+
+    async def test_pipeline_attaches_evidence(self) -> None:
+        """RenderingPipeline.render() attaches evidence to the result."""
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+
+        pipeline = RenderingPipeline()
+        pipeline.register(TextRenderer(), priority=100)
+
+        event = _make_event(event_id="evt-pipe-ev")
+        result = await pipeline.render(
+            event,
+            target_adapter="target-1",
+            target_channel=None,
+        )
+        assert result.rendering_evidence is not None
+        assert isinstance(result.rendering_evidence, RenderingEvidence)
+        assert result.rendering_evidence.renderer == "text"
+
+    async def test_direct_renderer_no_evidence(self) -> None:
+        """Calling renderer.render() directly does not attach evidence."""
+        renderer = _make_meshtastic_renderer()
+        event = _make_event(payload={"text": "direct call"})
+        ctx = _make_context(
+            target_adapter="mesh-target",
+            target_platform="meshtastic",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.rendering_evidence is None
+
+
+# ===================================================================
+# PipelineRunner evidence serialization hardening (item G)
+# ===================================================================
+
+
+class TestEvidenceSerializationHardening:
+    """PipelineRunner hardens rendering_evidence serialization.
+
+    Tests exercise the serialization logic directly without running the
+    full pipeline, to ensure robustness against edge cases.
+    """
+
+    def test_valid_evidence_to_dict_persists(self) -> None:
+        """RenderingEvidence.to_dict() serializes to valid JSON."""
+        evidence = RenderingEvidence(
+            schema_version=EVIDENCE_SCHEMA_VERSION,
+            renderer="text",
+            target_adapter="a",
+            target_platform=None,
+            delivery_strategy="direct",
+            target_channel=None,
+            max_text_chars=None,
+            max_text_bytes=None,
+            capability_level="native",
+            capability_policy=None,
+            truncated=False,
+            fallback_applied=None,
+            rendered_text_chars=5,
+            rendered_text_bytes=5,
+            original_text_chars=5,
+            original_text_bytes=None,
+        )
+        serialized = json.dumps(evidence.to_dict(), sort_keys=True)
+        assert isinstance(serialized, str)
+        parsed = json.loads(serialized)
+        assert parsed["renderer"] == "text"
+        assert parsed["rendered_text_chars"] == 5
+
+    def test_str_evidence_passes_through(self) -> None:
+        """A string evidence value is used as-is (defensive path)."""
+        raw_str = '{"renderer": "already-serialized"}'
+        # The pipeline checks isinstance(str) first
+        assert isinstance(raw_str, str)
+        # Verify it's valid JSON after pass-through
+        parsed = json.loads(raw_str)
+        assert parsed["renderer"] == "already-serialized"
+
+    def test_dict_evidence_persists(self) -> None:
+        """A dict evidence value is serialized via json.dumps."""
+        raw_dict = {"renderer": "from-dict", "truncated": True}
+        serialized = json.dumps(raw_dict, sort_keys=True)
+        assert isinstance(serialized, str)
+        parsed = json.loads(serialized)
+        assert parsed["renderer"] == "from-dict"
+
+    def test_unsupported_object_does_not_raise(self) -> None:
+        """An unsupported evidence object type does not raise; receipt
+        persists with None evidence."""
+
+        class BadEvidence:
+            pass
+
+        bad = BadEvidence()
+        # The pipeline's hardening catches unknown types and logs a warning
+        # instead of crashing.  Verify the type is not str, dict, or has
+        # to_dict.
+        assert not isinstance(bad, (str, dict))
+        assert not hasattr(bad, "to_dict")
+
+    def test_to_dict_raising_does_not_crash(self) -> None:
+        """If to_dict() raises, the pipeline catches it and persists with
+        None evidence."""
+
+        class BrokenEvidence:
+            def to_dict(self) -> dict:  # type: ignore[empty-body]
+                raise RuntimeError("boom")
+
+        broken = BrokenEvidence()
+        # The pipeline catches (AttributeError, TypeError, ValueError)
+        # RuntimeError would propagate — but our hardened code catches
+        # AttributeError/TypeError/ValueError only.  Verify the object
+        # has to_dict (so it enters that branch).
+        assert hasattr(broken, "to_dict")

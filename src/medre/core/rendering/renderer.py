@@ -28,12 +28,12 @@ signature.
 
 Public symbols
 --------------
-* :class:`RenderingResult` – output of a rendering pass.
-* :class:`RenderingContext` – frozen dispatch context for renderers.
-* :class:`Renderer` – protocol every renderer must satisfy.
-* :class:`RenderingPipeline` – ordered dispatcher across renderers.
-* :data:`DeliveryStrategyMethod` – well-known delivery strategy values.
-* :data:`CapabilityLevel` – renderer capability level values.
+* :class:`RenderingResult` - output of a rendering pass.
+* :class:`RenderingContext` - frozen dispatch context for renderers.
+* :class:`Renderer` - protocol every renderer must satisfy.
+* :class:`RenderingPipeline` - ordered dispatcher across renderers.
+* :data:`DeliveryStrategyMethod` - well-known delivery strategy values.
+* :data:`CapabilityLevel` - renderer capability level values.
 """
 
 from __future__ import annotations

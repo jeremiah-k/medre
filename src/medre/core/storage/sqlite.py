@@ -141,7 +141,10 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 -- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
 -- are treated as the same group, avoiding duplicate rows when some receipts
 -- have NULL and others have '' for target_channel.
-CREATE VIEW IF NOT EXISTS delivery_status AS
+-- Drop and recreate to ensure column shape stays current (e.g. when
+-- rendering_evidence is added).
+DROP VIEW IF EXISTS delivery_status;
+CREATE VIEW delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.failure_kind,

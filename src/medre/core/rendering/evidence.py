@@ -16,7 +16,7 @@ to the :class:`~medre.core.rendering.renderer.RenderingResult`.
 
 Public symbols
 --------------
-* :class:`RenderingEvidence` – frozen evidence snapshot.
+* :class:`RenderingEvidence` - frozen evidence snapshot.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 #: Evidence schema version.  Bumped on backward-incompatible field changes.
-_EVIDENCE_SCHEMA_VERSION: str = "1"
+EVIDENCE_SCHEMA_VERSION: str = "1"
 
 
 # ---------------------------------------------------------------------------
@@ -47,26 +47,51 @@ _EVIDENCE_SCHEMA_VERSION: str = "1"
 def _text_char_byte_metrics(
     payload: dict[str, object],
     metadata: dict[str, object],
-) -> tuple[int | None, int | None, int | None]:
+) -> tuple[int | None, int | None, int | None, int | None]:
     """Derive normalised text metrics from *payload* and *metadata*.
 
-    Returns ``(rendered_chars, rendered_bytes, original_chars)``.
+    Returns ``(rendered_chars, rendered_bytes, original_chars, original_bytes)``.
     Any unavailable metric is ``None``.
+
+    Resolution order for rendered metrics:
+      1. Renderer-provided metadata keys ``rendered_text_chars`` and
+         ``rendered_text_bytes`` (when present and ``int``).
+      2. Fallback to known payload string keys: ``"text"``, ``"body"``,
+         ``"content"`` (first string value wins).
     """
     rendered_chars: int | None = None
     rendered_bytes: int | None = None
 
-    text = payload.get("text")
-    if isinstance(text, str):
-        rendered_chars = len(text)
-        rendered_bytes = len(text.encode("utf-8"))
+    # Prefer explicit renderer metadata when available.
+    raw_chars = metadata.get("rendered_text_chars")
+    raw_bytes = metadata.get("rendered_text_bytes")
+    if isinstance(raw_chars, int):
+        rendered_chars = raw_chars
+    if isinstance(raw_bytes, int):
+        rendered_bytes = raw_bytes
+
+    # Fallback: derive from known payload string keys.
+    if rendered_chars is None or rendered_bytes is None:
+        for key in ("text", "body", "content"):
+            val = payload.get(key)
+            if isinstance(val, str):
+                if rendered_chars is None:
+                    rendered_chars = len(val)
+                if rendered_bytes is None:
+                    rendered_bytes = len(val.encode("utf-8"))
+                break
 
     original_chars: int | None = None
     raw_orig = metadata.get("original_length")
     if isinstance(raw_orig, int):
         original_chars = raw_orig
 
-    return rendered_chars, rendered_bytes, original_chars
+    original_bytes: int | None = None
+    raw_orig_bytes = metadata.get("original_text_bytes")
+    if isinstance(raw_orig_bytes, int):
+        original_bytes = raw_orig_bytes
+
+    return rendered_chars, rendered_bytes, original_chars, original_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +122,7 @@ class RenderingEvidence:
 
     *Derived metrics*:
         ``rendered_text_chars``, ``rendered_text_bytes``,
-        ``original_text_chars``.
+        ``original_text_chars``, ``original_text_bytes``.
 
     Attributes
     ----------
@@ -136,6 +161,9 @@ class RenderingEvidence:
     original_text_chars:
         Character length of the original (pre-truncation) text as
         reported in result metadata, or ``None`` when unavailable.
+    original_text_bytes:
+        UTF-8 byte length of the original text as reported in result
+        metadata, or ``None`` when unavailable.
     """
 
     # --- Schema ---
@@ -160,6 +188,7 @@ class RenderingEvidence:
     rendered_text_chars: int | None
     rendered_text_bytes: int | None
     original_text_chars: int | None
+    original_text_bytes: int | None
 
     # ------------------------------------------------------------------
     # Factory
@@ -184,12 +213,12 @@ class RenderingEvidence:
         result:
             The rendering result returned by the renderer.
         """
-        rendered_chars, rendered_bytes, original_chars = _text_char_byte_metrics(
-            result.payload, result.metadata
+        rendered_chars, rendered_bytes, original_chars, original_bytes = (
+            _text_char_byte_metrics(result.payload, result.metadata)
         )
 
         return cls(
-            schema_version=_EVIDENCE_SCHEMA_VERSION,
+            schema_version=EVIDENCE_SCHEMA_VERSION,
             renderer=renderer_name,
             delivery_strategy=ctx.delivery_strategy,
             target_adapter=ctx.target_adapter,
@@ -204,6 +233,7 @@ class RenderingEvidence:
             rendered_text_chars=rendered_chars,
             rendered_text_bytes=rendered_bytes,
             original_text_chars=original_chars,
+            original_text_bytes=original_bytes,
         )
 
     # ------------------------------------------------------------------
@@ -235,4 +265,5 @@ class RenderingEvidence:
             "rendered_text_chars": self.rendered_text_chars,
             "rendered_text_bytes": self.rendered_text_bytes,
             "original_text_chars": self.original_text_chars,
+            "original_text_bytes": self.original_text_bytes,
         }

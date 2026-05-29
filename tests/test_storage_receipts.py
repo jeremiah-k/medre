@@ -16,6 +16,10 @@ from medre.core.events import (
     EventMetadata,
     EventRelation,
 )
+from medre.core.rendering.evidence import (
+    EVIDENCE_SCHEMA_VERSION,
+    RenderingEvidence,
+)
 from medre.core.storage import EventFilter, SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
@@ -1306,25 +1310,27 @@ class TestReceiptRenderingEvidence:
 
     @staticmethod
     def _sample_evidence_json() -> str:
-        """Return a sample rendering evidence JSON string."""
-        return json.dumps(
-            {
-                "schema_version": "1",
-                "renderer": "text",
-                "delivery_strategy": "direct",
-                "target_adapter": "fake_presentation",
-                "target_platform": None,
-                "target_channel": "ch-1",
-                "max_text_chars": None,
-                "max_text_bytes": None,
-                "capability_level": "native",
-                "fallback_applied": None,
-                "truncated": False,
-                "rendered_text_chars": 5,
-                "rendered_text_bytes": 5,
-                "original_text_chars": None,
-            }
+        """Return a sample rendering evidence JSON string built from the
+        canonical serializer (RenderingEvidence + to_dict())."""
+        evidence = RenderingEvidence(
+            schema_version=EVIDENCE_SCHEMA_VERSION,
+            renderer="text",
+            target_adapter="fake_presentation",
+            target_platform=None,
+            delivery_strategy="direct",
+            target_channel="ch-1",
+            max_text_chars=None,
+            max_text_bytes=None,
+            capability_level="native",
+            capability_policy=None,
+            fallback_applied=None,
+            truncated=False,
+            rendered_text_chars=5,
+            rendered_text_bytes=5,
+            original_text_chars=None,
+            original_text_bytes=None,
         )
+        return json.dumps(evidence.to_dict(), sort_keys=True)
 
     async def test_sent_receipt_with_evidence_persists(
         self, temp_storage: SQLiteStorage

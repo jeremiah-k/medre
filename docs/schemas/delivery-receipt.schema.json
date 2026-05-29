@@ -110,7 +110,7 @@
     "rendering_evidence": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Serialized rendering evidence (JSON string) attached on successful deliveries. None for suppressed, skipped, rendering-failure, and adapter-failure receipts."
+      "description": "Serialized rendering evidence (JSON string) attached only on sent or queued deliveries. None for suppressed, rendering-failure, and adapter-failure receipts. Pre-outbox skip paths produce no receipt."
     },
     "created_at": {
       "type": "string",

@@ -2411,22 +2411,39 @@ class PipelineRunner:
         # Serialize rendering evidence from the rendering result into the
         # receipt.  Only attached on successful deliveries (sent / queued);
         # suppressed, skipped, rendering-failure, and adapter-failure receipts
-        # naturally leave rendering_evidence=None.  Uses getattr for forward
-        # compatibility when RenderingResult.rendering_evidence has not yet
-        # been added by the parallel evidence model task.
+        # naturally leave rendering_evidence=None.
         #
-        # Canonical path: to_dict() + json.dumps(sort_keys=True) ensures a
-        # stable, deterministic field order so that msgspec vs json shape
-        # drift cannot cause test/production asymmetry.
+        # Hardened serialization:
+        #   - RenderingEvidence.to_dict() -> json.dumps (canonical path)
+        #   - str passed through as-is (defensive)
+        #   - dict passed through as-is (defensive)
+        #   - Unknown objects: skip with warning, don't stringify
+        #   - AttributeError / TypeError / ValueError caught: persist with
+        #     None evidence instead of crashing
         _rendering_evidence: str | None = None
         if status in ("sent", "queued"):
             _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
             if _raw_evidence is not None:
-                if isinstance(_raw_evidence, str):
-                    _rendering_evidence = _raw_evidence
-                else:
-                    _rendering_evidence = json.dumps(
-                        _raw_evidence.to_dict(), sort_keys=True
+                try:
+                    if isinstance(_raw_evidence, str):
+                        _rendering_evidence = _raw_evidence
+                    elif isinstance(_raw_evidence, dict):
+                        _rendering_evidence = json.dumps(_raw_evidence, sort_keys=True)
+                    elif hasattr(_raw_evidence, "to_dict"):
+                        _rendering_evidence = json.dumps(
+                            _raw_evidence.to_dict(), sort_keys=True
+                        )
+                    else:
+                        self._log.warning(
+                            "rendering_evidence is unsupported type %s; "
+                            "persisting receipt without evidence",
+                            type(_raw_evidence).__name__,
+                        )
+                except (AttributeError, TypeError, ValueError) as _ev_err:
+                    self._log.warning(
+                        "rendering_evidence serialization failed: %s; "
+                        "persisting receipt without evidence",
+                        _ev_err,
                     )
 
         receipt = DeliveryReceipt(
