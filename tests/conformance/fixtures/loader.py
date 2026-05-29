@@ -83,6 +83,9 @@ def load_all_fixtures(adapter: str) -> list[dict[str, Any]]:
     for path in sorted(adapter_dir.glob("*.json")):
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict):
-            results.append(data)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Fixture {path} must be a JSON object, got {type(data).__name__}"
+            )
+        results.append(data)
     return results

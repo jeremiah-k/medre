@@ -17,9 +17,13 @@ with values drawn from transport-profile JSONs.
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
+
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.events.canonical import EventRelation
+from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.kinds import EventKind
+from medre.core.events.metadata import EventMetadata
 from medre.core.planning.capability_decision import CapabilityDecisionResolver
 
 from .conftest import make_reaction_event, make_reply_event, make_text_event
@@ -135,12 +139,6 @@ class TestCapabilityUnsupportedSkip:
     def test_attachments_false_skips_file_events(self):
         """attachments=False -> skip for MESSAGE_FILE."""
         caps = _make_caps(attachments=False)
-        import uuid
-        from datetime import datetime, timezone
-
-        from medre.core.events.canonical import CanonicalEvent
-        from medre.core.events.metadata import EventMetadata
-
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
             event_kind=EventKind.MESSAGE_FILE,
@@ -162,12 +160,6 @@ class TestCapabilityUnsupportedSkip:
     def test_metadata_fields_false_skips_telemetry(self):
         """metadata_fields=False -> skip for TELEMETRY_RECEIVED."""
         caps = _make_caps(metadata_fields=False)
-        import uuid
-        from datetime import datetime, timezone
-
-        from medre.core.events.canonical import CanonicalEvent
-        from medre.core.events.metadata import EventMetadata
-
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
             event_kind=EventKind.TELEMETRY_RECEIVED,
@@ -224,12 +216,6 @@ class TestCapabilityTransportProfileRelationConformance:
             key=None,
             fallback_text=None,
         )
-        import uuid
-        from datetime import datetime, timezone
-
-        from medre.core.events.canonical import CanonicalEvent
-        from medre.core.events.metadata import EventMetadata
-
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
             event_kind=EventKind.MESSAGE_EDITED,

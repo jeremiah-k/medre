@@ -118,12 +118,18 @@ class TestReplayBestEffortConformance:
     """BEST_EFFORT mode: capability filtering parity with live delivery."""
 
     @pytest.mark.asyncio()
-    async def test_best_effort_capability_filtering_parity(
+    async def test_best_effort_stub_pipeline_no_adapter_registry(
         self, temp_storage: SQLiteStorage
     ):
-        """BEST_EFFORT: unsupported events are skipped via capability check."""
-        # Create a reaction event -- will be skipped if capabilities
-        # do not support reactions.
+        """BEST_EFFORT (StubPipeline, no adapter registry): events pass through.
+
+        StubPipeline has no router and no adapter registry, so capability
+        filtering is a no-op and the engine skips delivery because no routes
+        match.  This is correct stub behaviour.  True capability-filtering
+        parity with live delivery is tested in
+        ``test_capability_runtime_conformance`` using the real
+        ``CapabilityDecisionResolver``.
+        """
         event = CanonicalEvent(
             event_id="be-cap-001",
             event_kind="message.reacted",
@@ -140,9 +146,7 @@ class TestReplayBestEffortConformance:
         )
         await temp_storage.append(event)
 
-        # StubPipeline with no adapters registered -- capability
-        # filtering will have no adapters to look up, so delivery
-        # proceeds to the stub.
+        # StubPipeline with no adapters registered and no router.
         pipeline = StubPipeline()
         engine = make_engine(temp_storage, pipeline)
         request = ReplayRequest(
@@ -153,15 +157,26 @@ class TestReplayBestEffortConformance:
         results = [r async for r in engine.replay(request)]
         deliver_results = [r for r in results if r.stage == "deliver"]
 
-        # With StubPipeline (no adapter registry), capability filtering
-        # has no adapters dict, so it passes through.
-        assert len(deliver_results) >= 1
+        # With no router, no routes match, so delivery is skipped.
+        assert len(deliver_results) == 1
+        assert deliver_results[0].status == "skipped"
 
     @pytest.mark.asyncio()
-    async def test_best_effort_receipts_source_replay(
+    async def test_best_effort_stub_pipeline_deliver_stage_handled(
         self, temp_storage: SQLiteStorage
     ):
-        """BEST_EFFORT: delivery uses source='replay' and replay_run_id."""
+        """BEST_EFFORT (StubPipeline, no router): deliver stage is skipped.
+
+        StubPipeline has no router and no adapter registry, so routing
+        produces no routes, planning yields no plans, and the deliver stage
+        is skipped with a descriptive error.  This is the correct stub
+        behaviour -- it does NOT test source='replay' / replay_run_id tagging,
+        which requires a real pipeline with ``deliver_to_targets``.
+
+        The real contract (source='replay' + replay_run_id on delivery
+        receipts) is asserted in the integration-level replay tests that
+        use PipelineRunner with actual adapters.
+        """
         event = _make_event("be-src-001")
         await temp_storage.append(event)
 
@@ -174,23 +189,10 @@ class TestReplayBestEffortConformance:
 
         results = [r async for r in engine.replay(request)]
         deliver_results = [r for r in results if r.stage == "deliver"]
-        assert len(deliver_results) >= 1
-
-        # The output wraps delivery outcomes.  Source tagging happens at
-        # the pipeline level (deliver_to_targets called with source="replay").
-        # We verify the engine passes run_id correctly.
-        for dr in deliver_results:
-            if dr.output is not None:
-                output = dr.output
-                if isinstance(output, dict):
-                    assert (
-                        output.get("replay_run_id") == "replay-run-001"
-                        or output.get("source") == "replay"
-                        or True
-                    )  # noqa: SIM300
-                    # The engine passes source="replay" and replay_run_id
-                    # to the pipeline.  StubPipeline doesn't produce receipts
-                    # but the contract is that the engine passes these values.
+        assert len(deliver_results) == 1
+        assert deliver_results[0].status == "skipped"
+        # StubPipeline has no router, so no plans are produced.
+        assert "No delivery plans" in (deliver_results[0].error or "")
 
     @pytest.mark.asyncio()
     async def test_best_effort_run_id_populated(self, temp_storage: SQLiteStorage):
@@ -240,7 +242,6 @@ class TestReplayEvidenceConformance:
         results = [r async for r in engine.replay(request)]
         render_results = [r for r in results if r.stage == "render"]
         assert len(render_results) == 1
-        # RE_RENDER produces captured rendering output (may be None
-        # if no renderer matched, but TextRenderer should match).
-        # The contract is: render stage runs, status is deterministic.
-        assert render_results[0].status in ("passed", "skipped", "failed", "error")
+        # TextRenderer is registered and should render successfully.
+        assert render_results[0].status == "passed"
+        assert render_results[0].output is not None
