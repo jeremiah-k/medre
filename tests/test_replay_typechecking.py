@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,
@@ -34,8 +34,8 @@ class TestModuleImport:
     """Verify the replay module loads cleanly."""
 
     def test_import_replay_module(self) -> None:
-        """Importing medre.core.storage.replay should not raise."""
-        import medre.core.storage.replay as replay_mod
+        """Importing medre.core.engine.replay should not raise."""
+        import medre.core.engine.replay as replay_mod
 
         assert hasattr(replay_mod, "ReplayEngine")
         assert hasattr(replay_mod, "ReplayMode")
@@ -45,6 +45,37 @@ class TestModuleImport:
         assert hasattr(replay_mod, "ReplaySummary")
         assert hasattr(replay_mod, "collect_replay_state")
         assert hasattr(replay_mod, "_build_summary")
+
+    def test_engine_replay_not_in_storage(self) -> None:
+        """medre.core.storage must not re-export replay runtime symbols.
+
+        Replay orchestration is owned by core.engine, not core.storage.
+        """
+        import medre.core.storage as storage_mod
+
+        for attr in (
+            "ReplayEngine",
+            "ReplayMode",
+            "ReplayRequest",
+            "ReplayResult",
+            "ReplaySummary",
+            "collect_replay_summary",
+        ):
+            assert not hasattr(storage_mod, attr), (
+                f"storage must not re-export {attr}; replay lives in core.engine"
+            )
+
+    def test_engine_package_re_exports_replay_symbols(self) -> None:
+        """medre.core.engine re-exports replay symbols for convenience."""
+        import medre.core.engine as engine_mod
+
+        assert hasattr(engine_mod, "ReplayEngine")
+        assert hasattr(engine_mod, "ReplayMode")
+        assert hasattr(engine_mod, "ReplayRequest")
+        assert hasattr(engine_mod, "ReplayResult")
+        assert hasattr(engine_mod, "ReplayRouteAttribution")
+        assert hasattr(engine_mod, "ReplaySummary")
+        assert hasattr(engine_mod, "collect_replay_summary")
 
 
 # ---------------------------------------------------------------------------

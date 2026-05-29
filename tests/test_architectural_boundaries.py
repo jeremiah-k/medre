@@ -100,11 +100,11 @@ def _scan_multiple_dirs_for_prefixes(
 
 
 class TestReplayEngineBoundary:
-    """ReplayEngine (src/medre/core/storage/replay.py) must not import
+    """ReplayEngine (src/medre/core/engine/replay.py) must not import
     any concrete transport SDK or concrete adapter package."""
 
     def test_replay_engine_does_not_import_transport_sdks(self) -> None:
-        source = _source_of("medre.core.storage.replay")
+        source = _source_of("medre.core.engine.replay")
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)

@@ -11,9 +11,6 @@ Package-level imports
 * :class:`EventNotFoundError` – event-not-found exception.
 * :class:`StorageInitializationError` – initialisation failure.
 * :class:`SchemaValidationError` – schema validation failure.
-* From :mod:`~medre.core.storage.replay`:
-  ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``,
-  ``ReplayRouteAttribution``, ``ReplaySummary``, ``collect_replay_summary``.
 """
 
 from medre.core.storage.backend import (
@@ -27,15 +24,6 @@ from medre.core.storage.backend import (
     StorageGuarantees,
     StorageInitializationError,
 )
-from medre.core.storage.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-    ReplayResult,
-    ReplayRouteAttribution,
-    ReplaySummary,
-    collect_replay_summary,
-)
 from medre.core.storage.sqlite import SQLiteStorage
 
 __all__ = [
@@ -43,17 +31,10 @@ __all__ = [
     "DuplicateEventError",
     "EventFilter",
     "EventNotFoundError",
-    "ReplayEngine",
-    "ReplayMode",
-    "ReplayRequest",
-    "ReplayResult",
-    "ReplayRouteAttribution",
-    "ReplaySummary",
     "SchemaValidationError",
     "SQLiteStorage",
     "StorageBackend",
     "StorageError",
     "StorageGuarantees",
     "StorageInitializationError",
-    "collect_replay_summary",
 ]

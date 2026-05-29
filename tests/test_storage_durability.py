@@ -23,6 +23,7 @@ from typing import Literal, cast
 
 import pytest
 
+from medre.core.engine.replay import ReplayEngine, ReplayMode, ReplayRequest
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -32,7 +33,6 @@ from medre.core.events import (
 )
 from medre.core.storage import EventFilter, SQLiteStorage
 from medre.core.storage.backend import StorageBackend, StorageInitializationError
-from medre.core.storage.replay import ReplayEngine, ReplayMode, ReplayRequest
 
 # ---------------------------------------------------------------------------
 # Helpers

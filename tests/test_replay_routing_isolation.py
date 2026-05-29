@@ -12,10 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from medre.core.rendering import RenderingPipeline, TextRenderer
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
-from medre.core.storage.replay import (
+from medre.core.engine.replay import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
@@ -25,6 +22,9 @@ from medre.core.storage.replay import (
     collect_replay_state,
     collect_replay_summary,
 )
+from medre.core.rendering import RenderingPipeline, TextRenderer
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage import SQLiteStorage
 from tests.helpers.replay_routing import (
     StubPipeline,
     make_engine,

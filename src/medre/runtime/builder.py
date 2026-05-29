@@ -36,6 +36,7 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths, MedrePathsError
 from medre.core.contracts.adapter import AdapterContract
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.engine.replay import ReplayEngine
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.fallback_resolution import FallbackResolver
@@ -44,7 +45,6 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.replay import ReplayEngine
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController

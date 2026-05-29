@@ -25,6 +25,11 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.engine.replay import (
+    ReplayEngine,
+    ReplayMode,
+    ReplayRequest,
+)
 from medre.core.events import CanonicalEvent
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
@@ -38,11 +43,6 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.storage import SQLiteStorage
-from medre.core.storage.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-)
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 

@@ -13,13 +13,13 @@ from typing import Any, cast
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.engine.replay import ReplayEngine
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Router
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-from medre.core.storage.replay import ReplayEngine
 from medre.core.supervision.accounting import RuntimeAccounting
 
 # ---------------------------------------------------------------------------

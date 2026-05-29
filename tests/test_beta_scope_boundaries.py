@@ -257,7 +257,7 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.supervision.supervision",
         "medre.core.storage",
         "medre.core.storage.backend",
-        "medre.core.storage.replay",
+        "medre.core.engine.replay",
         "medre.core.storage.sqlite",
     ]
 
@@ -727,9 +727,9 @@ class TestNoReplayDeduplication:
     def test_replay_module_no_dedup_logic(self) -> None:
         """replay.py must not implement deduplication beyond run_id tracking."""
         try:
-            source = _source_of("medre.core.storage.replay")
+            source = _source_of("medre.core.engine.replay")
         except (FileNotFoundError, ModuleNotFoundError):
-            pytest.skip("medre.core.storage.replay not importable")
+            pytest.skip("medre.core.engine.replay not importable")
 
         # "deduplicate" may appear in docstrings/comments only.
         violations: list[str] = []

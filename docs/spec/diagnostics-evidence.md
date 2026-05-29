@@ -469,15 +469,25 @@ The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reactio
 
 ### 14.5 Replay-Readiness
 
-Rendering evidence is structured to support future replay inspection. The frozen, deterministic nature of `RenderingContext` and `RenderingResult` means the same inputs produce the same outputs. A future replay system could reconstruct the rendering decision trail from stored evidence.
+Rendering evidence is structured to support replay inspection. The frozen, deterministic nature of `RenderingContext` and `RenderingResult` means the same inputs produce the same outputs.
 
-**Current status:** Replay execution is not implemented. Evidence is collected and inspectable, but no replay mechanism exists to re-execute a rendering pass from stored evidence. The following are explicitly not provided:
+**Current status:** Replay execution **is** implemented as an operator-initiated, in-memory runtime operation (see `medre.core.engine.replay`). Replay re-processes stored canonical events through selected pipeline stages via the `ReplayEngine`. It is **not** a durable job system — there is no automatic crash resume, no replay job queue, and no idempotent delivery guarantee. Replay receipts carry `source="replay"` and `replay_run_id` for audit traceability. `RenderingEvidence` on delivery receipts strengthens post-hoc diagnostics but does not itself replay payloads.
 
-- Replay execution of rendering passes.
-- Reconstruction of `RenderingContext` from stored artifacts.
+**What replay execution provides:**
+
+- Operator-initiated re-processing of historical canonical events through the pipeline.
+- Five behavioural modes: `STRICT`, `RE_RENDER`, `RE_ROUTE`, `BEST_EFFORT`, `DRY_RUN`.
+- `BEST_EFFORT` mode delivers to adapters through the normal delivery spine (`PipelineRunner` → `TargetDeliveryService` → `DeliveryLifecycleService`), producing real delivery receipts tagged `source="replay"`.
+- Deterministic loop prevention and replay route attribution.
+- In-memory execution: no durable replay job queue, no automatic resume after crash.
+
+**What replay execution does **not** provide (preserved from prior wording):**
+
+- Reconstruction of `RenderingContext` from stored artifacts (re-executing rendering from stored evidence artifacts is not implemented).
 - Cross-process or cross-restart evidence replay.
+- Idempotent delivery guarantee (replay MAY produce duplicate sends; traceability is not deduplication).
 
-Deferred replay invariants (deterministic re-rendering given identical context, evidence completeness for replay, replay isolation from live delivery) are future work. They are not contractual in the current version.
+Evidence completeness for post-hoc inspection and deterministic re-rendering given identical context are supported by the frozen nature of the data structures. Replay isolation from live delivery is guaranteed by the `source` and `replay_run_id` tagging on receipts.
 
 ### 14.6 Evidence Signals Summary
 

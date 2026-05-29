@@ -47,7 +47,7 @@ _RUNTIME_MODULES = (
 _PERSISTENCE_MODULES = (
     "medre.core.storage.sqlite",
     "medre.core.storage.backend",
-    "medre.core.storage.replay",
+    "medre.core.engine.replay",
 )
 """Persistence modules that must remain transport-agnostic."""
 
