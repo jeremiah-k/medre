@@ -62,6 +62,12 @@ from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
+from medre.core.engine.pipeline.target_delivery import (
+    TargetDeliveryService,
+    _AdapterDeliveryError,
+    _RendererDeliveryError,
+)
+
 if TYPE_CHECKING:
     from medre.core.supervision.capacity import CapacityController
 
@@ -71,12 +77,6 @@ if TYPE_CHECKING:
 
 _OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
 _OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
-
-from medre.core.engine.pipeline.target_delivery import (
-    TargetDeliveryService,
-    _AdapterDeliveryError,
-    _RendererDeliveryError,
-)
 
 # ---------------------------------------------------------------------------
 # Logger
