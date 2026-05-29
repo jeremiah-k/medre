@@ -21,6 +21,7 @@ Pipeline stages
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -312,6 +313,40 @@ def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
     if native is not None and native.data:
         return dict(native.data)
     return {}
+
+
+def _serialize_rendering_evidence_for_receipt(
+    raw_evidence: object,
+) -> str | None:
+    """Serialize rendering evidence for attachment to a delivery receipt.
+
+    Accepts:
+    - ``str`` – passed through as-is (already serialized).
+    - ``dict`` – serialized via ``json.dumps(sort_keys=True)``.
+    - Objects with a ``.to_dict()`` method (e.g. :class:`RenderingEvidence`)
+      – called and the result serialized.
+    - Any other type – returns ``None`` (unsupported).
+
+    Returns ``None`` if serialization fails (e.g. ``to_dict()`` raises),
+    so the receipt is persisted without evidence rather than crashing.
+
+    Raises :class:`asyncio.CancelledError` if caught during serialization,
+    so task cancellation propagates correctly.
+    """
+    try:
+        if isinstance(raw_evidence, str):
+            return raw_evidence
+        if isinstance(raw_evidence, dict):
+            return json.dumps(raw_evidence, sort_keys=True)
+        if hasattr(raw_evidence, "to_dict"):
+            return json.dumps(raw_evidence.to_dict(), sort_keys=True)
+        # Unsupported type — return None without stringifying.
+        return None
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        # Serialization failed — return None rather than crashing.
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -973,6 +1008,7 @@ class PipelineRunner:
             retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
             retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
             retry_jitter=getattr(queued_receipt, "retry_jitter", None),
+            rendering_evidence=getattr(queued_receipt, "rendering_evidence", None),
         )
         await self._config.storage.append_receipt(supplemental)
 
@@ -2407,6 +2443,24 @@ class PipelineRunner:
         ):
             _adapter_message_id = adapter_result.native_message_id
 
+        # Serialize rendering evidence from the rendering result into the
+        # receipt.  Only attached on successful deliveries (sent / queued);
+        # suppressed, skipped, rendering-failure, and adapter-failure receipts
+        # naturally leave rendering_evidence=None.
+        _rendering_evidence: str | None = None
+        if status in ("sent", "queued"):
+            _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
+            if _raw_evidence is not None:
+                _rendering_evidence = _serialize_rendering_evidence_for_receipt(
+                    _raw_evidence
+                )
+                if _rendering_evidence is None and _raw_evidence is not None:
+                    self._log.warning(
+                        "rendering_evidence is unsupported type %s; "
+                        "persisting receipt without evidence",
+                        type(_raw_evidence).__name__,
+                    )
+
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -2435,6 +2489,7 @@ class PipelineRunner:
                 plan.retry_policy.max_delay_seconds if plan.retry_policy else None
             ),
             retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+            rendering_evidence=_rendering_evidence,
         )
         await self._config.storage.append_receipt(receipt)
 

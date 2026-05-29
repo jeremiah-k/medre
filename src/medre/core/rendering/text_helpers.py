@@ -238,7 +238,7 @@ def truncate_text_bytes(
         return text, False, original_bytes, original_bytes
 
     # Linear trim from the right until the remaining prefix fits within
-    # *max_text_bytes*.  UTF-8 characters are 1–4 bytes; slicing at a
+    # *max_text_bytes*.  UTF-8 characters are 1-4 bytes; slicing at a
     # mid-character boundary would raise, so we trim one char at a time.
     truncated = text
     while len(truncated.encode("utf-8")) > max_text_bytes and truncated:

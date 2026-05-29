@@ -406,3 +406,96 @@ The following six guarantees are contractual for the current beta period:
 5. **Stable common keys.** The eight common keys listed in § 2 are contractual and SHALL NOT be removed without a version bump.
 
 6. **Adapter-specific keys may grow.** New transport-specific diagnostic keys MAY be added. Existing keys SHALL NOT be removed or have their types changed without a version bump.
+
+## 14. Rendering Evidence
+
+### 14.1 Purpose
+
+Rendering evidence is the structured record that explains why a rendering pass produced its output. It lets operators inspect what happened during rendering: whether fallback was applied, whether content was truncated, and what constraints drove the decision. Rendering evidence is about **rendering decisions**, not about replaying those decisions.
+
+### 14.2 Source: RenderingContext and RenderingResult
+
+Rendering evidence is derived from two frozen dataclasses produced by the rendering pipeline (defined in the Adapter Runtime Specification, § 10):
+
+**RenderingContext** records the input constraints that governed the render call:
+
+| Field               | Evidence role                                                    |
+| ------------------- | ---------------------------------------------------------------- |
+| `delivery_strategy` | Which strategy was selected: `"direct"`, `"fallback_text"`, etc. |
+| `target_adapter`    | Which adapter the render targets.                                |
+| `target_platform`   | Platform of the target adapter.                                  |
+| `max_text_chars`    | Character budget, or `None` for unlimited.                       |
+| `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                      |
+| `capability_level`  | Capability level for the event's relation type. Not authoritative adapter capability evidence unless explicitly populated by a caller-controlled pipeline stage; the default pipeline leaves it at the reserved/default value (`"native"`). |
+
+**RenderingResult** records the output decisions:
+
+| Field              | Evidence role                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `truncated`        | `True` when the rendered content exceeded a budget and was shortened.                                                           |
+| `fallback_applied` | Which fallback strategy was applied: `"strategy_fallback_text"`, `"relation_reply"`, etc., or `None` when no fallback occurred. |
+| `payload`          | The rendered content itself. This is the adapter-ready payload, not evidence.                                                   |
+| `metadata`         | Additional rendering metadata (format hints, truncation details).                                                               |
+
+Together, these two dataclasses answer the question: "Given these constraints (context), the renderer produced this output (result) with these adjustments (truncated, fallback_applied)."
+
+### 14.3 Payload vs Evidence Distinction
+
+The **payload** is the rendered content intended for adapter delivery. It is the what: the formatted text, the structured message body, the platform-native representation.
+
+**Rendering evidence** is the why: the constraints, decisions, and adjustments that produced that payload. Evidence does not duplicate the payload. It explains the rendering decision.
+
+| Aspect  | Payload                            | Evidence                                                     |
+| ------- | ---------------------------------- | ------------------------------------------------------------ |
+| Purpose | Content delivered to the transport | Explanation of how and why content was shaped                |
+| Carried | `RenderingResult.payload`          | `RenderingContext` fields + `truncated` + `fallback_applied` |
+| Size    | Variable, transport-dependent      | Fixed-structure, small                                       |
+| Use     | Adapter transports it as-is        | Operator inspects it for debugging and auditing              |
+
+The `RenderingResult.metadata` dict sits between these two: it MAY carry rendering hints (format, truncation byte counts) that are useful for evidence without being the payload itself. Metadata fields are informational and consumers MUST NOT parse them for control-flow decisions.
+
+### 14.4 Durable Receipt Attachment
+
+Rendering evidence becomes durable through attachment to delivery receipts. The `DeliveryReceipt` dataclass carries a `rendering_evidence` field (see Routing and Delivery Specification, § 8.1) that stores a structured record of the rendering evidence for each delivery attempt.
+
+The attachment flow:
+
+1. The rendering pipeline produces a `RenderingResult` with `truncated` and `fallback_applied` fields.
+2. The delivery pipeline records the delivery outcome and creates a `DeliveryReceipt`.
+3. The `rendering_evidence` field on the receipt stores the rendering evidence, making it durable and queryable.
+4. Operators inspecting a receipt chain can determine: was content truncated, was fallback applied, what strategy was used.
+
+The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reaction"`, `"relation_edit"`, `"relation_delete"`, `"relation_thread"`, `"strategy_fallback_text"`) provides a closed set of fallback reasons.
+
+### 14.5 Replay-Readiness
+
+Rendering evidence is structured to support future replay inspection. The frozen, deterministic nature of `RenderingContext` and `RenderingResult` means the same inputs produce the same outputs. A future replay system could reconstruct the rendering decision trail from stored evidence.
+
+**Current status:** Replay execution is not implemented. Evidence is collected and inspectable, but no replay mechanism exists to re-execute a rendering pass from stored evidence. The following are explicitly not provided:
+
+- Replay execution of rendering passes.
+- Reconstruction of `RenderingContext` from stored artifacts.
+- Cross-process or cross-restart evidence replay.
+
+Deferred replay invariants (deterministic re-rendering given identical context, evidence completeness for replay, replay isolation from live delivery) are future work. They are not contractual in the current version.
+
+### 14.6 Evidence Signals Summary
+
+| Signal              | Source             | Meaning                                                           |
+| ------------------- | ------------------ | ----------------------------------------------------------------- |
+| `truncated=True`    | `RenderingResult`  | Content was shortened to fit adapter text budgets.                |
+| `fallback_applied`  | `RenderingResult`  | A specific fallback strategy was applied. Value identifies which. |
+| `delivery_strategy` | `RenderingContext` | The strategy that governed the render call.                       |
+| `max_text_bytes`    | `RenderingContext` | The byte budget that may have caused truncation.                  |
+| `max_text_chars`    | `RenderingContext` | The character budget that may have caused truncation.             |
+
+An operator inspecting these signals can answer: "Why was this message truncated?" (check `max_text_bytes`/`max_text_chars`), "Why does this message have inline text instead of a native reply?" (check `fallback_applied="relation_reply"`), and "What strategy was active?" (check `delivery_strategy`).
+
+### 14.7 Normative Requirements
+
+1. Renderers MUST set `truncated=True` when content is shortened to fit a budget.
+2. Renderers MUST set `fallback_applied` to the appropriate `FallbackApplied` literal when fallback rendering is performed.
+3. `fallback_applied` MUST be `None` when no fallback occurred.
+4. The `RenderingContext` passed to the renderer MUST accurately reflect the delivery strategy and adapter constraints.
+5. Rendering evidence MUST NOT duplicate the payload content.
+6. Rendering evidence is observational. It explains decisions; it does not control them.

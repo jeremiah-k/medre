@@ -250,6 +250,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     retry_backoff_base: float | None = None
     retry_max_delay: float | None = None
     retry_jitter: bool | None = None
+    rendering_evidence: str | None = None
     created_at: datetime = msgspec.field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
