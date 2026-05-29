@@ -1,0 +1,44 @@
+{
+  "fixture_version": 1,
+  "name": "meshtastic_reply_packet",
+  "adapter": "meshtastic",
+  "description": "Reply packet with replyId pointing to a previous packet.",
+  "native_input": {
+    "from": 1122867,
+    "fromId": "!abc123",
+    "toId": "",
+    "channel": 0,
+    "id": 43,
+    "rxTime": 1700000001,
+    "decoded": {
+      "portnum": "TEXT_MESSAGE_APP",
+      "text": "Reply from mesh",
+      "replyId": 42
+    }
+  },
+  "decode_context": {},
+  "expected": {
+    "event_kind": "message.created",
+    "source_adapter": "mesh_conf",
+    "source_transport_id": "!abc123",
+    "source_channel_id": "0",
+    "source_native_ref": {
+      "adapter": "mesh_conf",
+      "native_channel_id": "0",
+      "native_message_id": "43"
+    },
+    "payload_shape": {
+      "body": "Reply from mesh"
+    },
+    "relations_count": 1,
+    "first_relation": {
+      "relation_type": "reply",
+      "target_native_ref": {
+        "adapter": "mesh_conf",
+        "native_channel_id": "0",
+        "native_message_id": "42"
+      }
+    },
+    "metadata_has_native": true
+  }
+}
