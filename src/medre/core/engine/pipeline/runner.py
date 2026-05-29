@@ -31,6 +31,11 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.engine.phases import PipelinePhase
+from medre.core.engine.pipeline.target_delivery import (
+    TargetDeliveryService,
+    _AdapterDeliveryError,
+    _RendererDeliveryError,
+)
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -61,12 +66,6 @@ from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
-
-from medre.core.engine.pipeline.target_delivery import (
-    TargetDeliveryService,
-    _AdapterDeliveryError,
-    _RendererDeliveryError,
-)
 
 if TYPE_CHECKING:
     from medre.core.supervision.capacity import CapacityController
@@ -283,7 +282,6 @@ class PipelineRunner:
             adapters=config.adapters,
             rendering_pipeline=self._rendering_pipeline,
             storage=config.storage,
-            relation_enricher=self._relation_enricher,
             diagnostician=self._diagnostician,
             logger=self._log,
         )
@@ -1901,15 +1899,30 @@ class PipelineRunner:
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
-        Delegates to :class:`TargetDeliveryService` for rendering,
-        adapter invocation, receipt creation, and native-ref persistence.
+        Performs per-target relation enrichment (resolving target-event IDs
+        to target-adapter native refs) before delegating to
+        :class:`TargetDeliveryService` for rendering, adapter invocation,
+        receipt creation, and native-ref persistence.
+
+        The enriched ``render_event`` is passed to the service so that
+        rendering and adapter delivery use target-specific native refs,
+        while the original *event* identity is preserved for receipts.
+
         See :meth:`TargetDeliveryService.deliver_to_target` for full
-        documentation.
+        documentation of the delivery steps.
         """
+        target = plan.target
+        adapter_id = target.adapter or ""
+        render_event = await self._enrich_relations_for_target(
+            event,
+            target_adapter=adapter_id,
+            target_channel=target.channel,
+        )
         return await self._target_delivery.deliver_to_target(
             event,
             route,
             plan,
+            render_event=render_event,
             previous_receipt=previous_receipt,
             source=source,
             replay_run_id=replay_run_id,

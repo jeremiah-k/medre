@@ -24,6 +24,7 @@ from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
     _RendererDeliveryError,
+    _serialize_rendering_evidence_for_receipt,
 )
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -38,7 +39,6 @@ from medre.core.planning.delivery_plan import (
     DeliveryStrategy,
 )
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Local fakes
@@ -88,18 +88,6 @@ class _FakeRenderingPipeline:
         if self._result is not None:
             return self._result
         raise ValueError("No renderer registered")
-
-
-class _FakeRelationEnricher:
-    """Passthrough relation enricher — returns the event unchanged."""
-
-    async def enrich_for_target(
-        self,
-        event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-    ) -> CanonicalEvent:
-        return event
 
 
 class _FakeAdapter:
@@ -163,12 +151,10 @@ def _make_service(
         )
     )
     _diag = Diagnostician()
-    _enricher = _FakeRelationEnricher()
     svc = TargetDeliveryService(
         adapters=adapters or {},
         rendering_pipeline=_pipeline,  # type: ignore[arg-type]
         storage=_storage,  # type: ignore[arg-type]
-        relation_enricher=_enricher,  # type: ignore[arg-type]
         diagnostician=_diag,
         logger=logging.getLogger("test.target_delivery"),
     )
@@ -502,9 +488,7 @@ class TestRenderingEvidencePropagation:
             payload={"text": "hello"},
             rendering_evidence=evidence,
         )
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$mid")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$mid"))
         pipeline = _FakeRenderingPipeline(result=result)
         svc, storage = _make_service(
             adapters={"test_adapter": adapter},
@@ -566,9 +550,7 @@ class TestAdapterMessageIdPropagation:
 
     async def test_no_native_message_id_when_none(self) -> None:
         """When adapter returns None native_message_id, receipt field is None."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult()
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult())
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -601,9 +583,7 @@ class TestFailureKindClassification:
 
     async def test_transient_error_classified(self) -> None:
         """AdapterSendError(transient=True) → ADAPTER_TRANSIENT."""
-        adapter = _FakeAdapter(
-            error=AdapterSendError("timeout", transient=True)
-        )
+        adapter = _FakeAdapter(error=AdapterSendError("timeout", transient=True))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -616,9 +596,7 @@ class TestFailureKindClassification:
 
     async def test_permanent_error_classified(self) -> None:
         """AdapterPermanentError → ADAPTER_PERMANENT."""
-        adapter = _FakeAdapter(
-            error=AdapterPermanentError("malformed payload")
-        )
+        adapter = _FakeAdapter(error=AdapterPermanentError("malformed payload"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -661,14 +639,218 @@ class TestFailureKindClassification:
 # ===================================================================
 
 
+# ===================================================================
+# failure_kind propagation on re-raised _AdapterDeliveryError
+# ===================================================================
+
+
+class TestFailureKindPropagationOnReRaise:
+    """Verify _AdapterDeliveryError.failure_kind matches the receipt."""
+
+    async def test_transient_error_failure_kind_propagated(self) -> None:
+        """Exception failure_kind matches receipt for transient adapter error."""
+        adapter = _FakeAdapter(error=AdapterSendError("timeout", transient=True))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        receipt = storage.receipts[0]
+        assert err.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT.value
+        # The exception's failure_kind must agree with the receipt.
+        assert err.failure_kind.value == receipt.failure_kind
+
+    async def test_permanent_error_failure_kind_propagated(self) -> None:
+        """Exception failure_kind matches receipt for permanent adapter error."""
+        adapter = _FakeAdapter(error=AdapterPermanentError("malformed payload"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        receipt = storage.receipts[0]
+        assert err.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT
+        assert err.failure_kind.value == receipt.failure_kind
+
+    async def test_connection_error_failure_kind_propagated(self) -> None:
+        """Exception failure_kind matches receipt for connection error."""
+        adapter = _FakeAdapter(error=ConnectionError("refused"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        receipt = storage.receipts[0]
+        assert err.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert err.failure_kind.value == receipt.failure_kind
+
+
+# ===================================================================
+# Evidence serialization edge cases
+# ===================================================================
+
+
+class TestEvidenceSerializationEdgeCases:
+    """Verify _serialize_rendering_evidence_for_receipt edge cases."""
+
+    def test_non_callable_to_dict_returns_none(self) -> None:
+        """Object with non-callable to_dict attribute returns None."""
+
+        class _FakeEvidence:
+            to_dict = "not_callable"
+
+        result = _serialize_rendering_evidence_for_receipt(_FakeEvidence())
+        assert result is None
+
+    def test_to_dict_raises_returns_none(self) -> None:
+        """Object whose to_dict() raises returns None."""
+
+        class _BrokenEvidence:
+            def to_dict(self) -> Any:
+                raise RuntimeError("serialization boom")
+
+        result = _serialize_rendering_evidence_for_receipt(_BrokenEvidence())
+        assert result is None
+
+    def test_to_dict_raises_logs_warning(self, caplog: Any) -> None:
+        """Serialization failure logs a warning via the module logger."""
+        import logging
+
+        class _BrokenEvidence:
+            def to_dict(self) -> Any:
+                raise ValueError("bad data")
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="medre.core.engine.pipeline.target_delivery",
+        ):
+            result = _serialize_rendering_evidence_for_receipt(_BrokenEvidence())
+
+        assert result is None
+        assert any("Failed to serialize" in msg for msg in caplog.messages)
+
+    def test_cancelled_error_propagates(self) -> None:
+        """CancelledError during serialization propagates, not swallowed."""
+        import asyncio
+
+        class _CancelEvidence:
+            def to_dict(self) -> Any:
+                raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            _serialize_rendering_evidence_for_receipt(_CancelEvidence())
+
+    def test_str_evidence_passes_through(self) -> None:
+        """String evidence is returned as-is."""
+        assert _serialize_rendering_evidence_for_receipt('{"k":"v"}') == '{"k":"v"}'
+
+    def test_dict_evidence_serialized(self) -> None:
+        """Dict evidence is JSON-serialized with sort_keys=True."""
+        import json
+
+        result = _serialize_rendering_evidence_for_receipt({"b": 1, "a": 2})
+        assert result is not None
+        parsed = json.loads(result)
+        assert list(parsed.keys()) == ["a", "b"]
+
+    def test_callable_to_dict_succeeds(self) -> None:
+        """Object with callable to_dict() is serialized correctly."""
+        import json
+
+        class _GoodEvidence:
+            def to_dict(self) -> dict[str, Any]:
+                return {"renderer": "text", "version": 1}
+
+        result = _serialize_rendering_evidence_for_receipt(_GoodEvidence())
+        assert result is not None
+        parsed = json.loads(result)
+        assert parsed["renderer"] == "text"
+
+    def test_unsupported_type_returns_none(self) -> None:
+        """Unsupported type without to_dict returns None."""
+        assert _serialize_rendering_evidence_for_receipt(42) is None
+
+
+# ===================================================================
+# Persistence-time timestamps
+# ===================================================================
+
+
+class TestPersistenceTimestamps:
+    """Verify receipts use persistence-time timestamps, not stale start time."""
+
+    async def test_receipt_created_at_is_recent(self) -> None:
+        """Receipt created_at is within a small window of 'now'."""
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        before = datetime.now(tz=timezone.utc)
+        receipt = await svc.deliver_to_target(event, route, plan)
+        after = datetime.now(tz=timezone.utc)
+
+        assert before <= receipt.created_at <= after
+
+    async def test_next_retry_at_uses_persistence_time(self) -> None:
+        """next_retry_at is computed from persistence time, not start time."""
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        adapter = _FakeAdapter(error=AdapterSendError("timeout", transient=True))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.retry_policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
+
+        before = datetime.now(tz=timezone.utc)
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+        after = datetime.now(tz=timezone.utc)
+
+        receipt = storage.receipts[0]
+        assert receipt.next_retry_at is not None
+        # next_retry_at should be >= before (persistence time, not start time).
+        assert receipt.next_retry_at >= before
+        # And the receipt's created_at should also be >= before.
+        assert receipt.created_at >= before
+        assert receipt.created_at <= after
+
+    async def test_native_ref_created_at_uses_persistence_time(self) -> None:
+        """NativeMessageRef created_at uses persistence time."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(
+                native_message_id="$msg",
+                native_channel_id="!room:server",
+            )
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        before = datetime.now(tz=timezone.utc)
+        await svc.deliver_to_target(event, route, plan)
+        after = datetime.now(tz=timezone.utc)
+
+        nref = storage.native_refs[0]
+        assert before <= nref.created_at <= after
+
+
 class TestReceiptStatusPreservation:
     """Verify receipt.status matches the delivery outcome."""
 
     async def test_sent_status_preserved(self) -> None:
         """Successful delivery → status='sent'."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -691,9 +873,7 @@ class TestReceiptStatusPreservation:
 
     async def test_queued_status_preserved(self) -> None:
         """Enqueued delivery → status='queued'."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(delivery_status="enqueued")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(delivery_status="enqueued"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -713,9 +893,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_first_attempt_has_attempt_number_one(self) -> None:
         """First delivery attempt has attempt_number=1."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -727,9 +905,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_retry_attempt_has_incremented_number(self) -> None:
         """Retry attempt carries previous receipt's lineage."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -746,9 +922,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_receipt_has_deterministic_ids(self) -> None:
         """Receipt carries receipt_id starting with 'rcpt-'."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -761,9 +935,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_source_and_replay_run_id_propagated(self) -> None:
         """source and replay_run_id are passed through to receipt."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -833,6 +1005,9 @@ class TestPipelineRunnerDelegation:
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 
+        # Persist event to match runtime contract (ingress stores before delivery).
+        await temp_storage.append(event)
+
         try:
             receipt = await runner.deliver_to_target(event, route, plan)
 
@@ -888,6 +1063,9 @@ class TestPipelineRunnerDelegation:
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 
+        # Persist event to match runtime contract (ingress stores before delivery).
+        await temp_storage.append(event)
+
         try:
             with pytest.raises(_AdapterDeliveryError) as exc_info:
                 await runner.deliver_to_target(event, route, plan)
@@ -908,9 +1086,7 @@ class TestDeadlineExceeded:
 
     async def test_deadline_exceeded_raises_adapter_delivery_error(self) -> None:
         """Plan with past deadline raises _AdapterDeliveryError."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -925,9 +1101,7 @@ class TestDeadlineExceeded:
 
     async def test_deadline_exceeded_receipt_persisted(self) -> None:
         """Deadline-exceeded path persists a failure receipt."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -943,9 +1117,7 @@ class TestDeadlineExceeded:
 
     async def test_no_deadline_allows_delivery(self) -> None:
         """Plan without deadline does not block a successful delivery."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -1029,9 +1201,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_raises_renderer_delivery_error(self) -> None:
         """Unknown strategy method raises _RendererDeliveryError."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="bogus_strategy")
@@ -1045,9 +1215,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_receipt_has_planner_failure(self) -> None:
         """Invalid strategy receipt has failure_kind=PLANNER_FAILURE."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="nonexistent")
@@ -1061,9 +1229,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_receipt_persisted(self) -> None:
         """Invalid strategy persists a failure receipt."""
-        adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(native_message_id="$id")
-        )
+        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="garbage")
@@ -1152,7 +1318,9 @@ class TestCancelledErrorPropagation:
             adapter_id: str = "test_adapter"
             platform: str = "test_platform"
 
-            async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult | None:
+            async def deliver(
+                self, rendering_result: Any
+            ) -> AdapterDeliveryResult | None:
                 raise asyncio.CancelledError()
 
         return _CancelAdapter()
@@ -1183,4 +1351,3 @@ class TestCancelledErrorPropagation:
 
         # No receipts — CancelledError bypasses receipt recording.
         assert len(storage.receipts) == 0
-

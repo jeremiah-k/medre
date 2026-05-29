@@ -16,6 +16,15 @@ service class.  :class:`TargetDeliveryService` owns:
 It does **not** own outbox creation, capacity acquisition / release, lease
 ownership, retry scheduling, replay processing, route planning, relation
 enrichment, or delivery lifecycle management.
+
+Relation enrichment ownership
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Per-target relation enrichment (resolving ``target_event_id`` → target-adapter
+native refs) is owned by :class:`~medre.core.engine.pipeline.runner.PipelineRunner`.
+The runner enriches the event before calling this service and passes the
+enriched event as the ``render_event`` parameter.  This service receives a
+pre-enriched render event and does **not** depend on
+:class:`~medre.core.planning.relation_enricher.RelationEnricher`.
 """
 
 from __future__ import annotations
@@ -49,7 +58,6 @@ from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     RetryExecutor,
 )
-from medre.core.planning.relation_enricher import RelationEnricher
 from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
@@ -172,14 +180,20 @@ def _serialize_rendering_evidence_for_receipt(
             return raw_evidence
         if isinstance(raw_evidence, dict):
             return json.dumps(raw_evidence, sort_keys=True)
-        if hasattr(raw_evidence, "to_dict"):
-            return json.dumps(raw_evidence.to_dict(), sort_keys=True)
+        to_dict = getattr(raw_evidence, "to_dict", None)
+        if callable(to_dict):
+            return json.dumps(to_dict(), sort_keys=True)
         # Unsupported type — return None without stringifying.
         return None
     except Exception as exc:
         if isinstance(exc, asyncio.CancelledError):
             raise
         # Serialization failed — return None rather than crashing.
+        _logger.warning(
+            "Failed to serialize rendering evidence of type %s: %s",
+            type(raw_evidence).__name__,
+            exc,
+        )
         return None
 
 
@@ -195,6 +209,11 @@ class TargetDeliveryService:
     native-ref persistence for a single delivery target.  Created and
     called by :class:`~medre.core.engine.pipeline.runner.PipelineRunner`.
 
+    Relation enrichment is performed by the runner *before* calling
+    this service.  The caller passes the enriched event as
+    ``render_event``; this service does not depend on
+    :class:`~medre.core.planning.relation_enricher.RelationEnricher`.
+
     Parameters
     ----------
     adapters:
@@ -203,8 +222,6 @@ class TargetDeliveryService:
         The rendering pipeline for converting events before delivery.
     storage:
         Storage backend for receipts and native refs.
-    relation_enricher:
-        Enricher for per-target relation resolution before rendering.
     diagnostician:
         Failure diagnostic recorder.
     logger:
@@ -217,14 +234,12 @@ class TargetDeliveryService:
         adapters: dict[str, AdapterContract],
         rendering_pipeline: RenderingPipeline,
         storage: StorageBackend,
-        relation_enricher: RelationEnricher,
         diagnostician: Diagnostician,
         logger: logging.Logger,
     ) -> None:
         self._adapters = adapters
         self._rendering_pipeline = rendering_pipeline
         self._storage = storage
-        self._relation_enricher = relation_enricher
         self._diagnostician = diagnostician
         self._log = logger
 
@@ -236,6 +251,7 @@ class TargetDeliveryService:
         route: Route,
         plan: DeliveryPlan,
         *,
+        render_event: CanonicalEvent | None = None,
         previous_receipt: DeliveryReceipt | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
@@ -263,11 +279,17 @@ class TargetDeliveryService:
         Parameters
         ----------
         event:
-            The canonical event to deliver.
+            The canonical event to deliver.  Used for receipt identity
+            (``event_id``) — the original (non-enriched) event.
         route:
             The route that matched the event.
         plan:
             The delivery plan for this target.
+        render_event:
+            The pre-enriched event to use for rendering.  When ``None``,
+            *event* is used directly (no enrichment applied).  The runner
+            is responsible for per-target relation enrichment before
+            calling this method.
         previous_receipt:
             The receipt from the previous delivery attempt, if this is a
             retry.  ``None`` for the first attempt.
@@ -377,13 +399,12 @@ class TargetDeliveryService:
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
         # identity instead of adapter-name heuristics.
-        # Enrich relations with target-adapter native refs so that the
-        # renderer (and downstream adapter) receive native IDs for
-        # structured replies / reactions.  This enrichment is per-target
-        # and does not mutate the stored original event.
-        render_event = await self._enrich_relations_for_target(
-            event, adapter_id or "", target.channel
-        )
+        #
+        # The caller (PipelineRunner) is responsible for per-target
+        # relation enrichment.  When render_event is provided, it
+        # carries target-adapter native refs for structured replies /
+        # reactions.  When None, the original event is used as-is.
+        _render_event = render_event if render_event is not None else event
         target_platform = getattr(adapter, "platform", None)
         if isinstance(target_platform, str):
             platform_param: str | None = target_platform
@@ -494,7 +515,7 @@ class TargetDeliveryService:
 
         try:
             rendering_result = await self._rendering_pipeline.render(
-                render_event,
+                _render_event,
                 adapter_id or "",
                 target.channel,
                 target_platform=platform_param,
@@ -639,12 +660,25 @@ class TargetDeliveryService:
         )
 
         # Record receipt.
-        _receipt_failure_kind: str | None = None
+        # Classify the failure kind as an enum so we can propagate the same
+        # value to both the receipt (as .value string) and the re-raised
+        # _AdapterDeliveryError (as the typed enum).
+        _classified_failure_kind: DeliveryFailureKind | None = None
         if status == "failed" and delivery_exc is not None:
-            _receipt_failure_kind = RetryExecutor.classify_failure(
+            _classified_failure_kind = RetryExecutor.classify_failure(
                 delivery_exc,
                 adapter_registered=True,
-            ).value
+            )
+        _receipt_failure_kind: str | None = (
+            _classified_failure_kind.value if _classified_failure_kind else None
+        )
+
+        # Use a fresh persistence-time timestamp for created_at and
+        # next_retry_at on the main receipt, rather than the stale
+        # execution-start ``now`` captured before enrichment / rendering /
+        # adapter I/O.  The start time is no longer used for receipt
+        # timestamps in this path.
+        now_persist = datetime.now(tz=timezone.utc)
 
         # Compute next_retry_at for retryable transient failures.
         # Only set when the plan declares an explicit retry_policy.
@@ -657,7 +691,7 @@ class TargetDeliveryService:
             executor = RetryExecutor(plan.retry_policy)
             if not executor.is_exhausted(attempt_number):
                 backoff = executor.compute_backoff(attempt_number)
-                _next_retry_at = now + backoff
+                _next_retry_at = now_persist + backoff
 
         # Populate adapter_message_id only when delivery succeeded and
         # the adapter returned a native_message_id.  Never fabricate IDs.
@@ -700,7 +734,7 @@ class TargetDeliveryService:
             failure_kind=_receipt_failure_kind,
             adapter_message_id=_adapter_message_id,
             next_retry_at=_next_retry_at,
-            created_at=now,
+            created_at=now_persist,
             attempt_number=attempt_number,
             parent_receipt_id=parent_receipt_id,
             source=source,
@@ -758,38 +792,27 @@ class TargetDeliveryService:
                 native_relation_id=adapter_result.native_relation_id,
                 direction="outbound",
                 metadata=outbound_meta,
-                created_at=now,
+                created_at=now_persist,
             )
             await self._storage.store_native_ref(native_ref)
 
         # Re-raise adapter errors so that callers (deliver_to_targets)
         # can inspect the exception type for transient/permanent classification.
         # The receipt and native ref are already persisted at this point.
+        # Propagate the same failure_kind already persisted in the receipt so
+        # the exception and storage do not disagree.
         if status == "failed":
             raise _AdapterDeliveryError(
-                adapter_id or "", error or "", delivery_exc, receipt=receipt
+                adapter_id or "",
+                error or "",
+                delivery_exc,
+                failure_kind=_classified_failure_kind,
+                receipt=receipt,
             ) from None
 
         return receipt
 
     # -- Internal helpers ---------------------------------------------------
-
-    async def _enrich_relations_for_target(
-        self,
-        event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-    ) -> CanonicalEvent:
-        """Enrich relations with target-adapter native refs for rendering.
-
-        Delegates to :class:`~medre.core.planning.relation_enricher.RelationEnricher`.
-        See that class for enrichment semantics.
-        """
-        return await self._relation_enricher.enrich_for_target(
-            event,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
-        )
 
     def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
         """Retrieve the :class:`AdapterCapabilities` for a target adapter.
