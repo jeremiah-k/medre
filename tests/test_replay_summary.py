@@ -443,7 +443,7 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay import ReplayEngine, ReplayRequest
 
         await temp_storage.append(sample_event)
 
@@ -476,7 +476,7 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay import ReplayEngine, ReplayRequest
 
         engine = ReplayEngine(storage=cast(StorageBackend, temp_storage))
         request = ReplayRequest(
@@ -504,7 +504,7 @@ class TestReplaySummaryIntegration:
         from datetime import datetime, timezone
         from typing import cast
 
-        from medre.core.engine import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay import ReplayEngine, ReplayRequest
 
         await temp_storage.append(sample_event)
 
@@ -548,7 +548,7 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay import ReplayEngine, ReplayRequest
         from medre.core.planning import FallbackResolver
         from medre.core.rendering import RenderingPipeline, TextRenderer
         from medre.core.routing import Route, Router, RouteSource, RouteTarget

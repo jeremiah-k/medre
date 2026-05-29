@@ -65,17 +65,26 @@ class TestModuleImport:
                 storage_mod, attr
             ), f"storage must not re-export {attr}; replay lives in core.engine"
 
-    def test_engine_package_re_exports_replay_symbols(self) -> None:
-        """medre.core.engine re-exports replay symbols for convenience."""
+    def test_engine_package_does_not_re_export_replay_symbols(self) -> None:
+        """medre.core.engine must not re-export replay runtime symbols.
+
+        Replay runtime lives in medre.core.engine.replay and should be
+        imported explicitly, not via the engine package root.
+        """
         import medre.core.engine as engine_mod
 
-        assert hasattr(engine_mod, "ReplayEngine")
-        assert hasattr(engine_mod, "ReplayMode")
-        assert hasattr(engine_mod, "ReplayRequest")
-        assert hasattr(engine_mod, "ReplayResult")
-        assert hasattr(engine_mod, "ReplayRouteAttribution")
-        assert hasattr(engine_mod, "ReplaySummary")
-        assert hasattr(engine_mod, "collect_replay_summary")
+        for attr in (
+            "ReplayEngine",
+            "ReplayMode",
+            "ReplayRequest",
+            "ReplayResult",
+            "ReplayRouteAttribution",
+            "ReplaySummary",
+            "collect_replay_summary",
+        ):
+            assert not hasattr(
+                engine_mod, attr
+            ), f"engine root must not re-export {attr}; import from medre.core.engine.replay instead"
 
 
 # ---------------------------------------------------------------------------
