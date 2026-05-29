@@ -1319,3 +1319,163 @@ class TestFinalizeOutboxRetryTimestampAlignment:
         # exactly (both are ISO-formatted from the same datetime).
         assert updated.next_attempt_at is not None
         assert updated.next_attempt_at == expected_retry_at.isoformat()
+
+
+# ===================================================================
+# append_queued_to_sent_receipt — error paths
+# ===================================================================
+
+
+class TestAppendQueuedToSentErrorPaths:
+    """Error paths in append_queued_to_sent_receipt."""
+
+    async def test_list_receipts_error_logged(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """storage.list_receipts_for_event raises → logged, returns."""
+        from unittest.mock import AsyncMock, patch
+
+        lifecycle = _make_lifecycle()
+        record = OutboundNativeRefRecord(
+            event_id="evt-list-err",
+            adapter="mesh-1",
+            native_channel_id=None,
+            native_message_id="pkt",
+        )
+        with patch.object(
+            temp_storage,
+            "list_receipts_for_event",
+            AsyncMock(side_effect=RuntimeError("db fail")),
+        ):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=datetime.now(timezone.utc),
+            )
+        assert "Failed to list receipts" in caplog.text
+
+    async def test_channel_mismatch_skips_supplemental(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Queued receipts exist but none match channel → skip."""
+        lifecycle = _make_lifecycle()
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-ch", status="queued", adapter="m", channel="0"
+            )
+        )
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="1",
+            native_message_id="pkt",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=datetime.now(timezone.utc),
+        )
+        all_r = await temp_storage.list_receipts_for_event("evt-001")
+        assert all(r.status != "sent" for r in all_r)
+
+    async def test_outbox_transition_error_logged(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """mark_outbox_sent raises → logged, does not propagate."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        from unittest.mock import AsyncMock, patch
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = _make_lifecycle()
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-ob", status="queued", adapter="m", channel="0"
+            )
+        )
+
+        # Mock get_outbox_item_for_delivery to return a dummy item so
+        # the code path reaches mark_outbox_sent.  Then make
+        # mark_outbox_sent raise to exercise the except block.
+        dummy_item = DeliveryOutboxItem(
+            outbox_id="obox-supp-err",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-q",
+            target_adapter="m",
+            target_channel="0",
+            status="queued",
+        )
+        with (
+            patch.object(
+                temp_storage,
+                "get_outbox_item_for_delivery",
+                AsyncMock(return_value=dummy_item),
+            ),
+            patch.object(
+                temp_storage,
+                "mark_outbox_sent",
+                AsyncMock(side_effect=RuntimeError("outbox write fail")),
+            ),
+        ):
+            record = OutboundNativeRefRecord(
+                event_id="evt-001",
+                adapter="m",
+                native_channel_id="0",
+                native_message_id="pkt",
+            )
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=datetime.now(timezone.utc),
+            )
+        assert "Failed to transition outbox queued->sent" in caplog.text
+
+
+# ===================================================================
+# finalize_outbox_outcome — defensive fallback (no receipt)
+# ===================================================================
+
+
+class TestFinalizeOutboxDefensiveFallback:
+    """Defensive fallback in finalize_outbox_outcome when receipt is None."""
+
+    async def test_defensive_backoff_when_no_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Receipt None, retryable, policy exists → compute backoff from scratch."""
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = _make_lifecycle()
+        item = DeliveryOutboxItem(
+            outbox_id="obox-fallback",
+            event_id="evt-fallback",
+            route_id="route-fb",
+            delivery_plan_id="plan-fb",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        policy = RetryPolicy(max_attempts=5, backoff_base=2.0)
+        await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            "obox-fallback",
+            True,
+            receipt=None,
+            failure_kind_val=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="timeout",
+            retry_policy=policy,
+        )
+        updated = await temp_storage.get_outbox_item("obox-fallback")
+        assert updated is not None
+        assert updated.status == "retry_wait"
+        assert updated.next_attempt_at is not None
