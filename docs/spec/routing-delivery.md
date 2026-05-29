@@ -516,12 +516,12 @@ The `delivery_plan_id` field provides deterministic correlation between a `queue
 
 The correlation algorithm in `append_queued_to_sent_receipt`:
 
-1. **Exact `delivery_plan_id` match** (deterministic, preferred). When the outbound ref carries a `delivery_plan_id`, the service queries for a `queued` receipt with that exact `delivery_plan_id`. If found, a supplemental `sent` receipt is appended and the outbox item is transitioned to `sent`. If the plan matches but no `native_channel_id` is available and multiple channels are present under the same plan, the service logs and returns (ambiguous).
+1. **Exact `delivery_plan_id` match** (deterministic, preferred). When the outbound ref carries a `delivery_plan_id`, the service queries for a `queued` receipt with that exact `delivery_plan_id`. If found, a supplemental `sent` receipt is appended and the outbox item is transitioned to `sent`. When no `native_channel_id` is available on the outbound ref and multiple plan matches exist, the service checks `target_channel` uniformity: if all matches share the same `target_channel` (unambiguous retry lineage), the latest (last appended) queued receipt is used; if `target_channel` values differ, the service logs a warning and returns (ambiguous).
 2. **No match found.** If no `queued` receipt matches the `delivery_plan_id`, the service logs and returns without creating a supplemental receipt. The pipeline MUST NOT fall back to heuristic matching when a `delivery_plan_id` is present.
-3. **Legacy degraded path.** When `delivery_plan_id` is `None` (e.g., pre-migration data or adapters that do not propagate plan IDs), the service filters by `(target_adapter, target_channel)` and applies disambiguation:
+3. **Legacy degraded path.** When `delivery_plan_id` is `None` (e.g., pre-migration data or adapters that do not propagate plan IDs), the service filters by `target_adapter` and applies disambiguation:
    - If exactly one candidate: use it.
-   - If multiple candidates all share the same `delivery_plan_id`: treat as retry lineage and choose the latest (last appended) queued receipt.
-   - If candidates span multiple `delivery_plan_id` values: log a warning and return without creating a supplemental sent receipt. Cross-plan ambiguity MUST NOT silently pick a winner.
+   - If multiple candidates: the service collects unique `delivery_plan_id` values and unique `target_channel` values. If exactly one `delivery_plan_id` AND exactly one `target_channel` exist (unambiguous retry lineage), the latest (last appended) queued receipt is used.
+   - Otherwise (cross-plan or cross-channel ambiguity): the service logs a warning and returns without creating a supplemental sent receipt. Ambiguity MUST NOT silently pick a winner.
 
 #### 8.5.2 Invariant: Plan-ID Correlation Is Preferred
 
