@@ -13,7 +13,7 @@ Table of contents for the MEDRE normative specification.
 | [event-model.md](event-model.md)                   | CanonicalEvent, relations, event kinds, schema versioning     |
 | [adapter-runtime.md](adapter-runtime.md)           | Adapter protocol, lifecycle, capabilities, codec              |
 | [routing-delivery.md](routing-delivery.md)         | Route matching, fanout, delivery plans, receipts              |
-| [storage.md](storage.md)                           | SQLite schema, append-only guarantees, replay                 |
+| [storage.md](storage.md)                           | SQLite schema, append-only guarantees, replay semantics       |
 | [identity-addressing.md](identity-addressing.md)   | Native identities, canonical actors, privacy boundaries       |
 | [metadata.md](metadata.md)                         | Metadata namespaces, embedding modes, never-embed list        |
 | [configuration.md](configuration.md)               | TOML config, XDG paths, env overrides, config model           |
@@ -44,7 +44,7 @@ Table of contents for the MEDRE normative specification.
 3. **Event Model** — CanonicalEvent, relations, metadata
 4. **Adapter Runtime** — adapter protocol and lifecycle
 5. **Routing & Delivery** — route matching, fanout, receipts
-6. **Storage** — SQLite schema, append-only guarantees, replay
+6. **Storage** — SQLite schema, append-only guarantees, replay semantics
 7. **Identity & Addressing** — identity model, privacy boundaries
 8. **Metadata** — namespaces, embedding modes
 9. **Configuration** — TOML system, XDG paths, env overrides
