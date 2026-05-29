@@ -1479,3 +1479,362 @@ class TestFinalizeOutboxDefensiveFallback:
         assert updated is not None
         assert updated.status == "retry_wait"
         assert updated.next_attempt_at is not None
+
+
+# ===================================================================
+# Deterministic delivery_plan_id correlation (Tranche 5 regression)
+# ===================================================================
+
+
+class TestDeterministicPlanIdCorrelation:
+    """Regression tests for delivery_plan_id-based queued→sent correlation.
+
+    These tests verify that ``append_queued_to_sent_receipt`` uses the
+    ``delivery_plan_id`` on ``OutboundNativeRefRecord`` for deterministic
+    correlation, falling back to the legacy heuristic only when
+    ``delivery_plan_id`` is absent.
+    """
+
+    async def test_overlapping_plans_same_channel_correct_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Same event, same adapter, same channel, two different plan_ids.
+
+        The supplemental sent receipt for plan-b must link to the
+        plan-b queued receipt, not plan-a's.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Two queued receipts: plan-a and plan-b, same adapter/channel.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-plan-a",
+                status="queued",
+                adapter="mesh",
+                channel="0",
+                plan_id="plan-a",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-plan-b",
+                status="queued",
+                adapter="mesh",
+                channel="0",
+                plan_id="plan-b",
+            )
+        )
+
+        # Record for plan-b with delivery_plan_id set.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh",
+            native_channel_id="0",
+            native_message_id="pkt-plan-b",
+            delivery_plan_id="plan-b",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        # Must parent the plan-b receipt, NOT plan-a.
+        assert sent[0].parent_receipt_id == "rcpt-plan-b"
+        assert sent[0].delivery_plan_id == "plan-b"
+        assert sent[0].adapter_message_id == "pkt-plan-b"
+
+        # plan-a's queued receipt must remain untouched (no sent receipt).
+        plan_a_sent = [
+            r
+            for r in all_receipts
+            if r.delivery_plan_id == "plan-a" and r.status == "sent"
+        ]
+        assert len(plan_a_sent) == 0
+
+    async def test_overlapping_plans_both_receive_correct_receipts(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Both plan-a and plan-b receive correct supplemental receipts."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-a2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-a2",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-b2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-b2",
+            )
+        )
+
+        # Record for plan-a2.
+        record_a = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-a2",
+            delivery_plan_id="plan-a2",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record_a,
+            now=now,
+        )
+
+        # Record for plan-b2.
+        record_b = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-b2",
+            delivery_plan_id="plan-b2",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record_b,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 2
+
+        sent_a = [r for r in sent if r.delivery_plan_id == "plan-a2"]
+        assert len(sent_a) == 1
+        assert sent_a[0].parent_receipt_id == "rcpt-a2"
+        assert sent_a[0].adapter_message_id == "pkt-a2"
+
+        sent_b = [r for r in sent if r.delivery_plan_id == "plan-b2"]
+        assert len(sent_b) == 1
+        assert sent_b[0].parent_receipt_id == "rcpt-b2"
+        assert sent_b[0].adapter_message_id == "pkt-b2"
+
+    async def test_retry_same_plan_selects_latest_attempt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Same plan, multiple queued attempts → latest wins."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-attempt1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-retry",
+                attempt_number=1,
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-attempt2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-retry",
+                attempt_number=2,
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-latest",
+            delivery_plan_id="plan-retry",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-attempt2"
+        assert sent[0].attempt_number == 2
+
+    async def test_plan_id_not_found_no_supplemental(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """delivery_plan_id on record but no matching queued receipt → skip."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-x",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-x",
+            )
+        )
+
+        # Record with a different plan_id that doesn't match.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-nope",
+            delivery_plan_id="plan-nonexistent",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+
+    async def test_missing_plan_id_legacy_heuristic_applies(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """No delivery_plan_id, multiple candidates on same channel → legacy picks most recent."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Two queued receipts with DIFFERENT plan_ids on same channel.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-p1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-p1",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-p2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-p2",
+            )
+        )
+
+        # Record WITHOUT delivery_plan_id — legacy heuristic applies.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-ambig",
+            # delivery_plan_id is None (not set)
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        # Legacy heuristic picks the most recent (plan-p2).
+        assert len(sent) == 1
+        assert sent[0].delivery_plan_id == "plan-p2"
+
+    async def test_missing_plan_id_single_candidate_succeeds(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """No delivery_plan_id, single candidate → legacy path succeeds."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-solo",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-solo",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-solo",
+            # delivery_plan_id is None — legacy path
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].delivery_plan_id == "plan-solo"
+
+    async def test_plan_id_no_channel_multiple_plan_matches_skip(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """delivery_plan_id set, no channel, multiple plan matches → skip."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-ch0",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-multi",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-ch1",
+                status="queued",
+                adapter="m",
+                channel="1",
+                plan_id="plan-multi",
+            )
+        )
+
+        # Same plan but no channel → ambiguous.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id=None,
+            native_message_id="pkt-ambig",
+            delivery_plan_id="plan-multi",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0

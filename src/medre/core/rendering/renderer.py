@@ -199,6 +199,13 @@ class RenderingResult:
         Whether the rendered content was truncated.
     fallback_applied:
         Which fallback strategy was applied, if any.
+    delivery_plan_id:
+        Stable correlation key from the delivery plan.  Set by
+        :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        after rendering, before adapter delivery.  Queue-based adapters
+        propagate this through their queue into
+        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
+        deterministic queued→sent receipt correlation.
     rendering_evidence:
         Immutable evidence snapshot built by the pipeline after a
         renderer returns.  ``None`` when the result was not produced
@@ -212,6 +219,7 @@ class RenderingResult:
     metadata: dict[str, object] = field(default_factory=dict)
     truncated: bool = False
     fallback_applied: FallbackApplied | None = None
+    delivery_plan_id: str | None = None
     rendering_evidence: RenderingEvidence | None = None
 
 

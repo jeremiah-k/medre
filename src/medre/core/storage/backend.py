@@ -201,12 +201,14 @@ class DeliveryOutboxItem:
     @property
     def is_terminal(self) -> bool:
         """Return ``True`` if the status is a terminal (non-recoverable) state."""
-        return self.status in {
-            "sent",
-            "dead_lettered",
-            "cancelled",
-            "abandoned",
-        }
+        # Deferred import to avoid circular dependency at module load time
+        # (backend -> delivery_state -> engine package init -> pipeline init
+        # -> delivery_lifecycle -> backend).
+        from medre.core.engine.pipeline.delivery_state import (
+            is_terminal_outbox_status,
+        )
+
+        return is_terminal_outbox_status(self.status)
 
     @property
     def is_claimable(self) -> bool:
@@ -228,7 +230,12 @@ class DeliveryOutboxItem:
         -------
         bool
         """
-        return self.status in {"pending", "retry_wait"}
+        # Deferred import to avoid circular dependency (see is_terminal).
+        from medre.core.engine.pipeline.delivery_state import (
+            is_claimable_outbox_status,
+        )
+
+        return is_claimable_outbox_status(self.status)
 
 
 # ---------------------------------------------------------------------------

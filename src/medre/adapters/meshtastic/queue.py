@@ -201,6 +201,7 @@ class MeshtasticOutboundQueue:
         channel_index: int,
         *,
         event_id: str | None = None,
+        delivery_plan_id: str | None = None,
     ) -> None:
         """Enqueue a payload for delivery.
 
@@ -223,6 +224,10 @@ class MeshtasticOutboundQueue:
         event_id:
             Optional canonical event ID that originated this send.
             Stored outside the payload so it is never sent to the radio.
+        delivery_plan_id:
+            Optional delivery plan ID for deterministic queued→sent
+            receipt correlation.  Propagated through the queue item into
+            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
 
         Raises
         ------
@@ -249,6 +254,7 @@ class MeshtasticOutboundQueue:
                 "payload": dict(payload),
                 "channel_index": channel_index,
                 "event_id": event_id,
+                "delivery_plan_id": delivery_plan_id,
                 "_attempt": 1,  # internal retry counter; not sent to radio
             }
         )

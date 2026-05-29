@@ -32,6 +32,9 @@ from medre.core.contracts.adapter import (
 )
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.delivery_state import (
+    is_accepted_outcome_status as _is_accepted_outcome_status,
+)
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -571,7 +574,7 @@ class PipelineRunner:
 
         outcomes = await self.deliver_to_targets(event, deliveries)
 
-        accepted = sum(1 for o in outcomes if o.status in {"success", "queued"})
+        accepted = sum(1 for o in outcomes if _is_accepted_outcome_status(o.status))
         failed = len(outcomes) - accepted
         self._log.info(
             "Pipeline complete: event_id=%s targets=%d accepted=%d failed=%d",
