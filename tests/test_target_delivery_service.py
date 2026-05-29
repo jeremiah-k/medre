@@ -20,6 +20,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -151,11 +152,15 @@ def _make_service(
         )
     )
     _diag = Diagnostician()
+    _lifecycle = DeliveryLifecycleService(
+        logger=logging.getLogger("test.target_delivery.lifecycle"),
+    )
     svc = TargetDeliveryService(
         adapters=adapters or {},
         rendering_pipeline=_pipeline,  # type: ignore[arg-type]
         storage=_storage,  # type: ignore[arg-type]
         diagnostician=_diag,
+        lifecycle=_lifecycle,
         logger=logging.getLogger("test.target_delivery"),
     )
     return svc, _storage
