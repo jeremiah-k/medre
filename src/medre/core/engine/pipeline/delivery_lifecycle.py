@@ -8,14 +8,17 @@ finalization decisions, and terminal-state determination.
 
 Architecture
 ~~~~~~~~~~~~
-The pipeline delegation chain is::
+The pipeline uses two shared collaborator services::
 
-    PipelineRunner → DeliveryLifecycleService → TargetDeliveryService → Adapter
+    PipelineRunner
+      ├── DeliveryLifecycleService   (lifecycle/state decisions)
+      └── TargetDeliveryService      (per-target execution)
 
 :class:`PipelineRunner` retains orchestration responsibilities (route
 planning, target selection, relation enrichment, runtime coordination,
 capacity orchestration, initial outbox creation, lease renewal).  It
-delegates lifecycle/state decisions to :class:`DeliveryLifecycleService`.
+delegates lifecycle/state decisions to :class:`DeliveryLifecycleService`
+and per-target execution to :class:`TargetDeliveryService`.
 
 :class:`TargetDeliveryService` retains per-target execution responsibilities
 (rendering, adapter invocation, rendering evidence, native-ref persistence,
@@ -80,6 +83,16 @@ from medre.core.storage.backend import StorageBackend
 # ---------------------------------------------------------------------------
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+#: Terminal outbox statuses — once entered, the outbox item is never
+#: transitioned to a different status.
+_TERMINAL_OUTBOX_STATUSES: frozenset[str] = frozenset(
+    {"sent", "dead_lettered", "cancelled", "abandoned"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +312,7 @@ class DeliveryLifecycleService:
         -------
         bool
         """
-        return status in frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
+        return status in _TERMINAL_OUTBOX_STATUSES
 
     # -- Dead-letter receipt creation ---------------------------------------
 
@@ -355,7 +368,11 @@ class DeliveryLifecycleService:
         DeliveryReceipt
             The persisted dead-letter receipt.
         """
-        assert plan.retry_policy is not None  # guarded by should_dead_letter
+        if plan.retry_policy is None:
+            raise RuntimeError(
+                "build_and_persist_dead_letter_receipt requires a plan with "
+                "a retry_policy; callers must guard with should_dead_letter()"
+            )
         executor = RetryExecutor(plan.retry_policy)
         dead_receipt = executor.build_dead_letter_receipt(
             event_id=event_id,
@@ -537,12 +554,12 @@ class DeliveryLifecycleService:
             attempt_number=queued_receipt.attempt_number,
             parent_receipt_id=queued_receipt.receipt_id,
             source=queued_receipt.source,
-            replay_run_id=getattr(queued_receipt, "replay_run_id", None),
-            retry_max_attempts=getattr(queued_receipt, "retry_max_attempts", None),
-            retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
-            retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
-            retry_jitter=getattr(queued_receipt, "retry_jitter", None),
-            rendering_evidence=getattr(queued_receipt, "rendering_evidence", None),
+            replay_run_id=queued_receipt.replay_run_id,
+            retry_max_attempts=queued_receipt.retry_max_attempts,
+            retry_backoff_base=queued_receipt.retry_backoff_base,
+            retry_max_delay=queued_receipt.retry_max_delay,
+            retry_jitter=queued_receipt.retry_jitter,
+            rendering_evidence=queued_receipt.rendering_evidence,
         )
         await storage.append_receipt(supplemental)
 
@@ -552,24 +569,24 @@ class DeliveryLifecycleService:
         # status over in_progress so that a fully-queued row is always
         # selected first.
         try:
-            _obi = await storage.get_outbox_item_for_delivery(
+            outbox_item = await storage.get_outbox_item_for_delivery(
                 event_id=record.event_id,
                 delivery_plan_id=queued_receipt.delivery_plan_id,
                 target_adapter=record.adapter,
                 target_channel=queued_receipt.target_channel,
                 status="queued",
             )
-            if _obi is None:
-                _obi = await storage.get_outbox_item_for_delivery(
+            if outbox_item is None:
+                outbox_item = await storage.get_outbox_item_for_delivery(
                     event_id=record.event_id,
                     delivery_plan_id=queued_receipt.delivery_plan_id,
                     target_adapter=record.adapter,
                     target_channel=queued_receipt.target_channel,
                     status="in_progress",
                 )
-            if _obi is not None:
+            if outbox_item is not None:
                 await storage.mark_outbox_sent(
-                    _obi.outbox_id,
+                    outbox_item.outbox_id,
                     receipt_id=supplemental.receipt_id,
                     attempt_number=supplemental.attempt_number,
                 )
@@ -617,9 +634,9 @@ class DeliveryLifecycleService:
         if outbox_id is None or not outbox_created:
             return
         try:
-            if receipt is not None and receipt.status not in ("failed",):
-                _r_status = receipt.status
-                if _r_status == "queued":
+            if receipt is not None and receipt.status != "failed":
+                receipt_status = receipt.status
+                if receipt_status == "queued":
                     await storage.mark_outbox_queued(
                         outbox_id,
                         receipt_id=receipt.receipt_id,
@@ -632,39 +649,44 @@ class DeliveryLifecycleService:
                         attempt_number=receipt.attempt_number,
                     )
             elif failure_kind_val is not None:
-                _rec_id: str | None = (
+                receipt_ref_id: str | None = (
                     receipt.receipt_id if receipt is not None else None
                 )
-                _att: int | None = (
+                attempt: int | None = (
                     receipt.attempt_number if receipt is not None else None
                 )
+                error_summary: str | None = error[:512] if error else None
                 if failure_kind_val.is_retryable:
                     if retry_policy is None:
                         # No retry policy — treat as terminal.
                         await storage.mark_outbox_dead_lettered(
                             outbox_id,
-                            receipt_id=_rec_id,
+                            receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
-                            error_summary=(error[:512] if error else None),
+                            error_summary=error_summary,
                         )
                     else:
-                        _attempt = _att or 1
-                        _backoff = RetryExecutor(retry_policy).compute_backoff(_attempt)
-                        _next_at = (datetime.now(timezone.utc) + _backoff).isoformat()
+                        retry_attempt = attempt or 1
+                        backoff_duration = RetryExecutor(retry_policy).compute_backoff(
+                            retry_attempt
+                        )
+                        next_attempt_at = (
+                            datetime.now(timezone.utc) + backoff_duration
+                        ).isoformat()
                         await storage.mark_outbox_retry_wait(
                             outbox_id,
-                            next_attempt_at=_next_at,
-                            receipt_id=_rec_id,
+                            next_attempt_at=next_attempt_at,
+                            receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
-                            error_summary=(error[:512] if error else None),
-                            attempt_number=_attempt,
+                            error_summary=error_summary,
+                            attempt_number=retry_attempt,
                         )
                 else:
                     await storage.mark_outbox_dead_lettered(
                         outbox_id,
-                        receipt_id=_rec_id,
+                        receipt_id=receipt_ref_id,
                         failure_kind=failure_kind_val.value,
-                        error_summary=(error[:512] if error else None),
+                        error_summary=error_summary,
                     )
         except Exception:
             self._log.exception(

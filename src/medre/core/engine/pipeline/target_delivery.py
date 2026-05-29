@@ -280,10 +280,9 @@ class TargetDeliveryService:
            compute the next retry state.  If retries are exhausted, record
            a ``dead_lettered`` receipt.
 
-        **Phase 1 implements a background retry scheduler via RetryWorker (opt-in).**
-        When RetryWorker is not enabled, retry is synchronous/receipt-level only:
+        When no retry scheduler is enabled, retry is receipt-level only:
         this method records the failure receipt with ``next_retry_at`` populated.
-        A future scheduler or manual replay re-invokes this method with the
+        A scheduler or manual replay re-invokes this method with the
         ``previous_receipt`` parameter.
 
         Parameters

@@ -13,6 +13,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal
 
+import pytest
+
 from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
@@ -1009,3 +1011,196 @@ class TestDelegationIntegration:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-q"
         assert sent[0].adapter_message_id == "pkt-42"
+
+
+# ===================================================================
+# Dead-letter receipt — runtime guard for missing retry_policy
+# ===================================================================
+
+
+class TestDeadLetterReceiptRuntimeGuard:
+    """Verify build_and_persist_dead_letter_receipt raises without retry_policy."""
+
+    async def test_raises_runtime_error_without_retry_policy(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Calling with plan.retry_policy=None raises RuntimeError."""
+        lifecycle = _make_lifecycle()
+        plan = _make_plan(retry_policy=None)
+
+        with pytest.raises(RuntimeError, match="retry_policy"):
+            await lifecycle.build_and_persist_dead_letter_receipt(
+                temp_storage,
+                event_id="evt-guard",
+                delivery_plan_id="plan-guard",
+                target_adapter="test_adapter",
+                previous_receipt_id="rcpt-prev",
+                attempt_number=1,
+                error="boom",
+                source="live",
+                replay_run_id=None,
+                target_channel=None,
+                plan=plan,
+            )
+
+        # No receipt should have been persisted.
+        stored = await temp_storage.list_receipts_for_event("evt-guard")
+        assert len(stored) == 0
+
+
+# ===================================================================
+# Supplemental queued→sent receipt — outbox transition
+# ===================================================================
+
+
+class TestSupplementalOutboxTransition:
+    """Verify supplemental queued→sent receipt also transitions the outbox."""
+
+    async def test_outbox_transitioned_from_queued_to_sent(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Supplemental receipt transitions matching outbox item queued→sent."""
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Pre-populate a queued receipt.
+        queued = _make_receipt(
+            receipt_id="rcpt-outbox-q",
+            status="queued",
+            adapter="mesh-1",
+            channel="0",
+            plan_id="plan-outbox",
+        )
+        await temp_storage.append_receipt(queued)
+
+        # Create a matching outbox item in "queued" status.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-supplemental",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-outbox",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="queued",
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="packet-outbox-42",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        # Outbox should now be sent.
+        updated = await temp_storage.get_outbox_item("obox-supplemental")
+        assert updated is not None
+        assert updated.status == "sent"
+
+        # Supplemental sent receipt should exist.
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].adapter_message_id == "packet-outbox-42"
+
+
+# ===================================================================
+# finalize_outbox_outcome — storage error swallowed
+# ===================================================================
+
+
+class TestFinalizeOutboxSwallowsStorageErrors:
+    """Verify finalize_outbox_outcome logs and swallows storage exceptions."""
+
+    async def test_storage_error_does_not_propagate(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Exception from storage.mark_outbox_sent is caught and logged."""
+        from unittest.mock import AsyncMock
+
+        lifecycle = _make_lifecycle()
+        receipt = _make_receipt(status="sent")
+
+        # Patch the storage to raise on mark_outbox_sent.
+        temp_storage.mark_outbox_sent = AsyncMock(  # type: ignore[assignment]
+            side_effect=RuntimeError("storage is offline")
+        )
+
+        # Should NOT raise despite the broken storage method.
+        await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            "obox-broken",
+            True,
+            receipt,
+            None,
+            None,
+            None,
+        )
+
+        # Verify the method was actually called.
+        temp_storage.mark_outbox_sent.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+# ===================================================================
+# PipelineRunner._finalize_outbox_outcome delegates to lifecycle
+# ===================================================================
+
+
+class TestRunnerFinalizeOutboxDelegation:
+    """Verify PipelineRunner._finalize_outbox_outcome delegates to lifecycle."""
+
+    async def test_delegates_to_lifecycle(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Runner._finalize_outbox_outcome calls lifecycle.finalize_outbox_outcome."""
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.planning import FallbackResolver, RelationResolver
+        from medre.core.routing import Router
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        # Create an outbox item.
+        item = DeliveryOutboxItem(
+            outbox_id="obox-delegate",
+            event_id="evt-delegate",
+            route_id="route-d",
+            delivery_plan_id="plan-d",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        receipt = _make_receipt(status="sent", event_id="evt-delegate")
+        await runner._finalize_outbox_outcome(
+            "obox-delegate",
+            True,
+            receipt,
+            None,
+            None,
+            None,
+        )
+
+        updated = await temp_storage.get_outbox_item("obox-delegate")
+        assert updated is not None
+        assert updated.status == "sent"

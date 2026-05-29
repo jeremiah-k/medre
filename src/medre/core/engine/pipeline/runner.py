@@ -779,9 +779,7 @@ class PipelineRunner:
             # Look up the most recent "queued" receipt for this
             # event + adapter to inherit plan/route context.
             try:
-                await self._lifecycle.append_queued_to_sent_receipt(
-                    self._config.storage, record=record, now=now
-                )
+                await self._append_queued_to_sent_receipt(record=record, now=now)
             except Exception:
                 self._log.exception(
                     "Failed to append supplemental sent receipt: "
@@ -1296,9 +1294,7 @@ class PipelineRunner:
                     # can inspect capacity/shutdown rejections via receipts.
                     suppression_receipt = await self._persist_suppression_receipt(
                         event_id=event.event_id,
-                        delivery_plan_id=(
-                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
-                        ),
+                        delivery_plan_id=route_plan.plan_id,
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
@@ -1312,9 +1308,7 @@ class PipelineRunner:
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
-                        delivery_plan_id=(
-                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
-                        ),
+                        delivery_plan_id=route_plan.plan_id,
                         status="permanent_failure",
                         failure_kind=capacity_failure_kind,
                         receipt=suppression_receipt,
