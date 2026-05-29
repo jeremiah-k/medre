@@ -199,18 +199,36 @@ A successful bring-up produces:
 ## Deterministic Operational Test Suite
 
 Before live validation, run the deterministic operational test suite. These
-tests exercise the full Matrix ↔ Meshtastic rendering, codec, queue, lifecycle,
-and capability paths using fake adapters — no homeserver or radio required.
+tests exercise the full Matrix <-> Meshtastic rendering, codec, queue,
+lifecycle, and capability paths using fake adapter harnesses -- no
+homeserver or radio required. Deterministic tests cover fake operational
+paths; live validation remains required for real SDK, session, and hardware
+behavior.
 
 ```bash
-# 48 tests covering bidirectional flow, relations, loop prevention,
+# Operational tests covering bidirectional flow, relations, loop prevention,
 # queue backpressure, byte-budget truncation, failure classification,
-# adapter lifecycle, capability decisions, and cross-platform reactions
-pytest tests/operational/test_matrix_meshtastic_path.py -v
+# adapter lifecycle, capability decisions, and cross-platform reactions.
+pytest tests/operational/ -v
 ```
 
-All tests must pass before proceeding to live bring-up. They complete in under
-3 seconds on commodity hardware.
+The suite is organized into four files:
+
+- `test_matrix_meshtastic_flow.py` -- Runtime-path tests exercising
+  PipelineRunner handle_ingress through to adapter delivery, plus
+  renderer-level and codec characterization tests.
+- `test_matrix_meshtastic_loop_dedupe.py` -- Self-loop prevention and
+  native-ref deduplication via the full pipeline, plus byte-budget
+  truncation.
+- `test_matrix_meshtastic_queueing.py` -- Queued receipt creation,
+  delivery_plan_id correlation (queued-to-sent), ambiguity handling,
+  queue backpressure, and delivery state validation.
+- `test_matrix_meshtastic_relations.py` -- Reply/reaction rendering,
+  fallback text, capability decisions, failure classification, adapter
+  lifecycle, and rendering evidence.
+
+All tests must pass before proceeding to live bring-up. The suite
+typically completes in a few seconds on commodity hardware.
 
 ## See Also
 
