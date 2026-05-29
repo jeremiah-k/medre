@@ -229,6 +229,10 @@ class TestReceiptTransitions:
     def test_failed_to_dead_lettered(self) -> None:
         assert validate_receipt_transition("failed", "dead_lettered") is True
 
+    def test_failed_to_failed(self) -> None:
+        """Retry attempt also fails: failed -> failed is a legal transition."""
+        assert validate_receipt_transition("failed", "failed") is True
+
     def test_sent_has_no_outgoing(self) -> None:
         assert validate_receipt_transition("sent", "queued") is False
         assert validate_receipt_transition("sent", "failed") is False
@@ -286,11 +290,10 @@ class TestOutboxTransitions:
     def test_retry_wait_to_dead_lettered(self) -> None:
         assert validate_outbox_transition("retry_wait", "dead_lettered") is True
 
-    def test_queued_to_in_progress(self) -> None:
-        assert validate_outbox_transition("queued", "in_progress") is True
-
     def test_queued_to_sent(self) -> None:
         assert validate_outbox_transition("queued", "sent") is True
+
+    # queued -> in_progress is not documented or observed; removed.
 
     # Delivery outcome from in_progress.
     @pytest.mark.parametrize(
@@ -309,6 +312,10 @@ class TestOutboxTransitions:
 
     def test_in_progress_to_pending_invalid(self) -> None:
         assert validate_outbox_transition("in_progress", "pending") is False
+
+    def test_queued_to_in_progress_invalid(self) -> None:
+        """queued -> in_progress is not a documented or observed transition."""
+        assert validate_outbox_transition("queued", "in_progress") is False
 
     # Terminal states have no outgoing transitions.
     @pytest.mark.parametrize("source", sorted(TERMINAL_OUTBOX_STATUSES))

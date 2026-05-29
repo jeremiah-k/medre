@@ -109,10 +109,11 @@ ADAPTER_DELIVERY_STATUSES: frozenset[str] = frozenset({"sent", "enqueued"})
 # beyond the validate_*_transition helpers below.
 
 #: Observed receipt transitions.  ``failed`` is NOT terminal because it
-#: can transition to ``dead_lettered`` when retries are exhausted.
+#: can transition to ``dead_lettered`` when retries are exhausted, or
+#: to ``failed`` again when a retry attempt also fails.
 RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
     "queued": frozenset({"sent"}),
-    "failed": frozenset({"dead_lettered"}),
+    "failed": frozenset({"dead_lettered", "failed"}),
     # sent, dead_lettered, suppressed are terminal -- no outgoing transitions.
 }
 
@@ -122,7 +123,7 @@ OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
     # Lease acquisition paths.
     "pending": frozenset({"in_progress"}),
     "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered"}),
-    "queued": frozenset({"in_progress", "sent"}),
+    "queued": frozenset({"sent"}),
     # Delivery outcome from in_progress.
     "in_progress": frozenset(
         {
@@ -223,7 +224,7 @@ def validate_outbox_transition(source: str, target: str) -> bool:
 def is_valid_queued_to_sent_transition(source_status: str) -> bool:
     """Return ``True`` if *source_status* can transition to ``sent``.
 
-    This is a convenience helper for the common queued->sent receipt
-    correlation path.
+    Convenience alias for ``validate_receipt_transition(source_status, "sent")``.
+    Used by the common queued→sent receipt correlation path.
     """
     return validate_receipt_transition(source_status, "sent")

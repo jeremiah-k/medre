@@ -607,7 +607,14 @@ class DeliveryLifecycleService:
                     )
                     return
 
-        assert queued_receipt is not None  # guaranteed by logic above
+        if queued_receipt is None:
+            self._log.warning(
+                "Logic error: queued_receipt is None after correlation "
+                "for event_id=%s adapter=%s; skipping supplemental receipt",
+                record.event_id,
+                record.adapter,
+            )
+            return
 
         supplemental = DeliveryReceipt(
             sequence=0,

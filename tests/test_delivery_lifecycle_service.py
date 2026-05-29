@@ -1838,3 +1838,51 @@ class TestDeterministicPlanIdCorrelation:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
+
+    async def test_plan_id_nonexistent_with_heuristic_candidates_no_fallback(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """delivery_plan_id present but nonexistent, heuristic candidates exist
+        → no supplemental receipt and no heuristic fallback."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Multiple queued receipts that WOULD match via heuristic.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-heur-a",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-real-a",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-heur-b",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-real-b",
+            )
+        )
+
+        # Record with a plan_id that matches NONE of the queued receipts.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-ghost",
+            delivery_plan_id="plan-nonexistent",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        # No supplemental sent receipt — heuristic fallback must NOT be used.
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
