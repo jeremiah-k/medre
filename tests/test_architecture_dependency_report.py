@@ -80,7 +80,7 @@ class TestParseFile:
         )
 
     def test_includes_type_checking_as_marked(self) -> None:
-        py_file = _SRC / "core" / "engine" / "pipeline.py"
+        py_file = _SRC / "core" / "engine" / "pipeline" / "runner.py"
         edges = parse_file(py_file)
         type_checking = [e for e in edges if e.is_type_checking]
         # After normalization, symbol pseudo-edges are removed; the module-level
