@@ -322,6 +322,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.events",
         "medre.core.routing",
         "medre.core.engine",
+        "medre.core.engine.pipeline",
         "medre.core.storage",
         "medre.core.diagnostics",
         "medre.core.observability",

@@ -1033,6 +1033,9 @@ class TestDeliveryGather:
             payload={"text": "gather test"},
         )
 
+        # Persist event to match runtime contract (ingress stores before delivery).
+        await temp_storage.append(event)
+
         try:
             # Build delivery plans manually for _deliver_all.
             plan_good = DeliveryPlan(
@@ -1134,6 +1137,9 @@ class TestDeliveryGather:
             source_adapter="src",
             payload={"text": "both ok"},
         )
+
+        # Persist event to match runtime contract (ingress stores before delivery).
+        await temp_storage.append(event)
 
         try:
             plan_a = DeliveryPlan(

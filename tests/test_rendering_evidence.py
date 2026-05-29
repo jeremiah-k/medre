@@ -1229,7 +1229,9 @@ class TestEvidenceSerializationHardening:
 
     def test_str_evidence_passes_through(self) -> None:
         """A string evidence value is used as-is (defensive path)."""
-        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+        from medre.core.engine.pipeline.target_delivery import (
+            _serialize_rendering_evidence_for_receipt,
+        )
 
         raw_str = '{"renderer": "already-serialized"}'
         result = _serialize_rendering_evidence_for_receipt(raw_str)
@@ -1239,7 +1241,9 @@ class TestEvidenceSerializationHardening:
 
     def test_dict_evidence_persists(self) -> None:
         """A dict evidence value is serialized via json.dumps."""
-        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+        from medre.core.engine.pipeline.target_delivery import (
+            _serialize_rendering_evidence_for_receipt,
+        )
 
         raw_dict = {"renderer": "from-dict", "truncated": True}
         result = _serialize_rendering_evidence_for_receipt(raw_dict)
@@ -1255,7 +1259,9 @@ class TestEvidenceSerializationHardening:
             pass
 
         bad = BadEvidence()
-        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+        from medre.core.engine.pipeline.target_delivery import (
+            _serialize_rendering_evidence_for_receipt,
+        )
 
         result = _serialize_rendering_evidence_for_receipt(bad)
         assert result is None
@@ -1270,7 +1276,9 @@ class TestEvidenceSerializationHardening:
 
         broken = BrokenEvidence()
         # Exercise the production serialization path directly.
-        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+        from medre.core.engine.pipeline.target_delivery import (
+            _serialize_rendering_evidence_for_receipt,
+        )
 
         result = _serialize_rendering_evidence_for_receipt(broken)
         # Must not raise; must return None.

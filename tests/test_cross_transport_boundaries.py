@@ -134,6 +134,8 @@ class TestCoreImportBoundary:
         "medre.core.events.metadata",
         "medre.core.events.schema",
         "medre.core.engine.pipeline",
+        "medre.core.engine.pipeline.runner",
+        "medre.core.engine.pipeline.target_delivery",
         "medre.core.rendering.renderer",
         "medre.core.rendering.text",
         "medre.core.supervision",

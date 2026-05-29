@@ -1261,7 +1261,7 @@ class TestValidateStrategyMethod:
 
     def test_rejects_unknown_strategy(self) -> None:
         """_validate_strategy_method raises ValueError for unknown strings."""
-        from medre.core.engine.pipeline import _validate_strategy_method
+        from medre.core.engine.pipeline.target_delivery import _validate_strategy_method
 
         with pytest.raises(ValueError, match="Unknown delivery strategy"):
             _validate_strategy_method("bogus_strategy")
@@ -1270,7 +1270,7 @@ class TestValidateStrategyMethod:
         """All DeliveryStrategyMethod literals pass validation."""
         from typing import get_args
 
-        from medre.core.engine.pipeline import _validate_strategy_method
+        from medre.core.engine.pipeline.target_delivery import _validate_strategy_method
         from medre.core.rendering.renderer import DeliveryStrategyMethod
 
         for method in get_args(DeliveryStrategyMethod):
@@ -1279,7 +1279,7 @@ class TestValidateStrategyMethod:
 
     def test_rejects_arbitrary_strings(self) -> None:
         """Empty string, None-like, and case-variant strings are rejected."""
-        from medre.core.engine.pipeline import _validate_strategy_method
+        from medre.core.engine.pipeline.target_delivery import _validate_strategy_method
 
         for bogus in ("", "  ", "FALLBACK_TEXT", "Skip", "native"):
             with pytest.raises(ValueError, match="Unknown delivery strategy"):
@@ -1300,7 +1300,7 @@ class TestUnknownStrategyPlannerFailure:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Unknown strategy classified as PLANNER_FAILURE, not RENDERER_FAILURE."""
-        from medre.core.engine.pipeline import _RendererDeliveryError
+        from medre.core.engine.pipeline.target_delivery import _RendererDeliveryError
         from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 
         adapter = FakePresentationAdapter(adapter_id="dest")

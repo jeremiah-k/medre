@@ -808,7 +808,7 @@ class TestFailureKindIntegration:
     @pytest.mark.asyncio
     async def test_deadline_exceeded(self, tmp_paths: MedrePaths) -> None:
         """DEADLINE_EXCEEDED: plan deadline is in the past."""
-        from medre.core.engine.pipeline import _AdapterDeliveryError
+        from medre.core.engine.pipeline.target_delivery import _AdapterDeliveryError
         from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 
         config, route = _make_pipeline_failure_config()

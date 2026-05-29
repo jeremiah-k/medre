@@ -144,22 +144,35 @@ class TestRouteEngineBoundary:
 
 
 class TestPipelineRunnerBoundary:
-    """PipelineRunner (src/medre/core/engine/pipeline.py) must not import
+    """Pipeline package submodules (runner, target_delivery) must not import
     any concrete transport SDK or concrete adapter package.
     Adapter contract types live in medre.core.contracts.adapter — core
-    must not import medre.adapters at runtime."""
+    must not import medre.adapters at runtime.
 
-    def test_pipeline_runner_does_not_import_concrete_sdks(self) -> None:
-        source = _source_of("medre.core.engine.pipeline")
-        lines = _import_lines(source)
+    After the pipeline package split, the package ``__init__.py`` is a thin
+    re-export facade.  The substantive modules are ``runner`` and
+    ``target_delivery``; these are the modules whose imports enforce the
+    SDK/adapter boundary.
+    """
 
-        banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"pipeline.py imports transport SDKs: {banned_sdk}"
+    _PIPELINE_SUBMODULES = (
+        "medre.core.engine.pipeline",
+        "medre.core.engine.pipeline.runner",
+        "medre.core.engine.pipeline.target_delivery",
+    )
 
-        banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert (
-            banned_adapters == []
-        ), f"pipeline.py imports concrete adapter packages: {banned_adapters}"
+    def test_pipeline_submodules_do_not_import_concrete_sdks(self) -> None:
+        for mod_name in self._PIPELINE_SUBMODULES:
+            source = _source_of(mod_name)
+            lines = _import_lines(source)
+
+            banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
+            assert banned_sdk == [], f"{mod_name} imports transport SDKs: {banned_sdk}"
+
+            banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
+            assert (
+                banned_adapters == []
+            ), f"{mod_name} imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
