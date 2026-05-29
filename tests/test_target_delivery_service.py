@@ -897,3 +897,290 @@ class TestPipelineRunnerDelegation:
         finally:
             await runner.stop()
 
+
+# ===================================================================
+# Deadline exceeded
+# ===================================================================
+
+
+class TestDeadlineExceeded:
+    """Verify deadline-exceeded path produces correct error and receipt."""
+
+    async def test_deadline_exceeded_raises_adapter_delivery_error(self) -> None:
+        """Plan with past deadline raises _AdapterDeliveryError."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.deadline = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert err.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED
+        assert "deadline exceeded" in err.error.lower()
+
+    async def test_deadline_exceeded_receipt_persisted(self) -> None:
+        """Deadline-exceeded path persists a failure receipt."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.deadline = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        assert len(storage.receipts) == 1
+        receipt = storage.receipts[0]
+        assert receipt.status == "failed"
+        assert receipt.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED.value
+
+    async def test_no_deadline_allows_delivery(self) -> None:
+        """Plan without deadline does not block a successful delivery."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        assert plan.deadline is None
+
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        assert receipt.status == "sent"
+
+
+# ===================================================================
+# Dead-letter on exhausted retry
+# ===================================================================
+
+
+class TestDeadLetterOnExhaustedRetry:
+    """Verify dead-letter receipt appended when retries are exhausted."""
+
+    async def test_dead_letter_receipt_appended(self) -> None:
+        """Exhausted retry policy produces a dead_lettered receipt after failure."""
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        adapter = _FakeAdapter(error=RuntimeError("boom"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.retry_policy = RetryPolicy(max_attempts=1)
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        # Two receipts: primary failure + dead-letter.
+        assert len(storage.receipts) == 2
+        assert storage.receipts[0].status == "failed"
+        assert storage.receipts[1].status == "dead_lettered"
+
+    async def test_dead_letter_receipt_lineage(self) -> None:
+        """Dead-letter receipt carries correct parent and attempt lineage."""
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        adapter = _FakeAdapter(error=RuntimeError("fail"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.retry_policy = RetryPolicy(max_attempts=1)
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        primary = storage.receipts[0]
+        dead_letter = storage.receipts[1]
+        assert dead_letter.parent_receipt_id == primary.receipt_id
+        assert dead_letter.attempt_number == primary.attempt_number + 1
+        assert dead_letter.target_adapter == "test_adapter"
+
+    async def test_no_dead_letter_when_retries_remain(self) -> None:
+        """Retry policy with remaining attempts does NOT produce a dead-letter."""
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        adapter = _FakeAdapter(error=RuntimeError("transient"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+        plan.retry_policy = RetryPolicy(max_attempts=3)
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        # Only the primary failure receipt — no dead-letter yet.
+        assert len(storage.receipts) == 1
+        assert storage.receipts[0].status == "failed"
+
+
+# ===================================================================
+# Invalid delivery strategy
+# ===================================================================
+
+
+class TestInvalidDeliveryStrategy:
+    """Verify invalid strategy method produces PLANNER_FAILURE."""
+
+    async def test_invalid_strategy_raises_renderer_delivery_error(self) -> None:
+        """Unknown strategy method raises _RendererDeliveryError."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan(method="bogus_strategy")
+
+        with pytest.raises(_RendererDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert err.adapter_id == "test_adapter"
+        assert "delivery strategy method" in err.error.lower()
+
+    async def test_invalid_strategy_receipt_has_planner_failure(self) -> None:
+        """Invalid strategy receipt has failure_kind=PLANNER_FAILURE."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan(method="nonexistent")
+
+        with pytest.raises(_RendererDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        receipt = exc_info.value.receipt
+        assert receipt is not None
+        assert receipt.failure_kind == DeliveryFailureKind.PLANNER_FAILURE.value
+
+    async def test_invalid_strategy_receipt_persisted(self) -> None:
+        """Invalid strategy persists a failure receipt."""
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(native_message_id="$id")
+        )
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan(method="garbage")
+
+        with pytest.raises(_RendererDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        assert len(storage.receipts) == 1
+        assert storage.receipts[0].status == "failed"
+
+
+# ===================================================================
+# Adapter without deliver() method
+# ===================================================================
+
+
+class TestAdapterWithoutDeliver:
+    """Verify adapter lacking deliver() produces ADAPTER_PERMANENT error."""
+
+    @staticmethod
+    def _make_adapter_without_deliver() -> Any:
+        """Create an adapter-like object without a deliver() method."""
+
+        class _NoDeliverAdapter:
+            adapter_id: str = "test_adapter"
+            platform: str = "test_platform"
+
+        return _NoDeliverAdapter()
+
+    async def test_no_deliver_raises_adapter_delivery_error(self) -> None:
+        """Adapter without deliver() raises _AdapterDeliveryError."""
+        adapter = self._make_adapter_without_deliver()
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert err.adapter_id == "test_adapter"
+        assert "no deliver() method" in err.error.lower()
+
+    async def test_no_deliver_receipt_has_adapter_permanent(self) -> None:
+        """Adapter without deliver() receipt has failure_kind=ADAPTER_PERMANENT."""
+        adapter = self._make_adapter_without_deliver()
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        receipt = exc_info.value.receipt
+        assert receipt is not None
+        assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT.value
+
+    async def test_no_deliver_receipt_persisted(self) -> None:
+        """Adapter without deliver() still persists a failure receipt."""
+        adapter = self._make_adapter_without_deliver()
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError):
+            await svc.deliver_to_target(event, route, plan)
+
+        assert len(storage.receipts) == 1
+        assert storage.receipts[0].status == "failed"
+
+
+# ===================================================================
+# CancelledError propagation
+# ===================================================================
+
+
+class TestCancelledErrorPropagation:
+    """Verify CancelledError propagates without being classified as failure."""
+
+    @staticmethod
+    def _make_cancel_adapter() -> Any:
+        """Create an adapter that raises CancelledError from deliver()."""
+        import asyncio
+
+        class _CancelAdapter:
+            adapter_id: str = "test_adapter"
+            platform: str = "test_platform"
+
+            async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult | None:
+                raise asyncio.CancelledError()
+
+        return _CancelAdapter()
+
+    async def test_cancelled_error_propagates_directly(self) -> None:
+        """asyncio.CancelledError is re-raised, not caught as adapter failure."""
+        import asyncio
+
+        adapter = self._make_cancel_adapter()
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(asyncio.CancelledError):
+            await svc.deliver_to_target(event, route, plan)
+
+    async def test_cancelled_error_no_receipt_persisted(self) -> None:
+        """CancelledError does not persist a failure receipt."""
+        import asyncio
+
+        adapter = self._make_cancel_adapter()
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(asyncio.CancelledError):
+            await svc.deliver_to_target(event, route, plan)
+
+        # No receipts — CancelledError bypasses receipt recording.
+        assert len(storage.receipts) == 0
+
