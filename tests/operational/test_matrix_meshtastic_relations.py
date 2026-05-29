@@ -48,87 +48,11 @@ from medre.core.rendering.renderer import (
 from tests.operational.test_matrix_meshtastic_flow import (
     _make_ctx,
     _make_meshtastic_config,
+    _matrix_inbound_event,
     _matrix_rendering_context,
     _mesh_rendering_context,
+    _meshtastic_inbound_event,
 )
-
-
-def _matrix_inbound_event(
-    body: str = "Hello from Matrix",
-    event_id: str = "$mx001",
-    sender: str = "@alice:example.com",
-    room_id: str = "!test:example.com",
-    msgtype: str = "m.text",
-    relations: tuple[EventRelation, ...] = (),
-) -> CanonicalEvent:
-    return CanonicalEvent(
-        event_id=str(uuid.uuid4()),
-        event_kind=EventKind.MESSAGE_CREATED,
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="test_matrix",
-        source_transport_id=sender,
-        source_channel_id=room_id,
-        parent_event_id=None,
-        lineage=(),
-        relations=relations,
-        payload={"body": body, "msgtype": msgtype},
-        metadata=EventMetadata(
-            native=NativeMetadata(
-                data={
-                    "room_id": room_id,
-                    "event_id": event_id,
-                    "sender": sender,
-                    "longname": sender,
-                    "shortname": sender[:5],
-                }
-            )
-        ),
-        source_native_ref=NativeRef(
-            adapter="test_matrix",
-            native_channel_id=room_id,
-            native_message_id=event_id,
-        ),
-    )
-
-
-def _meshtastic_inbound_event(
-    body: str = "Hello from mesh",
-    packet_id: int = 12345,
-    sender: str = "!abc123",
-    channel: int = 0,
-    relations: tuple[EventRelation, ...] = (),
-) -> CanonicalEvent:
-    return CanonicalEvent(
-        event_id=str(uuid.uuid4()),
-        event_kind=EventKind.MESSAGE_CREATED,
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="test_mesh",
-        source_transport_id=sender,
-        source_channel_id=str(channel),
-        parent_event_id=None,
-        lineage=(),
-        relations=relations,
-        payload={"body": body},
-        metadata=EventMetadata(
-            native=NativeMetadata(
-                data={
-                    "packet_id": packet_id,
-                    "from_id": sender,
-                    "channel": channel,
-                    "portnum": "text_message",
-                    "longname": "TestNode",
-                    "shortname": "Test",
-                }
-            )
-        ),
-        source_native_ref=NativeRef(
-            adapter="test_mesh",
-            native_channel_id=str(channel),
-            native_message_id=str(packet_id),
-        ),
-    )
 
 
 # ===========================================================================
@@ -609,12 +533,11 @@ class TestAdapterLifecycle:
             await adapter.stop()
             info_after = await adapter.health_check()
             assert info_after.health in ("failed", "unknown")
-        except Exception:
+        finally:
             try:
                 await adapter.stop()
             except Exception:
                 pass
-            raise
 
 
 # ===========================================================================
