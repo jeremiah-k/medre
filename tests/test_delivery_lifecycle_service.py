@@ -68,6 +68,8 @@ def _make_receipt(
     channel: str | None = None,
     plan_id: str = "plan-001",
     route_id: str = "route-001",
+    failure_kind: str | None = None,
+    next_retry_at: datetime | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         sequence=0,
@@ -79,9 +81,10 @@ def _make_receipt(
         route_id=route_id,
         status=status,
         error=None,
-        failure_kind=None,
+        failure_kind=failure_kind,
         created_at=datetime.now(tz=timezone.utc),
         attempt_number=attempt_number,
+        next_retry_at=next_retry_at,
     )
 
 
@@ -278,7 +281,7 @@ class TestComputeNextRetryAt:
 
         result = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
             plan,
             1,
             now,
@@ -287,7 +290,7 @@ class TestComputeNextRetryAt:
         assert result > now
 
     def test_permanent_failure_no_retry_time(self) -> None:
-        """Permanent failure → no next_retry_at."""
+        """Permanent failure -> no next_retry_at."""
         lifecycle = _make_lifecycle()
         policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
         plan = _make_plan(retry_policy=policy)
@@ -295,7 +298,7 @@ class TestComputeNextRetryAt:
 
         result = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_PERMANENT.value,
+            DeliveryFailureKind.ADAPTER_PERMANENT,
             plan,
             1,
             now,
@@ -303,7 +306,7 @@ class TestComputeNextRetryAt:
         assert result is None
 
     def test_exhausted_no_retry_time(self) -> None:
-        """Exhausted retry → no next_retry_at."""
+        """Exhausted retry -> no next_retry_at."""
         lifecycle = _make_lifecycle()
         policy = RetryPolicy(max_attempts=1, backoff_base=1.0)
         plan = _make_plan(retry_policy=policy)
@@ -311,7 +314,7 @@ class TestComputeNextRetryAt:
 
         result = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
             plan,
             1,
             now,
@@ -319,14 +322,14 @@ class TestComputeNextRetryAt:
         assert result is None
 
     def test_no_policy_no_retry_time(self) -> None:
-        """No retry policy → no next_retry_at."""
+        """No retry policy -> no next_retry_at."""
         lifecycle = _make_lifecycle()
         plan = _make_plan(retry_policy=None)
         now = datetime.now(tz=timezone.utc)
 
         result = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
             plan,
             1,
             now,
@@ -358,14 +361,14 @@ class TestComputeNextRetryAt:
 
         r1 = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
             plan,
             1,
             now,
         )
         r2 = lifecycle.compute_next_retry_at(
             "failed",
-            DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
             plan,
             2,
             now,
@@ -818,7 +821,7 @@ class TestFinalizeOutboxOutcome:
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """Retryable failure with policy → mark_outbox_retry_wait."""
+        """Retryable failure with policy -> mark_outbox_retry_wait."""
         from medre.core.storage.backend import DeliveryOutboxItem
 
         lifecycle = _make_lifecycle()
@@ -833,7 +836,13 @@ class TestFinalizeOutboxOutcome:
         )
         await temp_storage.create_outbox_item(item)
 
-        receipt = _make_receipt(status="failed", event_id="evt-rw")
+        retry_at = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+        receipt = _make_receipt(
+            status="failed",
+            event_id="evt-rw",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            next_retry_at=retry_at,
+        )
         policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
         await lifecycle.finalize_outbox_outcome(
             temp_storage,
@@ -1204,3 +1213,109 @@ class TestRunnerFinalizeOutboxDelegation:
         updated = await temp_storage.get_outbox_item("obox-delegate")
         assert updated is not None
         assert updated.status == "sent"
+
+
+# ===================================================================
+# finalize_outbox_outcome — retry timestamp alignment
+# ===================================================================
+
+
+class TestFinalizeOutboxRetryTimestampAlignment:
+    """Verify finalize_outbox_outcome aligns outbox retry_wait with receipt."""
+
+    async def test_exhausted_transient_with_policy_marks_dead_lettered(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Transient failure, retry policy, next_retry_at=None -> dead_lettered.
+
+        When the receipt has status='failed', failure_kind=adapter_transient,
+        a retry policy exists, but next_retry_at is None (exhausted), the
+        outbox must be marked dead_lettered, not retry_wait.
+        """
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = _make_lifecycle()
+
+        item = DeliveryOutboxItem(
+            outbox_id="obox-exhausted",
+            event_id="evt-exhausted",
+            route_id="route-ex",
+            delivery_plan_id="plan-ex",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        # Receipt: failed, transient, next_retry_at=None (exhausted).
+        receipt = _make_receipt(
+            status="failed",
+            event_id="evt-exhausted",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            next_retry_at=None,
+        )
+        policy = RetryPolicy(max_attempts=1, backoff_base=1.0)
+        await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            "obox-exhausted",
+            True,
+            receipt,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
+            "timeout",
+            policy,
+        )
+
+        updated = await temp_storage.get_outbox_item("obox-exhausted")
+        assert updated is not None
+        assert updated.status == "dead_lettered"
+
+    async def test_retry_wait_uses_receipt_next_retry_at(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """retry_wait uses exact receipt.next_retry_at when present.
+
+        When the receipt has a non-None next_retry_at, the outbox
+        retry_wait next_attempt_at must match it exactly, not be
+        recomputed from backoff.
+        """
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = _make_lifecycle()
+
+        item = DeliveryOutboxItem(
+            outbox_id="obox-aligned",
+            event_id="evt-aligned",
+            route_id="route-al",
+            delivery_plan_id="plan-al",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        # Craft a receipt with a specific next_retry_at.
+        expected_retry_at = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+        receipt = _make_receipt(
+            status="failed",
+            event_id="evt-aligned",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+            next_retry_at=expected_retry_at,
+        )
+        policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
+        await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            "obox-aligned",
+            True,
+            receipt,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
+            "timeout",
+            policy,
+        )
+
+        updated = await temp_storage.get_outbox_item("obox-aligned")
+        assert updated is not None
+        assert updated.status == "retry_wait"
+        # The outbox next_attempt_at should match receipt.next_retry_at
+        # exactly (both are ISO-formatted from the same datetime).
+        assert updated.next_attempt_at is not None
+        assert updated.next_attempt_at == expected_retry_at.isoformat()

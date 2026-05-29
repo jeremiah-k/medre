@@ -1,4 +1,4 @@
-"""Target delivery service – owns one-target execution.
+"""Target delivery service - owns one-target execution.
 
 This module extracts the single-target delivery logic from
 :class:`~medre.core.engine.pipeline.runner.PipelineRunner` into a focused
@@ -21,7 +21,7 @@ progression, attempt context, and retry lineage are delegated to
 
 Relation enrichment ownership
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Per-target relation enrichment (resolving ``target_event_id`` → target-adapter
+Per-target relation enrichment (resolving ``target_event_id`` -> target-adapter
 native refs) is owned by :class:`~medre.core.engine.pipeline.runner.PipelineRunner`.
 The runner enriches the event before calling this service and passes the
 enriched event as the ``render_event`` parameter.  This service receives a
@@ -165,11 +165,11 @@ def _serialize_rendering_evidence_for_receipt(
     """Serialize rendering evidence for attachment to a delivery receipt.
 
     Accepts:
-    - ``str`` – passed through as-is (already serialized).
-    - ``dict`` – serialized via ``json.dumps(sort_keys=True)``.
+    - ``str`` - passed through as-is (already serialized).
+    - ``dict`` - serialized via ``json.dumps(sort_keys=True)``.
     - Objects with a ``.to_dict()`` method (e.g. :class:`RenderingEvidence`)
-      – called and the result serialized.
-    - Any other type – returns ``None`` (unsupported).
+      - called and the result serialized.
+    - Any other type - returns ``None`` (unsupported).
 
     Returns ``None`` if serialization fails (e.g. ``to_dict()`` raises),
     so the receipt is persisted without evidence rather than crashing.
@@ -185,12 +185,12 @@ def _serialize_rendering_evidence_for_receipt(
         to_dict = getattr(raw_evidence, "to_dict", None)
         if callable(to_dict):
             return json.dumps(to_dict(), sort_keys=True)
-        # Unsupported type — return None without stringifying.
+        # Unsupported type - return None without stringifying.
         return None
     except Exception as exc:
         if isinstance(exc, asyncio.CancelledError):
             raise
-        # Serialization failed — return None rather than crashing.
+        # Serialization failed - return None rather than crashing.
         _logger.warning(
             "Failed to serialize rendering evidence of type %s: %s",
             type(raw_evidence).__name__,
@@ -289,7 +289,7 @@ class TargetDeliveryService:
         ----------
         event:
             The canonical event to deliver.  Used for receipt identity
-            (``event_id``) — the original (non-enriched) event.
+            (``event_id``) - the original (non-enriched) event.
         route:
             The route that matched the event.
         plan:
@@ -310,7 +310,6 @@ class TargetDeliveryService:
         """
         target = plan.target
         adapter_id = target.adapter
-        now = datetime.now(tz=timezone.utc)
         receipt_id = f"rcpt-{uuid.uuid4()}"
 
         # Compute attempt number and parent receipt for lineage.
@@ -326,6 +325,7 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
+            now = datetime.now(tz=timezone.utc)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,
@@ -336,7 +336,7 @@ class TargetDeliveryService:
                 route_id=route.id,
                 status="failed",
                 error=f"Adapter {adapter_id!r} is not registered in the runtime "
-                f"— the adapter may have failed to build or was not configured. "
+                f"- the adapter may have failed to build or was not configured. "
                 f"Check build logs for {adapter_id!r}",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
                 next_retry_at=None,
@@ -350,13 +350,14 @@ class TargetDeliveryService:
             await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
                 adapter_id or "",
-                f"Adapter {adapter_id!r} is not registered — "
+                f"Adapter {adapter_id!r} is not registered - "
                 f"check if the adapter was configured and built successfully",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
                 receipt=receipt,
             ) from None
 
         # Check delivery plan deadline.
+        now = datetime.now(tz=timezone.utc)
         if plan.deadline is not None and now > plan.deadline:
             receipt = DeliveryReceipt(
                 sequence=0,
@@ -415,11 +416,12 @@ class TargetDeliveryService:
             # creation, capacity acquisition, and rendering.  This block
             # handles edge cases where deliver_to_target() is called
             # directly (e.g. via _deliver_all).  A plan-level skip is
-            # NOT a renderer failure — it is a suppressed delivery.
+            # NOT a renderer failure - it is a suppressed delivery.
             _skip_error = (
                 f"delivery_skipped: plan strategy is 'skip' "
                 f"(event_kind={event.event_kind})"
             )
+            now = datetime.now(tz=timezone.utc)
             _skip_receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,
@@ -445,7 +447,7 @@ class TargetDeliveryService:
         # Validate the strategy method against the strict
         # DeliveryStrategyMethod literal type accepted by
         # RenderingPipeline.render().  Unknown methods are pipeline
-        # configuration errors — the strategy string is invalid before
+        # configuration errors - the strategy string is invalid before
         # any rendering is attempted.
         try:
             _validated_strategy: DeliveryStrategyMethod = _validate_strategy_method(
@@ -457,6 +459,7 @@ class TargetDeliveryService:
                 f"{_strategy_method!r}: not a known strategy"
             )
             self._diagnostician.record_planner_failure(event.event_id, _invalid_error)
+            now = datetime.now(tz=timezone.utc)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,
@@ -499,6 +502,7 @@ class TargetDeliveryService:
             self._diagnostician.record_renderer_failure(
                 event.event_id, adapter_id or "", rendering_error
             )
+            now = datetime.now(tz=timezone.utc)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,
@@ -535,6 +539,7 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
+            now = datetime.now(tz=timezone.utc)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,
@@ -583,7 +588,7 @@ class TargetDeliveryService:
             error: str | None = None
             _log_status = _adapter_delivery_status
             self._log.info(
-                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d " "status=%s",
+                "Delivered: event_id=%s -> adapter=%s plan=%s attempt=%d " "status=%s",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,
@@ -591,7 +596,7 @@ class TargetDeliveryService:
                 _log_status,
             )
         except asyncio.CancelledError:
-            # CancelledError must propagate directly — never caught and
+            # CancelledError must propagate directly - never caught and
             # classified as a delivery failure.
             raise
         except Exception as exc:
@@ -599,7 +604,7 @@ class TargetDeliveryService:
             error = f"{type(exc).__name__}: {exc}"
             delivery_exc = exc
             self._log.exception(
-                "Delivery failed: event_id=%s → adapter=%s attempt=%d",
+                "Delivery failed: event_id=%s -> adapter=%s attempt=%d",
                 event.event_id,
                 adapter_id,
                 attempt_number,
@@ -638,7 +643,7 @@ class TargetDeliveryService:
         # Only set when the plan declares an explicit retry_policy.
         _next_retry_at: datetime | None = self._lifecycle.compute_next_retry_at(
             status,
-            _receipt_failure_kind,
+            _classified_failure_kind,
             plan,
             attempt_number,
             now_persist,
@@ -762,7 +767,7 @@ class TargetDeliveryService:
         Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
         with the configured adapter registry.  When the adapter is missing
         from the registry (yields ``None``), falls back to a default
-        :class:`AdapterCapabilities` for backward compatibility — the
+        :class:`AdapterCapabilities` for backward compatibility - the
         pipeline has its own adapter-missing check at Phase 2.5.
         """
         caps = resolve_adapter_capabilities(self._adapters, target)

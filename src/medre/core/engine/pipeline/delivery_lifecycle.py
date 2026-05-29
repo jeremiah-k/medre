@@ -1,9 +1,9 @@
-"""Delivery lifecycle service — owns retry, dead-letter, and receipt lifecycle decisions.
+"""Delivery lifecycle service - owns retry, dead-letter, and receipt lifecycle decisions.
 
 This module provides :class:`DeliveryLifecycleService`, the central authority
 for delivery state transitions within the pipeline.  It owns retry decisions,
 retry scheduling, attempt context, retry lineage, dead-letter progression,
-supplemental queued→sent receipts, suppression receipt creation, outbox
+supplemental queued->sent receipts, suppression receipt creation, outbox
 finalization decisions, and terminal-state determination.
 
 Architecture
@@ -48,17 +48,17 @@ Adapter delivery_status
 
 Retry representation
     Retry is represented as ``failed`` receipt + ``adapter_transient``
-    failure kind + ``next_retry_at`` on the receipt — **not** as a distinct
+    failure kind + ``next_retry_at`` on the receipt - **not** as a distinct
     receipt status.
 
 Observed transitions
-    - Receipt: ``queued`` → ``sent`` (supplemental, via callback)
-    - Receipt: ``failed`` → ``dead_lettered`` (exhausted retry)
+    - Receipt: ``queued`` -> ``sent`` (supplemental, via callback)
+    - Receipt: ``failed`` -> ``dead_lettered`` (exhausted retry)
     - Outbox: ``pending`` / ``retry_wait`` / stale ``queued`` / expired
-      ``in_progress`` → ``in_progress`` (lease acquisition)
-    - Outbox: ``in_progress`` → ``queued`` / ``sent`` / ``retry_wait`` /
+      ``in_progress`` -> ``in_progress`` (lease acquisition)
+    - Outbox: ``in_progress`` -> ``queued`` / ``sent`` / ``retry_wait`` /
       ``dead_lettered`` (delivery outcome)
-    - Outbox: ``queued`` → ``sent`` (callback confirmation)
+    - Outbox: ``queued`` -> ``sent`` (callback confirmation)
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ _logger = logging.getLogger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-#: Terminal outbox statuses — once entered, the outbox item is never
+#: Terminal outbox statuses - once entered, the outbox item is never
 #: transitioned to a different status.
 _TERMINAL_OUTBOX_STATUSES: frozenset[str] = frozenset(
     {"sent", "dead_lettered", "cancelled", "abandoned"}
@@ -256,7 +256,7 @@ class DeliveryLifecycleService:
     @staticmethod
     def compute_next_retry_at(
         status: str,
-        failure_kind_value: str | None,
+        failure_kind: DeliveryFailureKind | None,
         plan: DeliveryPlan,
         attempt_number: int,
         now: datetime,
@@ -267,9 +267,8 @@ class DeliveryLifecycleService:
         ----------
         status:
             The primary receipt status.
-        failure_kind_value:
-            The string value of the classified failure kind on the
-            receipt (e.g. ``"adapter_transient"``).
+        failure_kind:
+            The classified failure kind enum, or ``None``.
         plan:
             The delivery plan with optional retry policy.
         attempt_number:
@@ -285,7 +284,7 @@ class DeliveryLifecycleService:
         """
         if (
             status == "failed"
-            and failure_kind_value == DeliveryFailureKind.ADAPTER_TRANSIENT.value
+            and failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
             and plan.retry_policy is not None
         ):
             executor = RetryExecutor(plan.retry_policy)
@@ -460,7 +459,7 @@ class DeliveryLifecycleService:
         await storage.append_receipt(receipt)
         return receipt
 
-    # -- Supplemental queued→sent receipt -----------------------------------
+    # -- Supplemental queued->sent receipt -----------------------------------
 
     async def append_queued_to_sent_receipt(
         self,
@@ -475,7 +474,7 @@ class DeliveryLifecycleService:
         event_id + adapter, inherits its plan/route context, and
         appends a new immutable receipt with ``status="sent"`` and the
         real ``adapter_message_id``.  Also transitions the matching
-        outbox item from ``queued`` → ``sent``.
+        outbox item from ``queued`` -> ``sent``.
 
         If no matching ``"queued"`` receipt is found (e.g. non-queued
         adapter or replay context), the method returns silently.
@@ -491,9 +490,29 @@ class DeliveryLifecycleService:
         """
         # Look up existing receipts for this event to find the
         # queued receipt we want to supplement.
+        #
+        # TODO(correlation-ambiguity): OutboundNativeRefRecord carries
+        # event_id + adapter + native_channel_id but no delivery-attempt
+        # correlation field (delivery_plan_id, outbox_id, receipt_id, or
+        # delivery attempt id).  When the same event + adapter + channel
+        # combination has multiple delivery plans (e.g. overlapping routes),
+        # the supplemental sent receipt may be attached to the wrong queued
+        # receipt.  The current "most recent" heuristic mitigates this for
+        # retries (same plan, later attempt wins) but cannot disambiguate
+        # across different plans targeting the same adapter + channel.
+        # A future fix needs either a stable correlation field on
+        # OutboundNativeRefRecord or a delivery-attempt-level identifier
+        # that the adapter can propagate back with the native ref.
         try:
             existing = await storage.list_receipts_for_event(record.event_id)
         except Exception:
+            self._log.exception(
+                "Failed to list receipts for supplemental queued->sent: "
+                "event_id=%s adapter=%s native_channel_id=%s",
+                record.event_id,
+                record.adapter,
+                record.native_channel_id,
+            )
             return
 
         # Find the most recent "queued" receipt targeting this adapter.
@@ -520,10 +539,10 @@ class DeliveryLifecycleService:
                     record.adapter,
                 )
                 return
-            # Most recent (last in list) wins — handles retries.
+            # Most recent (last in list) wins - handles retries.
             queued_receipt = channel_matches[-1]
         else:
-            # No channel on record — disambiguate by count.
+            # No channel on record - disambiguate by count.
             if len(candidates) == 1:
                 queued_receipt = candidates[0]
             else:
@@ -563,7 +582,7 @@ class DeliveryLifecycleService:
         )
         await storage.append_receipt(supplemental)
 
-        # Transition the matching outbox item from queued → sent.
+        # Transition the matching outbox item from queued -> sent.
         # The item may still be in_progress if the callback fires before
         # _deliver_one() marks the outbox row as queued.  Prefer queued
         # status over in_progress so that a fully-queued row is always
@@ -592,7 +611,7 @@ class DeliveryLifecycleService:
                 )
         except Exception:
             self._log.exception(
-                "Failed to transition outbox queued→sent: event_id=%s adapter=%s",
+                "Failed to transition outbox queued->sent: event_id=%s adapter=%s",
                 record.event_id,
                 record.adapter,
             )
@@ -658,14 +677,40 @@ class DeliveryLifecycleService:
                 error_summary: str | None = error[:512] if error else None
                 if failure_kind_val.is_retryable:
                     if retry_policy is None:
-                        # No retry policy — treat as terminal.
+                        # No retry policy - treat as terminal.
                         await storage.mark_outbox_dead_lettered(
                             outbox_id,
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
                         )
+                    elif receipt is not None and receipt.next_retry_at is None:
+                        # Receipt exists but next_retry_at is None despite
+                        # having a retry policy and a retryable failure kind.
+                        # compute_next_retry_at returned None, meaning retries
+                        # are exhausted.  Mark outbox as dead_lettered rather
+                        # than retry_wait to align with receipt-level state.
+                        await storage.mark_outbox_dead_lettered(
+                            outbox_id,
+                            receipt_id=receipt_ref_id,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=error_summary,
+                        )
+                    elif receipt is not None and receipt.next_retry_at is not None:
+                        # Receipt has a persisted next_retry_at - reuse it
+                        # for outbox retry_wait rather than recomputing.
+                        next_attempt_at = receipt.next_retry_at.isoformat()
+                        await storage.mark_outbox_retry_wait(
+                            outbox_id,
+                            next_attempt_at=next_attempt_at,
+                            receipt_id=receipt_ref_id,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=error_summary,
+                            attempt_number=attempt or 1,
+                        )
                     else:
+                        # Defensive fallback: no persisted receipt to
+                        # consult.  Compute backoff from scratch.
                         retry_attempt = attempt or 1
                         backoff_duration = RetryExecutor(retry_policy).compute_backoff(
                             retry_attempt
