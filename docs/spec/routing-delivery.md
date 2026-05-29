@@ -516,15 +516,26 @@ The `delivery_plan_id` field provides deterministic correlation between a `queue
 
 The correlation algorithm in `append_queued_to_sent_receipt`:
 
-1. **Exact `delivery_plan_id` match.** When the outbound ref carries a `delivery_plan_id`, the service queries for a `queued` receipt with that exact `delivery_plan_id`. If found, a supplemental `sent` receipt is appended and the outbox item is transitioned to `sent`.
-2. **No match found.** If no `queued` receipt matches the `delivery_plan_id`, the service logs a warning and returns without creating a supplemental receipt.
-3. **Legacy heuristic fallback.** When `delivery_plan_id` is `None` (e.g., pre-migration data or adapters that do not propagate plan IDs), the service falls back to heuristic matching by `(target_adapter, target_channel)` with recency preference. Ambiguous candidates (multiple `queued` receipts for the same adapter/channel with no plan ID) are skipped.
+1. **Exact `delivery_plan_id` match** (deterministic, preferred). When the outbound ref carries a `delivery_plan_id`, the service queries for a `queued` receipt with that exact `delivery_plan_id`. If found, a supplemental `sent` receipt is appended and the outbox item is transitioned to `sent`. If the plan matches but no `native_channel_id` is available and multiple channels are present under the same plan, the service logs and returns (ambiguous).
+2. **No match found.** If no `queued` receipt matches the `delivery_plan_id`, the service logs and returns without creating a supplemental receipt. The pipeline MUST NOT fall back to heuristic matching when a `delivery_plan_id` is present.
+3. **Legacy degraded path.** When `delivery_plan_id` is `None` (e.g., pre-migration data or adapters that do not propagate plan IDs), the service filters by `(target_adapter, target_channel)` and applies disambiguation:
+   - If exactly one candidate: use it.
+   - If multiple candidates all share the same `delivery_plan_id`: treat as retry lineage and choose the latest (last appended) queued receipt.
+   - If candidates span multiple `delivery_plan_id` values: log a warning and return without creating a supplemental sent receipt. Cross-plan ambiguity MUST NOT silently pick a winner.
 
 #### 8.5.2 Invariant: Plan-ID Correlation Is Preferred
 
 > When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID matching. Heuristic fallback MUST only activate when `delivery_plan_id` is `None`. This ensures deterministic correlation even when multiple deliveries to the same adapter and channel overlap.
 
-#### 8.5.3 RenderingResult and OutboundNativeRefRecord Threading
+#### 8.5.3 Internal Correlation Key
+
+`delivery_plan_id` is an internal lifecycle correlation key. It is:
+
+- Not sent over transports.
+- Not persisted in `native_message_refs` storage.
+- Propagated by adapters only through internal local queues and callback records.
+
+#### 8.5.4 RenderingResult and OutboundNativeRefRecord Threading
 
 | Dataclass                 | Field              | Set by                                              |
 | ------------------------- | ------------------ | --------------------------------------------------- |

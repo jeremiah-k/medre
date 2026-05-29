@@ -121,12 +121,13 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #: cancelled, abandoned) have no outgoing entries.
 OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
     # Lease acquisition paths.
-    "pending": frozenset({"in_progress"}),
-    "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered"}),
-    "queued": frozenset({"sent"}),
+    "pending": frozenset({"in_progress", "cancelled", "abandoned"}),
+    "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered", "abandoned"}),
+    "queued": frozenset({"sent", "cancelled", "abandoned"}),
     # Delivery outcome from in_progress.
     "in_progress": frozenset(
         {
+            "pending",
             "queued",
             "sent",
             "retry_wait",

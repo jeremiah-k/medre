@@ -219,7 +219,7 @@ class TestQueueProcessingCounters:
     async def test_process_one_increments_sent_on_success(self) -> None:
         q = MeshtasticOutboundQueue()
 
-        async def fake_send(item):
+        async def fake_send(_item):
             return {"packet_id": "42"}
 
         await q.enqueue({"text": "hello"}, channel_index=0)
@@ -239,7 +239,7 @@ class TestQueueProcessingCounters:
         """
         q = MeshtasticOutboundQueue(max_attempts=1)
 
-        async def failing_send(item):
+        async def failing_send(_item):
             raise RuntimeError("send failed")
 
         await q.enqueue({"text": "hello"}, channel_index=0)
@@ -768,11 +768,12 @@ class TestSupplementalReceiptChannelCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Two queued receipts on the same channel (retry scenario).
+        # Same plan_id = retry lineage.
         await temp_storage.append_receipt(
             DeliveryReceipt(
                 receipt_id="rcpt-first",
                 event_id=event_id,
-                delivery_plan_id="plan-v1",
+                delivery_plan_id="plan-retry",
                 target_adapter="mesh-1",
                 target_channel="0",
                 route_id="route-r",
@@ -785,7 +786,7 @@ class TestSupplementalReceiptChannelCorrelation:
             DeliveryReceipt(
                 receipt_id="rcpt-retry",
                 event_id=event_id,
-                delivery_plan_id="plan-v2",
+                delivery_plan_id="plan-retry",
                 target_adapter="mesh-1",
                 target_channel="0",
                 route_id="route-r",
@@ -819,7 +820,7 @@ class TestSupplementalReceiptChannelCorrelation:
         assert len(sent) == 1
         # Should parent the RETRY (most recent) receipt, not the first.
         assert sent[0].parent_receipt_id == "rcpt-retry"
-        assert sent[0].delivery_plan_id == "plan-v2"
+        assert sent[0].delivery_plan_id == "plan-retry"
         assert sent[0].attempt_number == 2
 
 
@@ -865,7 +866,7 @@ class TestDeliveryPlanIdQueuePropagation:
         """process_one() returns item with delivery_plan_id intact."""
         q = MeshtasticOutboundQueue()
 
-        async def fake_send(item):
+        async def fake_send(_item):
             return {"packet_id": "42"}
 
         await q.enqueue(

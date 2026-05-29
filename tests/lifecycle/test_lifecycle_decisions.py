@@ -16,13 +16,10 @@ from medre.core.contracts.adapter import (
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
-    DeliveryStrategy,
     RetryPolicy,
 )
-from medre.core.routing.models import RouteTarget
 
 from .conftest import _make_lifecycle, _make_plan, _make_receipt
-
 
 # ===================================================================
 # Attempt context computation

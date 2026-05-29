@@ -16,7 +16,6 @@ from medre.core.storage.backend import StorageBackend
 
 from .conftest import _make_lifecycle, _make_plan
 
-
 # ===================================================================
 # Dead-letter receipt creation (integration with real storage)
 # ===================================================================

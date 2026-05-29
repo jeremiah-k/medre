@@ -281,6 +281,12 @@ class TestOutboxTransitions:
     def test_pending_to_in_progress(self) -> None:
         assert validate_outbox_transition("pending", "in_progress") is True
 
+    def test_pending_to_cancelled(self) -> None:
+        assert validate_outbox_transition("pending", "cancelled") is True
+
+    def test_pending_to_abandoned(self) -> None:
+        assert validate_outbox_transition("pending", "abandoned") is True
+
     def test_retry_wait_to_in_progress(self) -> None:
         assert validate_outbox_transition("retry_wait", "in_progress") is True
 
@@ -290,15 +296,30 @@ class TestOutboxTransitions:
     def test_retry_wait_to_dead_lettered(self) -> None:
         assert validate_outbox_transition("retry_wait", "dead_lettered") is True
 
+    def test_retry_wait_to_abandoned(self) -> None:
+        assert validate_outbox_transition("retry_wait", "abandoned") is True
+
     def test_queued_to_sent(self) -> None:
         assert validate_outbox_transition("queued", "sent") is True
 
-    # queued -> in_progress is not documented or observed; removed.
+    def test_queued_to_cancelled(self) -> None:
+        assert validate_outbox_transition("queued", "cancelled") is True
+
+    def test_queued_to_abandoned(self) -> None:
+        assert validate_outbox_transition("queued", "abandoned") is True
 
     # Delivery outcome from in_progress.
     @pytest.mark.parametrize(
         "target",
-        ["queued", "sent", "retry_wait", "dead_lettered", "cancelled", "abandoned"],
+        [
+            "pending",
+            "queued",
+            "sent",
+            "retry_wait",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+        ],
     )
     def test_in_progress_to_targets(self, target: str) -> None:
         assert validate_outbox_transition("in_progress", target) is True
@@ -309,9 +330,6 @@ class TestOutboxTransitions:
 
     def test_pending_to_dead_lettered_invalid(self) -> None:
         assert validate_outbox_transition("pending", "dead_lettered") is False
-
-    def test_in_progress_to_pending_invalid(self) -> None:
-        assert validate_outbox_transition("in_progress", "pending") is False
 
     def test_queued_to_in_progress_invalid(self) -> None:
         """queued -> in_progress is not a documented or observed transition."""

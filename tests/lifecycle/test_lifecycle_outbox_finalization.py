@@ -16,7 +16,6 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 from .conftest import _make_lifecycle, _make_receipt
 
-
 # ===================================================================
 # Outbox finalization — status transitions
 # ===================================================================
