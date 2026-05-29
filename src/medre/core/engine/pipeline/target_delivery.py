@@ -243,6 +243,16 @@ class TargetDeliveryService:
         self._diagnostician = diagnostician
         self._log = logger
 
+    @staticmethod
+    def _retry_fields(plan: DeliveryPlan) -> dict[str, Any]:
+        rp = plan.retry_policy
+        return {
+            "retry_max_attempts": rp.max_attempts if rp else None,
+            "retry_backoff_base": rp.backoff_base if rp else None,
+            "retry_max_delay": rp.max_delay_seconds if rp else None,
+            "retry_jitter": rp.jitter if rp else None,
+        }
+
     # -- Public API ---------------------------------------------------------
 
     async def deliver_to_target(
@@ -338,16 +348,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -377,16 +378,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -448,16 +440,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(_skip_receipt)
             return _skip_receipt
@@ -494,16 +477,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
             raise _RendererDeliveryError(
@@ -545,20 +519,14 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
             raise _RendererDeliveryError(
-                adapter_id or "", rendering_error, receipt=receipt
+                adapter_id or "",
+                rendering_error,
+                receipt=receipt,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
             ) from None
 
         # Guard: adapter must expose a callable deliver() method.
@@ -587,16 +555,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
-                retry_max_attempts=(
-                    plan.retry_policy.max_attempts if plan.retry_policy else None
-                ),
-                retry_backoff_base=(
-                    plan.retry_policy.backoff_base if plan.retry_policy else None
-                ),
-                retry_max_delay=(
-                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-                ),
-                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+                **self._retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -739,16 +698,7 @@ class TargetDeliveryService:
             parent_receipt_id=parent_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
-            retry_max_attempts=(
-                plan.retry_policy.max_attempts if plan.retry_policy else None
-            ),
-            retry_backoff_base=(
-                plan.retry_policy.backoff_base if plan.retry_policy else None
-            ),
-            retry_max_delay=(
-                plan.retry_policy.max_delay_seconds if plan.retry_policy else None
-            ),
-            retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+            **self._retry_fields(plan),
             rendering_evidence=_rendering_evidence,
         )
         await self._storage.append_receipt(receipt)

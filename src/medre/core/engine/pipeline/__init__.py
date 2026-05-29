@@ -1,4 +1,4 @@
-"""Pipeline package – orchestration and single-target delivery.
+"""Pipeline package - orchestration and single-target delivery.
 
 Submodules
 ----------
