@@ -426,7 +426,7 @@ Rendering evidence is derived from two frozen dataclasses produced by the render
 | `target_platform`   | Platform of the target adapter.                                  |
 | `max_text_chars`    | Character budget, or `None` for unlimited.                       |
 | `max_text_bytes`    | UTF-8 byte budget, or `None` for unlimited.                      |
-| `capability_level`  | Capability level for the event's relation type.                  |
+| `capability_level`  | Capability level for the event's relation type. Not authoritative adapter capability evidence unless explicitly populated by a caller-controlled pipeline stage; the default pipeline leaves it at the reserved/default value (`"native"`). |
 
 **RenderingResult** records the output decisions:
 

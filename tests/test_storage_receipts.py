@@ -1191,3 +1191,55 @@ class TestReceiptRenderingEvidence:
         assert parsed["capability_policy"] is None
         assert parsed["fallback_applied"] is None
         assert "rendered_text_chars" in parsed
+
+    async def test_queued_evidence_survives_to_sent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """When a queued receipt carries rendering_evidence, the evidence
+        survives through storage and can be retrieved intact — proving
+        that evidence would be preserved across the queued → sent
+        transition when the pipeline copies it from the queued receipt
+        into the supplemental sent receipt."""
+        event = make_storage_event(event_id="evt-qev-survive")
+        await temp_storage.append(event)
+
+        evidence_json = self._sample_evidence_json()
+
+        # Append a queued receipt with evidence.
+        queued = DeliveryReceipt(
+            receipt_id="rcpt-queued-surv",
+            event_id="evt-qev-survive",
+            delivery_plan_id="plan-qev-surv",
+            target_adapter="fake_presentation",
+            status="queued",
+            rendering_evidence=evidence_json,
+        )
+        await temp_storage.append_receipt(queued)
+
+        # Verify queued receipt preserves evidence.
+        receipts = await temp_storage.list_receipts_for_event("evt-qev-survive")
+        assert len(receipts) == 1
+        assert receipts[0].rendering_evidence == evidence_json
+
+        # Simulate the pipeline's supplemental sent receipt (which copies
+        # rendering_evidence from the queued receipt).
+        sent = DeliveryReceipt(
+            receipt_id="rcpt-sent-surv",
+            event_id="evt-qev-survive",
+            delivery_plan_id="plan-qev-surv",
+            target_adapter="fake_presentation",
+            status="sent",
+            parent_receipt_id="rcpt-queued-surv",
+            rendering_evidence=getattr(receipts[0], "rendering_evidence", None),
+        )
+        await temp_storage.append_receipt(sent)
+
+        # Verify the sent receipt also carries the original evidence.
+        status = await temp_storage.delivery_status(
+            "plan-qev-surv", "fake_presentation"
+        )
+        assert status is not None
+        assert status.status == "sent"
+        assert status.rendering_evidence == evidence_json
+        parsed = json.loads(status.rendering_evidence)
+        assert parsed["renderer"] == "text"

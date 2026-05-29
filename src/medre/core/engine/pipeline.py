@@ -315,6 +315,40 @@ def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
     return {}
 
 
+def _serialize_rendering_evidence_for_receipt(
+    raw_evidence: object,
+) -> str | None:
+    """Serialize rendering evidence for attachment to a delivery receipt.
+
+    Accepts:
+    - ``str`` – passed through as-is (already serialized).
+    - ``dict`` – serialized via ``json.dumps(sort_keys=True)``.
+    - Objects with a ``.to_dict()`` method (e.g. :class:`RenderingEvidence`)
+      – called and the result serialized.
+    - Any other type – returns ``None`` (unsupported).
+
+    Returns ``None`` if serialization fails (e.g. ``to_dict()`` raises),
+    so the receipt is persisted without evidence rather than crashing.
+
+    Raises :class:`asyncio.CancelledError` if caught during serialization,
+    so task cancellation propagates correctly.
+    """
+    try:
+        if isinstance(raw_evidence, str):
+            return raw_evidence
+        if isinstance(raw_evidence, dict):
+            return json.dumps(raw_evidence, sort_keys=True)
+        if hasattr(raw_evidence, "to_dict"):
+            return json.dumps(raw_evidence.to_dict(), sort_keys=True)
+        # Unsupported type — return None without stringifying.
+        return None
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        # Serialization failed — return None rather than crashing.
+        return None
+
+
 # ---------------------------------------------------------------------------
 # PipelineRunner
 # ---------------------------------------------------------------------------
@@ -974,6 +1008,7 @@ class PipelineRunner:
             retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
             retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
             retry_jitter=getattr(queued_receipt, "retry_jitter", None),
+            rendering_evidence=getattr(queued_receipt, "rendering_evidence", None),
         )
         await self._config.storage.append_receipt(supplemental)
 
@@ -2412,38 +2447,18 @@ class PipelineRunner:
         # receipt.  Only attached on successful deliveries (sent / queued);
         # suppressed, skipped, rendering-failure, and adapter-failure receipts
         # naturally leave rendering_evidence=None.
-        #
-        # Hardened serialization:
-        #   - RenderingEvidence.to_dict() -> json.dumps (canonical path)
-        #   - str passed through as-is (defensive)
-        #   - dict passed through as-is (defensive)
-        #   - Unknown objects: skip with warning, don't stringify
-        #   - AttributeError / TypeError / ValueError caught: persist with
-        #     None evidence instead of crashing
         _rendering_evidence: str | None = None
         if status in ("sent", "queued"):
             _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
             if _raw_evidence is not None:
-                try:
-                    if isinstance(_raw_evidence, str):
-                        _rendering_evidence = _raw_evidence
-                    elif isinstance(_raw_evidence, dict):
-                        _rendering_evidence = json.dumps(_raw_evidence, sort_keys=True)
-                    elif hasattr(_raw_evidence, "to_dict"):
-                        _rendering_evidence = json.dumps(
-                            _raw_evidence.to_dict(), sort_keys=True
-                        )
-                    else:
-                        self._log.warning(
-                            "rendering_evidence is unsupported type %s; "
-                            "persisting receipt without evidence",
-                            type(_raw_evidence).__name__,
-                        )
-                except (AttributeError, TypeError, ValueError) as _ev_err:
+                _rendering_evidence = _serialize_rendering_evidence_for_receipt(
+                    _raw_evidence
+                )
+                if _rendering_evidence is None and _raw_evidence is not None:
                     self._log.warning(
-                        "rendering_evidence serialization failed: %s; "
+                        "rendering_evidence is unsupported type %s; "
                         "persisting receipt without evidence",
-                        _ev_err,
+                        type(_raw_evidence).__name__,
                     )
 
         receipt = DeliveryReceipt(

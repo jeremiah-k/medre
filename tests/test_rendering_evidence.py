@@ -1229,46 +1229,49 @@ class TestEvidenceSerializationHardening:
 
     def test_str_evidence_passes_through(self) -> None:
         """A string evidence value is used as-is (defensive path)."""
+        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+
         raw_str = '{"renderer": "already-serialized"}'
-        # The pipeline checks isinstance(str) first
-        assert isinstance(raw_str, str)
-        # Verify it's valid JSON after pass-through
-        parsed = json.loads(raw_str)
+        result = _serialize_rendering_evidence_for_receipt(raw_str)
+        assert result == raw_str
+        parsed = json.loads(result)
         assert parsed["renderer"] == "already-serialized"
 
     def test_dict_evidence_persists(self) -> None:
         """A dict evidence value is serialized via json.dumps."""
+        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+
         raw_dict = {"renderer": "from-dict", "truncated": True}
-        serialized = json.dumps(raw_dict, sort_keys=True)
-        assert isinstance(serialized, str)
-        parsed = json.loads(serialized)
+        result = _serialize_rendering_evidence_for_receipt(raw_dict)
+        assert isinstance(result, str)
+        parsed = json.loads(result)
         assert parsed["renderer"] == "from-dict"
 
     def test_unsupported_object_does_not_raise(self) -> None:
-        """An unsupported evidence object type does not raise; receipt
-        persists with None evidence."""
+        """An unsupported evidence object type does not raise; serializer
+        returns None."""
 
         class BadEvidence:
             pass
 
         bad = BadEvidence()
-        # The pipeline's hardening catches unknown types and logs a warning
-        # instead of crashing.  Verify the type is not str, dict, or has
-        # to_dict.
-        assert not isinstance(bad, (str, dict))
-        assert not hasattr(bad, "to_dict")
+        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+
+        result = _serialize_rendering_evidence_for_receipt(bad)
+        assert result is None
 
     def test_to_dict_raising_does_not_crash(self) -> None:
-        """If to_dict() raises, the pipeline catches it and persists with
-        None evidence."""
+        """If to_dict() raises, the serializer catches it and returns None
+        (receipt persists with None evidence)."""
 
         class BrokenEvidence:
             def to_dict(self) -> dict:  # type: ignore[empty-body]
                 raise RuntimeError("boom")
 
         broken = BrokenEvidence()
-        # The pipeline catches (AttributeError, TypeError, ValueError)
-        # RuntimeError would propagate — but our hardened code catches
-        # AttributeError/TypeError/ValueError only.  Verify the object
-        # has to_dict (so it enters that branch).
-        assert hasattr(broken, "to_dict")
+        # Exercise the production serialization path directly.
+        from medre.core.engine.pipeline import _serialize_rendering_evidence_for_receipt
+
+        result = _serialize_rendering_evidence_for_receipt(broken)
+        # Must not raise; must return None.
+        assert result is None
