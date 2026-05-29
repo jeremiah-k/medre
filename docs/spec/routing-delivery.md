@@ -366,6 +366,13 @@ default to native/direct (passthrough).
 | `delete`      | `deletes`        | Checked for every delete relation.                                                                             |
 | `thread`      | —                | **Deferred.** No `AdapterCapabilities.threads` field exists. Thread relations produce no capability candidate. |
 
+Relation-level capability checking for `reaction`, `edit`, and `delete`
+is intentionally centralized in the resolver alongside `reply`. All
+four relation types follow the same three-level semantics (native /
+fallback / unsupported) and the same precedence rules. The resolver
+evaluates every relation in `event.relations` order; there is no
+relation-type-specific short-circuit or special case.
+
 #### 6.3.5 Multiple-Relation Precedence
 
 When an event has multiple capability candidates (event-kind + relations),

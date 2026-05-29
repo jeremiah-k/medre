@@ -353,15 +353,15 @@ def _check_capability_warning(
 ) -> str | None:
     """Return a warning string if *event_kind* is unsupported by *caps*.
 
-    Delegates to the shared :func:`capability_unsupported` and formats
-    the result with adapter identity for diagnostics.
-
-    Also checks reply support explicitly, because the shared
-    ``capability_unsupported`` only checks replies when ``relations``
-    is non-empty, but the synthetic event used here has ``relations=()``.
+    Delegates to :func:`capability_unsupported` with a synthetic event
+    whose ``relations=()`` is empty, so only event-kind-level capability
+    checks are diagnosed.  Relation-specific requirements (reply,
+    reaction, edit, delete) cannot be evaluated here because the
+    synthetic diagnostics event carries no relation context.
     """
-    # Construct a minimal event for the shared check (only event_kind and
-    # relations matter for capability checking).
+    # Construct a minimal event for the shared check.  Only event_kind
+    # matters here; relations are empty because route-level warnings
+    # cannot evaluate per-relation capability requirements.
     event = CanonicalEvent(
         event_id="diag-00000000-0000-0000-0000-000000000000",
         event_kind=event_kind,
@@ -378,10 +378,10 @@ def _check_capability_warning(
     )
     reason = capability_unsupported(event, caps)
     if reason is None:
-        # Route-level warnings are event-kind level and cannot fully
-        # evaluate relation-specific requirements.  Reply support is
-        # only meaningful when the event carries a reply relation, which
-        # the synthetic diagnostic event never does.
+        # Route-level warnings use relations=(), so only event-kind
+        # capability checks are evaluated.  Relation-specific support
+        # (replies, reactions, edits, deletes) is not diagnosable at
+        # this level.
         return None
     return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
 

@@ -653,6 +653,43 @@ class TestWrapperParity:
         assert reason is not None
         assert reason == decision.reason
 
+    @pytest.mark.parametrize(
+        "relation,cap_field,cap_value",
+        [
+            (_REACTION_RELATION, "reactions", "unsupported"),
+            (_REACTION_RELATION, "reactions", "fallback"),
+            (_REACTION_RELATION, "reactions", "native"),
+            (_EDIT_RELATION, "edits", "unsupported"),
+            (_EDIT_RELATION, "edits", "fallback"),
+            (_EDIT_RELATION, "edits", "native"),
+            (_DELETE_RELATION, "deletes", "unsupported"),
+            (_DELETE_RELATION, "deletes", "fallback"),
+            (_DELETE_RELATION, "deletes", "native"),
+        ],
+        ids=lambda v: str(v),
+    )
+    def test_relation_wrapper_parity(
+        self,
+        relation: EventRelation,
+        cap_field: str,
+        cap_value: str,
+    ) -> None:
+        """Wrapper parity for reaction/edit/delete relation expansion."""
+        caps = _caps_with(cap_field, cap_value)
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(relation,),
+        )
+
+        decision = resolver.decide(event, caps)
+        reason = capability_unsupported(event, caps)
+
+        if decision.supported:
+            assert reason is None
+        else:
+            assert reason is not None
+            assert reason == decision.reason
+
 
 # ===================================================================
 # TestFallbackResolverParity
@@ -717,6 +754,37 @@ class TestFallbackResolverParity:
 
             assert strategy.method == decision.delivery_strategy, (
                 f"replies={level}: FallbackResolver {strategy.method!r} != "
+                f"resolver {decision.delivery_strategy!r}"
+            )
+
+    @pytest.mark.parametrize(
+        "relation,cap_field",
+        [
+            (_REACTION_RELATION, "reactions"),
+            (_EDIT_RELATION, "edits"),
+            (_DELETE_RELATION, "deletes"),
+        ],
+        ids=lambda v: str(v),
+    )
+    def test_relation_strategy_parity(
+        self,
+        relation: EventRelation,
+        cap_field: str,
+    ) -> None:
+        """FallbackResolver strategy matches resolver for reaction/edit/delete."""
+        for level in ("native", "fallback", "unsupported"):
+            caps = _caps_with(cap_field, level)
+            event = make_event(
+                event_kind="plugin.custom",
+                relations=(relation,),
+            )
+
+            decision = resolver.decide(event, caps)
+            fb_resolver = FallbackResolver()
+            strategy = fb_resolver._resolve_strategy(event, caps)
+
+            assert strategy.method == decision.delivery_strategy, (
+                f"{cap_field}={level}: FallbackResolver {strategy.method!r} != "
                 f"resolver {decision.delivery_strategy!r}"
             )
 

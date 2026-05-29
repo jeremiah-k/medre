@@ -4,29 +4,10 @@ When a target adapter does not support a specific event operation
 (e.g. reactions, edits), the :class:`FallbackResolver` downgrades
 the delivery strategy to the closest supported alternative.
 
-Three-level capability semantics (reactions, edits, deletes, replies):
-
-* ``"native"``      → ``"direct"`` strategy — normal/native rendering.
-* ``"fallback"``    → ``"fallback_text"`` strategy — degraded text
-  rendering within the target-native format.  The target-native
-  renderer produces its native output but embeds relation context as
-  inline text.  The adapter receives a payload in its native format,
-  not a generic text envelope.
-* ``"unsupported"`` → ``"skip"`` strategy — delivery suppressed
-  before rendering.  No renderer or adapter invocation.
-
-Fallback rules (Phase 1):
-
-* ``message.reacted`` → check ``caps.reactions`` (native/fallback/unsupported).
-* ``message.edited`` → check ``caps.edits`` (native/fallback/unsupported).
-* ``message.deleted`` → check ``caps.deletes`` (native/fallback/unsupported).
-* ``message.file`` → ``"skip"`` when the target does not support attachments.
-* ``message.created`` / ``message.text`` → ``"skip"`` when the adapter
-  cannot send text.
-* ``presence.changed`` → ``"skip"`` when the adapter does not expose presence.
-* ``telemetry.*`` → ``"skip"`` when the adapter does not support metadata fields.
-* Reply-carrying events → check ``caps.replies`` (native/fallback/unsupported).
-* All other / unknown event kinds → passthrough with ``"direct"``.
+:class:`FallbackResolver` delegates all capability strategy decisions
+to :class:`~medre.core.planning.capability_decision.CapabilityDecisionResolver`.
+Detailed relation and event-kind capability mappings live in
+:mod:`~medre.core.planning.capability_decision`.
 """
 
 from __future__ import annotations

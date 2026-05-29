@@ -413,7 +413,8 @@ class TargetDeliveryService:
         from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
 
         _cap_decision = _resolver.decide(event, _caps, target_adapter=adapter_id)
-        _capability_level: _CapLevel = _cap_decision.capability_level  # type: ignore[assignment]
+        assert _cap_decision.capability_level in ("native", "fallback", "unsupported")
+        _capability_level: _CapLevel = _cap_decision.capability_level
 
         # Honor the delivery plan's strategy: validate and narrow the
         # method string to a typed DeliveryStrategyMethod before passing

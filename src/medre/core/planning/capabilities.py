@@ -1,11 +1,12 @@
 """Capability checking helpers for adapter event-kind support.
 
-This module provides backwards-compatible helpers that delegate to
+Internal convenience helpers that delegate to
 :mod:`~medre.core.planning.capability_decision` for the actual
-resolution logic.  The :func:`capability_unsupported` function is a
-thin wrapper around :class:`CapabilityDecisionResolver` that preserves
-its original return contract (``None`` when deliverable, reason string
-when unsupported).
+resolution logic.  :func:`capability_unsupported` is a thin wrapper
+around :class:`CapabilityDecisionResolver` that preserves its
+return contract (``None`` when deliverable, reason string
+when unsupported) while using the resolver's full relation coverage
+(reply, reaction, edit, delete).
 
 Capability level semantics (three-level string fields):
 
@@ -45,13 +46,14 @@ def capability_unsupported(
 
     This function delegates to
     :meth:`CapabilityDecisionResolver.decide` and returns the decision's
-    ``reason`` when unsupported, ``None`` otherwise.  It preserves the
-    original return contract for backwards compatibility.
+    ``reason`` when unsupported, ``None`` otherwise.  The wrapper
+    preserves the original return contract while using the resolver's
+    full relation coverage (reply, reaction, edit, delete).
 
     Parameters
     ----------
     event:
-        The canonical event whose kind is being checked.
+        The canonical event whose kind and relations are being checked.
     caps:
         The target adapter's declared capabilities.
 
