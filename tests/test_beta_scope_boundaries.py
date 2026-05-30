@@ -731,7 +731,7 @@ class TestNoReplayDeduplication:
         ), "Found deduplication engine patterns in source:\n" + "\n".join(violations)
 
     def test_replay_module_no_dedup_logic(self) -> None:
-        """replay.py must not implement deduplication beyond run_id tracking."""
+        """replay engine must not implement deduplication beyond run_id tracking."""
         try:
             source = _source_of("medre.core.engine.replay.engine")
         except (FileNotFoundError, ModuleNotFoundError):
@@ -760,11 +760,11 @@ class TestNoReplayDeduplication:
             # function/class definitions or assignments.
             for bad in ("def _dedup", "def dedup", "class Dedup", "Deduplicat"):
                 if bad in stripped:
-                    violations.append(f"replay.py:{i}: {stripped}")
+                    violations.append(f"replay engine:{i}: {stripped}")
                     break
 
         assert violations == [], (
-            "replay.py contains deduplication logic beyond run_id tracking:\n"
+            "replay engine contains deduplication logic beyond run_id tracking:\n"
             + "\n".join(violations)
         )
 

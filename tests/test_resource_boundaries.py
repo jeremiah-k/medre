@@ -207,7 +207,7 @@ class TestReplayEngineSDKFreedom:
     """ReplayEngine must not import transport SDKs (re-affirm boundary)."""
 
     def test_replay_engine_remains_sdk_free(self) -> None:
-        """Verify replay.py has zero transport SDK imports."""
+        """Verify replay engine has zero transport SDK imports."""
         source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 

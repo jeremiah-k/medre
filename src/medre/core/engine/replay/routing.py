@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from collections import Counter
 from typing import AbstractSet, Any
 
 import msgspec
 
+from medre.core.engine.replay.helpers import _elapsed_ms
+from medre.core.engine.replay.types import (
+    ReplayRequest,
+    ReplayResult,
+    ReplayRouteAttribution,
+)
 from medre.core.events import CanonicalEvent
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Routing metadata cleanup
@@ -154,3 +164,230 @@ def _filter_replay_loops(
         filtered.append((route, plan_or_targets))
 
     return warnings, filtered
+
+
+# ---------------------------------------------------------------------------
+# Replay routing mixin
+# ---------------------------------------------------------------------------
+
+
+class _ReplayRoutingMixin:
+    """Mixin providing replay routing logic for the replay engine.
+
+    Uses ``self._pipeline`` and ``self._diagnostician`` supplied by the
+    host class via MRO.
+    """
+
+    async def _stage_route(
+        self,
+        event: CanonicalEvent,
+        *,
+        request: ReplayRequest,
+    ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None, CanonicalEvent | None]:
+        """Route *event* against current routes.
+
+        Returns the :class:`ReplayResult`, the route--plan pairs for
+        use by downstream stages, and the enriched event (or ``None``
+        if routing failed before enrichment).  If no routes match, the
+        result status is ``"failed"`` and the route data is an empty
+        list (not None) so downstream stages can distinguish "no routes"
+        from "routing not attempted".
+
+        The pipeline's ``route_event`` returns
+        ``(enriched_event, list[tuple[Route, DeliveryPlan]])``.  The
+        enriched event carries :class:`RoutingMetadata` with
+        ``matched_routes`` and ``route_trace`` and is returned so
+        that downstream stages (plan, deliver) operate on the
+        pipeline-enriched event rather than the original.  After
+        filtering by ``route_ids``, the enriched event's metadata is
+        cleaned to contain only the retained routes.
+
+        Route-aware replay adds :class:`ReplayRouteAttribution` to the
+        result and filters out routes that would create replay loops.
+        A replay loop is detected when a route would deliver back to the
+        event's ``source_adapter`` or when the event's routing metadata
+        (matched_routes or route_trace) indicates it was already routed
+        through the same route.
+
+        When ``request.route_ids`` is non-empty, only routes whose IDs
+        appear in the set are used.  If a requested route ID was not
+        found among the matched routes (e.g. because it is disabled or
+        does not match the event's source), a warning is recorded in
+        the route attribution's ``loop_warnings``.
+
+        Disabled routes are automatically excluded by the router's
+        ``match()`` method.  When a route is explicitly requested via
+        ``route_ids`` but is disabled, a warning is emitted since the
+        router will not return it.
+        """
+        t0 = time.monotonic()
+        mode = request.mode
+        requested_route_ids = request.route_ids
+        run_id = request.run_id
+        if self._pipeline is None:
+            return (
+                ReplayResult(
+                    event_id=event.event_id,
+                    stage="route",
+                    status="error",
+                    error="No pipeline configured; routing requires a pipeline",
+                    duration_ms=_elapsed_ms(t0),
+                ),
+                None,
+                None,
+            )
+        try:
+            # Save routing metadata *before* route_event enriches the event.
+            # _filter_replay_loops must check original routing to avoid
+            # false positives --- route_event populates matched_routes and
+            # route_trace with the *current* pass, which should not be
+            # treated as "previously matched".
+            original_routing = event.metadata.routing
+
+            result = await self._pipeline.route_event(event)
+            # Unwrap real pipeline return: (CanonicalEvent, list[tuple[Route, DeliveryPlan]])
+            # Use the enriched event (may have route_trace metadata).
+            if isinstance(result, tuple) and len(result) == 2:
+                event, routes = result
+            else:
+                routes = result  # type: ignore[assignment]
+
+            # Filter by explicit route_ids when provided.
+            if requested_route_ids:
+                allowed = set(requested_route_ids)
+                routes = [
+                    (r, p) for r, p in routes if getattr(r, "id", None) in allowed
+                ]
+                # Clean enriched event metadata so filtered-out routes
+                # don't leak into matched_routes / route_trace.
+                event = _clean_routing_metadata(event, allowed)
+                # Warn about requested route IDs not found among matched
+                # routes.  This covers disabled routes (the router won't
+                # return them) and routes that don't match the event's
+                # source filter.
+                found_ids = {getattr(r, "id", None) for r, _ in routes}
+                missing = allowed - found_ids
+                if missing and self._diagnostician is not None:
+                    for mid in sorted(missing):
+                        self._diagnostician.record_replay_skip(
+                            event.event_id,
+                            f"Requested route_id {mid!r} not found in "
+                            f"matched routes (may be disabled or "
+                            f"source filter mismatch)",
+                        )
+
+            if not routes:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id,
+                        "No routes matched",
+                    )
+                attribution = ReplayRouteAttribution(
+                    source_adapter=event.source_adapter,
+                    replay_mode=mode.value,
+                    run_id=run_id,
+                )
+                return (
+                    ReplayResult(
+                        event_id=event.event_id,
+                        stage="route",
+                        status="failed",
+                        output=[],
+                        duration_ms=_elapsed_ms(t0),
+                        route_attribution=attribution,
+                    ),
+                    routes if routes else [],
+                    event,
+                )
+
+            # Route-aware loop prevention: filter routes that would
+            # deliver back to the event's source adapter or match routes
+            # the event was already routed through.  Pass the original
+            # (pre-enrichment) routing metadata so that the current
+            # routing pass is not mistaken for a previous one.
+            loop_warnings, filtered_routes = _filter_replay_loops(
+                event,
+                routes,
+                previous_routing=original_routing,
+            )
+
+            # Clean enriched event metadata to reflect only the routes
+            # that survived loop prevention filtering.
+            if filtered_routes and len(filtered_routes) < len(routes):
+                surviving_ids = {getattr(r, "id", None) for r, _ in filtered_routes}
+                event = _clean_routing_metadata(event, surviving_ids)
+
+            # Build route attribution for this replay.
+            route_ids = tuple(r.id for r, _ in filtered_routes if hasattr(r, "id"))
+            target_adapters: list[str] = []
+            for _, plan_or_target in filtered_routes:
+                plan = plan_or_target
+                # Real pipeline returns DeliveryPlan objects with .target.adapter.
+                # Stub pipelines may return raw target objects or lists of them.
+                target_obj = getattr(plan, "target", plan)
+                if isinstance(target_obj, (list, tuple)):
+                    subtargets = target_obj
+                else:
+                    subtargets = [target_obj]
+                for sub in subtargets:
+                    adapter = getattr(sub, "adapter", None)
+                    if adapter is not None and adapter not in target_adapters:
+                        target_adapters.append(adapter)
+
+            attribution = ReplayRouteAttribution(
+                route_ids=route_ids,
+                source_adapter=event.source_adapter,
+                target_adapters=tuple(target_adapters),
+                replay_mode=mode.value,
+                loop_warnings=tuple(loop_warnings),
+                run_id=run_id,
+            )
+
+            if not filtered_routes:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id,
+                        "All routes filtered by replay loop prevention",
+                    )
+                return (
+                    ReplayResult(
+                        event_id=event.event_id,
+                        stage="route",
+                        status="failed",
+                        output=[],
+                        duration_ms=_elapsed_ms(t0),
+                        route_attribution=attribution,
+                    ),
+                    [],
+                    event,
+                )
+
+            return (
+                ReplayResult(
+                    event_id=event.event_id,
+                    stage="route",
+                    status="passed",
+                    output=filtered_routes,
+                    duration_ms=_elapsed_ms(t0),
+                    route_attribution=attribution,
+                ),
+                filtered_routes,
+                event,
+            )
+        except Exception as exc:
+            if self._diagnostician is not None:
+                self._diagnostician.record_planner_failure(
+                    event.event_id,
+                    str(exc),
+                )
+            return (
+                ReplayResult(
+                    event_id=event.event_id,
+                    stage="route",
+                    status="error",
+                    error=str(exc),
+                    duration_ms=_elapsed_ms(t0),
+                ),
+                None,
+                None,
+            )

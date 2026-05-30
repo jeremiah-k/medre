@@ -1,6 +1,6 @@
 """TYPE_CHECKING import coverage and basic ReplayEngine construction.
 
-Verifies that the guarded imports on lines 97-100 of replay.py
+Verifies that the guarded imports in replay.engine
 (Diagnostician, RuntimeAccounting, CapacityController) are compatible
 with ReplayEngine's constructor when mocked, and exercises basic
 construction of the public dataclasses and enums.

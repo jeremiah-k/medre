@@ -31,7 +31,7 @@ from tests.helpers.source_reader import source_of as _source_of
 
 
 class TestReplayEngineBoundary:
-    """ReplayEngine (src/medre/core/engine/replay.py) must not import
+    """ReplayEngine (src/medre/core/engine/replay/engine.py) must not import
     any concrete transport SDK or concrete adapter package."""
 
     def test_replay_engine_does_not_import_transport_sdks(self) -> None:
@@ -39,12 +39,12 @@ class TestReplayEngineBoundary:
         lines = import_lines(source)
 
         banned_sdk = banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"replay.py imports transport SDKs: {banned_sdk}"
+        assert banned_sdk == [], f"replay engine imports transport SDKs: {banned_sdk}"
 
         banned_adapters = banned_imports(lines, ADAPTER_PREFIXES)
         assert (
             banned_adapters == []
-        ), f"replay.py imports concrete adapter packages: {banned_adapters}"
+        ), f"replay engine imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
