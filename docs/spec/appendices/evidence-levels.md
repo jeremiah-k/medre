@@ -73,3 +73,27 @@ Real-live evidence (`R`) has sub-classifications for different testing environme
 No capability is marked `live-validated` unless there is recorded live evidence
 in the repository. No `ready` labels. No aspirational statuses. If it has not
 been tested and confirmed, it says so.
+
+## 8. Pipeline Behaviour Evidence Coverage
+
+The following pipeline behaviours have S-tier test coverage (fake adapters,
+deterministic tests) as of the deterministic delivery plan identity tranche:
+
+| Behaviour                                              | Test module(s)                                                                 | Tier |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ | ---- |
+| Deterministic plan IDs via `stable_delivery_plan_id`   | `test_pipeline_live_replay_parity.py`                                          | S    |
+| Live/replay plan parity (plan_id, strategy, caps)      | `test_pipeline_live_replay_parity.py`                                          | S    |
+| Live/replay receipt parity (status, failure, evidence) | `test_pipeline_live_replay_parity.py`                                          | S    |
+| Repeated replay produces identical plan IDs            | `test_pipeline_live_replay_parity.py`                                          | S    |
+| Capability skip does not call adapter send             | `test_pipeline_suppression_no_send.py`                                         | S    |
+| Loop suppression does not call adapter send            | `test_pipeline_suppression_no_send.py`                                         | S    |
+| Suppressed receipts distinct from failed sends         | `test_pipeline_suppression_no_send.py`                                         | S    |
+| Suppressed deliveries do not enter retry queue         | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py` | S    |
+| Retry reconstruction preserves plan/route/target       | `test_receipt_lineage_retry_parity.py`                                         | S    |
+| Retry attempts append evidence, not overwrite          | `test_receipt_lineage_retry_parity.py`                                         | S    |
+| Retry exhaustion produces dead_lettered evidence       | `test_receipt_lineage_retry_parity.py`                                         | S    |
+| Native refs persisted and used in replay               | `test_pipeline_native_ref_loop_prevention.py`                                  | S    |
+| Loop suppression evidence includes all fields          | `test_pipeline_native_ref_loop_prevention.py`                                  | S    |
+| Operator diagnostics cover all pipeline stages         | `test_evidence_operator_diagnostics.py`                                        | S    |
+
+None of these behaviours have R-tier (live endpoint) validation.

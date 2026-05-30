@@ -121,7 +121,52 @@ but before delivery side effects.
 Denial reason codes: `source_adapter_not_allowed`, `dest_adapter_not_allowed`,
 `sender_not_allowed`, `room_not_allowed`, `channel_not_allowed`.
 
-## 8. Operational Implications
+## 8. Loop Suppression
+
+Loop suppression is a cross-transport failure classification. It occurs when a
+loop-prevention guard fires during delivery: either the self-loop guard
+(`target_adapter == source_adapter`) or the route-trace guard (a route ID
+appears more than once in the event's routing metadata). The adapter's
+`send()` method is NOT called.
+
+| Property         | Value                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
+| Failure kind     | `loop_suppressed`                                                                               |
+| Outcome status   | `skipped`                                                                                       |
+| Receipt status   | `suppressed`                                                                                    |
+| Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string |
+| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                              |
+| Adapter called   | No                                                                                              |
+
+Self-loop and route-trace suppression produce the same `failure_kind` but are
+distinguishable by the reason string in the receipt `error` field. Both
+increment the `loop_prevented` counter in runtime accounting and route stats.
+
+## 9. Capability Suppression
+
+Capability suppression is a cross-transport failure classification. It occurs
+when the target adapter's declared capabilities do not support the event's
+kind or relation type. The `CapabilityDecisionResolver` produces a decision
+with `capability_level="unsupported"` and `delivery_strategy="skip"`, which
+causes the pipeline to suppress delivery before rendering and adapter
+invocation.
+
+| Property         | Value                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Failure kind     | `capability_suppressed`                                                                                                  |
+| Outcome status   | `skipped`                                                                                                                |
+| Receipt status   | `suppressed`                                                                                                             |
+| Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="capability_suppressed"`, `capability_field`, `capability_level` |
+| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                                                       |
+| Adapter called   | No                                                                                                                       |
+
+The receipt `error` field carries the capability reason (e.g. `"reactions
+unsupported by adapter"`). The `capability_field` identifies which
+`AdapterCapabilities` field caused the suppression (e.g. `reactions`,
+`replies`, `text`). See the Routing and Delivery Specification § 6.3.3 for the
+complete event-kind to capability-field mapping.
+
+## 10. Operational Implications
 
 1. Consumers must handle duplicates for Meshtastic and MeshCore.
 2. Delivery confirmation is transport-dependent. Only Matrix provides strong
@@ -132,3 +177,11 @@ Denial reason codes: `source_adapter_not_allowed`, `dest_adapter_not_allowed`,
 6. No transport provides end-to-end delivery confirmation that MEDRE can
    observe, except Matrix (server-side event_id) and LXMF (async DELIVERED
    state callback).
+7. Suppressed deliveries (loop, policy, capability) never invoke the adapter.
+   The adapter is not aware of suppressed events — there is no adapter-side
+   counter or state change.
+8. Suppressed receipts have `status="suppressed"`, not `"failed"`. They do not
+   enter the retry queue. Operators checking for "failed deliveries" must
+   query for `status IN ('failed', 'dead_lettered')` to exclude suppressed
+   entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
+   include all non-successful outcomes.
