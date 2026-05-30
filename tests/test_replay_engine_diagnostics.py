@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.core.engine.replay import ReplayMode, ReplayRequest
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage

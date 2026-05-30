@@ -212,7 +212,8 @@ class TestReplayDispatch:
 
     def test_replay_strict_mode(self) -> None:
         """Replay with strict mode builds runtime and calls replay_engine."""
-        from medre.core.engine.replay import ReplayMode, ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
+        from medre.core.engine.replay.types import ReplayMode
 
         summary = ReplaySummary(
             events_scanned=1,
@@ -251,7 +252,7 @@ class TestReplayDispatch:
 
     def test_replay_best_effort_warns(self) -> None:
         """BEST_EFFORT mode prints warning to stderr."""
-        from medre.core.engine.replay import ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
 
         summary = ReplaySummary(
             by_status={"passed": 0, "skipped": 0, "failed": 0, "error": 0},
@@ -304,7 +305,7 @@ class TestReplayDispatch:
 
     def test_replay_human_readable(self) -> None:
         """Non-JSON output includes key summary fields."""
-        from medre.core.engine.replay import ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
 
         summary = ReplaySummary(
             events_scanned=5,
@@ -341,7 +342,7 @@ class TestReplayDispatch:
 
     def test_replay_json_output_bounded(self) -> None:
         """JSON output is parseable and has bounded error list."""
-        from medre.core.engine.replay import ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
 
         summary = ReplaySummary(
             events_scanned=1,
@@ -751,7 +752,7 @@ class TestReplayWithEvent:
 
     def test_replay_passes_event_as_correlation_id(self) -> None:
         """When --event is given, it becomes a correlation_id in the request."""
-        from medre.core.engine.replay import ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
 
         summary = ReplaySummary(
             by_status={"passed": 0, "skipped": 0, "failed": 0, "error": 0},
@@ -785,7 +786,8 @@ class TestReplayWithEvent:
 
     def test_replay_with_target_adapters_and_route_ids(self) -> None:
         """Target adapters and route IDs are passed through."""
-        from medre.core.engine.replay import ReplayMode, ReplaySummary
+        from medre.core.engine.replay.summary import ReplaySummary
+        from medre.core.engine.replay.types import ReplayMode
 
         summary = ReplaySummary(
             mode=ReplayMode.DRY_RUN,

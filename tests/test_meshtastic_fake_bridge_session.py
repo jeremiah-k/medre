@@ -97,12 +97,13 @@ class TestMeshtasticSessionCallbackBridge:
         packet = make_text_packet(text="callback path test", packet_id=55555)
         mesh_adapter._on_packet(packet)
 
-        # Allow background task to complete.
-        _YIELD_MS = 0.1
-        await asyncio.sleep(_YIELD_MS)
+        # Deterministically await the run_coroutine_threadsafe future.
+        inbound = list(mesh_adapter._inbound_futures)
+        assert len(inbound) == 1, "Expected one inbound future after _on_packet"
+        await asyncio.wait_for(asyncio.wrap_future(inbound[0]), timeout=1.0)
 
-        # Background task should have completed and been discarded.
-        assert len(mesh_adapter._background_tasks) == 0
+        # Future completed and was discarded by its done_callback.
+        assert len(mesh_adapter._inbound_futures) == 0
 
         # Fake adapter received the rendered payload.
         assert len(fake_adapter.delivered_payloads) == 1
@@ -160,8 +161,8 @@ class TestMeshtasticSessionCallbackBridge:
         # Yield to the event loop so any stray callback can run.
         await asyncio.sleep(0)
 
-        # No background tasks created for non-text packets.
-        assert len(mesh_adapter._background_tasks) == 0
+        # No inbound futures created for non-text packets.
+        assert len(mesh_adapter._inbound_futures) == 0
 
         await mesh_adapter.stop()
         await runner.stop()

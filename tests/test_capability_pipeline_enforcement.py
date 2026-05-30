@@ -25,11 +25,8 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.engine.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-)
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver

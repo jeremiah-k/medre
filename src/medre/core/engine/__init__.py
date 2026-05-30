@@ -7,8 +7,9 @@ storage, routing, planning, and adapter delivery:
 * :class:`PipelineConfig` -- configuration dataclass for the runner.
 * :class:`PipelinePhase` -- enumeration of the six implemented pipeline stages.
 
-Replay runtime lives in :mod:`medre.core.engine.replay` and should be
-imported explicitly (e.g. ``from medre.core.engine.replay import ReplayEngine``).
+Replay runtime lives in :mod:`medre.core.engine.replay` (now a package).
+Import explicitly from submodules, e.g.
+``from medre.core.engine.replay.engine import ReplayEngine``.
 """
 
 from medre.core.engine.phases import PipelinePhase

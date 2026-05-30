@@ -13,14 +13,16 @@ from typing import Any, Literal
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.engine.replay import (
+from medre.core.engine.replay.summary import (
+    ReplaySummary,
+    _build_summary,
+    collect_replay_summary,
+)
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayResult,
     ReplayState,
-    ReplaySummary,
-    _build_summary,
     collect_replay_state,
-    collect_replay_summary,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.backend import StorageBackend
@@ -266,7 +268,7 @@ class TestBuildSummary:
 
     def test_error_truncation(self) -> None:
         """Errors beyond _MAX_SUMMARY_ERRORS are dropped."""
-        from medre.core.engine.replay import _MAX_SUMMARY_ERRORS
+        from medre.core.engine.replay.summary import _MAX_SUMMARY_ERRORS
 
         results = [
             _result(event_id=f"e{i}", stage="store", status="error", error=f"error {i}")
@@ -276,7 +278,7 @@ class TestBuildSummary:
         assert len(summary.errors) == _MAX_SUMMARY_ERRORS
 
     def test_error_message_length_capped(self) -> None:
-        from medre.core.engine.replay import _MAX_ERROR_LENGTH
+        from medre.core.engine.replay.summary import _MAX_ERROR_LENGTH
 
         long_error = "x" * (_MAX_ERROR_LENGTH + 100)
         results = [_result(status="error", error=long_error)]
@@ -443,7 +445,8 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine.replay import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import ReplayRequest
 
         await temp_storage.append(sample_event)
 
@@ -476,7 +479,8 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine.replay import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import ReplayRequest
 
         engine = ReplayEngine(storage=cast(StorageBackend, temp_storage))
         request = ReplayRequest(
@@ -504,7 +508,8 @@ class TestReplaySummaryIntegration:
         from datetime import datetime, timezone
         from typing import cast
 
-        from medre.core.engine.replay import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import ReplayRequest
 
         await temp_storage.append(sample_event)
 
@@ -548,7 +553,8 @@ class TestReplaySummaryIntegration:
     ) -> None:
         from typing import cast
 
-        from medre.core.engine.replay import ReplayEngine, ReplayRequest
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import ReplayRequest
         from medre.core.planning import FallbackResolver
         from medre.core.rendering import RenderingPipeline, TextRenderer
         from medre.core.routing import Route, Router, RouteSource, RouteTarget

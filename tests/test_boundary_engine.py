@@ -31,20 +31,20 @@ from tests.helpers.source_reader import source_of as _source_of
 
 
 class TestReplayEngineBoundary:
-    """ReplayEngine (src/medre/core/engine/replay.py) must not import
+    """ReplayEngine (src/medre/core/engine/replay/engine.py) must not import
     any concrete transport SDK or concrete adapter package."""
 
     def test_replay_engine_does_not_import_transport_sdks(self) -> None:
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = import_lines(source)
 
         banned_sdk = banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"replay.py imports transport SDKs: {banned_sdk}"
+        assert banned_sdk == [], f"replay engine imports transport SDKs: {banned_sdk}"
 
         banned_adapters = banned_imports(lines, ADAPTER_PREFIXES)
         assert (
             banned_adapters == []
-        ), f"replay.py imports concrete adapter packages: {banned_adapters}"
+        ), f"replay engine imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -226,8 +226,14 @@ class TestReplayTestPurity:
 
     @pytest.fixture(
         params=[
-            "test_replay.py",
+            "test_replay_engine_modes.py",
+            "test_replay_engine_count_and_state.py",
+            "test_replay_engine_plan_filters.py",
+            "test_replay_engine_diagnostics.py",
             "test_replay_routing.py",
+            "test_replay_routing_controls.py",
+            "test_replay_routing_isolation.py",
+            "test_replay_routing_durability.py",
             "test_replay_summary.py",
         ]
     )

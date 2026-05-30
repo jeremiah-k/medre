@@ -55,13 +55,12 @@ from medre.config.model import (
 )
 from medre.config.paths import MedrePaths, resolve
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
-from medre.core.engine.replay import (
-    _MAX_SUMMARY_ERRORS,
+from medre.core.engine.replay.summary import _MAX_SUMMARY_ERRORS, _build_summary
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayResult,
     ReplayRouteAttribution,
     ReplayState,
-    _build_summary,
 )
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata, RoutingMetadata

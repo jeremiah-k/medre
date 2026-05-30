@@ -221,7 +221,17 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.diagnostics.snapshot",
         "medre.core.engine",
         "medre.core.engine.pipeline",
-        "medre.core.engine.replay",
+        "medre.core.engine.replay.engine",
+        "medre.core.engine.replay.types",
+        "medre.core.engine.replay.summary",
+        "medre.core.engine.replay.helpers",
+        "medre.core.engine.replay.delivery",
+        "medre.core.engine.replay.routing",
+        "medre.core.engine.replay.protocols",
+        "medre.core.engine.replay.selection",
+        "medre.core.engine.replay.store",
+        "medre.core.engine.replay.planning",
+        "medre.core.engine.replay.rendering",
         "medre.core.events",
         "medre.core.events.bus",
         "medre.core.events.canonical",
@@ -725,11 +735,11 @@ class TestNoReplayDeduplication:
         ), "Found deduplication engine patterns in source:\n" + "\n".join(violations)
 
     def test_replay_module_no_dedup_logic(self) -> None:
-        """replay.py must not implement deduplication beyond run_id tracking."""
+        """replay engine must not implement deduplication beyond run_id tracking."""
         try:
-            source = _source_of("medre.core.engine.replay")
+            source = _source_of("medre.core.engine.replay.engine")
         except (FileNotFoundError, ModuleNotFoundError):
-            pytest.skip("medre.core.engine.replay not importable")
+            pytest.skip("medre.core.engine.replay.engine not importable")
 
         # "deduplicate" may appear in docstrings/comments only.
         violations: list[str] = []
@@ -754,11 +764,11 @@ class TestNoReplayDeduplication:
             # function/class definitions or assignments.
             for bad in ("def _dedup", "def dedup", "class Dedup", "Deduplicat"):
                 if bad in stripped:
-                    violations.append(f"replay.py:{i}: {stripped}")
+                    violations.append(f"replay engine:{i}: {stripped}")
                     break
 
         assert violations == [], (
-            "replay.py contains deduplication logic beyond run_id tracking:\n"
+            "replay engine contains deduplication logic beyond run_id tracking:\n"
             + "\n".join(violations)
         )
 

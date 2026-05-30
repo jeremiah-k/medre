@@ -673,7 +673,17 @@ class TestCoreModulesTransportAgnostic:
 
     _CORE_MODULES = [
         "medre.core.engine.pipeline",
-        "medre.core.engine.replay",
+        "medre.core.engine.replay.engine",
+        "medre.core.engine.replay.types",
+        "medre.core.engine.replay.summary",
+        "medre.core.engine.replay.helpers",
+        "medre.core.engine.replay.delivery",
+        "medre.core.engine.replay.routing",
+        "medre.core.engine.replay.protocols",
+        "medre.core.engine.replay.selection",
+        "medre.core.engine.replay.store",
+        "medre.core.engine.replay.planning",
+        "medre.core.engine.replay.rendering",
         "medre.core.storage.sqlite",
         "medre.core.storage.backend",
         "medre.core.events.bus",

@@ -1,6 +1,6 @@
 """TYPE_CHECKING import coverage and basic ReplayEngine construction.
 
-Verifies that the guarded imports on lines 97-100 of replay.py
+Verifies that the guarded imports in replay.engine
 (Diagnostician, RuntimeAccounting, CapacityController) are compatible
 with ReplayEngine's constructor when mocked, and exercises basic
 construction of the public dataclasses and enums.
@@ -13,15 +13,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from medre.core.engine.replay import (
-    ReplayEngine,
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.summary import ReplaySummary, _build_summary
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
     ReplayRouteAttribution,
     ReplayState,
-    ReplaySummary,
-    _build_summary,
     collect_replay_state,
 )
 
@@ -34,17 +33,19 @@ class TestModuleImport:
     """Verify the replay module loads cleanly."""
 
     def test_import_replay_module(self) -> None:
-        """Importing medre.core.engine.replay should not raise."""
-        import medre.core.engine.replay as replay_mod
+        """Importing medre.core.engine.replay submodules should not raise."""
+        import medre.core.engine.replay.engine as replay_engine
+        import medre.core.engine.replay.summary as replay_summary
+        import medre.core.engine.replay.types as replay_types
 
-        assert hasattr(replay_mod, "ReplayEngine")
-        assert hasattr(replay_mod, "ReplayMode")
-        assert hasattr(replay_mod, "ReplayRequest")
-        assert hasattr(replay_mod, "ReplayResult")
-        assert hasattr(replay_mod, "ReplayState")
-        assert hasattr(replay_mod, "ReplaySummary")
-        assert hasattr(replay_mod, "collect_replay_state")
-        assert hasattr(replay_mod, "_build_summary")
+        assert hasattr(replay_engine, "ReplayEngine")
+        assert hasattr(replay_types, "ReplayMode")
+        assert hasattr(replay_types, "ReplayRequest")
+        assert hasattr(replay_types, "ReplayResult")
+        assert hasattr(replay_types, "ReplayState")
+        assert hasattr(replay_types, "collect_replay_state")
+        assert hasattr(replay_summary, "ReplaySummary")
+        assert hasattr(replay_summary, "_build_summary")
 
     def test_engine_replay_not_in_storage(self) -> None:
         """medre.core.storage must not re-export replay runtime symbols.
@@ -85,7 +86,7 @@ class TestModuleImport:
         ):
             assert not hasattr(
                 engine_mod, attr
-            ), f"engine root must not re-export {attr}; import from medre.core.engine.replay instead"
+            ), f"engine root must not re-export {attr}; import from the appropriate replay submodule (e.g. replay.engine, replay.types)"
 
 
 # ---------------------------------------------------------------------------

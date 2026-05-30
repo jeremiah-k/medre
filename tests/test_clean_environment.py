@@ -323,6 +323,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.routing",
         "medre.core.engine",
         "medre.core.engine.pipeline",
+        "medre.core.engine.replay",
         "medre.core.evidence",
         "medre.core.storage",
         "medre.core.storage.sqlite",

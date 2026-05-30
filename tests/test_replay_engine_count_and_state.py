@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from medre.core.engine.replay import (
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     collect_replay_state,
@@ -57,7 +57,12 @@ class TestCountMatching:
         temp_storage: SQLiteStorage,
         sample_event: CanonicalEvent,
     ) -> None:
-        """count_matching with correlation_ids fetches by individual ID."""
+        """count_matching with correlation_ids counts both existing and missing.
+
+        Missing correlation IDs are counted to stay consistent with
+        replay(), which emits "failed" results for them.  This makes
+        count_matching a reliable work estimator.
+        """
         await temp_storage.append(sample_event)
 
         engine = make_engine(temp_storage)
@@ -67,7 +72,7 @@ class TestCountMatching:
         )
 
         count = await engine.count_matching(request)
-        assert count == 1  # Only sample_event exists
+        assert count == 2  # sample_event + missing ID
 
     async def test_with_filters(
         self,
@@ -183,7 +188,7 @@ class TestResolveStages:
 
     def test_all_modes(self) -> None:
         """_resolve_stages returns correct stages for each mode."""
-        from medre.core.engine.replay import _resolve_stages
+        from medre.core.engine.replay.helpers import _resolve_stages
 
         strict = _resolve_stages(ReplayRequest(mode=ReplayMode.STRICT))
         assert strict == ("store",)
@@ -202,7 +207,7 @@ class TestResolveStages:
 
     def test_with_target_stages(self) -> None:
         """target_stages intersects with mode-allowed stages."""
-        from medre.core.engine.replay import _resolve_stages
+        from medre.core.engine.replay.helpers import _resolve_stages
 
         request = ReplayRequest(
             mode=ReplayMode.BEST_EFFORT,
@@ -213,7 +218,7 @@ class TestResolveStages:
 
     def test_target_stages_subset(self) -> None:
         """target_stages only returns stages allowed by the mode."""
-        from medre.core.engine.replay import _resolve_stages
+        from medre.core.engine.replay.helpers import _resolve_stages
 
         # STRICT only allows "store"; requesting "render" is a no-op
         request = ReplayRequest(

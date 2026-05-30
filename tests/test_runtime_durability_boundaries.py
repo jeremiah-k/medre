@@ -207,18 +207,18 @@ class TestStorageNoRuntimeInternals:
         assert banned == [], f"{module_name} imports runtime internals: {banned}"
 
     def test_replay_only_capacity_import(self) -> None:
-        """replay.py may only import CapacityController from runtime.
+        """replay engine may only import CapacityController from runtime.
 
         It must not import runtime.app, builder, route_engine, etc.
         """
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 
         # Check classic runtime prefixes (app, builder, route_engine, etc.).
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
         assert (
             runtime_imports == []
-        ), f"replay.py imports banned runtime modules: {runtime_imports}"
+        ), f"replay engine imports banned runtime modules: {runtime_imports}"
 
         # Also check medre.core.supervision.* — both TYPE_CHECKING-guarded
         # imports (accounting, capacity) are allowed; any other would be banned.
@@ -230,7 +230,7 @@ class TestStorageNoRuntimeInternals:
         disallowed = [line for line in core_runtime_imports if line not in allowed]
         assert (
             disallowed == []
-        ), f"replay.py imports disallowed medre.core.supervision modules: {disallowed}"
+        ), f"replay engine imports disallowed medre.core.supervision modules: {disallowed}"
 
 
 # ===================================================================
@@ -247,8 +247,8 @@ class TestReplayNoAdapterLifecycleOwnership:
     """
 
     def test_replay_no_adapter_start_stop_patterns(self) -> None:
-        """replay.py must not contain adapter lifecycle management patterns."""
-        source = _source_of("medre.core.engine.replay")
+        """replay engine must not contain adapter lifecycle management patterns."""
+        source = _source_of("medre.core.engine.replay.engine")
 
         # Verify no "start" or "stop" methods on adapters.
         lifecycle_patterns = [
@@ -270,14 +270,18 @@ class TestReplayNoAdapterLifecycleOwnership:
 
         assert (
             violations == []
-        ), "replay.py contains adapter lifecycle patterns:\n" + "\n".join(violations)
+        ), "replay engine contains adapter lifecycle patterns:\n" + "\n".join(
+            violations
+        )
 
     def test_replay_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], f"replay.py imports concrete adapter packages: {banned}"
+        assert (
+            banned == []
+        ), f"replay engine imports concrete adapter packages: {banned}"
 
 
 # ===================================================================

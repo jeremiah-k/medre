@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.engine.replay import (
+from medre.core.engine.replay.routing import _filter_replay_loops
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     ReplayRouteAttribution,
-    _filter_replay_loops,
 )
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -414,6 +414,206 @@ class TestReplayLoopPrevention:
                 [RouteTarget(adapter="b")],
             ),
         ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_route_trace_repeated(self) -> None:
+        """Route appearing >1 time in route_trace is treated as previously matched."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1", "r2", "r1"),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_route_trace_single_not_filtered(self) -> None:
+        """Route appearing exactly once in route_trace is NOT filtered (current pass)."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_route_trace_multi_hop(self) -> None:
+        """Multi-hop trace: only routes appearing >1 time are filtered."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("a_to_b", "b_to_c", "a_to_b"),
+        )
+        routes = [
+            (
+                Route(
+                    id="a_to_b",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+            (
+                Route(
+                    id="b_to_c",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="c")],
+                ),
+                [RouteTarget(adapter="c")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        # a_to_b appears twice in trace -> filtered
+        # b_to_c appears once -> not filtered
+        assert len(warnings) == 1
+        assert "a_to_b" in warnings[0]
+        assert len(filtered) == 1
+        assert filtered[0][0].id == "b_to_c"
+
+    def test_filter_replay_loops_unit_previous_routing_override(self) -> None:
+        """Explicit previous_routing overrides event's routing metadata."""
+        from medre.core.events import RoutingMetadata
+
+        # Event has route_trace with r1 appearing once (current pass)
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        # But previous_routing says r1 was previously matched
+        prior = RoutingMetadata(matched_routes=("r1",))
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=prior)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_previous_routing_none(self) -> None:
+        """previous_routing=None (fresh event) skips matched_routes check."""
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        event = make_replay_event(source_adapter="a")
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=None)
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_previous_routing_route_trace_single(self) -> None:
+        """Explicit previous_routing with route_trace containing route once:
+        the matched_routes check catches it, not the route_trace Counter."""
+        from medre.core.events import RoutingMetadata
+
+        # previous_routing has r1 in route_trace but NOT in matched_routes.
+        # With count > 1 logic, a single trace entry should NOT be filtered.
+        # This proves the route_trace Counter is a supplementary safety net,
+        # not the primary detection mechanism.
+        prior = RoutingMetadata(route_trace=("r1",))
+        event = make_replay_event(source_adapter="a")
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=prior)
+        # r1 appears once in route_trace (count=1), so Counter path does not
+        # catch it.  matched_routes is empty, so that path also does not catch
+        # it.  The route is correctly allowed.
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_sentinel_no_false_positive(self) -> None:
+        """Sentinel fallback with current-pass single route_trace does not
+        false-positive filter the route."""
+        # Event has post-enrichment metadata with a single route_trace entry.
+        # Using sentinel fallback (no previous_routing arg).
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        # Sentinel fallback: uses event.metadata.routing (post-enrichment).
+        # r1 appears once in route_trace -> count=1 -> NOT filtered.
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_one_hop_loop_blocked(self) -> None:
+        """A single prior-pass traversal through a route blocks re-traversal
+        via matched_routes (primary detection)."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=("r1",),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        # r1 is in matched_routes -> filtered by primary detection.
+        # Even though route_trace has r1 only once, the one-hop loop is
+        # blocked.
         warnings, filtered = _filter_replay_loops(event, routes)
         assert len(warnings) == 1
         assert len(filtered) == 0

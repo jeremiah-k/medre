@@ -8,11 +8,8 @@ import time as _time
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
-from medre.core.engine.replay import (
-    ReplayMode,
-    ReplayRequest,
-    collect_replay_summary,
-)
+from medre.core.engine.replay.summary import collect_replay_summary
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.runtime.builder import RuntimeBuilder
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG

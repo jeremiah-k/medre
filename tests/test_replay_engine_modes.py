@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
-from medre.core.engine.replay import ReplayMode, ReplayRequest
+import pytest
+
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
@@ -435,6 +437,90 @@ class TestReRouteMode:
         stored = await temp_storage.get(sample_event_with_relations.event_id)
         assert stored is not None
         assert len(stored.relations) == 1
+
+
+# ===================================================================
+# Planning invariant: missing plan_delivery is a pipeline error
+# ===================================================================
+
+
+class _BrokenPipeline:
+    """Pipeline stub that has route_event but lacks plan_delivery.
+
+    Unlike AsyncMock (which auto-creates every attribute on access),
+    this class genuinely raises ``AttributeError`` for ``plan_delivery``,
+    making ``hasattr`` checks work correctly.
+    """
+
+    def __init__(self, route_return: Any) -> None:
+        self.route_event = AsyncMock(return_value=route_return)
+        self.transform_event = AsyncMock(return_value=route_return[0])
+        self.render_event = AsyncMock(return_value="rendered")
+
+
+class TestPlanningInvariant:
+    """Planning stage raises RuntimeError for broken pipeline configuration.
+
+    When the pipeline provides route results that are not DeliveryPlan
+    objects (stub pipeline path) AND the pipeline lacks ``plan_delivery``,
+    the planning stage raises ``RuntimeError``.  This is intentional ---
+    a pipeline that implements neither ``deliver_to_targets`` (real) nor
+    ``plan_delivery`` (stub) is broken by definition and constitutes a
+    programming/configuration invariant violation, not a valid replay
+    failure.
+    """
+
+    async def test_missing_plan_delivery_raises_runtime_error(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Pipeline without plan_delivery and non-DeliveryPlan routes raises."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _BrokenPipeline(
+            route_return=(
+                sample_event,
+                [("route", "not_a_delivery_plan")],
+            ),
+        )
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.RE_ROUTE,
+        )
+
+        # RE_ROUTE mode re-raises unexpected exceptions (non-BEST_EFFORT).
+        with pytest.raises(RuntimeError, match="no plan_delivery"):
+            [r async for r in engine.replay(request)]
+
+    async def test_missing_plan_delivery_best_effort_returns_error(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """BEST_EFFORT mode catches the RuntimeError and returns error result."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _BrokenPipeline(
+            route_return=(
+                sample_event,
+                [("route", "not_a_delivery_plan")],
+            ),
+        )
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.BEST_EFFORT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        # BEST_EFFORT catches the RuntimeError and yields a single error result
+        error_results = [r for r in results if r.status == "error"]
+        assert len(error_results) >= 1
+        assert any("no plan_delivery" in (r.error or "") for r in error_results)
 
 
 # ===================================================================

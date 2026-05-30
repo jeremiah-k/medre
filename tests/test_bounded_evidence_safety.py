@@ -15,12 +15,9 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
-from medre.core.engine.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-    collect_replay_summary,
-)
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.summary import collect_replay_summary
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.observability.metrics import Diagnostician
