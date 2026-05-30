@@ -16,7 +16,7 @@ import uuid
 import pytest
 
 from medre.core.storage import DeliveryOutboxItem, SQLiteStorage
-from medre.core.storage.sqlite import STALE_QUEUED_GRACE_SECONDS
+from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 
 
 def _make_outbox_item(
