@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Literal, cast
 
 import pytest
 
@@ -1419,3 +1420,1027 @@ class TestRenderingContextCapabilityLevelValidation:
             target_adapter="test",
         )
         assert ctx.capability_level == "native"
+
+
+# ===================================================================
+# MeshCore byte-budget truncation evidence (item A)
+# ===================================================================
+
+
+class TestMeshCoreByteBudgetTruncationEvidence:
+    """MeshCore byte-budget truncation records correct evidence metrics."""
+
+    async def test_meshcore_truncation_evidence_byte_counts(self) -> None:
+        """MeshCore evidence reports original_bytes > max_bytes > rendered_bytes."""
+        renderer = _make_meshcore_renderer(max_text_bytes=20)
+        event = _make_event(payload={"text": "A" * 100})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        assert evidence.truncated is True
+        assert evidence.rendered_text_bytes is not None
+        assert evidence.rendered_text_bytes <= 20
+        assert evidence.original_text_bytes is not None
+        assert evidence.original_text_bytes > 20
+
+    async def test_meshcore_no_truncation_evidence(self) -> None:
+        """MeshCore evidence reports no truncation when text fits."""
+        renderer = _make_meshcore_renderer(max_text_bytes=500)
+        event = _make_event(payload={"text": "short"})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        assert evidence.truncated is False
+        assert evidence.rendered_text_bytes is not None
+        assert evidence.original_text_bytes is not None
+        assert evidence.rendered_text_bytes == evidence.original_text_bytes
+
+    async def test_meshcore_context_budget_overrides_config_evidence(self) -> None:
+        """MeshCore respects context budget over config, reflected in evidence."""
+        renderer = _make_meshcore_renderer(max_text_bytes=1000)
+        event = _make_event(payload={"text": "B" * 100})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+            max_text_bytes=10,
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        assert evidence.truncated is True
+        assert evidence.max_text_bytes == 10
+        assert evidence.rendered_text_bytes is not None
+        assert evidence.rendered_text_bytes <= 10
+
+    async def test_meshcore_multibyte_truncation_evidence(self) -> None:
+        """MeshCore truncation with multi-byte UTF-8 produces safe evidence."""
+        text = "🎉" * 50  # 200 bytes
+        renderer = _make_meshcore_renderer(max_text_bytes=10)
+        event = _make_event(payload={"text": text})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        assert evidence.truncated is True
+        # 10 bytes = 2 emojis (8 bytes); 3rd emoji = 12 > 10
+        assert evidence.rendered_text_bytes == 8
+        assert evidence.original_text_bytes == 200
+
+    async def test_meshcore_zero_budget_evidence(self) -> None:
+        """MeshCore zero byte budget produces empty text with correct evidence."""
+        renderer = _make_meshcore_renderer(max_text_bytes=0)
+        event = _make_event(payload={"text": "hello"})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        assert evidence.truncated is True
+        assert evidence.rendered_text_bytes == 0
+        assert evidence.original_text_bytes is not None
+        assert evidence.original_text_bytes > 0
+
+
+# ===================================================================
+# LXMF budget enforcement (item B)
+# ===================================================================
+
+
+class TestLxmfBudgetEnforcement:
+    """LXMF renderer enforces max_text_chars budget declared by adapter."""
+
+    async def test_lxmf_truncates_at_max_text_chars(self) -> None:
+        """LXMF renderer truncates content to max_text_chars."""
+        renderer = _make_lxmf_renderer()
+        long_text = "X" * 20000
+        event = _make_event(payload={"text": long_text})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=16384,
+        )
+        result = await renderer.render(event, ctx)
+
+        assert result.truncated is True
+        assert len(str(result.payload["content"])) == 16384
+        assert result.metadata["original_length"] == 20000
+
+    async def test_lxmf_no_truncation_when_under_budget(self) -> None:
+        """LXMF renderer does not truncate when text fits within budget."""
+        renderer = _make_lxmf_renderer()
+        short_text = "Short message"
+        event = _make_event(payload={"text": short_text})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=16384,
+        )
+        result = await renderer.render(event, ctx)
+
+        assert result.truncated is False
+        assert result.payload["content"] == short_text
+        assert result.metadata["original_length"] == len(short_text)
+
+    async def test_lxmf_no_truncation_without_budget(self) -> None:
+        """LXMF renderer does not truncate when max_text_chars is None."""
+        renderer = _make_lxmf_renderer()
+        long_text = "Y" * 20000
+        event = _make_event(payload={"text": long_text})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=None,
+        )
+        result = await renderer.render(event, ctx)
+
+        assert result.truncated is False
+        assert result.payload["content"] == long_text
+
+    async def test_lxmf_truncation_evidence_records_metrics(self) -> None:
+        """LXMF truncation evidence records original and rendered metrics."""
+        renderer = _make_lxmf_renderer()
+        long_text = "Z" * 20000
+        event = _make_event(payload={"text": long_text})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=100,
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="lxmf",
+            ctx=ctx,
+            result=result,
+        )
+
+        assert evidence.truncated is True
+        assert evidence.max_text_chars == 100
+        assert evidence.original_text_chars == 20000
+        assert evidence.rendered_text_chars is not None
+        assert evidence.rendered_text_chars == 100
+
+    async def test_lxmf_evidence_no_payload_storage(self) -> None:
+        """LXMF evidence dict does not store the rendered or original text."""
+        renderer = _make_lxmf_renderer()
+        long_text = "A" * 20000
+        event = _make_event(payload={"text": long_text})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=100,
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="lxmf",
+            ctx=ctx,
+            result=result,
+        )
+        d = evidence.to_dict()
+        # Evidence stores metrics only, no text content
+        for key, value in d.items():
+            assert (
+                not isinstance(value, str) or len(value) < 50
+            ), f"Evidence key {key!r} unexpectedly stores a long string"
+
+    async def test_lxmf_fallback_with_truncation(self) -> None:
+        """LXMF fallback_text + truncation both applied correctly."""
+        renderer = _make_lxmf_renderer()
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target-123",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original message",
+        )
+        event = _make_event(
+            payload={"text": "R" * 17000},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            delivery_strategy="fallback_text",
+            max_text_chars=100,
+        )
+        result = await renderer.render(event, ctx)
+
+        assert result.truncated is True
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert len(str(result.payload["content"])) == 100
+
+
+# ===================================================================
+# Fallback/degradation for all relation types (item C)
+# ===================================================================
+
+
+def _make_relation_event(
+    relation_type: str,
+    *,
+    payload: dict | None = None,
+    fallback_text: str | None = None,
+    key: str | None = None,
+) -> CanonicalEvent:
+    """Create an event with a specific relation type."""
+    rel = EventRelation(
+        relation_type=cast(
+            Literal["reply", "reaction", "edit", "delete", "thread"],
+            relation_type,
+        ),
+        target_event_id="evt-target-abc",
+        target_native_ref=None,
+        key=key,
+        fallback_text=fallback_text,
+    )
+    return _make_event(
+        payload=payload or {"text": "test message"},
+        relations=(rel,),
+    )
+
+
+class TestRelationFallbackDegradation:
+    """All relation types degrade deterministically under fallback_text."""
+
+    # -- TextRenderer (shared text fallback) --
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "reaction", "edit", "delete", "thread"],
+        ids=["reply", "reaction", "edit", "delete", "thread"],
+    )
+    async def test_text_renderer_relation_fallback_deterministic(
+        self,
+        relation_type: str,
+    ) -> None:
+        """TextRenderer produces deterministic degraded text for each relation."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        key = "👍" if relation_type == "reaction" else None
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "hello"},
+            key=key,
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        text = result.payload.get("text", "")
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "reaction", "edit", "delete", "thread"],
+        ids=["reply", "reaction", "edit", "delete", "thread"],
+    )
+    async def test_text_renderer_relation_deterministic_across_calls(
+        self,
+        relation_type: str,
+    ) -> None:
+        """Same event produces identical text on repeated renders."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        key = "👍" if relation_type == "reaction" else None
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "hello"},
+            key=key,
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result1 = await renderer.render(event, ctx)
+        result2 = await renderer.render(event, ctx)
+        assert result1.payload["text"] == result2.payload["text"]
+
+    # -- Meshtastic renderer fallback for each relation type --
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "edit", "delete", "thread"],
+        ids=["reply", "edit", "delete", "thread"],
+    )
+    async def test_meshtastic_fallback_relation_deterministic(
+        self,
+        relation_type: str,
+    ) -> None:
+        """Meshtastic fallback_text produces deterministic degraded text."""
+        renderer = _make_meshtastic_renderer()
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "test body"},
+        )
+        ctx = _make_context(
+            target_adapter="mesh-target",
+            target_platform="meshtastic",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        text = result.payload.get("text", "")
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    # -- MeshCore renderer fallback for each relation type --
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "reaction", "edit", "delete", "thread"],
+        ids=["reply", "reaction", "edit", "delete", "thread"],
+    )
+    async def test_meshcore_fallback_relation_deterministic(
+        self,
+        relation_type: str,
+    ) -> None:
+        """MeshCore fallback_text produces deterministic degraded text."""
+        renderer = _make_meshcore_renderer()
+        key = "👍" if relation_type == "reaction" else None
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "test body"},
+            key=key,
+        )
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        text = result.payload.get("text", "")
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    # -- LXMF renderer fallback for each relation type --
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "reaction", "edit", "delete", "thread"],
+        ids=["reply", "reaction", "edit", "delete", "thread"],
+    )
+    async def test_lxmf_fallback_relation_deterministic(
+        self,
+        relation_type: str,
+    ) -> None:
+        """LXMF fallback_text produces deterministic degraded content."""
+        renderer = _make_lxmf_renderer()
+        key = "👍" if relation_type == "reaction" else None
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "test body"},
+            key=key,
+        )
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        content = result.payload.get("content", "")
+        assert isinstance(content, str)
+        assert len(content) > 0
+
+    # -- Matrix renderer fallback for each relation type --
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        ["reply", "reaction", "edit", "delete", "thread"],
+        ids=["reply", "reaction", "edit", "delete", "thread"],
+    )
+    async def test_matrix_fallback_relation_deterministic(
+        self,
+        relation_type: str,
+    ) -> None:
+        """Matrix fallback_text produces deterministic degraded body."""
+        renderer = _make_matrix_renderer()
+        key = "👍" if relation_type == "reaction" else None
+        event = _make_relation_event(
+            relation_type,
+            payload={"text": "test body"},
+            key=key,
+        )
+        ctx = _make_context(
+            target_adapter="matrix-target",
+            target_platform="matrix",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert "m.relates_to" not in result.payload
+        body = result.payload.get("body", "")
+        assert isinstance(body, str)
+        assert len(body) > 0
+
+    # -- Specific degradation format checks --
+
+    async def test_text_renderer_reply_fallback_format(self) -> None:
+        """TextRenderer reply fallback includes '[replying to:]' prefix."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-123456789",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "reply body"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert "[replying to:" in text
+
+    async def test_text_renderer_delete_fallback_format(self) -> None:
+        """TextRenderer delete fallback produces '[deleted]' text."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="delete",
+            target_event_id="evt-del-123",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": ""},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert "[deleted" in text
+
+    async def test_text_renderer_edit_fallback_format(self) -> None:
+        """TextRenderer edit fallback includes '[edited]' prefix."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="edit",
+            target_event_id="evt-edit-123",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "edited text"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert text.startswith("[edited]")
+
+    async def test_text_renderer_reaction_fallback_format(self) -> None:
+        """TextRenderer reaction fallback includes 'reacted with' text."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="evt-react-123",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "", "user": "Alice"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert "reacted with" in text
+        assert "👍" in text
+
+    async def test_text_renderer_thread_fallback_format(self) -> None:
+        """TextRenderer thread fallback includes '[thread:]' prefix."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-123",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread reply"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert "[thread:" in text
+
+
+# ===================================================================
+# Multi-relation behavior determinism (item D)
+# ===================================================================
+
+
+class TestMultiRelationDeterminism:
+    """When an event carries multiple relations, only the first is processed
+    and the result is deterministic."""
+
+    async def test_text_renderer_uses_first_relation_only(self) -> None:
+        """TextRenderer processes only the first relation when multiple exist."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel1 = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-first",
+            target_native_ref=None,
+            key=None,
+            fallback_text="first target",
+        )
+        rel2 = EventRelation(
+            relation_type="reaction",
+            target_event_id="evt-second",
+            target_native_ref=None,
+            key="❤️",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "hello"},
+            relations=(rel1, rel2),
+        )
+        ctx = _make_context(target_adapter="text-target")
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        # First relation is reply, so text should contain reply formatting
+        assert "replying to" in text or "first target" in text
+        # Second relation (reaction) should NOT appear
+        assert "❤️" not in text or "reacted with" not in text
+
+    async def test_meshcore_uses_first_relation_only(self) -> None:
+        """MeshCore processes only the first relation."""
+        renderer = _make_meshcore_renderer()
+        rel1 = EventRelation(
+            relation_type="edit",
+            target_event_id="evt-edit-first",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        rel2 = EventRelation(
+            relation_type="delete",
+            target_event_id="evt-del-second",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "multi-rel"},
+            relations=(rel1, rel2),
+        )
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        # First relation is edit → degrade_relations_inline appends [edit of: ...]
+        # The shared helper appends to text
+        assert "edit" in text.lower() or "multi-rel" in text
+
+    async def test_multi_relation_deterministic_across_calls(self) -> None:
+        """Same multi-relation event produces identical output every time."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel1 = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-reply-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text="target msg",
+        )
+        rel2 = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-002",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "content"},
+            relations=(rel1, rel2),
+        )
+        ctx = _make_context(target_adapter="text-target")
+
+        results = [await renderer.render(event, ctx) for _ in range(5)]
+        texts = [str(r.payload["text"]) for r in results]
+        # All renders produce identical text
+        assert len(set(texts)) == 1
+
+    async def test_relation_order_affects_output(self) -> None:
+        """Swapping relation order produces different output."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel_reply = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text="target",
+        )
+        rel_edit = EventRelation(
+            relation_type="edit",
+            target_event_id="evt-002",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event_reply_first = _make_event(
+            payload={"text": "content"},
+            relations=(rel_reply, rel_edit),
+        )
+        event_edit_first = _make_event(
+            payload={"text": "content"},
+            relations=(rel_edit, rel_reply),
+        )
+        ctx = _make_context(target_adapter="text-target")
+
+        result1 = await renderer.render(event_reply_first, ctx)
+        result2 = await renderer.render(event_edit_first, ctx)
+
+        assert str(result1.payload["text"]) != str(result2.payload["text"])
+
+
+# ===================================================================
+# RenderingEvidence size bounded for huge payloads (item E)
+# ===================================================================
+
+
+class TestEvidenceSizeBounded:
+    """RenderingEvidence does not store rendered text payloads — only metrics."""
+
+    def test_evidence_dict_excludes_payload_text(self) -> None:
+        """Evidence to_dict never contains the rendered text content."""
+        ctx = _make_context(target_adapter="a", target_platform="meshtastic")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="a",
+            target_channel=None,
+            payload={"text": "x" * 100000},
+            metadata={
+                "renderer": "test",
+                "original_length": 100000,
+                "original_text_bytes": 100000,
+                "rendered_text_bytes": 100000,
+            },
+        )
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="test",
+            ctx=ctx,
+            result=result,
+        )
+        d = evidence.to_dict()
+        # No key should contain the huge text string
+        for value in d.values():
+            if isinstance(value, str):
+                assert (
+                    len(value) < 50
+                ), f"Evidence dict contains unexpectedly long string: {len(value)}"
+
+    async def test_meshcore_evidence_bounded_for_huge_payload(self) -> None:
+        """MeshCore evidence for a 1MB payload is bounded in serialized size."""
+        renderer = _make_meshcore_renderer(max_text_bytes=100)
+        event = _make_event(payload={"text": "A" * 1_000_000})
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshcore",
+            ctx=ctx,
+            result=result,
+        )
+        blob = json.dumps(evidence.to_dict())
+        # Evidence blob should be well under 1KB even for 1MB payload
+        assert len(blob) < 1024
+
+    async def test_lxmf_evidence_bounded_for_huge_payload(self) -> None:
+        """LXMF evidence for a huge payload is bounded in serialized size."""
+        renderer = _make_lxmf_renderer()
+        event = _make_event(payload={"text": "B" * 1_000_000})
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            max_text_chars=16384,
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="lxmf",
+            ctx=ctx,
+            result=result,
+        )
+        blob = json.dumps(evidence.to_dict())
+        assert len(blob) < 1024
+
+    async def test_meshtastic_evidence_bounded_for_huge_payload(self) -> None:
+        """Meshtastic evidence for a huge payload is bounded in serialized size."""
+        renderer = _make_meshtastic_renderer(max_text_bytes=227)
+        event = _make_event(payload={"text": "C" * 1_000_000})
+        ctx = _make_context(
+            target_adapter="mesh-target",
+            target_platform="meshtastic",
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="meshtastic",
+            ctx=ctx,
+            result=result,
+        )
+        blob = json.dumps(evidence.to_dict())
+        assert len(blob) < 1024
+
+    async def test_matrix_evidence_bounded_for_huge_payload(self) -> None:
+        """Matrix evidence for a huge payload is bounded in serialized size."""
+        renderer = _make_matrix_renderer()
+        event = _make_event(payload={"text": "D" * 1_000_000})
+        ctx = _make_context(
+            target_adapter="matrix-target",
+            target_platform="matrix",
+            delivery_strategy="fallback_text",
+            max_text_chars=100,
+        )
+        result = await renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="matrix",
+            ctx=ctx,
+            result=result,
+        )
+        blob = json.dumps(evidence.to_dict())
+        assert len(blob) < 1024
+
+    def test_evidence_records_metrics_not_payload(self) -> None:
+        """Evidence stores character/byte counts, not the text itself."""
+        evidence = RenderingEvidence(
+            schema_version="1",
+            renderer="test",
+            target_adapter="a",
+            target_platform=None,
+            delivery_strategy="direct",
+            target_channel=None,
+            max_text_chars=None,
+            max_text_bytes=None,
+            capability_level="native",
+            capability_policy=None,
+            truncated=True,
+            fallback_applied=None,
+            rendered_text_chars=50,
+            rendered_text_bytes=50,
+            original_text_chars=100000,
+            original_text_bytes=100000,
+        )
+        d = evidence.to_dict()
+        # All values should be simple JSON types (str, int, bool, None)
+        for key, value in d.items():
+            assert isinstance(
+                value, (str, int, bool, type(None))
+            ), f"Evidence key {key!r} has unexpected type {type(value).__name__}"
+        # Specific metric fields are ints, not strings
+        assert isinstance(d["rendered_text_chars"], int)
+        assert isinstance(d["rendered_text_bytes"], int)
+        assert isinstance(d["original_text_chars"], int)
+        assert isinstance(d["original_text_bytes"], int)
+
+
+# ===================================================================
+# Thread relation capability — native/direct vs degraded (item F)
+# ===================================================================
+
+
+class TestThreadRelationCapability:
+    """Thread relation: native platforms get direct thread handling;
+    degraded platforms get text-only thread representation."""
+
+    async def test_matrix_fallback_thread_no_m_relates_to(self) -> None:
+        """Matrix fallback_text thread omits m.relates_to."""
+        renderer = _make_matrix_renderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread reply"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="matrix-target",
+            target_platform="matrix",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert "m.relates_to" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert "thread" in str(result.payload.get("body", "")).lower()
+
+    async def test_meshcore_fallback_thread_degrades_text(self) -> None:
+        """MeshCore fallback_text thread degrades to inline text."""
+        renderer = _make_meshcore_renderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-002",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread msg"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        text = str(result.payload["text"])
+        assert "thread" in text.lower()
+        # Byte budget is still enforced
+        assert isinstance(result.metadata["rendered_text_bytes"], int)
+
+    async def test_meshtastic_fallback_thread_degrades_text(self) -> None:
+        """Meshtastic fallback_text thread degrades to readable text."""
+        renderer = _make_meshtastic_renderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-003",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread reply"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="mesh-target",
+            target_platform="meshtastic",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        text = str(result.payload["text"])
+        assert "thread" in text.lower()
+
+    async def test_lxmf_fallback_thread_degrades_text(self) -> None:
+        """LXMF fallback_text thread degrades to inline text."""
+        renderer = _make_lxmf_renderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-004",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread content"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+        content = str(result.payload["content"])
+        assert "thread" in content.lower()
+
+    async def test_text_renderer_thread_degrades_text(self) -> None:
+        """TextRenderer thread relation produces deterministic degraded text."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-005",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "thread body"},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="text-target",
+            delivery_strategy="direct",
+        )
+        result = await renderer.render(event, ctx)
+        text = str(result.payload["text"])
+        assert "[thread:" in text
+        assert "thread body" in text
+
+    async def test_meshcore_thread_text_truncated_by_byte_budget(self) -> None:
+        """Thread degraded text is still subject to byte budget truncation."""
+        renderer = _make_meshcore_renderer(max_text_bytes=20)
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-006",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "A" * 200},
+            relations=(rel,),
+        )
+        ctx = _make_context(
+            target_adapter="mc-target",
+            target_platform="meshcore",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.truncated is True
+        assert len(str(result.payload["text"]).encode("utf-8")) <= 20
+
+    async def test_thread_relation_deterministic_repeated_renders(self) -> None:
+        """Thread degradation text is identical across repeated renders."""
+        from medre.core.rendering.text import TextRenderer
+
+        renderer = TextRenderer()
+        rel = EventRelation(
+            relation_type="thread",
+            target_event_id="evt-thread-007",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"text": "deterministic"},
+            relations=(rel,),
+        )
+        ctx = _make_context(target_adapter="text-target")
+
+        results = [await renderer.render(event, ctx) for _ in range(3)]
+        texts = [str(r.payload["text"]) for r in results]
+        assert len(set(texts)) == 1

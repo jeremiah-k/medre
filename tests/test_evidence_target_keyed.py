@@ -134,6 +134,14 @@ _DECOMPOSED_FIELDS = (
     "next_retry_at",
     "native_message_id",
     "adapter_message_id",
+    # Capability-evidence observability fields.
+    "source",
+    "replay_run_id",
+    "suppression_reason",
+    "capability_field",
+    "capability_level",
+    "delivery_strategy",
+    "error",
 )
 
 

@@ -228,6 +228,14 @@ async def _collect_storage_data_from_backend(
                         "next_retry_at": best.get("next_retry_at"),
                         "native_message_id": best.get("native_message_id"),
                         "adapter_message_id": best.get("adapter_message_id"),
+                        # Capability-evidence observability fields.
+                        "source": best.get("source"),
+                        "replay_run_id": best.get("replay_run_id"),
+                        "suppression_reason": best.get("suppression_reason"),
+                        "capability_field": best.get("capability_field"),
+                        "capability_level": best.get("capability_level"),
+                        "delivery_strategy": best.get("delivery_strategy"),
+                        "error": best.get("error"),
                     }
 
                 data["incident_summary"] = {
