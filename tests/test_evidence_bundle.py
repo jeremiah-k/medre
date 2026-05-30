@@ -946,3 +946,41 @@ class TestReceiptSummaryAsdict:
         parsed = json.loads(json_str)
         assert parsed["delivery_receipts"][0]["receipt_id"] == ""
         assert parsed["delivery_receipts"][0]["sequence"] == 0
+
+
+# ===========================================================================
+# I: Defensive copy regression test for to_dict()
+# ===========================================================================
+
+
+class TestToDictDefensiveCopy:
+    """to_dict() returns defensive copies; mutating the dict does not affect
+    the original bundle fields."""
+
+    def test_event_summary_mutation_is_isolated(self) -> None:
+        """Mutating returned event_summary dict does not affect bundle."""
+        nested_summary = {"event_kind": "message.created", "payload_keys": ["body"]}
+        bundle = EvidenceBundle(
+            event_id="evt-copy",
+            event_summary=nested_summary,
+            native_refs=({"id": "nref-1", "adapter": "a", "nested": {"x": 1}},),
+            outbox_items=({"outbox_id": "ob-1", "status": "sent", "meta": {"y": 2}},),
+            generated_at="2026-01-15T12:00:00+00:00",
+        )
+        d = bundle.to_dict()
+
+        # Mutate the returned dict.
+        d["event_summary"]["event_kind"] = "MUTATED"
+        d["event_summary"]["payload_keys"].append("NEW_KEY")
+        d["native_refs"][0]["adapter"] = "MUTATED"
+        d["native_refs"][0]["nested"]["x"] = 999
+        d["outbox_items"][0]["status"] = "MUTATED"
+        d["outbox_items"][0]["meta"]["y"] = 999
+
+        # Original bundle fields are unchanged.
+        assert bundle.event_summary["event_kind"] == "message.created"
+        assert bundle.event_summary["payload_keys"] == ["body"]
+        assert bundle.native_refs[0]["adapter"] == "a"
+        assert bundle.native_refs[0]["nested"]["x"] == 1
+        assert bundle.outbox_items[0]["status"] == "sent"
+        assert bundle.outbox_items[0]["meta"]["y"] == 2

@@ -234,6 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_event_created
+    ON delivery_outbox(event_id, created_at, outbox_id);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
 -- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.

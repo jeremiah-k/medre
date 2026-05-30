@@ -34,7 +34,7 @@ class _EvidenceStorage(Protocol):
 
     ``list_outbox_items_for_event`` is intentionally omitted from this
     protocol because the collector probes for it via ``getattr`` /
-    ``callable`` — backends that predate the outbox method are
+    ``callable`` - backends that predate the outbox method are
     supported without raising ``AttributeError``.
     """
 
@@ -58,10 +58,10 @@ def _parse_rendering_evidence(
 
     Returns ``(parsed_dict_or_None, warning_or_None)``.
 
-    * ``None`` raw -> ``(None, None)`` — no warning.
+    * ``None`` raw -> ``(None, None)`` - no warning.
     * Valid JSON object -> ``(dict, None)``.
-    * Valid non-object JSON -> ``(None, warning)`` — schema expects object.
-    * Invalid JSON -> ``(None, warning)`` — with receipt/event context,
+    * Valid non-object JSON -> ``(None, warning)`` - schema expects object.
+    * Invalid JSON -> ``(None, warning)`` - with receipt/event context,
       raw evidence not echoed except for length.
     """
     if raw is None:
@@ -181,9 +181,9 @@ def _to_json_safe_timestamp(value: Any) -> Any:
 
     Expected input types:
 
-    * :class:`datetime` — converted via ``.isoformat()``.
-    * :class:`str` (ISO 8601) — passed through via ``str()``.
-    * ``None`` — returned as-is.
+    * :class:`datetime` - converted via ``.isoformat()``.
+    * :class:`str` (ISO 8601) - passed through via ``str()``.
+    * ``None`` - returned as-is.
 
     This codebase does **not** use raw integer (epoch) timestamps for
     created_at / updated_at fields, so integer handling is not required.

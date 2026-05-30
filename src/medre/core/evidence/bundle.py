@@ -15,6 +15,7 @@ Deterministic ordering guarantees
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import Any
 
@@ -65,7 +66,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
 
     Aggregates event summary, delivery receipt summaries, parsed rendering
     evidence, native refs, outbox state, replay/source context, diagnostics,
-    and a generated timestamp — without mutating runtime state.
+    and a generated timestamp - without mutating runtime state.
 
     Attributes
     ----------
@@ -107,7 +108,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
         """Return a JSON-safe dict representation.
 
         All nested containers are plain ``dict`` / ``list`` / ``str`` /
-        ``int`` / ``float`` / ``bool`` / ``None`` — ``json.dumps()`` will
+        ``int`` / ``float`` / ``bool`` / ``None`` - ``json.dumps()`` will
         succeed without a custom encoder.
         """
         return _bundle_to_dict(self)
@@ -140,12 +141,12 @@ def _bundle_to_dict(bundle: EvidenceBundle) -> dict[str, Any]:
     return {
         "schema_version": bundle.schema_version,
         "event_id": bundle.event_id,
-        "event_summary": bundle.event_summary,
+        "event_summary": copy.deepcopy(bundle.event_summary),
         "delivery_receipts": [
             _receipt_summary_to_dict(r) for r in bundle.delivery_receipts
         ],
-        "native_refs": list(bundle.native_refs),
-        "outbox_items": list(bundle.outbox_items),
+        "native_refs": [copy.deepcopy(r) for r in bundle.native_refs],
+        "outbox_items": [copy.deepcopy(i) for i in bundle.outbox_items],
         "replay_run_ids": list(bundle.replay_run_ids),
         "sources_seen": list(bundle.sources_seen),
         "warnings": list(bundle.warnings),
