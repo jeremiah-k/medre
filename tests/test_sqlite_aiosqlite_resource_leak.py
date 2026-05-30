@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,8 +38,10 @@ _mock_aiosqlite_module = MagicMock(name="aiosqlite")
 
 @pytest.fixture(autouse=True)
 def _force_aiosqlite_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("medre.core.storage.sqlite._HAS_AIOSQLITE", True)
-    monkeypatch.setattr("medre.core.storage.sqlite.aiosqlite", _mock_aiosqlite_module)
+    monkeypatch.setattr("medre.core.storage.sqlite.storage._HAS_AIOSQLITE", True)
+    monkeypatch.setattr(
+        "medre.core.storage.sqlite.storage.aiosqlite", _mock_aiosqlite_module
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +124,8 @@ class TestAiosqliteOpenReadonlyRowFactoryFailure:
         # file-existence guard.
         # Use the sync fallback to create the db (override the autouse fixture
         # for this setup step).
-        with patch("medre.core.storage.sqlite._HAS_AIOSQLITE", False), patch(
-            "medre.core.storage.sqlite.aiosqlite", None
+        with patch("medre.core.storage.sqlite.storage._HAS_AIOSQLITE", False), patch(
+            "medre.core.storage.sqlite.storage.aiosqlite", None
         ):
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()

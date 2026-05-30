@@ -33,7 +33,7 @@ from medre.core.events import (
     EventMetadata,
     NativeMessageRef,
 )
-from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Helpers

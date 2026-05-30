@@ -16,7 +16,8 @@ from medre.core.engine.replay import (
 from medre.core.events import CanonicalEvent, DeliveryReceipt
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,

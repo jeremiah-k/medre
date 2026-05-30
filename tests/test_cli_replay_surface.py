@@ -295,7 +295,7 @@ class TestCLIReplayBestEffortJSON:
         """BEST_EFFORT replay creates receipts with source='replay'."""
         import asyncio
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         event_id, db_path = _seed_db(tmp_path)
         config_path = _write_config(tmp_path, db_path)
@@ -677,7 +677,7 @@ class TestCLIReplayBestEffortReceiptEvidence:
         """BEST_EFFORT receipts carry ``replay_run_id`` field (None when no explicit run_id)."""
         import asyncio
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         event_id, db_path = _seed_db(tmp_path)
         config_path = _write_config(tmp_path, db_path)
@@ -726,7 +726,7 @@ class TestCLIReplayBestEffortReceiptEvidence:
         """BEST_EFFORT receipts have ``source='replay'``."""
         import asyncio
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         event_id, db_path = _seed_db(tmp_path)
         config_path = _write_config(tmp_path, db_path)

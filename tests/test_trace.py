@@ -19,7 +19,7 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -539,7 +539,7 @@ def _seed_trace_db(
     """Synchronously seed a trace test database."""
     import asyncio
 
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)
@@ -659,7 +659,7 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Just initialize the DB, no data.
     import asyncio
 
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     async def _init() -> None:
         storage = SQLiteStorage(db_path)

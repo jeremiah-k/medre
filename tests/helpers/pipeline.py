@@ -14,8 +14,8 @@ from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
 def make_event(

@@ -15,7 +15,7 @@ import pytest
 
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.routing import Router
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------

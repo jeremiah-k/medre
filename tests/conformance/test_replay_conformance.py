@@ -33,8 +33,8 @@ from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.replay import StubPipeline, make_engine
 
 # ---------------------------------------------------------------------------

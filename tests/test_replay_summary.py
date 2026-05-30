@@ -24,7 +24,7 @@ from medre.core.engine.replay import (
 )
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.backend import StorageBackend
-from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Helpers

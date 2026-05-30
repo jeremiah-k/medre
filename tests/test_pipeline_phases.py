@@ -18,7 +18,7 @@ from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ===================================================================
@@ -240,8 +240,14 @@ class TestDedupPhaseSkipsRemainder:
             snapshot2 = runner.phase_snapshot()
             counts2 = snapshot2["counts"]
 
-            assert counts2[PipelinePhase.INGRESS.value] == counts_after_first[PipelinePhase.INGRESS.value] + 1
-            assert counts2[PipelinePhase.DEDUP.value] == counts_after_first[PipelinePhase.DEDUP.value] + 1
+            assert (
+                counts2[PipelinePhase.INGRESS.value]
+                == counts_after_first[PipelinePhase.INGRESS.value] + 1
+            )
+            assert (
+                counts2[PipelinePhase.DEDUP.value]
+                == counts_after_first[PipelinePhase.DEDUP.value] + 1
+            )
 
             # RESOLVE_RELATIONS, STORE, ROUTE, DELIVER should NOT have incremented.
             for phase in (
@@ -362,4 +368,6 @@ class TestValidationFailureRecordsIngressOnly:
         counts = snapshot["counts"]
 
         assert counts[PipelinePhase.INGRESS.value] >= 1
-        assert counts[PipelinePhase.DELIVER.value] >= 1, "Valid event should reach DELIVER"
+        assert (
+            counts[PipelinePhase.DELIVER.value] >= 1
+        ), "Valid event should reach DELIVER"

@@ -31,7 +31,7 @@ async def _open_readonly_storage(
 async def _open_readonly_storage_from_config(config_path: str | None) -> Any:
     """Load config, resolve DB path, and open storage for read-only inspection."""
     from medre.config.paths import MedrePathsError
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     try:
         config, _source, paths = load_config(config_path)
@@ -69,7 +69,7 @@ async def _open_readonly_storage_direct(storage_path: str) -> Any:
     Does not load or require a config file.  Fails if the file does not
     exist or has an invalid schema shape.
     """
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     try:
         storage = await SQLiteStorage.open_readonly(storage_path)

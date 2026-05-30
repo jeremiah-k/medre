@@ -14,7 +14,7 @@ from medre.core.engine.replay import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.replay import StubPipeline, make_engine
 
 # ===================================================================
@@ -186,7 +186,7 @@ class TestReRenderMode:
         assert "hello world" in results[1].output.payload.get("text", "")
 
         # Verify no storage mutation: event count unchanged
-        from medre.core.storage import EventFilter
+        from medre.core.storage.backend import EventFilter
 
         all_events = [e async for e in temp_storage.query(EventFilter())]
         assert len(all_events) == 1
@@ -332,7 +332,7 @@ class TestReRouteMode:
         assert len(results[2].output) == 1  # one target -> one plan
 
         # Verify no storage mutation
-        from medre.core.storage import EventFilter
+        from medre.core.storage.backend import EventFilter
 
         all_events = [e async for e in temp_storage.query(EventFilter())]
         assert len(all_events) == 1

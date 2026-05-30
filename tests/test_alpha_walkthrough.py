@@ -104,7 +104,7 @@ class TestAlphaSmokeInspectTrace:
         storage_path = smoke_report["storage_path"]
         assert storage_path is not None
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
         await storage.initialize()
@@ -126,7 +126,7 @@ class TestAlphaSmokeInspectTrace:
         storage_path = smoke_report["storage_path"]
         assert storage_path is not None
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
         await storage.initialize()
@@ -148,7 +148,7 @@ class TestAlphaSmokeInspectTrace:
         storage_path = smoke_report["storage_path"]
         assert storage_path is not None
 
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
         await storage.initialize()

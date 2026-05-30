@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import uuid
 
-from medre.core.storage import DeliveryOutboxItem, SQLiteStorage
+from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
 def _make_outbox_item(
