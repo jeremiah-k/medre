@@ -75,6 +75,8 @@ def _receipt(
     failure_kind: str | None = None,
     next_retry_at: datetime | None = None,
     source: str = "live",
+    replay_run_id: str | None = None,
+    rendering_evidence: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         receipt_id=receipt_id,
@@ -89,6 +91,8 @@ def _receipt(
         attempt_number=attempt_number,
         next_retry_at=next_retry_at,
         source=source,
+        replay_run_id=replay_run_id,
+        rendering_evidence=rendering_evidence,
         created_at=_ts(second=1),
     )
 
@@ -134,6 +138,14 @@ _DECOMPOSED_FIELDS = (
     "next_retry_at",
     "native_message_id",
     "adapter_message_id",
+    # Capability-evidence observability fields.
+    "source",
+    "replay_run_id",
+    "suppression_reason",
+    "capability_field",
+    "capability_level",
+    "delivery_strategy",
+    "error",
 )
 
 
@@ -1264,3 +1276,203 @@ class TestReceiptSelectionOrder:
         # receipt.
         assert "native_message_id" in entry
         assert "adapter_message_id" in entry
+
+
+# ===================================================================
+# 11. rendering_evidence enrichment → capability_level / delivery_strategy
+# ===================================================================
+
+
+class TestRenderingEvidenceEnrichedFields:
+    """Non-null rendering_evidence JSON populates capability_level and
+    delivery_strategy in delivery_state_by_target entries."""
+
+    @pytest.mark.asyncio
+    async def test_sent_receipt_with_rendering_evidence_populates_cap_fields(
+        self, tmp_path: Any
+    ) -> None:
+        """A sent receipt carrying rendering_evidence JSON produces non-None
+        capability_level and delivery_strategy in the target-keyed entry."""
+        event_id = "ev-tk-rev-cap-001"
+        db_path = str(tmp_path / "rev-cap.db")
+        _evidence = json.dumps(
+            {
+                "renderer": "matrix",
+                "capability_level": "native",
+                "delivery_strategy": "direct",
+            }
+        )
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-cap-1",
+                    event_id=event_id,
+                    target_adapter="matrix",
+                    target_channel="!room:test",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                    rendering_evidence=_evidence,
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+
+        assert entry["capability_level"] == "native", (
+            f"Expected capability_level='native' from rendering_evidence, "
+            f"got {entry['capability_level']!r}"
+        )
+        assert entry["delivery_strategy"] == "direct", (
+            f"Expected delivery_strategy='direct' from rendering_evidence, "
+            f"got {entry['delivery_strategy']!r}"
+        )
+        # Sanity: standard fields still correct.
+        assert entry["target_adapter"] == "matrix"
+        assert entry["status"] == "sent"
+
+    @pytest.mark.asyncio
+    async def test_fallback_rendering_evidence_populates_fallback_fields(
+        self, tmp_path: Any
+    ) -> None:
+        """A receipt with fallback rendering_evidence produces
+        capability_level='fallback' and delivery_strategy='fallback_text'."""
+        event_id = "ev-tk-rev-fb-001"
+        db_path = str(tmp_path / "rev-fb.db")
+        _evidence = json.dumps(
+            {
+                "renderer": "meshtastic",
+                "capability_level": "fallback",
+                "delivery_strategy": "fallback_text",
+            }
+        )
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-fb-1",
+                    event_id=event_id,
+                    target_adapter="meshtastic",
+                    target_channel="ch-mesh",
+                    route_id="route-b",
+                    delivery_plan_id="dp-002",
+                    status="sent",
+                    rendering_evidence=_evidence,
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+
+        assert entry["capability_level"] == "fallback"
+        assert entry["delivery_strategy"] == "fallback_text"
+        assert entry["target_adapter"] == "meshtastic"
+
+
+# ===================================================================
+# 12. Replay source + replay_run_id preserved in delivery_state_by_target
+# ===================================================================
+
+
+class TestReplaySourceFields:
+    """Receipts from replay (source='replay') carry replay_run_id into
+    delivery_state_by_target entries."""
+
+    @pytest.mark.asyncio
+    async def test_replay_receipt_preserves_source_and_run_id(
+        self, tmp_path: Any
+    ) -> None:
+        """A replay receipt produces source='replay' and a non-None
+        replay_run_id in the target-keyed entry."""
+        event_id = "ev-tk-replay-001"
+        db_path = str(tmp_path / "replay.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-replay-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                    source="replay",
+                    replay_run_id="run-abc-123",
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+
+        assert (
+            entry["source"] == "replay"
+        ), f"Expected source='replay', got {entry['source']!r}"
+        assert (
+            entry["replay_run_id"] == "run-abc-123"
+        ), f"Expected replay_run_id='run-abc-123', got {entry['replay_run_id']!r}"
+        # Standard fields still present.
+        assert entry["target_adapter"] == "radio"
+        assert entry["status"] == "sent"
+        assert entry["capability_level"] is None
+        assert entry["delivery_strategy"] is None
+
+    @pytest.mark.asyncio
+    async def test_replay_receipt_with_evidence_carries_all_enriched_fields(
+        self, tmp_path: Any
+    ) -> None:
+        """A replay receipt that also has rendering_evidence populates source,
+        replay_run_id, capability_level and delivery_strategy simultaneously."""
+        event_id = "ev-tk-replay-ev-001"
+        db_path = str(tmp_path / "replay-ev.db")
+        _evidence = json.dumps(
+            {
+                "renderer": "lxmf",
+                "capability_level": "native",
+                "delivery_strategy": "direct",
+            }
+        )
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-rev-1",
+                    event_id=event_id,
+                    target_adapter="lxmf",
+                    target_channel="lxmf-dest",
+                    route_id="route-x",
+                    delivery_plan_id="dp-010",
+                    status="sent",
+                    source="replay",
+                    replay_run_id="run-xyz-999",
+                    rendering_evidence=_evidence,
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+
+        # Replay fields.
+        assert entry["source"] == "replay"
+        assert entry["replay_run_id"] == "run-xyz-999"
+        # Capability fields from rendering_evidence.
+        assert entry["capability_level"] == "native"
+        assert entry["delivery_strategy"] == "direct"
+        # Standard fields.
+        assert entry["target_adapter"] == "lxmf"
+        assert entry["target_channel"] == "lxmf-dest"
+        assert entry["route_id"] == "route-x"
+        assert entry["status"] == "sent"

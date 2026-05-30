@@ -959,6 +959,276 @@ class TestFailClosedSemantics:
 # ===================================================================
 
 
+# ===================================================================
+# TestAllBooleanNoneFailClosed
+# ===================================================================
+
+
+class TestAllBooleanNoneFailClosed:
+    """Verify that every boolean capability field set to None resolves to
+    unsupported (fail-closed).
+
+    Existing tests cover ``text=None``; this class covers the remaining
+    three boolean fields: ``attachments``, ``presence``,
+    ``metadata_fields``.
+    """
+
+    @pytest.mark.parametrize(
+        ("event_kind", "field"),
+        [
+            ("message.file", "attachments"),
+            ("presence.changed", "presence"),
+            ("telemetry.received", "metadata_fields"),
+            ("telemetry.position", "metadata_fields"),
+        ],
+    )
+    def test_boolean_none_is_unsupported(self, event_kind: str, field: str) -> None:
+        caps = dataclasses.replace(_DEFAULT_CAPS, **{field: None})
+        event = make_event(event_kind=event_kind)
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "unsupported"
+        assert decision.delivery_strategy == "skip"
+        assert decision.supported is False
+        assert decision.capability_field == field
+
+
+# ===================================================================
+# TestAllStringNoneFailClosed
+# ===================================================================
+
+
+class TestAllStringNoneFailClosed:
+    """Verify that every string capability field set to None resolves to
+    unsupported (fail-closed).
+
+    Existing tests cover ``reactions=None``; this class covers the
+    remaining three string fields: ``edits``, ``deletes``, ``replies``.
+    """
+
+    @pytest.mark.parametrize(
+        ("event_kind_or_relation", "field", "use_relation"),
+        [
+            ("message.edited", "edits", False),
+            ("message.deleted", "deletes", False),
+            ("reply", "replies", True),
+        ],
+    )
+    def test_string_none_is_unsupported(
+        self, event_kind_or_relation: str, field: str, use_relation: bool
+    ) -> None:
+        caps = dataclasses.replace(_DEFAULT_CAPS, **{field: None})
+
+        if use_relation:
+            # Use a reply relation with an unmapped event kind.
+            rel = EventRelation(
+                relation_type=event_kind_or_relation,  # type: ignore[arg-type]
+                target_event_id="evt-parent",
+                target_native_ref=NativeRef(
+                    adapter="test_adapter",
+                    native_channel_id="ch-0",
+                    native_message_id="native-001",
+                ),
+                key=None,
+                fallback_text=None,
+            )
+            event = make_event(event_kind="plugin.custom", relations=(rel,))
+        else:
+            event = make_event(event_kind=event_kind_or_relation)
+
+        decision = resolver.decide(event, caps)
+
+        assert decision.capability_level == "unsupported"
+        assert decision.delivery_strategy == "skip"
+        assert decision.supported is False
+        assert decision.capability_field == field
+
+
+# ===================================================================
+# TestFieldMappingCompleteness
+# ===================================================================
+
+
+class TestFieldMappingCompleteness:
+    """Verify that every field referenced by the event-kind and relation
+    mappings is recognised by _resolve_field_level (i.e. is in
+    _BOOLEAN_FIELDS or _STRING_FIELDS).
+
+    This is the safety-net test for the ``_resolve_field_level`` final
+    ``raise ValueError`` branch: if a mapped field is not in either set,
+    the resolver will crash at runtime.  This test ensures no future
+    mapping drift can silently break the resolver.
+    """
+
+    def test_all_event_kind_fields_recognised(self) -> None:
+        """Every _EVENT_KIND_FIELDS value is in _BOOLEAN_FIELDS or _STRING_FIELDS."""
+        from medre.core.planning.capability_decision import (
+            _BOOLEAN_FIELDS,
+            _EVENT_KIND_FIELDS,
+            _STRING_FIELDS,
+        )
+
+        recognised = _BOOLEAN_FIELDS | _STRING_FIELDS
+        for event_kind, field_name in _EVENT_KIND_FIELDS.items():
+            assert field_name in recognised, (
+                f"Event kind {event_kind!r} maps to field {field_name!r} "
+                f"which is not in _BOOLEAN_FIELDS or _STRING_FIELDS"
+            )
+
+    def test_all_relation_fields_recognised(self) -> None:
+        """Every _RELATION_FIELDS value is in _BOOLEAN_FIELDS or _STRING_FIELDS."""
+        from medre.core.planning.capability_decision import (
+            _BOOLEAN_FIELDS,
+            _RELATION_FIELDS,
+            _STRING_FIELDS,
+        )
+
+        recognised = _BOOLEAN_FIELDS | _STRING_FIELDS
+        for rel_type, field_name in _RELATION_FIELDS.items():
+            assert field_name in recognised, (
+                f"Relation type {rel_type!r} maps to field {field_name!r} "
+                f"which is not in _BOOLEAN_FIELDS or _STRING_FIELDS"
+            )
+
+    def test_boolean_and_string_fields_disjoint(self) -> None:
+        """_BOOLEAN_FIELDS and _STRING_FIELDS must not overlap."""
+        from medre.core.planning.capability_decision import (
+            _BOOLEAN_FIELDS,
+            _STRING_FIELDS,
+        )
+
+        overlap = _BOOLEAN_FIELDS & _STRING_FIELDS
+        assert not overlap, f"Fields in both sets: {overlap}"
+
+
+# ===================================================================
+# TestEditDeleteRelationReasons
+# ===================================================================
+
+
+class TestEditDeleteRelationReasons:
+    """Verify exact reason strings for edit and delete relation suppression.
+
+    Existing tests cover reply and reaction relation reasons; these fill
+    the edit and delete gaps.
+    """
+
+    def test_edit_relation_unsupported_reason_exact(self) -> None:
+        caps = AdapterCapabilities(edits="unsupported")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_EDIT_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "edits unsupported by adapter (event has edit relation)"
+        )
+
+    def test_delete_relation_unsupported_reason_exact(self) -> None:
+        caps = AdapterCapabilities(deletes="unsupported")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_DELETE_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "deletes unsupported by adapter (event has delete relation)"
+        )
+
+    def test_edit_relation_fallback_reason_exact(self) -> None:
+        caps = AdapterCapabilities(edits="fallback")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_EDIT_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "edits fallback for adapter (event has edit relation)"
+        )
+
+    def test_delete_relation_fallback_reason_exact(self) -> None:
+        caps = AdapterCapabilities(deletes="fallback")
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(_DELETE_RELATION,),
+        )
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert decision.reason == (
+            "deletes fallback for adapter (event has delete relation)"
+        )
+
+
+# ===================================================================
+# TestFallbackEventKindReasonExact
+# ===================================================================
+
+
+class TestFallbackEventKindReasonExact:
+    """Verify exact reason strings for fallback-level event-kind decisions.
+
+    Existing tests cover message.reacted fallback reason.  These verify
+    edits and deletes fallback reasons to ensure no format drift.
+    """
+
+    def test_edits_fallback_reason_exact(self) -> None:
+        caps = AdapterCapabilities(edits="fallback")
+        event = make_event(event_kind="message.edited")
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert (
+            decision.reason == "edits fallback for adapter (event_kind=message.edited)"
+        )
+
+    def test_deletes_fallback_reason_exact(self) -> None:
+        caps = AdapterCapabilities(deletes="fallback")
+        event = make_event(event_kind="message.deleted")
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert (
+            decision.reason
+            == "deletes fallback for adapter (event_kind=message.deleted)"
+        )
+
+    def test_edits_unsupported_event_kind_reason_exact(self) -> None:
+        """message.edited with edits=unsupported: verify exact reason format."""
+        caps = AdapterCapabilities(edits="unsupported")
+        event = make_event(event_kind="message.edited")
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert (
+            decision.reason
+            == "edits unsupported by adapter (event_kind=message.edited)"
+        )
+
+    def test_deletes_unsupported_event_kind_reason_exact(self) -> None:
+        """message.deleted with deletes=unsupported: verify exact reason format."""
+        caps = AdapterCapabilities(deletes="unsupported")
+        event = make_event(event_kind="message.deleted")
+        decision = resolver.decide(event, caps)
+
+        assert decision.reason is not None
+        assert (
+            decision.reason
+            == "deletes unsupported by adapter (event_kind=message.deleted)"
+        )
+
+
+# ===================================================================
+# TestLiteralTypeAliases
+# ===================================================================
+
+
 class TestLiteralTypeAliases:
     """Verify CapabilityLevel and CapabilityDeliveryStrategy type aliases."""
 

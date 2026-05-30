@@ -285,3 +285,44 @@ asserts all of the following for its fixtures:
 | `test_delivery_lifecycle_conformance.py` | Receipt lifecycle and evidence contracts: shape characterization (manually-constructed receipts) and service-path conformance (TargetDeliveryService + RenderingPipeline + fake adapters) |
 | `test_replay_conformance.py`             | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |
 | `test_evidence_bundle_conformance.py`    | EvidenceBundle assembly conformance: sent, queued, queued→sent, suppressed, replay-origin, invalid rendering_evidence, schema version, deterministic JSON                                 |
+
+## 7. Transport Capability Semantics and Delivery Evidence Conformance
+
+This section documents conformance test coverage for transport capability semantics, delivery evidence enrichment, and replay parity introduced in the transport capability evidence wave.
+
+### 7.1 Test Coverage by Behavior
+
+| Behavior                                                                                                                     | Test module(s)                                                                                                                   | Tier |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| Default `AdapterCapabilities` produce correct capability decisions for known event kinds                                     | `test_capability_decision.py`                                                                                                    | S    |
+| `None` / missing capabilities fail closed (unsupported/skip)                                                                 | `test_capability_decision.py`                                                                                                    | S    |
+| Thread relation produces no capability candidate (deferred)                                                                  | `test_capability_decision.py`                                                                                                    | S    |
+| Transport profile JSONs produce correct decisions (native, fallback, unsupported per adapter)                                | `test_capability_decision_transport_profiles.py`, `test_capability_runtime_conformance.py`                                       | S    |
+| Relation degradation (reply, reaction, edit, delete) follows three-level semantics                                           | `test_capability_decision.py`, `test_capability_pipeline_enforcement.py`                                                         | S    |
+| Unknown event kinds pass through (native/direct)                                                                             | `test_capability_decision.py`                                                                                                    | S    |
+| `thread` produces no relation candidate; unknown non-thread relation types fail closed as unsupported/skip                   | `test_capability_decision.py` (`test_unknown_relation_not_treated_as_thread`, `test_unknown_non_thread_relation_is_unsupported`) | S    |
+| Capability suppression produces `failure_kind="capability_suppressed"` in delivery outcomes                                  | `test_capability_pipeline_enforcement.py`, `test_delivery_strategy_pipeline_skip.py`                                             | S    |
+| LXMF renderer enforces `max_text_chars` budget and sets `truncated=True`                                                     | `test_lxmf_renderer.py` (unit)                                                                                                   | S    |
+| Truncation evidence: `rendered_text_chars`, `original_text_chars` in `RenderingEvidence`                                     | `test_rendering_conformance.py`, `test_lxmf_renderer.py`                                                                         | S    |
+| Report dict enrichment: `suppression_reason`, `capability_field`, `capability_level`, `delivery_strategy`                    | `test_evidence_suppression.py`                                                                                                   | S    |
+| `delivery_state_by_target` includes capability-evidence fields (`source`, `replay_run_id`, `suppression_reason`, etc.)       | `test_evidence_target_keyed.py`                                                                                                  | S    |
+| Evidence bundle carries enriched fields for sent, queued, suppressed, and replay-origin receipts                             | `test_evidence_bundle_conformance.py`                                                                                            | S    |
+| Replay BEST_EFFORT applies capability filtering via `_filter_plans_by_capability` using real pipeline                        | `test_replay_engine_plan_filters.py`, `conformance/test_replay_conformance.py`                                                   | S    |
+| All-suppressed replay result includes `capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`, `source="replay"` | `test_replay_engine_plan_filters.py`                                                                                             | S    |
+| Replay capability filtering uses same `CapabilityDecisionResolver` as live delivery                                          | `test_replay_engine_plan_filters.py`                                                                                             | S    |
+
+### 7.2 Known Gaps
+
+The following behaviors have S-tier test coverage but lack R-tier (live endpoint) validation:
+
+1. **No hardware or live transport validation.** All capability suppression, fallback rendering, and budget enforcement tests use fake adapters and synthetic capability configurations. No test sends a capability-suppressed event to a real Meshtastic radio, Matrix homeserver, or Reticulum LXMF router.
+
+2. **Fallback capability level is dormant in production profiles.** No production transport profile currently declares a capability field at `"fallback"`. The fallback rendering path (`"fallback_text"` strategy, inline text degradation) is tested with synthetic configurations but has never been exercised against a live transport with a real adapter producing degraded output.
+
+3. **RE_RENDER replay mode does not reconstruct a full capability-aware rendering context.** The `RE_RENDER` mode re-runs rendering through the pipeline, but it does not reconstruct `RenderingContext` from stored artifacts. It uses whatever context the replay pipeline provides, which may not match the original rendering context.
+
+4. **Replay pre-filter suppressed evidence is in-memory only.** When `_filter_plans_by_capability` suppresses all plans for an event during replay, the evidence records (`capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`) are carried in the in-memory `ReplayResult` output. They are not persisted to storage unless a receipt is created through a different code path. If the process crashes before the operator inspects the replay output, this evidence is lost.
+
+5. **Thread relation capability gating is deferred.** No `AdapterCapabilities.threads` field exists. Thread-carrying events receive native/direct delivery with `capability_field=None` when no other candidate overrides. This is intentional (see Routing and Delivery Specification § 6.3.6) but means thread relations are never capability-suppressed.
+
+6. **`capability_policy` field is reserved and unpopulated.** `RenderingContext.capability_policy` defaults to `None` and is not set by the current pipeline. No test exercises this field.

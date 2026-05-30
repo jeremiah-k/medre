@@ -75,7 +75,7 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
   testing.
 - BLE is implemented at the session layer; hardware validation against a real
   BLE node is pending.
-- No native reply mechanism. Relations should be capability-gated.
+- No native reply mechanism. Relations are capability-gated via `CapabilityDecisionResolver`; unsupported relation types produce `capability_suppressed` delivery outcomes.
 - No startup backlog suppression (intentionally absent: MeshCore has no
   store-and-forward).
 - Sender identity is a 6-byte pubkey prefix (not globally unique).
@@ -131,4 +131,20 @@ mechanisms:
 
 - `EventRelation.target_native_ref` assumes the protocol carries a reply
   reference (true for Matrix and Meshtastic, false for MeshCore). Relations
-  should be capability-gated.
+  are capability-gated via `CapabilityDecisionResolver`; adapters that lack
+  native support for a relation type produce `capability_suppressed` delivery
+  outcomes.
+
+## 6. Capability Semantics Known Gaps
+
+1. **Fallback capability level is dormant in production transport profiles.** No production transport profile (Matrix, Meshtastic, MeshCore, LXMF) currently declares a three-level string capability field at `"fallback"`. The fallback rendering path (`"fallback_text"` strategy) is tested with synthetic configurations but has no R-tier evidence from a live transport. See Routing and Delivery Specification § 6.3.2.
+
+2. **No hardware or live validation of capability suppression.** All capability suppression, fallback rendering, and budget enforcement tests use fake adapters and synthetic capability configurations. No test exercises capability gating against a real transport endpoint.
+
+3. **RE_RENDER replay mode does not reconstruct full capability-aware rendering context.** The `RE_RENDER` mode re-runs rendering through the pipeline but does not reconstruct `RenderingContext` from stored artifacts. The rendering context used during replay may not match the original context that governed the live render.
+
+4. **Replay pre-filter suppressed evidence is in-memory only.** When replay capability filtering suppresses all plans for an event, the evidence records are carried in the in-memory `ReplayResult` output, not persisted to storage. Process crashes before operator inspection lose this evidence.
+
+5. **Thread relation capability gating is deferred.** No `AdapterCapabilities.threads` field exists. Thread-carrying events receive native/direct delivery when no other capability candidate overrides. This is intentional but means thread relations are never capability-suppressed. See Routing and Delivery Specification § 6.3.6.
+
+6. **`RenderingContext.capability_policy` is reserved and unpopulated.** No test or production code path exercises this field.

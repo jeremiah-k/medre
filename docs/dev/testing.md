@@ -4,9 +4,10 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has 3,200+ tests, all passing with zero network or hardware
-dependencies. Every transport has a fake adapter that exercises the full
-pipeline. See the [README](../../README.md) for project context and the
+The test suite has 3,200+ tests with zero network or hardware dependencies.
+Every transport has a fake adapter that exercises the full pipeline. The
+standard `pytest -q` run requires a generous timeout (the full suite can
+exceed 180 s on slower machines). See the [README](../../README.md) for project context and the
 [Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
 commands.
 
@@ -411,7 +412,9 @@ edit makes unnecessary.
 
 ```bash
 PYTHONPATH=src pytest -q
-# Expected: 3,200+ passed, live and Docker tests skipped by default
+# Expected: 3,200+ collected, live and Docker tests skipped by default.
+# The full suite can take several minutes; use timeout 300 or run subsets
+# during development (see targeted runs below).
 ```
 
 This is the primary development command. It runs all unit and fake-pipeline

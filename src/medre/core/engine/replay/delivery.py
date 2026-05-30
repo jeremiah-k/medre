@@ -4,13 +4,82 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from medre.core.engine.replay.helpers import _elapsed_ms
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent
 from medre.core.planning.capabilities import resolve_adapter_capabilities
 from medre.core.planning.capability_decision import resolver as _resolver
+
+# ---------------------------------------------------------------------------
+# Capability filter result types
+# ---------------------------------------------------------------------------
+
+
+class _CapabilitySuppressedPlan(NamedTuple):
+    """Evidence record for a single capability-suppressed delivery plan.
+
+    Collected during ``_filter_plans_by_capability`` so that replay results
+    can preserve the evidence linkage that live delivery produces via
+    suppression receipts (delivery_plan_id, target_adapter, reason).
+    """
+
+    delivery_plan_id: str
+    target_adapter: str | None
+    capability_level: str
+    capability_field: str | None
+    reason: str | None
+
+
+class _CapabilityFilterResult(NamedTuple):
+    """Result of capability-aware plan filtering.
+
+    Attributes
+    ----------
+    kept:
+        Plans that passed capability checks (supported or passthrough).
+    suppressed:
+        Plans that were suppressed due to unsupported capabilities,
+        with full evidence (delivery_plan_id, target_adapter, reason).
+    """
+
+    kept: list[Any]
+    suppressed: list[_CapabilitySuppressedPlan]
+
+
+# ---------------------------------------------------------------------------
+# Suppressed-evidence builder
+# ---------------------------------------------------------------------------
+
+
+def _build_suppressed_evidence(
+    suppressed: list[_CapabilitySuppressedPlan],
+    run_id: str | None,
+) -> dict[str, Any]:
+    """Build a dict of suppressed-plan evidence for ReplayResult.output.
+
+    Reused by both the all-suppressed (skipped) path and the mixed
+    (passed) path so that evidence shaping stays consistent.
+    """
+    _suppressed_plan_ids = [s.delivery_plan_id for s in suppressed]
+    _suppressed_evidence = [
+        {
+            "delivery_plan_id": s.delivery_plan_id,
+            "target_adapter": s.target_adapter,
+            "capability_level": s.capability_level,
+            "capability_field": s.capability_field,
+            "reason": s.reason,
+        }
+        for s in suppressed
+    ]
+    return {
+        "capability_suppressed_plans": _suppressed_evidence,
+        "delivery_plan_ids": _suppressed_plan_ids,
+        "replay_run_id": run_id or None,
+        "source": "replay",
+    }
+
 
 # ---------------------------------------------------------------------------
 # Delivery envelope
@@ -83,13 +152,17 @@ def _filter_plans_by_capability(
     event: CanonicalEvent,
     plans: list[Any],
     adapters: dict[str, Any] | None = None,
-) -> list[Any]:
-    """Filter delivery plans to those whose target adapter supports the event.
+) -> _CapabilityFilterResult:
+    """Filter delivery plans by target adapter capability.
 
     For each plan, resolves the target adapter's capabilities and checks
     whether the event kind is supported.  Plans with unsupported event
-    kinds are excluded.  When *adapters* is ``None``, plans are included
-    conservatively (include rather than exclude).
+    kinds are excluded from ``kept`` but recorded in ``suppressed`` with
+    full evidence (delivery_plan_id, target_adapter, capability_level,
+    capability_field, reason).
+
+    When *adapters* is ``None``, all plans are included conservatively
+    and ``suppressed`` is empty.
 
     Only meaningful for BEST_EFFORT mode; the caller is responsible for
     gating on mode.
@@ -106,11 +179,12 @@ def _filter_plans_by_capability(
 
     Returns
     -------
-    list[Any]
-        Plans whose target adapters support the event kind.
+    _CapabilityFilterResult
+        Named tuple with ``kept`` (supported plans) and ``suppressed``
+        (unsupported plan evidence records).
     """
     if adapters is None:
-        return plans
+        return _CapabilityFilterResult(kept=list(plans), suppressed=[])
 
     # Cache capability resolution by adapter ID within this call scope.
     # Replay can process many plans targeting the same adapter; resolving
@@ -118,7 +192,8 @@ def _filter_plans_by_capability(
     _caps_cache: dict[str, Any] = {}
     _decision_cache: dict[tuple[str, str], Any] = {}
 
-    result: list[Any] = []
+    kept: list[Any] = []
+    suppressed: list[_CapabilitySuppressedPlan] = []
     for item in plans:
         # Unwrap tuple (Route, DeliveryPlan) if present.
         if isinstance(item, tuple) and len(item) == 2:
@@ -129,7 +204,7 @@ def _filter_plans_by_capability(
         target = getattr(plan, "target", None)
         if target is None:
             # Opaque plan structure -- include conservatively.
-            result.append(item)
+            kept.append(item)
             continue
 
         adapter_name = getattr(target, "adapter", None)
@@ -142,7 +217,7 @@ def _filter_plans_by_capability(
         if caps is None:
             # Adapter is missing from the registry --- include conservatively
             # rather than suppressing based on default (all-false) caps.
-            result.append(item)
+            kept.append(item)
             continue
 
         # Cache capability decision by (adapter_name, event_kind) pair.
@@ -153,9 +228,20 @@ def _filter_plans_by_capability(
             decision = _resolver.decide(event, caps, target_adapter=adapter_name)
             _decision_cache[decision_key] = decision
         if decision.supported:
-            result.append(item)
-        # else: capability-suppressed --- exclude from delivery
-    return result
+            kept.append(item)
+        else:
+            # Capability-suppressed --- record evidence.
+            plan_id = getattr(plan, "plan_id", "")
+            suppressed.append(
+                _CapabilitySuppressedPlan(
+                    delivery_plan_id=plan_id,
+                    target_adapter=adapter_name,
+                    capability_level=decision.capability_level,
+                    capability_field=decision.capability_field,
+                    reason=decision.reason,
+                )
+            )
+    return _CapabilityFilterResult(kept=kept, suppressed=suppressed)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +335,7 @@ class _ReplayDeliveryMixin:
         # event kind is supported by the target adapter.  Skip delivery
         # with a descriptive error when the adapter lacks the required
         # capability.  Non-BEST_EFFORT modes are not affected.
+        _suppressed: list[_CapabilitySuppressedPlan] = []
         if mode is ReplayMode.BEST_EFFORT:
             # Extract adapters dict from the pipeline collaborator.
             _adapters: dict[str, Any] | None = None
@@ -256,17 +343,21 @@ class _ReplayDeliveryMixin:
                 _cfg = getattr(self._pipeline, "_config", None)
                 if _cfg is not None:
                     _adapters = getattr(_cfg, "adapters", None)
-            _before_filter = len(plan_result)
-            plan_result = _filter_plans_by_capability(
+            _cap_result = _filter_plans_by_capability(
                 event,
                 plan_result,
                 _adapters,
             )
-            _suppressed = _before_filter - len(plan_result)
-            if _suppressed > 0 and self._accounting is not None:
-                for _ in range(_suppressed):
+            plan_result = _cap_result.kept
+            _suppressed = _cap_result.suppressed
+            if _suppressed and self._accounting is not None:
+                for _ in _suppressed:
                     self._accounting.record_capability_suppressed()
             if not plan_result:
+                # Build enriched output with suppressed plan evidence
+                # so that delivery_plan_id / replay_run_id / reason are
+                # preserved (parity with live Phase 2.5 suppression
+                # receipts).
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
@@ -275,6 +366,7 @@ class _ReplayDeliveryMixin:
                         f"capability_suppressed: {event.event_kind} "
                         f"not supported by target adapter(s)"
                     ),
+                    output=_build_suppressed_evidence(_suppressed, request.run_id),
                     duration_ms=_elapsed_ms(t0),
                 )
 
@@ -324,6 +416,15 @@ class _ReplayDeliveryMixin:
                 # Stub pipeline: plan_result is list[Any] (bare plans).
                 receipts = await self._pipeline.deliver(event, plan_result)
                 replay_output = _replay_delivery_envelope(receipts)
+
+            # Mixed BEST_EFFORT outcome: some plans delivered, others
+            # capability-suppressed.  Merge suppressed-plan evidence
+            # into the replay output alongside adapter results.
+            if _suppressed:
+                replay_output.update(
+                    _build_suppressed_evidence(_suppressed, request.run_id)
+                )
+
             return ReplayResult(
                 event_id=event.event_id,
                 stage="deliver",

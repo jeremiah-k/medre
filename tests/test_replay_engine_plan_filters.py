@@ -149,7 +149,8 @@ class TestFilterPlansByCapability:
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters=None)
-        assert result == plans
+        assert result.kept == plans
+        assert result.suppressed == []
 
     def test_returns_plans_when_pipeline_lacks_method(self) -> None:
         """Empty adapters dict passes everything conservatively."""
@@ -157,7 +158,8 @@ class TestFilterPlansByCapability:
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters={})
-        assert result == plans
+        assert result.kept == plans
+        assert result.suppressed == []
 
     def test_supported_event_kind_passes(self) -> None:
         """Plan with adapter that supports the event kind is included."""
@@ -173,7 +175,8 @@ class TestFilterPlansByCapability:
         result = _filter_plans_by_capability(
             self._make_event(), [plan], adapters=adapters
         )
-        assert len(result) == 1
+        assert len(result.kept) == 1
+        assert result.suppressed == []
 
     def test_unsupported_event_kind_filtered(self) -> None:
         """Plan with adapter that doesn't support event kind is excluded."""
@@ -189,7 +192,11 @@ class TestFilterPlansByCapability:
         result = _filter_plans_by_capability(
             self._make_event(), [plan], adapters=adapters
         )
-        assert len(result) == 0
+        assert len(result.kept) == 0
+        assert len(result.suppressed) == 1
+        assert result.suppressed[0].delivery_plan_id == "plan-001"
+        assert result.suppressed[0].target_adapter == "adapter-1"
+        assert result.suppressed[0].reason is not None
 
     def test_missing_adapter_included_conservatively(self) -> None:
         """Plan targeting adapter NOT in adapters dict is included (conservative)."""
@@ -202,7 +209,8 @@ class TestFilterPlansByCapability:
             [plan],
             adapters={},
         )
-        assert result == [plan]
+        assert result.kept == [plan]
+        assert result.suppressed == []
 
 
 # ===================================================================
@@ -531,3 +539,344 @@ class TestReplayRelationCapabilityFiltering:
             assert deliver_results[0].status == "passed"
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Capability evidence parity tests
+# ===================================================================
+
+
+class TestCapabilityEvidenceParity:
+    """Verify replay capability decisions match live resolver and
+    suppressed results carry evidence (delivery_plan_id, replay_run_id,
+    reason).
+
+    These tests target the audit finding that pre-filtered capability
+    suppressions in replay can be ephemeral in ReplayResult only.
+    """
+
+    @staticmethod
+    def _make_text_event(event_id: str = "cap-parity-001") -> CanonicalEvent:
+        return CanonicalEvent(
+            event_id=event_id,
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "parity check"},
+            metadata=EventMetadata(),
+        )
+
+    def test_resolver_decision_same_for_live_and_replay(self) -> None:
+        """Replay and live paths produce the same CapabilityDecision.
+
+        The CapabilityDecisionResolver is the single source of truth.
+        _filter_plans_by_capability delegates to it, so the decision
+        for a given (event, adapter_caps) pair must be identical
+        regardless of whether it comes from live Phase 2.5 or replay
+        pre-filtering.
+        """
+        from medre.core.planning.capability_decision import resolver
+
+        event = self._make_text_event()
+        # Adapter that does NOT support text.
+        caps = AdapterCapabilities(text=False)
+
+        # Live-style direct resolver call (Phase 2.5 equivalent).
+        live_decision = resolver.decide(event, caps, target_adapter="adapter-x")
+        # Replay: filter using _filter_plans_by_capability.
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
+
+        plan = _make_delivery_plan(adapter="adapter-x")
+
+        class _Adapter:
+            _capabilities = caps
+
+        adapters = {"adapter-x": _Adapter()}
+        result = _filter_plans_by_capability(event, [plan], adapters=adapters)
+
+        assert len(result.kept) == 0
+        assert len(result.suppressed) == 1
+
+        # The suppressed record must match the live resolver's decision.
+        sup = result.suppressed[0]
+        assert sup.capability_level == live_decision.capability_level
+        assert sup.capability_field == live_decision.capability_field
+        assert sup.reason == live_decision.reason
+
+    async def test_suppressed_result_has_delivery_plan_id_and_replay_run_id(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """All-suppressed replay result carries delivery_plan_id and
+        replay_run_id in its output (evidence linkage parity with live
+        Phase 2.5 suppression receipts).
+        """
+        caps = AdapterCapabilities(text=False)
+        router, pipeline = _make_capability_route_and_pipeline(
+            "message.created",
+            "target-adapter",
+            caps,
+        )
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        event = CanonicalEvent(
+            event_id="evidence-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "evidence check"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        run_id = "evidence-run-001"
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            run_id=run_id,
+        )
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) == 1
+        dr = deliver_results[0]
+        assert dr.status == "skipped"
+        assert "capability_suppressed" in (dr.error or "")
+
+        # Evidence enrichment.
+        assert dr.output is not None
+        output = dr.output
+        assert output["replay_run_id"] == run_id
+        assert output["source"] == "replay"
+        assert len(output["delivery_plan_ids"]) >= 1
+        assert len(output["capability_suppressed_plans"]) >= 1
+
+        sup = output["capability_suppressed_plans"][0]
+        assert "delivery_plan_id" in sup
+        assert sup["target_adapter"] == "target-adapter"
+        assert sup["reason"] is not None
+
+    async def test_fallback_capability_not_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with fallback capability is NOT suppressed."""
+        caps = AdapterCapabilities(reactions="fallback", text=True)
+        router, pipeline = _make_capability_route_and_pipeline(
+            "message.reacted",
+            "target-adapter",
+            caps,
+        )
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        event = CanonicalEvent(
+            event_id="fallback-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"key": "👍"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        # Fallback is supported, so delivery should pass (not skipped).
+        assert deliver_results[0].status == "passed"
+
+    async def test_native_capability_not_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with native capability is NOT suppressed."""
+        caps = AdapterCapabilities(text=True)
+        router, pipeline = _make_capability_route_and_pipeline(
+            "message.created",
+            "target-adapter",
+            caps,
+        )
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        event = CanonicalEvent(
+            event_id="native-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "native check"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "passed"
+
+    async def test_missing_adapter_does_not_pretend_capability(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Missing adapter is included conservatively (not suppressed).
+
+        A missing adapter should NOT produce a capability-suppressed
+        result; it should be passed through so the downstream delivery
+        can produce the correct ADAPTER_MISSING outcome.
+        """
+        # Build pipeline with any valid caps to satisfy the factory,
+        # then override adapters to empty dict so the target-adapter
+        # is missing from the registry (testing missing-adapter path).
+        caps = AdapterCapabilities(text=True)
+        router, pipeline = _make_capability_route_and_pipeline(
+            "message.created",
+            "target-adapter",
+            caps,
+        )
+        pipeline._config.adapters = {}
+
+        engine = make_engine(temp_storage, pipeline=pipeline)
+        event = CanonicalEvent(
+            event_id="missing-adapter-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "missing adapter check"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+        results = [r async for r in engine.replay(request)]
+
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        # The plan is NOT capability-suppressed; it falls through to
+        # the stub pipeline delivery path (passed or error depending
+        # on the stub), but never capability_suppressed.
+        dr = deliver_results[0]
+        assert "capability_suppressed" not in (dr.error or "")
+
+    async def test_partial_suppression_preserves_evidence_for_suppressed_only(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Partial suppression: only some plans suppressed; evidence
+        preserved for the suppressed ones while others deliver normally.
+        """
+        from medre.core.supervision.accounting import RuntimeAccounting
+
+        file_event = CanonicalEvent(
+            event_id="partial-evidence-001",
+            event_kind="message.file",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "see attached", "url": "https://example.com/f.pdf"},
+            metadata=EventMetadata(),
+        )
+
+        route = Route(
+            id="dual-target-route",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.file",),
+                channel="ch-0",
+            ),
+            targets=[
+                RouteTarget(adapter="adapter-with-attachments", channel="ch-ok"),
+                RouteTarget(adapter="adapter-no-attachments", channel="ch-skip"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        class _AdapterWithAttachments:
+            _capabilities = AdapterCapabilities(attachments=True)
+
+        class _AdapterNoAttachments:
+            _capabilities = AdapterCapabilities(attachments=False)
+
+        class _Config:
+            adapters = {
+                "adapter-with-attachments": _AdapterWithAttachments(),
+                "adapter-no-attachments": _AdapterNoAttachments(),
+            }
+
+        class CapStubPipeline(StubPipeline):
+            _config = _Config()
+
+        accounting = RuntimeAccounting()
+        pipeline = CapStubPipeline(router=router)
+        engine = make_engine(temp_storage, pipeline=pipeline, accounting=accounting)
+        await temp_storage.append(file_event)
+
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            run_id="partial-run-001",
+        )
+        results = [r async for r in engine.replay(request)]
+
+        # One plan should survive (the one with attachments support).
+        deliver_results = [r for r in results if r.stage == "deliver"]
+        assert len(deliver_results) >= 1
+        assert deliver_results[0].status == "passed"
+
+        # Exactly 1 plan suppressed.
+        snap = accounting.snapshot()
+        assert snap["capability_suppressed"] == 1
+
+        # The delivered output has 1 adapter result (not 2).
+        output = deliver_results[0].output
+        assert output["replay"] is True
+        adapter_results = output["adapter_results"]
+        assert len(adapter_results) == 1
+
+        # Mixed outcome: suppressed-plan evidence must be present alongside
+        # the delivered adapter results (parity with all-suppressed branch).
+        assert output["source"] == "replay"
+        assert output["replay_run_id"] == "partial-run-001"
+        assert len(output["capability_suppressed_plans"]) == 1
+
+        sup = output["capability_suppressed_plans"][0]
+        assert "delivery_plan_id" in sup
+        assert sup["target_adapter"] == "adapter-no-attachments"
+        assert sup["reason"] is not None
+
+        assert len(output["delivery_plan_ids"]) == 1

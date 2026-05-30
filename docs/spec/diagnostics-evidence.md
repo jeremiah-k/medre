@@ -510,6 +510,47 @@ An operator inspecting these signals can answer: "Why was this message truncated
 5. Rendering evidence MUST NOT duplicate the payload content.
 6. Rendering evidence is observational. It explains decisions; it does not control them.
 
+## 14.8 Capability-Evidence Derivation in Report Dicts
+
+The `delivery_receipt_to_report_dict()` helper in `medre.runtime.reporting` enriches every receipt report dict with capability-evidence fields derived from the receipt's `error` text and/or `rendering_evidence` JSON. No storage schema changes are required; the enrichment is derived at report time from existing receipt fields.
+
+### 14.8.1 Derived Fields
+
+| Field                | Source                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `suppression_reason` | Parsed from `error` text when `status == "suppressed"` and error matches capability suppression patterns.           |
+| `capability_field`   | The `AdapterCapabilities` field that caused suppression (e.g. `reactions`, `replies`). Derived from error text.     |
+| `capability_level`   | The three-level decision (`"native"`, `"fallback"`, `"unsupported"`). From `rendering_evidence` JSON or error text. |
+| `delivery_strategy`  | The delivery strategy (`"direct"`, `"fallback_text"`, `"skip"`). From `rendering_evidence` JSON or error text.      |
+
+Resolution order:
+
+1. If `rendering_evidence` contains valid JSON with capability fields, those values are used directly.
+2. If `status == "suppressed"` and `error` matches known capability suppression patterns, the fields are parsed from the error text.
+3. Otherwise, fields are `None`.
+
+### 14.8.2 delivery_state_by_target Enrichment
+
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the receipt with the highest `attempt_number` per group. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, and `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
+
+| Field                | Present? | Source                          |
+| -------------------- | -------- | ------------------------------- |
+| `source`             | Yes      | Receipt `source` field          |
+| `replay_run_id`      | Yes      | Receipt `replay_run_id` field   |
+| `suppression_reason` | Yes      | Derived per § 14.8.1            |
+| `capability_field`   | Yes      | Derived per § 14.8.1            |
+| `capability_level`   | Yes      | Derived per § 14.8.1            |
+| `delivery_strategy`  | Yes      | Derived per § 14.8.1            |
+| `error`              | Yes      | Sanitized receipt `error` field |
+
+## 14.9 Rendering Budget Enforcement and Evidence
+
+The LXMF renderer enforces `max_text_chars` (default 16384) from `RenderingContext.max_text_chars`. When the rendered text exceeds the budget, the renderer truncates it and sets `truncated=True` on the `RenderingResult`. The original character length is recorded in `RenderingResult.metadata["original_length"]` for evidence without duplicating the payload.
+
+The `RenderingEvidence` snapshot captures the budget constraints (`max_text_chars`, `max_text_bytes`) and the outcome (`truncated`, `rendered_text_chars`, `rendered_text_bytes`, `original_text_chars`, `original_text_bytes`). Evidence metrics are bounded and payload-free: only character and byte counts are recorded, never the rendered text itself.
+
+> **Known gap.** The rendering budget enforcement is tested at the S-tier level (fake adapters and unit tests). No R-tier evidence exists for budget enforcement against a live LXMF router with real Reticulum transport. The `RE_RENDER` replay mode re-runs rendering but does not currently reconstruct a full capability-aware `RenderingContext` from stored artifacts; it uses whatever context the replay pipeline provides.
+
 ## 15. Queued-to-Sent Correlation Evidence
 
 ### 15.1 Purpose

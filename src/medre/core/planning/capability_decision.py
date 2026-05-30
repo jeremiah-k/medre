@@ -238,7 +238,15 @@ def _make_event_kind_reason(
     field_name: str,
     event_kind: str,
 ) -> str | None:
-    """Build a reason string for an event-kind candidate."""
+    r"""Build a reason string for an event-kind candidate.
+
+    COUPLING NOTE: The returned format ``"{field_name} {level} …"`` is
+    parsed by :func:`medre.runtime.reporting._derive_capability_evidence`
+    via the regex ``r"^(\\w+)\\s+(unsupported|fallback)\\b"``.  The
+    leading ``"{field_name} {level}"`` prefix MUST be preserved or the
+    report-dict derivation will silently break.  See regression tests in
+    ``TestResolverReasonRoundTrip`` (test_evidence_suppression.py).
+    """
     if capability_level == "native":
         return None
     if capability_level == "fallback":
@@ -252,7 +260,12 @@ def _make_relation_reason(
     field_name: str,
     relation_type: str,
 ) -> str | None:
-    """Build a reason string for a relation candidate."""
+    """Build a reason string for a relation candidate.
+
+    COUPLING NOTE: Same contract as :func:`_make_event_kind_reason` —
+    the ``"{field_name} {level}"`` prefix is parsed by
+    :func:`medre.runtime.reporting._derive_capability_evidence`.
+    """
     if capability_level == "native":
         return None
     if capability_level == "fallback":

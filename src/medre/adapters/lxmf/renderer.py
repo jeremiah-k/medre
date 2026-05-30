@@ -37,6 +37,7 @@ from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.relations import degrade_relations_inline
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.core.rendering.text_helpers import truncate_text as _truncate_text
 
 
 class LxmfRenderer:
@@ -153,6 +154,14 @@ class LxmfRenderer:
         if is_fallback:
             text = self._degrade_relations_inline(event, text)
 
+        # Enforce character budget declared in adapter capabilities
+        # (max_text_chars=16384 by default).  Record original length
+        # in metadata for evidence without duplicating the payload.
+        original_length = len(text)
+        truncated = False
+        if ctx.max_text_chars is not None:
+            text, truncated = _truncate_text(text, max_text_chars=ctx.max_text_chars)
+
         content: dict[str, object] = {
             "content": text,
             "title": title,
@@ -162,6 +171,7 @@ class LxmfRenderer:
 
         metadata: dict[str, object] = {
             "renderer": self.name,
+            "original_length": original_length,
         }
 
         return RenderingResult(
@@ -170,7 +180,7 @@ class LxmfRenderer:
             target_channel=ctx.target_channel,
             payload=content,
             metadata=metadata,
-            truncated=False,
+            truncated=truncated,
             fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
 

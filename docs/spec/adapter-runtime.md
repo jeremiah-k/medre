@@ -252,6 +252,22 @@ class CapabilityLevel(str, Enum):
 
 > **Note on `METADATA_*` naming.** The `METADATA_NATIVE` and `METADATA_NATIVE_OR_FALLBACK` level names are historical. They originated when relation context was primarily carried as metadata fields. In the current architecture, both levels mean **inline fallback semantics**: the target-native renderer embeds relation context as inline text within its own native payload format (e.g. a Meshtastic renderer produces Meshtastic text with `[replying to: …]` prefixes). The renderer owns the degradation logic; the adapter sees only a normal native payload. The `METADATA_` prefix is retained for enum stability but should be read as "inline fallback within native format."
 
+### 6.2.1 CapabilityLevel to Decision Mapping
+
+The five `CapabilityLevel` values collapse to a three-level decision model used by `CapabilityDecisionResolver` (see Routing and Delivery Specification, § 6.3). The mapping:
+
+| CapabilityLevel               | Decision level | Delivery strategy |
+| ----------------------------- | -------------- | ----------------- |
+| `TRUE`                        | `native`       | `direct`          |
+| `METADATA_NATIVE`             | `fallback`     | `fallback_text`   |
+| `METADATA_NATIVE_OR_FALLBACK` | `fallback`     | `fallback_text`   |
+| `FALSE`                       | `unsupported`  | `skip`            |
+| `FUTURE`                      | `unsupported`  | `skip`            |
+
+The resolver applies this mapping per capability field, then picks the most severe decision across all candidates (event kind + relations). See Routing and Delivery Specification § 6.3.1 through § 6.3.5 for the full precedence rules.
+
+> **Note on `FUTURE`.** `CapabilityLevel.FUTURE` maps to `unsupported` because the capability is not yet implemented. The resolver treats it the same as `FALSE` for delivery planning purposes. When the capability is later implemented, the adapter updates its declaration to `TRUE` or `METADATA_*`, and the resolver picks up the change without code changes elsewhere.
+
 ### 6.3 AdapterCapabilities Mapping
 
 ```python
@@ -467,7 +483,7 @@ class RenderingContext:
     target_platform: str | None                # Platform name (e.g. "matrix", "meshtastic")
     max_text_chars: int | None                 # Character budget from adapter capabilities
     max_text_bytes: int | None                 # UTF-8 byte budget from adapter capabilities
-    capability_level: CapabilityLevel          # "native", "fallback", or "unsupported"
+    capability_level: CapabilityDecisionLevel  # "native", "fallback", or "unsupported"
     capability_policy: str | None              # Optional policy hint (e.g. "strict", "lenient")
 ```
 
@@ -477,7 +493,9 @@ class RenderingContext:
 
 `max_text_bytes` is wired from the target adapter's `SIZE_LIMITS` capability by the pipeline. When the adapter declares a byte limit, this field carries it; otherwise it is `None`.
 
-`capability_level` and `capability_policy` are **reserved fields**. They are defined in `RenderingContext` for forward compatibility and caller-provided plumbing, but the default pipeline does **not** populate them from adapter capabilities. `capability_level` defaults to `"native"` and `capability_policy` defaults to `None`. These fields only carry meaning when a caller or future pipeline stage sets them explicitly. Renderers **MUST NOT** depend on `capability_level` for dispatch decisions unless they also control the code that populates it.
+`capability_level` is populated from the `CapabilityDecision` resolved by `CapabilityDecisionResolver`. The pipeline sets this field to the three-level decision result (`"native"`, `"fallback"`, or `"unsupported"`) for the event's capability context. This value is carried into `RenderingEvidence` and stored on delivery receipts via `rendering_evidence`, providing durable capability context per delivery. Renderers **MAY** inspect `capability_level` for dispatch decisions; the pipeline guarantees it reflects the resolved capability decision.
+
+`capability_policy` is a **reserved field**. It is defined in `RenderingContext` for a future explicit capability-policy stage and defaults to `None`. The current pipeline does not set it. Renderers **MUST NOT** depend on `capability_policy` for dispatch decisions unless they also control the code that populates it.
 
 ### 10.2 RenderingResult
 
@@ -528,12 +546,12 @@ These fields are not operational flags. They are evidence that lets operators un
 
 **Evidence signals on `RenderingContext`:**
 
-| Field               | Signal                                                                                                                                              |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `delivery_strategy` | The strategy that governed rendering.                                                                                                               |
-| `max_text_chars`    | Character budget that may have caused truncation.                                                                                                   |
-| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.                                                                                                  |
-| `capability_level`  | The level from `RenderingContext.capability_level`. Defaults to `"native"` — the default pipeline does not populate this from adapter capabilities. |
+| Field               | Signal                                                                                                                                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `delivery_strategy` | The strategy that governed rendering.                                                                                                                                                                                                                                                |
+| `max_text_chars`    | Character budget that may have caused truncation.                                                                                                                                                                                                                                    |
+| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.                                                                                                                                                                                                                                   |
+| `capability_level`  | The level from `RenderingContext.capability_level`. Populated from the `CapabilityDecision` resolved by `CapabilityDecisionResolver`. Reflects the same decision used by Phase 2.5 capability suppression, `FallbackResolver` strategy resolution, and replay BEST_EFFORT filtering. |
 
 The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
 
