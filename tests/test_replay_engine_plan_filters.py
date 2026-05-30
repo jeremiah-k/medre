@@ -866,3 +866,16 @@ class TestCapabilityEvidenceParity:
         assert output["replay"] is True
         adapter_results = output["adapter_results"]
         assert len(adapter_results) == 1
+
+        # Mixed outcome: suppressed-plan evidence must be present alongside
+        # the delivered adapter results (parity with all-suppressed branch).
+        assert output["source"] == "replay"
+        assert output["replay_run_id"] == "partial-run-001"
+        assert len(output["capability_suppressed_plans"]) == 1
+
+        sup = output["capability_suppressed_plans"][0]
+        assert "delivery_plan_id" in sup
+        assert sup["target_adapter"] == "adapter-no-attachments"
+        assert sup["reason"] is not None
+
+        assert len(output["delivery_plan_ids"]) == 1

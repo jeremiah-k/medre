@@ -49,6 +49,39 @@ class _CapabilityFilterResult(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
+# Suppressed-evidence builder
+# ---------------------------------------------------------------------------
+
+
+def _build_suppressed_evidence(
+    suppressed: list[_CapabilitySuppressedPlan],
+    run_id: str | None,
+) -> dict[str, Any]:
+    """Build a dict of suppressed-plan evidence for ReplayResult.output.
+
+    Reused by both the all-suppressed (skipped) path and the mixed
+    (passed) path so that evidence shaping stays consistent.
+    """
+    _suppressed_plan_ids = [s.delivery_plan_id for s in suppressed]
+    _suppressed_evidence = [
+        {
+            "delivery_plan_id": s.delivery_plan_id,
+            "target_adapter": s.target_adapter,
+            "capability_level": s.capability_level,
+            "capability_field": s.capability_field,
+            "reason": s.reason,
+        }
+        for s in suppressed
+    ]
+    return {
+        "capability_suppressed_plans": _suppressed_evidence,
+        "delivery_plan_ids": _suppressed_plan_ids,
+        "replay_run_id": run_id or None,
+        "source": "replay",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Delivery envelope
 # ---------------------------------------------------------------------------
 
@@ -302,6 +335,7 @@ class _ReplayDeliveryMixin:
         # event kind is supported by the target adapter.  Skip delivery
         # with a descriptive error when the adapter lacks the required
         # capability.  Non-BEST_EFFORT modes are not affected.
+        _suppressed: list[_CapabilitySuppressedPlan] = []
         if mode is ReplayMode.BEST_EFFORT:
             # Extract adapters dict from the pipeline collaborator.
             _adapters: dict[str, Any] | None = None
@@ -324,17 +358,6 @@ class _ReplayDeliveryMixin:
                 # so that delivery_plan_id / replay_run_id / reason are
                 # preserved (parity with live Phase 2.5 suppression
                 # receipts).
-                _suppressed_plan_ids = [s.delivery_plan_id for s in _suppressed]
-                _suppressed_evidence = [
-                    {
-                        "delivery_plan_id": s.delivery_plan_id,
-                        "target_adapter": s.target_adapter,
-                        "capability_level": s.capability_level,
-                        "capability_field": s.capability_field,
-                        "reason": s.reason,
-                    }
-                    for s in _suppressed
-                ]
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
@@ -343,12 +366,7 @@ class _ReplayDeliveryMixin:
                         f"capability_suppressed: {event.event_kind} "
                         f"not supported by target adapter(s)"
                     ),
-                    output={
-                        "capability_suppressed_plans": _suppressed_evidence,
-                        "delivery_plan_ids": _suppressed_plan_ids,
-                        "replay_run_id": request.run_id or None,
-                        "source": "replay",
-                    },
+                    output=_build_suppressed_evidence(_suppressed, request.run_id),
                     duration_ms=_elapsed_ms(t0),
                 )
 
@@ -398,6 +416,15 @@ class _ReplayDeliveryMixin:
                 # Stub pipeline: plan_result is list[Any] (bare plans).
                 receipts = await self._pipeline.deliver(event, plan_result)
                 replay_output = _replay_delivery_envelope(receipts)
+
+            # Mixed BEST_EFFORT outcome: some plans delivered, others
+            # capability-suppressed.  Merge suppressed-plan evidence
+            # into the replay output alongside adapter results.
+            if _suppressed:
+                replay_output.update(
+                    _build_suppressed_evidence(_suppressed, request.run_id)
+                )
+
             return ReplayResult(
                 event_id=event.event_id,
                 stage="deliver",

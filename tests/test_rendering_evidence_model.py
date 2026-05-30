@@ -15,17 +15,11 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
-    CanonicalEvent,
     DeliveryReceipt,
-    EventMetadata,
-    EventRelation,
 )
 from medre.core.rendering.evidence import (
     EVIDENCE_SCHEMA_VERSION,
@@ -35,64 +29,11 @@ from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
 )
-
-# ---------------------------------------------------------------------------
-# Helper factories
-# ---------------------------------------------------------------------------
-
-
-def _make_event(
-    event_id: str = "evt-evidence-001",
-    payload: dict | None = None,
-    relations: tuple[EventRelation, ...] | None = None,
-    source_adapter: str = "source-adapter",
-) -> CanonicalEvent:
-    """Create a minimal canonical event for rendering tests."""
-    return CanonicalEvent(
-        event_id=event_id,
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter=source_adapter,
-        source_transport_id="transport-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=relations or (),
-        payload=payload or {"text": "evidence test message"},
-        metadata=EventMetadata(),
-    )
-
-
-def _make_context(
-    target_adapter: str = "target-adapter",
-    target_platform: str | None = None,
-    delivery_strategy: str = "direct",
-    target_channel: str | None = None,
-    max_text_bytes: int | None = None,
-    max_text_chars: int | None = None,
-) -> RenderingContext:
-    """Create a RenderingContext with sensible defaults."""
-    return RenderingContext(
-        delivery_strategy=delivery_strategy,  # type: ignore[arg-type]
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        target_platform=target_platform,
-        max_text_bytes=max_text_bytes,
-        max_text_chars=max_text_chars,
-    )
-
-
-def _make_meshtastic_renderer(
-    adapter_id: str = "mesh-target",
-    max_text_bytes: int = 227,
-) -> MeshtasticRenderer:
-    config = MeshtasticConfig(
-        adapter_id=adapter_id,
-        max_text_bytes=max_text_bytes,
-    )
-    return MeshtasticRenderer(configs={adapter_id: config})
-
+from tests.helpers.rendering_evidence import (
+    make_context,
+    make_event,
+    make_meshtastic_renderer,
+)
 
 # ===================================================================
 # RenderingEvidence model (gated on implementation)
@@ -104,7 +45,7 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_captures_context_fields(self) -> None:
         """RenderingEvidence records key RenderingContext fields."""
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="adapter-1",
             target_platform="meshtastic",
             delivery_strategy="direct",
@@ -127,7 +68,7 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_captures_truncation_metadata(self) -> None:
         """RenderingEvidence records truncation from RenderingResult metadata."""
-        ctx = _make_context(target_adapter="adapter-1", target_platform="meshtastic")
+        ctx = make_context(target_adapter="adapter-1", target_platform="meshtastic")
         result = RenderingResult(
             event_id="evt-1",
             target_adapter="adapter-1",
@@ -154,7 +95,7 @@ class TestRenderingEvidenceModel:
 
     def test_evidence_records_fallback_applied(self) -> None:
         """RenderingEvidence records fallback_applied when present."""
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="adapter-2",
             target_platform="lxmf",
             delivery_strategy="fallback_text",
@@ -347,7 +288,7 @@ class TestTextMetricsNormalization:
         payload: dict[str, object],
         metadata: dict[str, object],
     ) -> RenderingEvidence:
-        ctx = _make_context(target_adapter="a", target_platform="p")
+        ctx = make_context(target_adapter="a", target_platform="p")
         result = RenderingResult(
             event_id="evt-metrics",
             target_adapter="a",
@@ -459,7 +400,7 @@ class TestEvidenceAttachmentBoundary:
         pipeline = RenderingPipeline()
         pipeline.register(TextRenderer(), priority=100)
 
-        event = _make_event(event_id="evt-pipe-ev")
+        event = make_event(event_id="evt-pipe-ev")
         result = await pipeline.render(
             event,
             target_adapter="target-1",
@@ -471,9 +412,9 @@ class TestEvidenceAttachmentBoundary:
 
     async def test_direct_renderer_no_evidence(self) -> None:
         """Calling renderer.render() directly does not attach evidence."""
-        renderer = _make_meshtastic_renderer()
-        event = _make_event(payload={"text": "direct call"})
-        ctx = _make_context(
+        renderer = make_meshtastic_renderer()
+        event = make_event(payload={"text": "direct call"})
+        ctx = make_context(
             target_adapter="mesh-target",
             target_platform="meshtastic",
         )
@@ -595,7 +536,7 @@ class TestPipelineCapabilityLevelRendering:
         pipeline = RenderingPipeline()
         pipeline.register(TextRenderer(), priority=100)
 
-        event = _make_event(event_id="evt-cap-fallback")
+        event = make_event(event_id="evt-cap-fallback")
         result = await pipeline.render(
             event,
             target_adapter="target-1",
@@ -615,7 +556,7 @@ class TestPipelineCapabilityLevelRendering:
         pipeline = RenderingPipeline()
         pipeline.register(TextRenderer(), priority=100)
 
-        event = _make_event(event_id="evt-cap-default")
+        event = make_event(event_id="evt-cap-default")
         result = await pipeline.render(
             event,
             target_adapter="target-1",
@@ -632,7 +573,7 @@ class TestPipelineCapabilityLevelRendering:
         pipeline = RenderingPipeline()
         pipeline.register(TextRenderer(), priority=100)
 
-        event = _make_event(event_id="evt-cap-native")
+        event = make_event(event_id="evt-cap-native")
         result = await pipeline.render(
             event,
             target_adapter="target-1",
@@ -695,7 +636,7 @@ class TestRenderingContextCapabilityLevelValidation:
         pipeline = RenderingPipeline()
         pipeline.register(TextRenderer(), priority=100)
 
-        event = _make_event(event_id="evt-ctx-norm")
+        event = make_event(event_id="evt-ctx-norm")
         result = await pipeline.render(
             event,
             target_adapter="target-1",

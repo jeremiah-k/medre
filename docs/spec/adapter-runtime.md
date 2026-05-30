@@ -483,7 +483,7 @@ class RenderingContext:
     target_platform: str | None                # Platform name (e.g. "matrix", "meshtastic")
     max_text_chars: int | None                 # Character budget from adapter capabilities
     max_text_bytes: int | None                 # UTF-8 byte budget from adapter capabilities
-    capability_level: CapabilityLevel          # "native", "fallback", or "unsupported"
+    capability_level: CapabilityDecisionLevel  # "native", "fallback", or "unsupported"
     capability_policy: str | None              # Optional policy hint (e.g. "strict", "lenient")
 ```
 

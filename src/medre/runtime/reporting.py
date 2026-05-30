@@ -184,18 +184,30 @@ def _derive_capability_evidence(
 ) -> dict[str, Any]:
     """Derive structured capability-suppression fields from receipt data.
 
-    Extracts ``suppression_reason``, ``capability_field``,
-    ``capability_level``, and ``delivery_strategy`` from the receipt's
-    ``error`` text and/or ``rendering_evidence`` JSON **without** requiring
-    storage schema changes.
+    Extracts fields **without** requiring storage schema changes.
+
+    **Sources by field:**
+
+    * ``rendering_evidence`` JSON supplies ``capability_level`` and
+      ``delivery_strategy`` (for sent/queued receipts).
+    * ``error`` text supplies ``suppression_reason`` (always sanitized via
+      :func:`sanitize_error`), ``capability_field``, and — when the error
+      matches a known capability pattern — also ``capability_level`` and
+      ``delivery_strategy``.
 
     Resolution order:
 
     1. If ``rendering_evidence`` contains valid JSON with capability fields,
-       those values are used directly.
+       those values seed ``capability_level`` and ``delivery_strategy``.
     2. If ``status == "suppressed"`` and ``error`` matches known capability
-       suppression patterns, the fields are parsed from the error text.
-    3. Otherwise, fields are ``None``.
+       suppression patterns, fields are parsed from the error text
+       (overriding rendering_evidence values where applicable).
+    3. ``suppression_reason`` is always sanitized before storage to prevent
+      leaking tokens or secrets present in the raw error.
+    4. As a safety net, when ``failure_kind == "capability_suppressed"``,
+      ``capability_level`` and ``delivery_strategy`` default to
+      ``"unsupported"`` and ``"skip"`` respectively if not already set by
+      an earlier step.
 
     Returns a dict with keys ``suppression_reason``, ``capability_field``,
     ``capability_level``, ``delivery_strategy`` (all possibly ``None``).
@@ -234,7 +246,7 @@ def _derive_capability_evidence(
         cap_match = re.match(r"^capability_suppressed:\s*(.+)$", error)
         if cap_match:
             reason_text = cap_match.group(1).strip()
-            result["suppression_reason"] = reason_text
+            result["suppression_reason"] = sanitize_error(reason_text)
             # Extract capability_field from reason: first word before
             # " unsupported" or " fallback".
             field_match = re.match(r"^(\w+)\s+(unsupported|fallback)\b", reason_text)
@@ -251,19 +263,29 @@ def _derive_capability_evidence(
                     result["capability_level"] = "unsupported"
                     result["delivery_strategy"] = "skip"
         elif error.startswith("plan_skip:") or error.startswith("delivery_skipped:"):
-            result["suppression_reason"] = error
+            result["suppression_reason"] = sanitize_error(error)
             result["delivery_strategy"] = "skip"
             if failure_kind == "capability_suppressed":
                 result["capability_level"] = "unsupported"
         elif failure_kind == "loop_suppressed":
-            result["suppression_reason"] = error
+            result["suppression_reason"] = sanitize_error(error)
             result["capability_level"] = None
             result["delivery_strategy"] = None
         elif failure_kind == "policy_suppressed":
-            result["suppression_reason"] = error
+            result["suppression_reason"] = sanitize_error(error)
         else:
             # Generic suppressed receipt with unknown failure_kind.
-            result["suppression_reason"] = error
+            result["suppression_reason"] = sanitize_error(error)
+
+    # Safety net: capability_suppressed must always produce unsupported/skip
+    # defaults even when the error does not match any known pattern.
+    # Preserve values explicitly extracted from the error text (unsupported,
+    # fallback) but override any rendering_evidence-only values (e.g. native).
+    if failure_kind == "capability_suppressed":
+        if result["capability_level"] not in ("unsupported", "fallback"):
+            result["capability_level"] = "unsupported"
+        if result["delivery_strategy"] not in ("skip", "fallback_text"):
+            result["delivery_strategy"] = "skip"
 
     return result
 

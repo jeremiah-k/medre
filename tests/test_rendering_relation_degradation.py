@@ -11,101 +11,25 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Literal, cast
 
 import pytest
 
-from medre.adapters.lxmf.renderer import LxmfRenderer
-from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.adapters.meshcore.renderer import MeshCoreRenderer
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
-    CanonicalEvent,
-    EventMetadata,
     EventRelation,
 )
-from medre.core.rendering.renderer import (
-    RenderingContext,
+from tests.helpers.rendering_evidence import (
+    make_context,
+    make_event,
+    make_lxmf_renderer,
+    make_matrix_renderer,
+    make_meshcore_renderer,
+    make_meshtastic_renderer,
 )
 
 # ---------------------------------------------------------------------------
-# Helper factories
+# Relation-specific helper
 # ---------------------------------------------------------------------------
-
-
-def _make_event(
-    event_id: str = "evt-evidence-001",
-    payload: dict | None = None,
-    relations: tuple[EventRelation, ...] | None = None,
-    source_adapter: str = "source-adapter",
-) -> CanonicalEvent:
-    """Create a minimal canonical event for rendering tests."""
-    return CanonicalEvent(
-        event_id=event_id,
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter=source_adapter,
-        source_transport_id="transport-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=relations or (),
-        payload=payload or {"text": "evidence test message"},
-        metadata=EventMetadata(),
-    )
-
-
-def _make_context(
-    target_adapter: str = "target-adapter",
-    target_platform: str | None = None,
-    delivery_strategy: str = "direct",
-    target_channel: str | None = None,
-    max_text_bytes: int | None = None,
-    max_text_chars: int | None = None,
-) -> RenderingContext:
-    """Create a RenderingContext with sensible defaults."""
-    return RenderingContext(
-        delivery_strategy=delivery_strategy,  # type: ignore[arg-type]
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        target_platform=target_platform,
-        max_text_bytes=max_text_bytes,
-        max_text_chars=max_text_chars,
-    )
-
-
-def _make_meshtastic_renderer(
-    adapter_id: str = "mesh-target",
-    max_text_bytes: int = 227,
-) -> MeshtasticRenderer:
-    config = MeshtasticConfig(
-        adapter_id=adapter_id,
-        max_text_bytes=max_text_bytes,
-    )
-    return MeshtasticRenderer(configs={adapter_id: config})
-
-
-def _make_meshcore_renderer(
-    adapter_id: str = "mc-target",
-    max_text_bytes: int = 512,
-) -> MeshCoreRenderer:
-    config = MeshCoreConfig(
-        adapter_id=adapter_id,
-        max_text_bytes=max_text_bytes,
-    )
-    return MeshCoreRenderer(configs={adapter_id: config})
-
-
-def _make_lxmf_renderer() -> LxmfRenderer:
-    return LxmfRenderer(metadata_embedding=True)
-
-
-def _make_matrix_renderer() -> MatrixRenderer:
-    return MatrixRenderer(source_configs=None)
 
 
 def _make_relation_event(
@@ -114,7 +38,7 @@ def _make_relation_event(
     payload: dict | None = None,
     fallback_text: str | None = None,
     key: str | None = None,
-) -> CanonicalEvent:
+):
     """Create an event with a specific relation type."""
     rel = EventRelation(
         relation_type=cast(
@@ -126,7 +50,7 @@ def _make_relation_event(
         key=key,
         fallback_text=fallback_text,
     )
-    return _make_event(
+    return make_event(
         payload=payload or {"text": "test message"},
         relations=(rel,),
     )
@@ -161,7 +85,7 @@ class TestRelationFallbackDegradation:
             payload={"text": "hello"},
             key=key,
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -190,7 +114,7 @@ class TestRelationFallbackDegradation:
             payload={"text": "hello"},
             key=key,
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -210,12 +134,12 @@ class TestRelationFallbackDegradation:
         relation_type: str,
     ) -> None:
         """Meshtastic fallback_text produces deterministic degraded text."""
-        renderer = _make_meshtastic_renderer()
+        renderer = make_meshtastic_renderer()
         event = _make_relation_event(
             relation_type,
             payload={"text": "test body"},
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mesh-target",
             target_platform="meshtastic",
             delivery_strategy="fallback_text",
@@ -238,14 +162,14 @@ class TestRelationFallbackDegradation:
         relation_type: str,
     ) -> None:
         """MeshCore fallback_text produces deterministic degraded text."""
-        renderer = _make_meshcore_renderer()
+        renderer = make_meshcore_renderer()
         key = "👍" if relation_type == "reaction" else None
         event = _make_relation_event(
             relation_type,
             payload={"text": "test body"},
             key=key,
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mc-target",
             target_platform="meshcore",
             delivery_strategy="fallback_text",
@@ -268,14 +192,14 @@ class TestRelationFallbackDegradation:
         relation_type: str,
     ) -> None:
         """LXMF fallback_text produces deterministic degraded content."""
-        renderer = _make_lxmf_renderer()
+        renderer = make_lxmf_renderer()
         key = "👍" if relation_type == "reaction" else None
         event = _make_relation_event(
             relation_type,
             payload={"text": "test body"},
             key=key,
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="lxmf-target",
             target_platform="lxmf",
             delivery_strategy="fallback_text",
@@ -298,14 +222,14 @@ class TestRelationFallbackDegradation:
         relation_type: str,
     ) -> None:
         """Matrix fallback_text produces deterministic degraded body."""
-        renderer = _make_matrix_renderer()
+        renderer = make_matrix_renderer()
         key = "👍" if relation_type == "reaction" else None
         event = _make_relation_event(
             relation_type,
             payload={"text": "test body"},
             key=key,
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="matrix-target",
             target_platform="matrix",
             delivery_strategy="fallback_text",
@@ -331,11 +255,11 @@ class TestRelationFallbackDegradation:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "reply body"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -355,11 +279,11 @@ class TestRelationFallbackDegradation:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": ""},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -379,11 +303,11 @@ class TestRelationFallbackDegradation:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "edited text"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -403,11 +327,11 @@ class TestRelationFallbackDegradation:
             key="👍",
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "", "user": "Alice"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -428,11 +352,11 @@ class TestRelationFallbackDegradation:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread reply"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="fallback_text",
         )
@@ -469,21 +393,21 @@ class TestMultiRelationDeterminism:
             key="❤️",
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "hello"},
             relations=(rel1, rel2),
         )
-        ctx = _make_context(target_adapter="text-target")
+        ctx = make_context(target_adapter="text-target")
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
         # First relation is reply, so text should contain reply formatting
         assert "replying to" in text or "first target" in text
         # Second relation (reaction) should NOT appear
-        assert "❤️" not in text or "reacted with" not in text
+        assert "❤️" not in text and "reacted with" not in text
 
     async def test_meshcore_uses_first_relation_only(self) -> None:
         """MeshCore processes only the first relation."""
-        renderer = _make_meshcore_renderer()
+        renderer = make_meshcore_renderer()
         rel1 = EventRelation(
             relation_type="edit",
             target_event_id="evt-edit-first",
@@ -498,11 +422,11 @@ class TestMultiRelationDeterminism:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "multi-rel"},
             relations=(rel1, rel2),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mc-target",
             target_platform="meshcore",
             delivery_strategy="fallback_text",
@@ -532,11 +456,11 @@ class TestMultiRelationDeterminism:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "content"},
             relations=(rel1, rel2),
         )
-        ctx = _make_context(target_adapter="text-target")
+        ctx = make_context(target_adapter="text-target")
 
         results = [await renderer.render(event, ctx) for _ in range(5)]
         texts = [str(r.payload["text"]) for r in results]
@@ -562,15 +486,15 @@ class TestMultiRelationDeterminism:
             key=None,
             fallback_text=None,
         )
-        event_reply_first = _make_event(
+        event_reply_first = make_event(
             payload={"text": "content"},
             relations=(rel_reply, rel_edit),
         )
-        event_edit_first = _make_event(
+        event_edit_first = make_event(
             payload={"text": "content"},
             relations=(rel_edit, rel_reply),
         )
-        ctx = _make_context(target_adapter="text-target")
+        ctx = make_context(target_adapter="text-target")
 
         result1 = await renderer.render(event_reply_first, ctx)
         result2 = await renderer.render(event_edit_first, ctx)
@@ -589,7 +513,7 @@ class TestThreadRelationCapability:
 
     async def test_matrix_fallback_thread_no_m_relates_to(self) -> None:
         """Matrix fallback_text thread omits m.relates_to."""
-        renderer = _make_matrix_renderer()
+        renderer = make_matrix_renderer()
         rel = EventRelation(
             relation_type="thread",
             target_event_id="evt-thread-001",
@@ -597,11 +521,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread reply"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="matrix-target",
             target_platform="matrix",
             delivery_strategy="fallback_text",
@@ -613,7 +537,7 @@ class TestThreadRelationCapability:
 
     async def test_meshcore_fallback_thread_degrades_text(self) -> None:
         """MeshCore fallback_text thread degrades to inline text."""
-        renderer = _make_meshcore_renderer()
+        renderer = make_meshcore_renderer()
         rel = EventRelation(
             relation_type="thread",
             target_event_id="evt-thread-002",
@@ -621,11 +545,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread msg"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mc-target",
             target_platform="meshcore",
             delivery_strategy="fallback_text",
@@ -639,7 +563,7 @@ class TestThreadRelationCapability:
 
     async def test_meshtastic_fallback_thread_degrades_text(self) -> None:
         """Meshtastic fallback_text thread degrades to readable text."""
-        renderer = _make_meshtastic_renderer()
+        renderer = make_meshtastic_renderer()
         rel = EventRelation(
             relation_type="thread",
             target_event_id="evt-thread-003",
@@ -647,11 +571,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread reply"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mesh-target",
             target_platform="meshtastic",
             delivery_strategy="fallback_text",
@@ -663,7 +587,7 @@ class TestThreadRelationCapability:
 
     async def test_lxmf_fallback_thread_degrades_text(self) -> None:
         """LXMF fallback_text thread degrades to inline text."""
-        renderer = _make_lxmf_renderer()
+        renderer = make_lxmf_renderer()
         rel = EventRelation(
             relation_type="thread",
             target_event_id="evt-thread-004",
@@ -671,11 +595,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread content"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="lxmf-target",
             target_platform="lxmf",
             delivery_strategy="fallback_text",
@@ -697,11 +621,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "thread body"},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="text-target",
             delivery_strategy="direct",
         )
@@ -712,7 +636,7 @@ class TestThreadRelationCapability:
 
     async def test_meshcore_thread_text_truncated_by_byte_budget(self) -> None:
         """Thread degraded text is still subject to byte budget truncation."""
-        renderer = _make_meshcore_renderer(max_text_bytes=20)
+        renderer = make_meshcore_renderer(max_text_bytes=20)
         rel = EventRelation(
             relation_type="thread",
             target_event_id="evt-thread-006",
@@ -720,11 +644,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "A" * 200},
             relations=(rel,),
         )
-        ctx = _make_context(
+        ctx = make_context(
             target_adapter="mc-target",
             target_platform="meshcore",
             delivery_strategy="fallback_text",
@@ -745,11 +669,11 @@ class TestThreadRelationCapability:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
+        event = make_event(
             payload={"text": "deterministic"},
             relations=(rel,),
         )
-        ctx = _make_context(target_adapter="text-target")
+        ctx = make_context(target_adapter="text-target")
 
         results = [await renderer.render(event, ctx) for _ in range(3)]
         texts = [str(r.payload["text"]) for r in results]

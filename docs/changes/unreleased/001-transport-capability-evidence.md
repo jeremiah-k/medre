@@ -1,8 +1,8 @@
-## Transport Capability Semantics and Delivery Evidence
+# Transport Capability Semantics and Delivery Evidence
 
 Document implemented transport capability semantics, rendering budget behavior, suppression/truncation evidence, relation/reaction degradation, replay parity expectations, and unknown capability behavior.
 
-### Changed
+## Changed
 
 - `docs/spec/adapter-runtime.md`: Added CapabilityLevel to three-level decision mapping table (§ 6.2.1). Updated `RenderingContext.capability_level` from reserved to populated from CapabilityDecision (§ 10.1). Updated evidence signal description for `capability_level` (§ 10.5).
 

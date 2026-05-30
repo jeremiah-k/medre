@@ -1199,7 +1199,7 @@ class TestFallbackEventKindReasonExact:
             == "deletes fallback for adapter (event_kind=message.deleted)"
         )
 
-    def test_replies_unsupported_event_kind_reason_exact(self) -> None:
+    def test_edits_unsupported_event_kind_reason_exact(self) -> None:
         """message.edited with edits=unsupported: verify exact reason format."""
         caps = AdapterCapabilities(edits="unsupported")
         event = make_event(event_kind="message.edited")

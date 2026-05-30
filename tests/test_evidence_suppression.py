@@ -530,6 +530,87 @@ class TestDeriveCapabilityEvidenceUnit:
         assert result["capability_level"] == "unsupported"
         assert result["delivery_strategy"] == "skip"
 
+    def test_capability_suppressed_unrecognized_error_fallback(self) -> None:
+        """capability_suppressed failure_kind with completely unrecognized error
+        format still falls back to unsupported/skip via safety net."""
+        result = _derive_capability_evidence(
+            error="some completely unknown error message",
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+        assert result["suppression_reason"] == "some completely unknown error message"
+        assert result["capability_field"] is None
+
+    def test_capability_suppressed_empty_error_fallback(self) -> None:
+        """capability_suppressed with empty error still gets unsupported/skip."""
+        result = _derive_capability_evidence(
+            error="",
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        # Empty error is falsy, so the suppressed block is skipped entirely;
+        # safety net still kicks in.
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+        assert result["suppression_reason"] is None
+
+    def test_suppression_reason_sanitized_with_token(self) -> None:
+        """suppression_reason is sanitized: tokens in error text are redacted."""
+        result = _derive_capability_evidence(
+            error="capability_suppressed: text unsupported (token=syt_deadbeef123abc)",
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert "syt_deadbeef123abc" not in result["suppression_reason"]
+        assert "[REDACTED]" in result["suppression_reason"]
+        assert result["capability_field"] == "text"
+        assert result["capability_level"] == "unsupported"
+
+    def test_suppression_reason_sanitized_plan_skip_with_token(self) -> None:
+        """plan_skip error with embedded token is sanitized in suppression_reason."""
+        result = _derive_capability_evidence(
+            error="plan_skip: delivery strategy is 'skip' (token=sk-abc123def456ghi789xyz)",
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert "sk-abc123def456ghi789xyz" not in result["suppression_reason"]
+        assert "[REDACTED]" in result["suppression_reason"]
+        assert result["delivery_strategy"] == "skip"
+        assert result["capability_level"] == "unsupported"
+
+    def test_suppression_reason_sanitized_loop_suppressed_with_token(self) -> None:
+        """loop_suppressed error with embedded token is sanitized."""
+        result = _derive_capability_evidence(
+            error="Self-loop guard detected (access_token=syt_looptoken123)",
+            rendering_evidence=None,
+            failure_kind="loop_suppressed",
+            status="suppressed",
+        )
+        assert "syt_looptoken123" not in result["suppression_reason"]
+        assert "[REDACTED]" in result["suppression_reason"]
+        assert result["capability_level"] is None
+
+    def test_rendering_evidence_overridden_by_capability_suppressed_safety_net(
+        self,
+    ) -> None:
+        """When failure_kind is capability_suppressed but error doesn't match
+        any known pattern, safety net overrides rendering_evidence values."""
+        result = _derive_capability_evidence(
+            error="unrecognized error text",
+            rendering_evidence='{"capability_level": "native", "delivery_strategy": "direct"}',
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        # Safety net fills unsupported/skip since error parsing didn't set them.
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
 
 class TestCapabilitySuppressedEvidenceBundle:
     """Integration tests: capability-suppressed receipts in evidence bundle
