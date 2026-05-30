@@ -9,20 +9,32 @@ Asserts deterministic replay behaviour for DRY_RUN and BEST_EFFORT modes:
   pipeline provides it.
 
 Uses the same StubPipeline / make_engine helpers as the existing replay
-test modules.  No real adapters, no network, no durable replay jobs.
+test modules.  Capability filtering tests use real PipelineRunner with
+FakePresentationAdapter to exercise _filter_plans_by_capability through
+the actual ReplayEngine._stage_deliver code path.
+
+No real network, no durable replay jobs.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import cast
 
 import pytest
 
-from medre.core.engine.replay import ReplayMode, ReplayRequest
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.engine.replay import ReplayEngine, ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.bus import EventBus
+from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
+from medre.core.storage.backend import StorageBackend
 from tests.helpers.replay import StubPipeline, make_engine
 
 # ---------------------------------------------------------------------------
@@ -262,3 +274,174 @@ class TestReplayEvidenceConformance:
         # TextRenderer is registered and should render successfully.
         assert render_results[0].status == "passed"
         assert render_results[0].output is not None
+
+
+# ---------------------------------------------------------------------------
+# BEST_EFFORT capability filtering conformance (real PipelineRunner)
+# ---------------------------------------------------------------------------
+
+
+def _make_pipeline_config(
+    storage: SQLiteStorage,
+    router: Router,
+    adapters: dict,
+) -> PipelineConfig:
+    """Build a PipelineConfig for replay conformance tests."""
+    return PipelineConfig(
+        storage=cast(StorageBackend, storage),
+        router=router,
+        fallback_resolver=FallbackResolver(),
+        relation_resolver=RelationResolver(storage=storage),
+        adapters=adapters,
+        event_bus=EventBus(),
+    )
+
+
+class TestReplayBestEffortCapabilityFiltering:
+    """BEST_EFFORT capability filtering through real ReplayEngine +
+    PipelineRunner.
+
+    Exercises the _filter_plans_by_capability path in
+    ReplayEngine._stage_deliver using real adapters and routing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unsupported_reaction_filtered_in_best_effort(
+        self, temp_storage: SQLiteStorage
+    ):
+        """BEST_EFFORT replay filters message.reacted when adapter has
+        reactions='unsupported'.
+
+        Seeds a reaction event into storage, configures a real
+        PipelineRunner with a FakePresentationAdapter whose
+        reactions capability is unsupported, then runs BEST_EFFORT
+        replay.  The deliver stage must be skipped with
+        capability_suppressed in the error.
+        """
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+            replies="native",
+        )
+
+        route = Route(
+            id="replay-cap-filter-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(temp_storage, router, {"dest": adapter})
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = CanonicalEvent(
+            event_id="replay-cap-filter-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-001",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"key": "\U0001f44d"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        try:
+            engine = ReplayEngine(
+                storage=temp_storage,
+                pipeline=runner,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="replay-cap-filter-run-001",
+                correlation_ids=["replay-cap-filter-001"],
+            )
+
+            results = [r async for r in engine.replay(request)]
+
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert len(deliver_results) >= 1
+            assert deliver_results[0].status == "skipped"
+            assert deliver_results[0].error is not None
+            assert "capability_suppressed" in deliver_results[0].error
+
+            # Adapter never called.
+            assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_fallback_capability_not_filtered_in_best_effort(
+        self, temp_storage: SQLiteStorage
+    ):
+        """BEST_EFFORT replay does NOT filter message.reacted when adapter
+        has reactions='fallback'.
+
+        Fallback-capable adapters should remain deliverable; only
+        unsupported capabilities are filtered.
+        """
+        adapter = FakePresentationAdapter(adapter_id="dest_fb")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="fallback",
+            replies="native",
+        )
+
+        route = Route(
+            id="replay-cap-fallback-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest_fb")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(temp_storage, router, {"dest_fb": adapter})
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = CanonicalEvent(
+            event_id="replay-cap-fallback-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-001",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"key": "\U0001f44d"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        try:
+            engine = ReplayEngine(
+                storage=temp_storage,
+                pipeline=runner,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="replay-cap-fallback-run-001",
+                correlation_ids=["replay-cap-fallback-001"],
+            )
+
+            [r async for r in engine.replay(request)]
+
+            # The event should NOT be filtered: adapter was called.
+            assert len(adapter.delivered_payloads) == 1
+        finally:
+            await runner.stop()

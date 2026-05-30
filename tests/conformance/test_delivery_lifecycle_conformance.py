@@ -1,29 +1,55 @@
 """Delivery lifecycle conformance tests.
 
-Asserts delivery receipt contracts using DeliveryLifecycleService
-and direct DeliveryReceipt construction:
+Shape characterization tests (phase 2) assert delivery receipt field
+contracts using manually-constructed receipts and DeliveryLifecycleService.
 
-* Direct sent delivery creates sent receipt.
-* Queued delivery creates queued receipt.
-* Queued -> sent supplemental receipt correlates by delivery_plan_id.
-* Supplemental receipt preserves parent/plan/route/channel/evidence.
-* Suppressed receipt does not include rendering_evidence.
+Service-path tests (phase 3) assert real delivery execution through
+TargetDeliveryService with fake adapters, a real RenderingPipeline,
+and real receipt persistence:
 
-Uses an in-memory storage backend to persist and inspect receipts.
-No real adapters or network involved.
+* Direct sent delivery via TargetDeliveryService produces a persisted
+  receipt with status='sent', correct plan/route/adapter/channel,
+  source='live', and canonical RenderingEvidence JSON.
+* Queued delivery (adapter returns enqueued) produces a persisted
+  receipt with status='queued', correct plan/adapter/channel, and
+  canonical RenderingEvidence JSON.
+
+No real network involved.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterDeliveryResult,
+    OutboundNativeRefRecord,
+)
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
-from medre.core.events.canonical import DeliveryReceipt
-from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
+from medre.core.events.canonical import (
+    CanonicalEvent,
+    DeliveryReceipt,
+    EventMetadata,
+    NativeMessageRef,
+)
+from medre.core.observability.metrics import Diagnostician
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    DeliveryPlan,
+    DeliveryStrategy,
+)
+from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.text import TextRenderer
+from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 
 # ---------------------------------------------------------------------------
@@ -36,6 +62,7 @@ class _MemoryStorage(StorageBackend):
 
     def __init__(self) -> None:
         self._receipts: list[DeliveryReceipt] = []
+        self._native_refs: list[NativeMessageRef] = []
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
@@ -43,15 +70,15 @@ class _MemoryStorage(StorageBackend):
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]
 
+    async def store_native_ref(self, ref: NativeMessageRef) -> None:
+        self._native_refs.append(ref)
+
     # -- Required by abstract protocol but unused in these tests --
 
     async def append(self, event) -> None:
         raise NotImplementedError
 
     async def get(self, event_id: str):
-        raise NotImplementedError
-
-    async def store_native_ref(self, ref) -> None:
         raise NotImplementedError
 
     async def resolve_native_ref(self, adapter, native_channel_id, native_message_id):
@@ -239,3 +266,222 @@ class TestDeliveryLifecycleConformance:
         receipts = await storage.list_receipts_for_event(event_id)
         assert len(receipts) == 1
         assert receipts[0].status == "suppressed"
+
+
+# ---------------------------------------------------------------------------
+# Service-path delivery conformance (phase 3)
+# ---------------------------------------------------------------------------
+
+
+class _FakeQueuedAdapter:
+    """Minimal adapter that returns delivery_status='enqueued' for queued
+    delivery conformance tests."""
+
+    adapter_id: str = "queued_adapter"
+    platform: str = "fake_queued"
+    _capabilities: AdapterCapabilities = AdapterCapabilities(
+        text=True,
+        reactions="native",
+        replies="native",
+    )
+
+    def __init__(self, adapter_id: str = "queued_adapter") -> None:
+        self.adapter_id = adapter_id
+        self.delivered_payloads: list[RenderingResult] = []
+
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult:
+        self.delivered_payloads.append(result)
+        return AdapterDeliveryResult(
+            native_message_id=None,
+            native_channel_id=result.target_channel,
+            delivery_status="enqueued",
+            delivery_note="queued for async delivery",
+        )
+
+
+def _make_event(
+    event_id: str = "svc-evt-001",
+    event_kind: str = "message.created",
+) -> CanonicalEvent:
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind=event_kind,
+        schema_version=1,
+        timestamp=datetime.now(tz=timezone.utc),
+        source_adapter="src_adapter",
+        source_transport_id="node-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "service-path conformance test"},
+        metadata=EventMetadata(),
+    )
+
+
+def _make_route_and_plan(
+    adapter_id: str = "dest",
+    plan_id: str = "plan-svc-001",
+    channel: str | None = None,
+    method: str = "direct",
+) -> tuple[Route, DeliveryPlan]:
+    target = RouteTarget(adapter=adapter_id, channel=channel)
+    route = Route(
+        id="route-svc-001",
+        source=RouteSource(
+            adapter="src_adapter",
+            event_kinds=("message.created",),
+            channel=None,
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id=plan_id,
+        event_id="svc-evt-001",
+        target=target,
+        primary_strategy=DeliveryStrategy(method=method),
+    )
+    return route, plan
+
+
+def _build_service(
+    adapters: dict[str, Any],
+    storage: _MemoryStorage,
+) -> TargetDeliveryService:
+    from medre.core.rendering.renderer import RenderingPipeline
+
+    pipeline = RenderingPipeline()
+    pipeline.register(TextRenderer(), priority=100)
+
+    lifecycle = DeliveryLifecycleService(
+        logger=logging.getLogger("conformance.delivery"),
+    )
+    return TargetDeliveryService(
+        adapters=adapters,
+        rendering_pipeline=pipeline,
+        storage=storage,
+        diagnostician=Diagnostician(),
+        lifecycle=lifecycle,
+        logger=logging.getLogger("conformance.delivery"),
+    )
+
+
+class TestServicePathDeliveryConformance:
+    """Assert real delivery execution through TargetDeliveryService."""
+
+    @pytest.fixture()
+    def storage(self):
+        return _MemoryStorage()
+
+    @pytest.mark.asyncio
+    async def test_sent_delivery_via_service(self, storage):
+        """TargetDeliveryService with FakePresentationAdapter produces a
+        persisted sent receipt with correct fields and canonical
+        RenderingEvidence JSON.
+
+        Exercises: rendering pipeline, adapter deliver(), receipt
+        persistence, native ref storage.
+        """
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        plan_id = f"plan-sent-{uuid.uuid4()}"
+        event = _make_event(event_id="svc-sent-001")
+        route, plan = _make_route_and_plan(
+            adapter_id="dest",
+            plan_id=plan_id,
+        )
+        plan = DeliveryPlan(
+            plan_id=plan_id,
+            event_id=event.event_id,
+            target=plan.target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+        )
+
+        svc = _build_service({"dest": adapter}, storage)
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        # Receipt fields.
+        assert receipt.status == "sent"
+        assert receipt.delivery_plan_id == plan_id
+        assert receipt.source == "live"
+        assert receipt.target_adapter == "dest"
+        assert receipt.target_channel is None
+        assert receipt.route_id == "route-svc-001"
+        assert receipt.replay_run_id is None
+
+        # Rendering evidence with canonical JSON.
+        assert receipt.rendering_evidence is not None
+        evidence = json.loads(receipt.rendering_evidence)
+        assert evidence["schema_version"] == "1"
+        assert evidence["renderer"] == "text"
+        assert evidence["delivery_strategy"] == "direct"
+        assert evidence["target_adapter"] == "dest"
+        assert evidence["capability_level"] == "native"
+
+        # Adapter was called.
+        assert len(adapter.delivered_payloads) == 1
+
+        # Persisted in storage.
+        stored = await storage.list_receipts_for_event(event.event_id)
+        assert len(stored) == 1
+        assert stored[0].status == "sent"
+        assert stored[0].delivery_plan_id == plan_id
+
+        # Native ref stored (sent delivery).
+        assert len(storage._native_refs) == 1
+
+    @pytest.mark.asyncio
+    async def test_queued_delivery_via_service(self, storage):
+        """TargetDeliveryService with queued adapter produces a persisted
+        queued receipt with correct fields and canonical RenderingEvidence
+        JSON.
+
+        Exercises: rendering pipeline, adapter deliver() returning
+        enqueued, receipt persistence with status='queued'.
+        """
+        adapter = _FakeQueuedAdapter(adapter_id="queued_dest")
+        plan_id = f"plan-queued-{uuid.uuid4()}"
+        event = _make_event(event_id="svc-queued-001")
+        route, plan = _make_route_and_plan(
+            adapter_id="queued_dest",
+            plan_id=plan_id,
+            channel="0",
+        )
+        plan = DeliveryPlan(
+            plan_id=plan_id,
+            event_id=event.event_id,
+            target=plan.target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+        )
+
+        svc = _build_service({"queued_dest": adapter}, storage)
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        # Receipt fields.
+        assert receipt.status == "queued"
+        assert receipt.delivery_plan_id == plan_id
+        assert receipt.source == "live"
+        assert receipt.target_adapter == "queued_dest"
+        assert receipt.target_channel == "0"
+        assert receipt.route_id == "route-svc-001"
+        assert receipt.replay_run_id is None
+
+        # Rendering evidence with canonical JSON.
+        assert receipt.rendering_evidence is not None
+        evidence = json.loads(receipt.rendering_evidence)
+        assert evidence["schema_version"] == "1"
+        assert evidence["renderer"] == "text"
+        assert evidence["delivery_strategy"] == "direct"
+        assert evidence["target_adapter"] == "queued_dest"
+        assert evidence["capability_level"] == "native"
+
+        # Adapter was called.
+        assert len(adapter.delivered_payloads) == 1
+
+        # Persisted in storage.
+        stored = await storage.list_receipts_for_event(event.event_id)
+        assert len(stored) == 1
+        assert stored[0].status == "queued"
+        assert stored[0].delivery_plan_id == plan_id
+
+        # No native ref for queued (no native_message_id).
+        assert len(storage._native_refs) == 0

@@ -251,20 +251,35 @@ asserts all of the following for its fixtures:
    `direct` for native capabilities, `fallback_text` for fallback,
    and `skip` for unsupported, consistent with transport-profile JSONs.
 4. **Delivery lifecycle**: receipts carry correct status, plan
-   correlation, and evidence. Suppressed receipts omit
-   `rendering_evidence`. Supplemental queued→sent receipts preserve
-   parent, plan, route, channel, and evidence.
+   correlation, and evidence. Service-path tests exercise
+   `TargetDeliveryService` with fake adapters and real
+   `RenderingPipeline` to verify:
+   - Sent receipts: `status == "sent"`, `delivery_plan_id` matches,
+     `source == "live"`, canonical `RenderingEvidence` JSON with
+     `schema_version`, `renderer`, `delivery_strategy`,
+     `target_adapter`, `capability_level`.
+   - Queued receipts: `status == "queued"`, `delivery_plan_id` matches,
+     canonical `RenderingEvidence` JSON, `target_channel` preserved.
+   - Suppressed receipts omit `rendering_evidence`.
+   - Supplemental queued→sent receipts preserve parent, plan, route,
+     channel, and evidence.
+     Shape characterization tests verify receipt field contracts for
+     manually-constructed receipts.
 5. **Replay**: DRY_RUN skips delivery. BEST_EFFORT applies capability
-   filtering. Replay requests carry `run_id`; receipt-level
-   `source="replay"` and `replay_run_id` tagging is asserted in
-   integration-level tests with real pipeline components.
+   filtering through `_filter_plans_by_capability` using real
+   `PipelineRunner` with fake adapters — unsupported event kinds are
+   filtered to `status="skipped"` with `capability_suppressed` error;
+   fallback-capable events remain deliverable. Replay requests carry
+   `run_id`; receipt-level `source="replay"` and `replay_run_id`
+   tagging is asserted in integration-level tests with real pipeline
+   components.
 
 ### 6.5 Conformance Test Modules
 
-| Module                                   | Coverage                                      |
-| ---------------------------------------- | --------------------------------------------- |
-| `test_ingress_conformance.py`            | Codec decode → CanonicalEvent contracts       |
-| `test_rendering_conformance.py`          | Renderer output + RenderingEvidence           |
-| `test_capability_runtime_conformance.py` | CapabilityDecisionResolver transport profiles |
-| `test_delivery_lifecycle_conformance.py` | Receipt lifecycle and evidence contracts      |
-| `test_replay_conformance.py`             | DRY_RUN / BEST_EFFORT parity                  |
+| Module                                   | Coverage                                                                                                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test_ingress_conformance.py`            | Codec decode → CanonicalEvent contracts                                                                                                                                                   |
+| `test_rendering_conformance.py`          | Renderer output + RenderingEvidence                                                                                                                                                       |
+| `test_capability_runtime_conformance.py` | CapabilityDecisionResolver transport profiles                                                                                                                                             |
+| `test_delivery_lifecycle_conformance.py` | Receipt lifecycle and evidence contracts: shape characterization (manually-constructed receipts) and service-path conformance (TargetDeliveryService + RenderingPipeline + fake adapters) |
+| `test_replay_conformance.py`             | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |
