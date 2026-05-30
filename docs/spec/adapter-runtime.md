@@ -495,7 +495,7 @@ class RenderingContext:
 
 `capability_level` is populated from the `CapabilityDecision` resolved by `CapabilityDecisionResolver`. The pipeline sets this field to the three-level decision result (`"native"`, `"fallback"`, or `"unsupported"`) for the event's capability context. This value is carried into `RenderingEvidence` and stored on delivery receipts via `rendering_evidence`, providing durable capability context per delivery. Renderers **MAY** inspect `capability_level` for dispatch decisions; the pipeline guarantees it reflects the resolved capability decision.
 
-`capability_policy` is a **reserved field**. It is defined in `RenderingContext` for forward compatibility and defaults to `None`. The current pipeline does not set it. Renderers **MUST NOT** depend on `capability_policy` for dispatch decisions unless they also control the code that populates it.
+`capability_policy` is a **reserved field**. It is defined in `RenderingContext` for a future explicit capability-policy stage and defaults to `None`. The current pipeline does not set it. Renderers **MUST NOT** depend on `capability_policy` for dispatch decisions unless they also control the code that populates it.
 
 ### 10.2 RenderingResult
 

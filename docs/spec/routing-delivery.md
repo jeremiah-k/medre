@@ -377,7 +377,14 @@ fallback / unsupported) and the same precedence rules. The resolver
 evaluates every relation in `event.relations` order; there is no
 relation-type-specific short-circuit or special case.
 
-> **Fail-closed for unknown relation types.** Relation types not in the mapping table above (e.g. `thread`, or any future relation type) produce no relation-level capability candidate. They do not suppress delivery. If a relation type requires capability gating in the future, it **MUST** be added to the table. Thread relations are explicitly deferred (see § 6.3.6).
+> **Fail-closed for unknown non-thread relation types.** `thread` is the only
+> deferred relation type: it produces no relation-level capability candidate
+> and does not suppress delivery. Any other relation type not in the mapping
+> table above is unsupported and MUST produce an unsupported/skip decision with
+> `capability_field="relation"` and reason `unsupported relation type ...`.
+> If a relation type requires first-class capability gating in the future, it
+> **MUST** be added to the table. Thread relations are explicitly deferred (see
+> § 6.3.6).
 
 #### 6.3.5 Multiple-Relation Precedence
 

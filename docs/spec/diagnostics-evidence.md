@@ -512,7 +512,7 @@ An operator inspecting these signals can answer: "Why was this message truncated
 
 ## 14.8 Capability-Evidence Derivation in Report Dicts
 
-The `delivery_receipt_to_report_dict()` helper in `medre.runtime.reporting` enriches every receipt report dict with capability-evidence fields derived from the receipt's `error` text and/or `rendering_evidence` JSON. No storage schema changes are required. The derivation is additive and backwards-compatible.
+The `delivery_receipt_to_report_dict()` helper in `medre.runtime.reporting` enriches every receipt report dict with capability-evidence fields derived from the receipt's `error` text and/or `rendering_evidence` JSON. No storage schema changes are required; the enrichment is derived at report time from existing receipt fields.
 
 ### 14.8.1 Derived Fields
 
