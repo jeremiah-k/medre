@@ -13,19 +13,10 @@ Public API
 """
 
 from medre.core.evidence.bundle import EvidenceBundle, ReceiptSummary
+from medre.core.evidence.collector import EvidenceCollector
 
 __all__ = [
     "EvidenceBundle",
+    "EvidenceCollector",
     "ReceiptSummary",
 ]
-
-# Lazy import to avoid circular dependency at module level.
-# EvidenceCollector is imported from collector.py on first access.
-
-
-def __getattr__(name: str) -> object:
-    if name == "EvidenceCollector":
-        from medre.core.evidence.collector import EvidenceCollector
-
-        return EvidenceCollector
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

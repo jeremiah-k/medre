@@ -32,6 +32,8 @@ from medre.core.evidence.bundle import (
     ReceiptSummary,
 )
 from medre.core.evidence.collector import EvidenceCollector
+from medre.core.rendering.evidence import RenderingEvidence
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.storage import make_storage_event
@@ -74,7 +76,7 @@ def _make_receipt(
         source=source,
         replay_run_id=replay_run_id,
         rendering_evidence=rendering_evidence,
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=created_at or _FIXED_NOW,
     )
 
 
@@ -93,7 +95,7 @@ def _make_native_ref(
         native_thread_id=None,
         native_relation_id=None,
         direction="outbound",
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=created_at or _FIXED_NOW,
     )
 
 
@@ -526,4 +528,52 @@ class TestSQLiteRoundTrip:
         assert json.loads(json_str) == d
 
         # No warnings about rendering_evidence.
+        assert not any("rendering_evidence" in w for w in bundle.warnings)
+
+
+class TestCollectorCanonicalEvidence:
+    """Bundle parsing of canonical RenderingEvidence via ``from_context_and_result``."""
+
+    @pytest.mark.asyncio
+    async def test_parses_canonical_evidence_in_bundle(self) -> None:
+        """Real RenderingEvidence serialized via to_dict() round-trips through bundle."""
+        ctx = RenderingContext(
+            delivery_strategy="direct",
+            target_adapter="matrix_conf",
+            target_platform="matrix",
+            capability_level="native",
+        )
+        result = RenderingResult(
+            event_id="evt-canon",
+            target_adapter="matrix_conf",
+            target_channel="!room:example.com",
+            payload={"body": "hello"},
+        )
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="matrix_rend",
+            ctx=ctx,
+            result=result,
+        )
+        ev_json = json.dumps(evidence.to_dict(), sort_keys=True)
+
+        receipt = _make_receipt(
+            "rcpt-canon",
+            event_id="evt-canon",
+            rendering_evidence=ev_json,
+        )
+        storage = _populated_fake(
+            event_id="evt-canon",
+            receipts=[receipt],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-canon")
+
+        assert len(bundle.delivery_receipts) == 1
+        parsed = bundle.delivery_receipts[0].rendering_evidence
+        assert parsed is not None
+        assert parsed["schema_version"] == "1"
+        assert parsed["renderer"] == "matrix_rend"
+        assert parsed["delivery_strategy"] == "direct"
+        assert parsed["target_adapter"] == "matrix_conf"
+        assert parsed["capability_level"] == "native"
         assert not any("rendering_evidence" in w for w in bundle.warnings)

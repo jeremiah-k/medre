@@ -9,9 +9,8 @@ It **never** writes to storage or mutates runtime state.
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timezone
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol
 
 import msgspec
 
@@ -21,15 +20,11 @@ from medre.core.evidence.bundle import (
     ReceiptSummary,
 )
 
-logger = logging.getLogger(__name__)
-
-
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
 class _EvidenceStorage(Protocol):
     """The subset of :class:`StorageBackend` the collector needs.
 
@@ -183,16 +178,8 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "status": item.status,
         "failure_kind": item.failure_kind,
         "error_summary": item.error_summary,
-        "created_at": (
-            item.created_at.isoformat()
-            if isinstance(item.created_at, datetime)
-            else str(item.created_at)
-        ),
-        "updated_at": (
-            item.updated_at.isoformat()
-            if isinstance(item.updated_at, datetime)
-            else str(item.updated_at)
-        ),
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
     }
 
 
@@ -259,6 +246,8 @@ class EvidenceCollector:
 
         # -- Native refs (ordered by created_at, id) -----------------------
         native_refs = await self._storage.list_native_refs_for_event(event_id)
+        # Defensive: ensure order by created_at, id even if storage sorts.
+        native_refs = sorted(native_refs, key=lambda r: (r.created_at, r.id))
         native_ref_summaries = tuple(_summarize_native_ref(r) for r in native_refs)
 
         # -- Outbox items (ordered by created_at, outbox_id) ---------------
@@ -268,10 +257,13 @@ class EvidenceCollector:
                 event_id,
             )
         except AttributeError:
-            # Storage backend does not implement the method — degrade.
+            # Backward-compat: storage backends predating list_outbox_items_for_event.
+            # TODO: Remove in next minor release once all backends are updated.
             warnings.append(
                 "list_outbox_items_for_event not available on storage backend"
             )
+        # Defensive: ensure order by created_at, outbox_id even if storage sorts.
+        outbox_items = sorted(outbox_items, key=lambda i: (i.created_at, i.outbox_id))
         outbox_summaries = tuple(_summarize_outbox_item(i) for i in outbox_items)
 
         # -- Replay run IDs (sorted) ---------------------------------------
