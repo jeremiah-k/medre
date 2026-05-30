@@ -325,6 +325,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.engine.pipeline",
         "medre.core.evidence",
         "medre.core.storage",
+        "medre.core.storage.sqlite",
         "medre.core.diagnostics",
         "medre.core.observability",
         "medre.core.lifecycle",
