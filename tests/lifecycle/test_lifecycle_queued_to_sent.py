@@ -48,6 +48,7 @@ class TestAppendQueuedToSentReceipt:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-42",
+            delivery_plan_id="plan-q",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -75,8 +76,7 @@ class TestSameChannelRetryLineageRegression:
 
     These tests verify that ``append_queued_to_sent_receipt`` correctly
     resolves unambiguous same-channel retry lineages and correctly
-    rejects cross-channel ambiguity, for both the deterministic plan_id
-    path and the legacy degraded path.
+    rejects cross-channel ambiguity for the deterministic plan_id path.
     """
 
     async def test_plan_id_no_channel_same_plan_same_channel_multiple_attempts(
@@ -179,149 +179,6 @@ class TestSameChannelRetryLineageRegression:
         assert "Ambiguous queued receipt correlation" in caplog.text
         assert "plan-bx" in caplog.text
 
-    async def test_legacy_no_plan_no_channel_same_plan_same_channel_multiple_attempts(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """(C) legacy no plan + no native_channel_id + same plan + same
-        channel + multiple attempts → supplemental sent receipt, parent
-        latest queued attempt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-c1",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-c",
-                attempt_number=1,
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-c3",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-c",
-                attempt_number=3,
-            )
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-c",
-        )
-        await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 1
-        assert sent[0].parent_receipt_id == "rcpt-c3"
-        assert sent[0].attempt_number == 3
-
-    async def test_legacy_no_plan_no_channel_same_plan_multiple_channels_skip(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """(D) legacy no plan + no native_channel_id + same plan + multiple
-        channels → no supplemental receipt, warning logged."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-d0",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-d",
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-d1",
-                status="queued",
-                adapter="m",
-                channel="1",
-                plan_id="plan-d",
-            )
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-d",
-        )
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        assert "Ambiguous legacy queued receipt correlation" in caplog.text
-
-    async def test_legacy_no_plan_no_channel_multiple_plan_ids_skip(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """(E) legacy no plan + no native_channel_id + multiple plan IDs →
-        no supplemental receipt, warning logged."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-e1",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-e1",
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-e2",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-e2",
-            )
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-e",
-        )
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        assert "Ambiguous legacy queued receipt correlation" in caplog.text
-
     async def test_single_candidate_no_channel_succeeds(
         self,
         temp_storage: StorageBackend,
@@ -332,7 +189,11 @@ class TestSameChannelRetryLineageRegression:
 
         await temp_storage.append_receipt(
             _make_receipt(
-                receipt_id="rcpt-only", status="queued", adapter="m", channel="0"
+                receipt_id="rcpt-only",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-single",
             )
         )
 
@@ -341,6 +202,7 @@ class TestSameChannelRetryLineageRegression:
             adapter="m",
             native_channel_id=None,
             native_message_id="pkt-single",
+            delivery_plan_id="plan-single",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -385,6 +247,7 @@ class TestSameChannelRetryLineageRegression:
             adapter="m",
             native_channel_id="0",
             native_message_id="pkt-retry",
+            delivery_plan_id="plan-001",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -442,6 +305,7 @@ class TestSupplementalOutboxTransition:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-outbox-42",
+            delivery_plan_id="plan-outbox",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -512,6 +376,7 @@ class TestAppendQueuedToSentErrorPaths:
             adapter="m",
             native_channel_id="1",
             native_message_id="pkt",
+            delivery_plan_id="plan-001",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -566,6 +431,7 @@ class TestAppendQueuedToSentErrorPaths:
                 adapter="m",
                 native_channel_id="0",
                 native_message_id="pkt",
+                delivery_plan_id="plan-001",
             )
             await lifecycle.append_queued_to_sent_receipt(
                 temp_storage,
@@ -585,8 +451,8 @@ class TestDeterministicPlanIdCorrelation:
 
     These tests verify that ``append_queued_to_sent_receipt`` uses the
     ``delivery_plan_id`` on ``OutboundNativeRefRecord`` for deterministic
-    correlation, falling back to the legacy heuristic only when
-    ``delivery_plan_id`` is absent.
+    correlation.  When ``delivery_plan_id`` is absent, no supplemental
+    receipt is created.
     """
 
     async def test_overlapping_plans_same_channel_correct_receipt(
@@ -804,90 +670,6 @@ class TestDeterministicPlanIdCorrelation:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
-    async def test_missing_plan_id_legacy_heuristic_applies(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """No delivery_plan_id, multiple candidates with DIFFERENT plan_ids on
-        same channel → cross-plan ambiguity → no supplemental receipt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        # Two queued receipts with DIFFERENT plan_ids on same channel.
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-p1",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-p1",
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-p2",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-p2",
-            )
-        )
-
-        # Record WITHOUT delivery_plan_id — legacy degraded path applies.
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-ambig",
-            # delivery_plan_id is None (not set)
-        )
-        await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        # Cross-plan ambiguity: no supplemental receipt created.
-        assert len(sent) == 0
-
-    async def test_missing_plan_id_single_candidate_succeeds(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """No delivery_plan_id, single candidate → legacy path succeeds."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-solo",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-solo",
-            )
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-solo",
-            # delivery_plan_id is None — legacy path
-        )
-        await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 1
-        assert sent[0].delivery_plan_id == "plan-solo"
-
     async def test_plan_id_no_channel_multiple_plan_matches_skip(
         self,
         temp_storage: StorageBackend,
@@ -981,33 +763,22 @@ class TestDeterministicPlanIdCorrelation:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
-    async def test_legacy_same_plan_different_attempts_latest_wins(
+    async def test_missing_delivery_plan_id_no_supplemental_receipt(
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """No delivery_plan_id + same plan_id, different attempt_numbers
-        → latest attempt wins (retry lineage)."""
+        """Record without delivery_plan_id, queued receipts exist → NO sent
+        receipt created."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
         await temp_storage.append_receipt(
             _make_receipt(
-                receipt_id="rcpt-att1",
+                receipt_id="rcpt-no-plan",
                 status="queued",
                 adapter="m",
                 channel="0",
-                plan_id="plan-retry-legacy",
-                attempt_number=1,
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-att3",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-retry-legacy",
-                attempt_number=3,
+                plan_id="plan-1",
             )
         )
 
@@ -1015,7 +786,128 @@ class TestDeterministicPlanIdCorrelation:
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
-            native_message_id="pkt-legacy-retry",
+            native_message_id="pkt-no-plan",
+            # delivery_plan_id is None
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+
+    async def test_missing_delivery_plan_id_no_outbox_transition(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Record without delivery_plan_id → outbox not transitioned to sent."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-no-plan-ob",
+                status="queued",
+                adapter="mesh-1",
+                channel="0",
+                plan_id="plan-ob",
+            )
+        )
+
+        # Create a matching outbox item in "queued" status.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-no-plan",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-ob",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="queued",
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-no-plan-ob",
+            # delivery_plan_id is None
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        # Outbox should still be queued (not sent).
+        updated = await temp_storage.get_outbox_item("obox-no-plan")
+        assert updated is not None
+        assert updated.status == "queued"
+
+    async def test_delivery_plan_id_mismatch_skips_correlation(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Record has plan_id "plan-x" but no queued receipt with that plan →
+        no sent receipt."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-other",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-other",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-mismatch",
+            delivery_plan_id="plan-x",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+
+    async def test_delivery_plan_id_channel_match_still_works(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Record has plan_id + channel, matching receipt exists → sent receipt
+        created correctly."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-match",
+                status="queued",
+                adapter="mesh-1",
+                channel="0",
+                plan_id="plan-match",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-match-ok",
+            delivery_plan_id="plan-match",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -1026,97 +918,35 @@ class TestDeterministicPlanIdCorrelation:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
-        assert sent[0].parent_receipt_id == "rcpt-att3"
-        assert sent[0].attempt_number == 3
+        assert sent[0].parent_receipt_id == "rcpt-match"
+        assert sent[0].delivery_plan_id == "plan-match"
+        assert sent[0].adapter_message_id == "pkt-match-ok"
 
-    async def test_legacy_no_plan_no_channel_empty_plan_id_uniform_latest_wins(
+    async def test_delivery_plan_id_channel_mismatch_skips(
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """(F) legacy no plan + no channel + multiple candidates all with
-        delivery_plan_id="" + same target_channel → {""} plan uniformity
-        → supplemental sent receipt, parent latest queued attempt.
-
-        Regression: confirms that the empty-string plan_id set {""}
-        satisfies the uniformity check (len == 1) just like any other
-        single-value plan set.
-        """
+        """Record has plan_id + channel, receipt matches plan but NOT channel
+        → no sent receipt."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
         await temp_storage.append_receipt(
             _make_receipt(
-                receipt_id="rcpt-f1",
+                receipt_id="rcpt-ch-mismatch",
                 status="queued",
                 adapter="m",
                 channel="0",
-                plan_id="",
-                attempt_number=1,
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-f2",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="",
-                attempt_number=2,
+                plan_id="plan-ch",
             )
         )
 
         record = OutboundNativeRefRecord(
             event_id="evt-001",
             adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-f",
-        )
-        await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 1
-        assert sent[0].parent_receipt_id == "rcpt-f2"
-        assert sent[0].attempt_number == 2
-        assert sent[0].delivery_plan_id == ""
-
-    async def test_legacy_cross_plan_no_channel_skips(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """No delivery_plan_id + no channel + candidates with different
-        plan_ids → no supplemental receipt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-x1",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-x1",
-            )
-        )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-x2",
-                status="queued",
-                adapter="m",
-                channel="1",
-                plan_id="plan-x2",
-            )
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-cross",
+            native_channel_id="99",
+            native_message_id="pkt-ch-mismatch",
+            delivery_plan_id="plan-ch",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,

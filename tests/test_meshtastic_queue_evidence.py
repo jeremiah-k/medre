@@ -599,6 +599,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-0",
+            delivery_plan_id="plan-ch0",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
 
@@ -608,6 +609,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="1",
             native_message_id="packet-1",
+            delivery_plan_id="plan-ch1",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
 
@@ -647,12 +649,12 @@ class TestSupplementalReceiptChannelCorrelation:
         event_id = "evt-ambiguous"
         now = datetime.now(tz=timezone.utc)
 
-        # Two queued receipts on different channels, same adapter.
+        # Two queued receipts with SAME delivery_plan_id, different channels.
         await temp_storage.append_receipt(
             DeliveryReceipt(
                 receipt_id="rcpt-a",
                 event_id=event_id,
-                delivery_plan_id="plan-a",
+                delivery_plan_id="plan-shared",
                 target_adapter="mesh-1",
                 target_channel="0",
                 route_id="route-x",
@@ -664,7 +666,7 @@ class TestSupplementalReceiptChannelCorrelation:
             DeliveryReceipt(
                 receipt_id="rcpt-b",
                 event_id=event_id,
-                delivery_plan_id="plan-b",
+                delivery_plan_id="plan-shared",
                 target_adapter="mesh-1",
                 target_channel="1",
                 route_id="route-y",
@@ -684,12 +686,13 @@ class TestSupplementalReceiptChannelCorrelation:
             )
         )
 
-        # Record with NO channel → ambiguous.
+        # Record with NO channel → ambiguous (same plan, different channels).
         record = OutboundNativeRefRecord(
             event_id=event_id,
             adapter="mesh-1",
             native_channel_id=None,
             native_message_id="packet-amb",
+            delivery_plan_id="plan-shared",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
@@ -742,6 +745,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id=None,
             native_message_id="packet-single",
+            delivery_plan_id="plan-only",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
@@ -812,6 +816,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-retry",
+            delivery_plan_id="plan-retry",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

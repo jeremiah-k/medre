@@ -41,6 +41,8 @@ class _RetryWorkerState:
 
 
 def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
@@ -57,6 +59,8 @@ def _plan_from_receipt(
     receipt: DeliveryReceipt,
     retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
         event_id=receipt.event_id,

@@ -226,9 +226,9 @@ Broadcast is the only fanout strategy. All matching targets receive the event. R
 
 Three runtime pipeline guards prevent loop propagation during live delivery:
 
-1. **Native-ref duplicate suppression** — The pipeline checks inbound events against stored native message references. If the event's `source_native_ref` matches a previously seen ref, the event is dropped. This prevents echo from re-delivered or duplicate packets at the pipeline boundary.
+1. **Native-ref duplicate suppression** — The pipeline checks inbound events against stored native message references. If the event's `source_native_ref` matches a previously seen ref (same `(adapter, native_channel_id, native_message_id)` triple), the event is dropped. This prevents echo from re-delivered or duplicate packets at the pipeline boundary. Native refs are persisted to storage and are used consistently during replay — :func:`resolve_native_ref` returns the original `event_id` for previously seen triples, enabling replay to detect already-processed events.
 
-2. **Self-loop guard** — The pipeline checks whether `target_adapter == event.source_adapter` for each delivery target. If true, the delivery is skipped with `status="skipped"` and `error="loop_prevented"`. No adapter call is made and no `DeliveryReceipt` is created.
+2. **Self-loop guard** — The pipeline checks whether `target_adapter == event.source_adapter` for each delivery target. If true, the delivery is suppressed with `DeliveryOutcome(status="skipped")` and `failure_kind=LOOP_SUPPRESSED`. A `DeliveryReceipt(status="suppressed")` is persisted with `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string. The adapter's `send()` method is NOT called. The suppressed receipt does NOT enter the retry queue (`next_retry_at` is `None`).
 
 3. **Route-trace guard** — The pipeline checks the `route_trace` counter on the event's `RoutingMetadata`. If a route ID appears more than once in the trace (indicating a cycle), the delivery is skipped.
 
@@ -271,9 +271,20 @@ class DeliveryPlan:
     fallback_chain: list[DeliveryStrategy]  # Ordered fallback attempts
     retry_policy: RetryPolicy | None
     deadline: datetime | None  # Maximum time to keep attempting delivery
+    route_id: str | None       # Route attribution when available
+    target_identity: str       # Stable JSON target identity
+    capability_level: str | None
+    capability_field: str | None
+    capability_reason: str | None
 ```
 
 The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
+
+`plan_id` is produced by :func:`stable_delivery_plan_id`, which hashes `event_id`, `route_id` (or `"unrouted"`), `target_index`, and a SHA-256 digest of :func:`delivery_target_identity` (the stable JSON representation of the :class:`RouteTarget`). The format is `plan:{event_id}:{route_part}:{index_part}:{target_hash}`. It MUST NOT depend on Python object identity (`id()`). When route context is unavailable the plan uses `"unrouted"` attribution, but routed live and replay paths MUST include the matched route ID and target index so repeated equivalent targets in the same route remain distinct and queued-to-sent correlation is reproducible. Repeated replay runs over the same event and configuration produce the same `plan_id` values.
+
+`target_identity` is a stable JSON representation produced by :func:`delivery_target_identity`, which serialises the :class:`RouteTarget` `adapter`, `channel`, and `destination` fields with sorted keys and compact separators. It is the same value used inside :func:`stable_delivery_plan_id` and is populated for every plan, not only for manually constructed ones.
+
+`capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only for manually constructed plans, retry reconstruction where the original receipt/outbox row is the authoritative evidence, or passthrough event kinds that have no capability candidate.
 
 Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans MAY be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
@@ -294,14 +305,14 @@ class DeliveryStrategy:
 The `method` field is a closed vocabulary. Implementations MUST treat unknown
 method values as configuration errors. The well-known methods are:
 
-| Method            | Semantics                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"direct"`        | Target-native rendering. The event is rendered through the standard renderer pipeline (the target-native renderer matching the adapter's platform) and delivered natively. This is the default strategy when the target adapter supports the event's relation types at capability level `"native"`.                                                                                                                                                                                                                               |
-| `"fallback_text"` | Degraded text rendering within the target-native format. The target-native renderer produces its native output format but embeds relation context as inline text drawn from `EventRelation.fallback_text`. The pipeline does **not** bypass the target-native renderer or switch to a generic text renderer. The adapter still receives a payload in its native format, not a generic `{"text": ...}` envelope.                                                                                                                   |
-| `"skip"`          | Pre-outbox suppression before rendering and adapter invocation. Triggers: self-loop guard, route-trace cycle, policy denial, or capability-level `"unsupported"` for the event's relation type. No renderer invoked. No adapter call made. Produces `DeliveryOutcome(status="skipped")` with no receipt. Events matching zero routes produce no `DeliveryOutcome` at all (Section 3.4). Post-planning suppression that records a receipt for defense-in-depth uses `DeliveryReceipt(status="suppressed")`, not the skip strategy. |
-| `"propagated"`    | Relayed through an intermediate hop (e.g. LXMF propagation node). Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `"opportunistic"` | Best-effort delivery with no guarantee. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `"paper"`         | Store-and-forward. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Method            | Semantics                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"direct"`        | Target-native rendering. The event is rendered through the standard renderer pipeline (the target-native renderer matching the adapter's platform) and delivered natively. This is the default strategy when the target adapter supports the event's relation types at capability level `"native"`.                                                                                                                                                                                                                                                                         |
+| `"fallback_text"` | Degraded text rendering within the target-native format. The target-native renderer produces its native output format but embeds relation context as inline text drawn from `EventRelation.fallback_text`. The pipeline does **not** bypass the target-native renderer or switch to a generic text renderer. The adapter still receives a payload in its native format, not a generic `{"text": ...}` envelope.                                                                                                                                                             |
+| `"skip"`          | Pre-outbox suppression before rendering and adapter invocation. Triggers: self-loop guard, route-trace cycle, policy denial, or capability-level `"unsupported"` for the event's relation type. No renderer invoked. No adapter call made. Produces `DeliveryOutcome(status="skipped")`. For route-target suppressions after the event has been stored and planned, the pipeline also persists `DeliveryReceipt(status="suppressed")` with route, target, plan, and reason evidence. Events matching zero routes produce no `DeliveryOutcome` and no receipt (Section 3.4). |
+| `"propagated"`    | Relayed through an intermediate hop (e.g. LXMF propagation node). Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `"opportunistic"` | Best-effort delivery with no guarantee. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `"paper"`         | Store-and-forward. Reserved for future use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### 6.3 Capability Decision Model
 
@@ -426,7 +437,54 @@ as live delivery. Plans filtered by `_filter_plans_by_capability`
 use `decision.supported` to determine inclusion, ensuring live and
 replay capability logic share one source of truth.
 
-### 6.4 RetryPolicy
+### 6.3.9 Live/Replay Plan Parity
+
+Live delivery and replay planning MUST produce semantically equivalent :class:`DeliveryPlan` instances for the same event and route configuration. The following fields MUST be identical across live and replay paths:
+
+| Field                     | Parity requirement                                |
+| ------------------------- | ------------------------------------------------- |
+| `plan_id`                 | Deterministic via :func:`stable_delivery_plan_id` |
+| `event_id`                | Same canonical event                              |
+| `target`                  | Same :class:`RouteTarget`                         |
+| `primary_strategy.method` | Same capability-derived strategy                  |
+| `route_id`                | Same matched route                                |
+| `target_identity`         | Same :func:`delivery_target_identity` result      |
+| `capability_level`        | Same :class:`CapabilityDecision` level            |
+| `capability_field`        | Same capability field or `None`                   |
+| `capability_reason`       | Same reason or `None`                             |
+
+Both paths use the same :class:`CapabilityDecisionResolver` (see § 6.3) to decide capability, ensuring one source of truth.
+
+Repeated replay runs over the same event and configuration MUST produce the same `plan_id` values. Repeated equivalent targets within a single route (same adapter + channel) MUST receive distinct `plan_id` values disambiguated by `target_index`.
+
+### 6.3.10 Live/Replay Receipt Parity
+
+When replay in `BEST_EFFORT` mode produces a delivery, the resulting :class:`DeliveryReceipt` MUST match the live receipt on the following fields:
+
+| Receipt field        | Parity requirement                             |
+| -------------------- | ---------------------------------------------- |
+| `event_id`           | Same                                           |
+| `delivery_plan_id`   | Same (deterministic plan ID)                   |
+| `target_adapter`     | Same                                           |
+| `target_channel`     | Same                                           |
+| `route_id`           | Same                                           |
+| `status`             | Same (both `sent`, or both `suppressed`, etc.) |
+| `error`              | Same suppression or failure reason             |
+| `failure_kind`       | Same                                           |
+| `retry_*` fields     | Same when retry policy is configured           |
+| `rendering_evidence` | Same delivery strategy and capability level    |
+| `next_retry_at`      | Same when applicable                           |
+
+The following fields intentionally differ between live and replay:
+
+| Field                | Live value         | Replay value          | Why                    |
+| -------------------- | ------------------ | --------------------- | ---------------------- |
+| `source`             | `"live"`           | `"replay"`            | Distinguishes origin   |
+| `replay_run_id`      | `None`             | Replay run identifier | Run attribution        |
+| `receipt_id`         | Unique per call    | Unique per call       | Append-only semantics  |
+| `parent_receipt_id`  | Depends on chain   | Depends on chain      | Independent chains     |
+| `created_at`         | Live timestamp     | Replay timestamp      | Different wall-clock   |
+| `adapter_message_id` | Transport-assigned | Transport-assigned    | May differ per attempt |
 
 ```python
 @dataclass
@@ -477,8 +535,8 @@ The following failure kinds are never auto-retried:
 1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`.
 2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`). The query excludes dead-lettered receipts sharing the same delivery lineage.
 3. The worker attempts to acquire delivery capacity. If capacity is unavailable, the worker advances the existing receipt's `next_retry_at` by one backoff interval. No new receipt is created. Capacity rejection does not advance `attempt_number`.
-4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context.
-5. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying.
+4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context. Retry reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, and `target_identity` — these identity fields are frozen at first delivery and carried through the entire retry chain. Each retry attempt appends a new receipt row; earlier receipts are not overwritten.
+5. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying. This receipt carries the same `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` as the preceding failed receipts, with `parent_receipt_id` linking to the last failed attempt. Retry exhaustion produces durable dead-lettered evidence — the receipt remains in storage with `status="dead_lettered"`, `next_retry_at=None`, and the full retry chain is visible via `parent_receipt_id` links.
 6. Retry uses the same delivery planning pipeline. No special bypass path exists.
 
 ### 7.5 Policy Persistence
@@ -757,27 +815,29 @@ When a single event matches a route with multiple destinations, each destination
 
 ### 11.2 Success/Failure/Skip Semantics
 
-| Status              | Meaning                                                                                                                                               | Receipt created?   | Retryable?             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ---------------------- |
-| `success`           | Adapter reported successful handoff. The transport accepted the message.                                                                              | Yes                | N/A                    |
-| `queued`            | Delivery enqueued for execution.                                                                                                                      | Yes                | N/A                    |
-| `transient_failure` | Adapter reported a recoverable error (timeout, connection reset).                                                                                     | Yes                | Yes, per `RetryPolicy` |
-| `permanent_failure` | Adapter reported an unrecoverable error, or delivery exhausted retries.                                                                               | Yes (last attempt) | No                     |
-| `skipped`           | Pre-outbox suppression. A guard fired before rendering, capacity acquisition, or adapter invocation. Reason in `error`. No renderer. No adapter call. | No                 | No                     |
+| Status              | Meaning                                                                                                                                               | Receipt created?                                                            | Retryable?             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------- |
+| `success`           | Adapter reported successful handoff. The transport accepted the message.                                                                              | Yes                                                                         | N/A                    |
+| `queued`            | Delivery enqueued for execution.                                                                                                                      | Yes                                                                         | N/A                    |
+| `transient_failure` | Adapter reported a recoverable error (timeout, connection reset).                                                                                     | Yes                                                                         | Yes, per `RetryPolicy` |
+| `permanent_failure` | Adapter reported an unrecoverable error, or delivery exhausted retries.                                                                               | Yes (last attempt)                                                          | No                     |
+| `skipped`           | Pre-outbox suppression. A guard fired before rendering, capacity acquisition, or adapter invocation. Reason in `error`. No renderer. No adapter call. | Yes for stored route-target suppressions; none for no-route/pre-store dedup | No                     |
+
+> **Distinction from failed send:** A `skipped` outcome and its corresponding `suppressed` receipt are semantically distinct from a failed send. Suppressed deliveries never invoke the adapter's `send()` method. The receipt `status` is `"suppressed"`, not `"failed"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, or `CAPABILITY_SUPPRESSED`), not an adapter error kind (`ADAPTER_TRANSIENT`, `ADAPTER_PERMANENT`). Suppressed deliveries do not enter the retry queue — `next_retry_at` is always `None` and `is_retryable` is always `False`.
 
 ### 11.2.1 Three Suppression Categories
 
 Delivery suppression falls into three distinct categories:
 
-| Category                              | Trigger                                                                                                           | Outcome                               | Receipt?                                               |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
-| No route / no target                  | Event matched zero routes, or no target adapter found                                                             | No `DeliveryOutcome` produced         | None                                                   |
-| Pre-outbox skip                       | Self-loop guard, route-trace cycle, policy denial, or capability `"unsupported"` before outbox/capacity/rendering | `DeliveryOutcome(status="skipped")`   | None                                                   |
-| Post-planning direct-call suppression | Suppression after the planning stage, where recording provides defense-in-depth audit value                       | `DeliveryOutcome` with skip semantics | `DeliveryReceipt(status="suppressed")` MAY be recorded |
+| Category                              | Trigger                                                                                                           | Outcome                               | Receipt?                                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------------------------------- |
+| No route / no target                  | Event matched zero routes, or no target adapter found                                                             | No `DeliveryOutcome` produced         | None                                                            |
+| Pre-outbox skip                       | Self-loop guard, route-trace cycle, policy denial, or capability `"unsupported"` before outbox/capacity/rendering | `DeliveryOutcome(status="skipped")`   | `DeliveryReceipt(status="suppressed")` for stored routed events |
+| Post-planning direct-call suppression | Suppression after the planning stage, where recording provides defense-in-depth audit value                       | `DeliveryOutcome` with skip semantics | `DeliveryReceipt(status="suppressed")` MAY be recorded          |
 
 **No route or no target.** The event matched zero routes (Section 3.4) or no target adapter was identified. No `DeliveryOutcome` is produced. No receipt is created. The event remains in the canonical event log and is available for replay if routes are added later.
 
-**Pre-outbox skip.** A route matched and a target was identified, but a guard fired before the outbox, capacity, rendering, or adapter stages. This includes: self-loop guard (`target_adapter == source_adapter`), route-trace cycle detection (route ID appears more than once), route-policy denial (`failure_kind="policy_suppressed"`), and capability-level `"unsupported"` suppression for the event's relation type. Produces `DeliveryOutcome(status="skipped")`. No receipt. No renderer invocation. No adapter call. The reason is recorded in the `error` field.
+**Pre-outbox skip.** A route matched and a target was identified, but a guard fired before the outbox, capacity, rendering, or adapter stages. This includes: self-loop guard (`target_adapter == source_adapter`), route-trace cycle detection (route ID appears more than once), route-policy denial (`failure_kind="policy_suppressed"`), and capability-level `"unsupported"` suppression for the event's relation type. Produces `DeliveryOutcome(status="skipped")` and persists `DeliveryReceipt(status="suppressed")` when the event has already been stored. No renderer invocation. No adapter call. The suppression reason is recorded in the outcome and receipt `error` fields; route and target attribution (`route_id`, `target_adapter`, `target_channel`) belong in dedicated receipt fields.
 
 **Post-planning direct-call suppression.** Suppression that occurs after the planning stage, where recording a receipt provides defense-in-depth audit value. Produces `DeliveryReceipt(status="suppressed")`. The receipt includes `route_id`, `target_adapter`, `target_channel`, and the suppression reason. This category is distinct from pre-outbox skip: a receipt MAY exist, but no renderer or adapter was invoked.
 
@@ -787,9 +847,9 @@ The following table shows concrete scenarios and which suppression category appl
 
 | Scenario                                                                           | Guard / Trigger                                       | Outcome                                                                        | Receipt?               | Renderer? | Adapter? |
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------- | --------- | -------- |
-| Meshtastic reaction → Meshtastic target where target has `reactions="unsupported"` | Capability `"unsupported"` for reaction relation type | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"`    | No                     | No        | No       |
-| Matrix message routed back to same Matrix adapter (`target == source`)             | Self-loop guard (`target_adapter == source_adapter`)  | `DeliveryOutcome(status="skipped")`, `failure_kind="loop_suppressed"`          | No                     | No        | No       |
-| Route-policy `sender_allowlist` denies sender                                      | Route-policy evaluator denial                         | `DeliveryOutcome(status="skipped")`, `failure_kind="policy_suppressed"`        | No                     | No        | No       |
+| Meshtastic reaction → Meshtastic target where target has `reactions="unsupported"` | Capability `"unsupported"` for reaction relation type | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"`    | Yes                    | No        | No       |
+| Matrix message routed back to same Matrix adapter (`target == source`)             | Self-loop guard (`target_adapter == source_adapter`)  | `DeliveryOutcome(status="skipped")`, `failure_kind="loop_suppressed"`          | Yes                    | No        | No       |
+| Route-policy `sender_allowlist` denies sender                                      | Route-policy evaluator denial                         | `DeliveryOutcome(status="skipped")`, `failure_kind="policy_suppressed"`        | Yes                    | No        | No       |
 | Delivery plan constructed with `method="skip"` after Phase 2.75 planning           | Post-planning skip gate                               | `DeliveryReceipt(status="suppressed")`, `failure_kind="capability_suppressed"` | Yes (defense-in-depth) | No        | No       |
 | Event matches zero routes                                                          | No matching route in routing engine                   | No `DeliveryOutcome` produced                                                  | None                   | No        | No       |
 
@@ -820,7 +880,7 @@ The first denial wins. A denial produces `failure_kind="policy_suppressed"` and 
 
 ### 12.3 Policy Denial Outcome
 
-A policy denial is a pre-outbox skip. It produces a `DeliveryOutcome(status="skipped")` with `failure_kind="policy_suppressed"` and the reason code recorded in the `error` field. No receipt is created. No renderer is invoked. No adapter call is made. Policy denials are not retryable and are a permanent classification.
+A policy denial is a pre-outbox skip. It produces a `DeliveryOutcome(status="skipped")` with `failure_kind="policy_suppressed"` and the reason code recorded in the `error` field. For stored routed events, a `DeliveryReceipt(status="suppressed")` is also persisted with the same route, target, plan, and reason evidence. No renderer is invoked. No adapter call is made. Policy denials are not retryable and are a permanent classification.
 
 Policy suppression reason codes:
 
@@ -1060,13 +1120,13 @@ Effectively unbounded for propagated delivery. Multi-hop Reticulum transport can
 
 Route policy suppression is a cross-transport failure classification. It occurs when the route-policy evaluator denies a delivery after route matching but before delivery side effects.
 
-| Property       | Value                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------- |
-| Failure kind   | `policy_suppressed`                                                                     |
-| Retryable      | No — permanent classification                                                           |
-| Pipeline stage | Route policy (after route match, before delivery)                                       |
-| Outcome        | `DeliveryOutcome(status="skipped")` — pre-outbox skip, no receipt (Section 11.2.1)      |
-| Error context  | `error` field carries `route_id`, `target_adapter`, `target_channel`, and denial reason |
+| Property       | Value                                                                                                                                                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Failure kind   | `policy_suppressed`                                                                                                                                                                                                          |
+| Retryable      | No — permanent classification                                                                                                                                                                                                |
+| Pipeline stage | Route policy (after route match, before delivery)                                                                                                                                                                            |
+| Outcome        | `DeliveryOutcome(status="skipped")` plus `DeliveryReceipt(status="suppressed")` for stored routed events (Section 11.2.1)                                                                                                    |
+| Error context  | `error` field carries the denial reason/message (e.g., `'text capability unsupported'`, `'loop detected'`). Route and target attribution belong in dedicated receipt fields: `route_id`, `target_adapter`, `target_channel`. |
 
 ## 16. Duplicate-Send Risk Classification
 

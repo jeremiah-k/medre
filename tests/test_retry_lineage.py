@@ -34,7 +34,7 @@ from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -96,6 +96,8 @@ class _RetryWorkerState:
 
 
 def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
@@ -112,6 +114,8 @@ def _plan_from_receipt(
     receipt: DeliveryReceipt,
     retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
         event_id=receipt.event_id,
@@ -807,3 +811,235 @@ class TestRetryLineage:
             assert "duplicate_send_caveat" not in timeline
         finally:
             await runner.stop()
+
+
+class TestRetryReconstructionPreservesDestination:
+    """Verify that RouteTarget.destination survives retry reconstruction.
+
+    The pipeline stores destination data in the outbox item metadata field,
+    and the retry worker reads it back to reconstruct the full RouteTarget
+    including the RouteDestination.
+    """
+
+    def test_plan_preserves_destination(self) -> None:
+        """DeliveryPlan creation preserves destination on the target."""
+        dest = RouteDestination(
+            kind="direct",
+            destination_hash="abc123",
+            destination_name="Node A",
+            metadata={"key": "value"},
+        )
+        target = RouteTarget(adapter="test", channel="0", destination=dest)
+
+        plan = DeliveryPlan(
+            plan_id="plan-1",
+            event_id="evt-1",
+            target=target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+            retry_policy=RetryPolicy(max_attempts=3),
+        )
+
+        assert plan.target.destination is not None
+        assert plan.target.destination.kind == "direct"
+        assert plan.target.destination.destination_hash == "abc123"
+        assert plan.target.destination.destination_name == "Node A"
+        assert plan.target.destination.metadata == {"key": "value"}
+
+    def test_outbox_metadata_roundtrip(self) -> None:
+        """Destination data stored in outbox metadata reconstructs correctly."""
+        dest = RouteDestination(
+            kind="lxmf_destination",
+            destination_hash="hash_xyz",
+            destination_name="MeshNode B",
+            metadata={"port": 1234},
+        )
+
+        # Simulate what runner.py does when creating outbox metadata
+        outbox_metadata: dict = {
+            "destination_kind": dest.kind,
+            "destination_hash": dest.destination_hash,
+            "destination_name": dest.destination_name,
+            "destination_metadata": dest.metadata,
+        }
+
+        # Simulate what retry.py does when reconstructing from metadata
+        assert "destination_kind" in outbox_metadata
+        reconstructed = RouteDestination(
+            kind=outbox_metadata["destination_kind"],
+            destination_hash=outbox_metadata.get("destination_hash"),
+            destination_name=outbox_metadata.get("destination_name"),
+            metadata=outbox_metadata.get("destination_metadata", {}),
+        )
+
+        target = RouteTarget(
+            adapter="lxmf",
+            channel=None,
+            destination=reconstructed,
+        )
+
+        assert target.destination is not None
+        assert target.destination.kind == "lxmf_destination"
+        assert target.destination.destination_hash == "hash_xyz"
+        assert target.destination.destination_name == "MeshNode B"
+        assert target.destination.metadata == {"port": 1234}
+
+    def test_outbox_without_destination_metadata(self) -> None:
+        """When metadata has no destination keys, target.destination stays None."""
+        outbox_metadata: dict | None = None
+
+        # Simulate retry.py reconstruction logic
+        dest = None
+        if outbox_metadata and "destination_kind" in outbox_metadata:
+            dest = RouteDestination(
+                kind=outbox_metadata["destination_kind"],
+                destination_hash=outbox_metadata.get("destination_hash"),
+                destination_name=outbox_metadata.get("destination_name"),
+                metadata=outbox_metadata.get("destination_metadata", {}),
+            )
+
+        target = RouteTarget(adapter="test", channel="ch1", destination=dest)
+        assert target.destination is None
+
+
+# ===================================================================
+# Real RetryWorker reconstruction preserves destination, target_identity,
+# route_id, and delivery_plan_id
+# ===================================================================
+
+
+class TestRetryWorkerReconstruction:
+    """Prove the real RetryWorker._retry_outbox_item correctly reconstructs
+    RouteTarget.destination, target_identity, route_id, and delivery_plan_id
+    from outbox item metadata."""
+
+    async def test_reconstruction_preserves_all_identity_fields(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Outbox item with destination metadata → plan passed to
+        deliver_to_target has restored destination and expected fields."""
+        from datetime import datetime, timezone
+
+        from medre.core.planning.delivery_plan import delivery_target_identity
+        from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.runtime.retry import RetryWorker
+
+        now = datetime.now(tz=timezone.utc)
+        plan_id = "plan:retry-recon:r1:0:a1b2c3d4e5f6a7b8"
+
+        # -- Store a canonical event ------------------------------------------
+        event = CanonicalEvent(
+            event_id="evt-retry-recon",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "retry reconstruction test"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        # -- Create outbox item with destination metadata ---------------------
+        outbox_metadata: dict = {
+            "destination_kind": "lxmf_destination",
+            "destination_hash": "hash_xyz123",
+            "destination_name": "MeshNode C",
+            "destination_metadata": {"port": 9999, "hops": 2},
+        }
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-retry-recon",
+            event_id="evt-retry-recon",
+            route_id="r1",
+            delivery_plan_id=plan_id,
+            target_adapter="dest_adapter",
+            target_channel="ch-1",
+            status="retry_wait",
+            attempt_number=1,
+            next_attempt_at=now - timedelta(seconds=1),
+            metadata=outbox_metadata,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+
+        # -- Create a failed receipt for lineage ------------------------------
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-recon-failed",
+            event_id="evt-retry-recon",
+            delivery_plan_id=plan_id,
+            target_adapter="dest_adapter",
+            target_channel="ch-1",
+            route_id="r1",
+            status="failed",
+            failure_kind="adapter_transient",
+            attempt_number=1,
+            created_at=now,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        # -- Build a skeleton PipelineRunner (unused, but required) -----------
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.routing import Router
+
+        skeleton = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=Router(routes=[]),
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={},
+                event_bus=EventBus(),
+            )
+        )
+        mock_deliver = AsyncMock()
+        skeleton.deliver_to_target = mock_deliver  # type: ignore[method-assign]
+
+        # -- Create RetryWorker and invoke reconstruction ---------------------
+        from unittest.mock import MagicMock
+
+        worker = RetryWorker(
+            storage=temp_storage,
+            pipeline=skeleton,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=60,
+            batch_size=1,
+            max_attempts=3,
+        )
+        # Patch _emit to avoid event buffer dependency
+        worker._emit = MagicMock()  # type: ignore[method-assign]
+
+        await worker._retry_outbox_item(outbox_item)
+
+        # -- Assert deliver_to_target was called with the reconstructed plan --
+        mock_deliver.assert_called_once()
+        call_args = mock_deliver.call_args
+        plan: DeliveryPlan = call_args.kwargs["plan"]
+
+        # Destination preserved
+        assert plan.target.destination is not None, (
+            "Retry must reconstruct RouteTarget.destination from outbox metadata"
+        )
+        assert plan.target.destination.kind == "lxmf_destination"
+        assert plan.target.destination.destination_hash == "hash_xyz123"
+        assert plan.target.destination.destination_name == "MeshNode C"
+        assert plan.target.destination.metadata == {"port": 9999, "hops": 2}
+
+        # target_identity populated and matches delivery_target_identity
+        assert plan.target_identity, "target_identity must be non-empty"
+        expected_identity = delivery_target_identity(plan.target)
+        assert plan.target_identity == expected_identity, (
+            f"target_identity={plan.target_identity!r} != "
+            f"delivery_target_identity={expected_identity!r}"
+        )
+
+        # route_id preserved
+        assert plan.route_id == "r1"
+
+        # delivery_plan_id preserved
+        assert plan.plan_id == plan_id

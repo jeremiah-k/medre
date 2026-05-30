@@ -488,6 +488,80 @@ When filing a bug against MEDRE evidence, delivery, or runtime behavior, attach:
 
 Name files descriptively: `bundle-<date>.json`, `bundle-health-<date>.json`, `inspect-receipts-<event_id>.json`.
 
+## Operator Traceability Questions
+
+The evidence bundle and report dicts answer common operator questions without needing to read source code or logs. Here is a reference for what to look for:
+
+### "Was this event processed?"
+
+Check `event_summary` in the evidence bundle. If present, the event was stored. If `None`, the event was not found in storage.
+
+```bash
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite
+```
+
+### "Which route matched?"
+
+Check `route_id` on the receipt or in the `delivery_state_by_target` entry. The `route_id` identifies which route configuration rule triggered the delivery.
+
+### "Which target was selected?"
+
+Check `target_adapter` and `target_channel` in the receipt. The composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` uniquely identifies a delivery target.
+
+### "What plan ID was assigned?"
+
+Check `delivery_plan_id` on the receipt. Plan IDs are deterministic — the same event with the same route configuration produces the same plan ID regardless of whether it was a live delivery or a replay run. This means repeated replays produce predictable plan IDs.
+
+### "What strategy was chosen?"
+
+Check `delivery_strategy` in the report dict. This is derived from the receipt's `rendering_evidence` JSON or error text. Values: `"direct"` (native delivery), `"fallback_text"` (degraded rendering), or `"skip"` (suppressed before delivery).
+
+### "What capability field drove the decision?"
+
+Check `capability_field` in the report dict. This identifies which adapter capability field (e.g. `reactions`, `replies`, `text`) caused the strategy decision. It is `None` for loop-suppressed or policy-suppressed deliveries (those are driven by guards, not capabilities).
+
+### "What is the delivery status?"
+
+Check `status` on the receipt:
+
+| Status          | Meaning                                            |
+| --------------- | -------------------------------------------------- |
+| `sent`          | Adapter accepted the delivery                      |
+| `queued`        | Delivery enqueued, awaiting adapter confirmation   |
+| `suppressed`    | Delivery suppressed by a guard (no adapter call)   |
+| `failed`        | Delivery failed, may be retryable                  |
+| `dead_lettered` | All retries exhausted, delivery permanently failed |
+
+Suppressed receipts (`status="suppressed"`) are distinct from failed receipts (`status="failed"`). Suppressed means a guard fired before the adapter was called. Failed means the adapter was called and returned an error.
+
+### "Why did delivery fail?"
+
+Check these fields together:
+
+- `failure_kind` — the high-level category (e.g. `capability_suppressed`, `loop_suppressed`, `adapter_transient`)
+- `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `meshtastic_queue_rejected`)
+- `suppression_reason` — human-readable reason parsed from the error text
+- `error` — the raw error message
+
+### "Was this a live delivery or replay?"
+
+Check `source` on the receipt: `"live"` or `"replay"`. For replay, `replay_run_id` identifies the specific replay run.
+
+### "How many retry attempts occurred?"
+
+Check `attempt_number` on the receipt chain. Each retry produces a new receipt with an incremented `attempt_number`, linked via `parent_receipt_id`. The highest `attempt_number` represents the latest attempt. A `dead_lettered` receipt means retries were exhausted.
+
+```sql
+SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at
+FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>'
+ORDER BY attempt_number;
+```
+
+### "Were suppressed deliveries retried?"
+
+No. Suppressed deliveries (status `suppressed`) do not enter the retry queue. Their `next_retry_at` is always `None`. Suppression indicates a guard prevented delivery entirely — it is not a transient condition that retrying would resolve.
+
 ## What Remains Unproven
 
 | Capability                                     | Status     | Notes                                                         |

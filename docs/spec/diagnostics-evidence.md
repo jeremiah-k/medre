@@ -531,7 +531,7 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the receipt with the highest `attempt_number` per group. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, and `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. The grouping key includes `source` and `replay_run_id` so that live and replay entries for the same target remain distinct. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
 
 | Field                | Present? | Source                          |
 | -------------------- | -------- | ------------------------------- |
@@ -563,6 +563,8 @@ The `delivery_plan_id` field provides the correlation key. The pipeline threads 
 
 1. `RenderingResult.delivery_plan_id` — stamped by `TargetDeliveryService` before adapter delivery.
 2. `OutboundNativeRefRecord.delivery_plan_id` — populated by adapter queue processing at send-confirmation time.
+
+For routed live and replay planning, `delivery_plan_id` is deterministic from `event_id`, matched `route_id`, route target index, and a stable JSON target identity. It MUST NOT depend on Python object identity. This lets equivalent live and replay plans correlate to the same semantic target while repeated equivalent targets in one route still receive distinct plan IDs.
 
 When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against existing `queued` receipts. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
 
@@ -655,3 +657,68 @@ The evidence bundle is:
 - **Not a crash recovery mechanism.** It reads from current storage state only.
 - **Not an idempotency guarantee.** Multiple collections at different times may produce different bundles if storage state changed between calls.
 - **Read-only.** Collection MUST NOT mutate storage or runtime state.
+
+## 17. Operator Diagnostics Traceability
+
+An operator inspecting an :class:`EvidenceBundle` or a report dict from :func:`delivery_receipt_to_report_dict` can answer the following traceability questions from evidence alone, without consulting logs or source code:
+
+| Question                                  | Evidence source                                                                | Key fields                                                                                     |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                     |
+| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                     |
+| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                 |
+| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                         |
+| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                  |
+| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression |
+| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"suppressed"`, `"failed"`, `"dead_lettered"`)                 |
+| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                           |
+| Was this a live delivery or replay?       | Receipt                                                                        | `source` (`"live"` or `"replay"`), `replay_run_id`                                             |
+| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted) |
+
+### 17.1 Evidence Completeness Per Pipeline Stage
+
+The evidence bundle covers all five pipeline stages for a single event:
+
+| Pipeline stage | Evidence captured                                  | Key fields in bundle                                                        |
+| -------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| Store          | Event persisted in storage                         | `event_summary` with `event_id`, `event_kind`, `source_adapter`             |
+| Route          | Route matched and route ID assigned                | `route_id` on receipt, in `delivery_state_by_target`                        |
+| Plan           | Delivery plan constructed with deterministic ID    | `delivery_plan_id` on receipt, in `delivery_state_by_target`                |
+| Render         | Rendering strategy and capability level captured   | `rendering_evidence` JSON with `delivery_strategy`, `capability_level`      |
+| Deliver        | Delivery outcome status and failure classification | `status`, `failure_kind`, `error` on receipt, in `delivery_state_by_target` |
+
+A single evidence bundle for a fully-processed event contains data from all five stages simultaneously.
+
+### 17.2 Report Dict Enrichment
+
+:func:`delivery_receipt_to_report_dict` enriches every receipt report dict with the following derived fields. No storage schema changes are required; enrichment is derived at report time from existing receipt fields:
+
+| Field                 | Source                                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `suppression_reason`  | Parsed from `error` text when `status == "suppressed"` and error matches capability or loop suppression patterns.      |
+| `capability_field`    | The :class:`AdapterCapabilities` field that caused suppression (e.g. `reactions`, `replies`). Derived from error text. |
+| `capability_level`    | The three-level decision (`"native"`, `"fallback"`, `"unsupported"`). From `rendering_evidence` JSON or error text.    |
+| `delivery_strategy`   | The delivery strategy (`"direct"`, `"fallback_text"`, `"skip"`). From `rendering_evidence` JSON or error text.         |
+| `failure_kind_detail` | More specific classification derived from error patterns (e.g. `"e2ee_blocked"`, `"meshtastic_queue_rejected"`).       |
+| `retryable`           | Derived from `status`, `failure_kind`, and `next_retry_at`. `True` only for transient failures or scheduled retries.   |
+
+### 17.3 delivery_state_by_target Enrichment
+
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. Including `source` and `replay_run_id` in the key keeps live and replay entries distinct. Each target entry includes:
+
+| Field                 | Source                                |
+| --------------------- | ------------------------------------- |
+| `source`              | Receipt `source` field                |
+| `replay_run_id`       | Receipt `replay_run_id` field         |
+| `suppression_reason`  | Derived per § 17.2                    |
+| `capability_field`    | Derived per § 17.2                    |
+| `capability_level`    | Derived per § 17.2                    |
+| `delivery_strategy`   | Derived per § 17.2                    |
+| `error`               | Sanitised receipt `error` field       |
+| `failure_kind`        | Receipt `failure_kind` field          |
+| `failure_kind_detail` | Derived per § 17.2                    |
+| `retryable`           | Derived per § 17.2                    |
+| `next_retry_at`       | Receipt `next_retry_at` field         |
+| `attempt_number`      | Highest `attempt_number` in the group |
+
+When both live and replay receipts exist for the same event, the bundle contains separate `delivery_state_by_target` entries with distinct `source` values (`"live"` and `"replay"`), allowing the operator to distinguish live from replay delivery for the same target.

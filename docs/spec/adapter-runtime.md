@@ -555,7 +555,7 @@ These fields are not operational flags. They are evidence that lets operators un
 
 The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
 
-**Receipt attachment scope.** The `rendering_evidence` field on `DeliveryReceipt` is populated only for `sent` and `queued` statuses. Suppressed, rendering-failure, and adapter-failure paths leave `rendering_evidence` as `None`. Pre-outbox skip paths (loop guard, policy denial, capability unsupported) produce no receipt at all. This ensures that evidence is present only when the rendering pipeline actually produced a result that was handed to the adapter.
+**Receipt attachment scope.** The `rendering_evidence` field on `DeliveryReceipt` is populated only for `sent` and `queued` statuses. Suppressed, rendering-failure, and adapter-failure paths leave `rendering_evidence` as `None`. Route-target pre-outbox skip paths (loop guard, policy denial, capability unsupported) persist `DeliveryReceipt(status="suppressed")` for traceability, but the rendering evidence remains `None` because no renderer ran and no payload was handed to the adapter.
 
 ---
 

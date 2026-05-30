@@ -30,8 +30,14 @@ from medre.core.planning.capability_decision import (
     resolver,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
+from medre.core.routing.models import RouteTarget
 from tests.helpers.pipeline import make_event
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TARGET = RouteTarget(adapter="test_target", channel="ch-out")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -760,7 +766,9 @@ class TestFallbackResolverParity:
 
         decision = resolver.decide(event, caps)
         fb_resolver = FallbackResolver()
-        strategy = fb_resolver._resolve_strategy(event, caps)
+        strategy = fb_resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
 
         assert strategy.method == decision.delivery_strategy, (
             f"FallbackResolver strategy {strategy.method!r} != "
@@ -778,7 +786,9 @@ class TestFallbackResolverParity:
 
             decision = resolver.decide(event, caps)
             fb_resolver = FallbackResolver()
-            strategy = fb_resolver._resolve_strategy(event, caps)
+            strategy = fb_resolver.resolve_fallback(
+                event, _DEFAULT_TARGET, caps
+            ).primary_strategy
 
             assert strategy.method == decision.delivery_strategy, (
                 f"replies={level}: FallbackResolver {strategy.method!r} != "
@@ -809,7 +819,9 @@ class TestFallbackResolverParity:
 
             decision = resolver.decide(event, caps)
             fb_resolver = FallbackResolver()
-            strategy = fb_resolver._resolve_strategy(event, caps)
+            strategy = fb_resolver.resolve_fallback(
+                event, _DEFAULT_TARGET, caps
+            ).primary_strategy
 
             assert strategy.method == decision.delivery_strategy, (
                 f"{cap_field}={level}: FallbackResolver {strategy.method!r} != "

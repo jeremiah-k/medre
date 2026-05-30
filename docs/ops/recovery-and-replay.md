@@ -483,6 +483,65 @@ Key distinctions:
 1. Replay receipts are distinguishable from live receipts via `source='replay'` and `replay_run_id`.
 2. Replay is not dedupe — each `best_effort` run produces fresh receipts regardless of existing live or replay receipts for the same event.
 3. Native refs created during replay are not directly source-tagged. Correlate through the associated `DeliveryReceipt`'s `event_id` linkage.
+4. Replay produces the same deterministic `delivery_plan_id` as the original live delivery, because plan IDs are derived from `event_id`, `route_id`, `target_index`, and a stable target identity hash — not from Python object identity. This means the same event replayed multiple times produces the same `delivery_plan_id` values each time. Plan IDs are stable only when `event_id`, `route_id`, `target_index`/order, and the stable target identity hash are unchanged. If any of those inputs change (different route match, different target order, different adapter metadata), the plan ID changes.
+
+### Live/Replay Plan Parity
+
+Live delivery and replay planning produce semantically equivalent delivery plans for the same event and route configuration. The following fields are identical across live and replay paths:
+
+- `plan_id` — deterministic via `stable_delivery_plan_id`
+- `route_id` — same matched route
+- `target_identity` — same stable JSON target identity
+- `capability_level`, `capability_field`, `capability_reason` — same capability decision
+- `primary_strategy.method` — same delivery strategy
+
+The fields that intentionally differ are: `source` (`"live"` vs `"replay"`), `replay_run_id`, `receipt_id`, `parent_receipt_id`, `created_at`, and `adapter_message_id`. These differ by design for attribution and audit traceability.
+
+### Receipt Parity Between Live and Replay
+
+When comparing a live receipt to its replay counterpart for the same event and target, these fields match: `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `failure_kind`, `error` (for suppression reasons), `rendering_evidence` (strategy and capability level), and `next_retry_at` (when applicable).
+
+To verify parity, compare receipts for the same event across live and replay:
+
+```sql
+-- Compare live and replay receipt fields for the same event
+SELECT
+  source,
+  delivery_plan_id,
+  target_adapter,
+  target_channel,
+  route_id,
+  status,
+  failure_kind
+FROM delivery_receipts
+WHERE event_id = 'evt_abc123'
+ORDER BY source, created_at;
+```
+
+### Retry Lineage Preservation
+
+Retry reconstruction preserves the original delivery's identity fields through the entire retry chain. Each retry attempt appends a new receipt row — earlier receipts are never overwritten.
+
+Fields preserved across the retry chain:
+
+| Field              | Preserved? | Notes                      |
+| ------------------ | ---------- | -------------------------- |
+| `delivery_plan_id` | Yes        | Same deterministic plan ID |
+| `route_id`         | Yes        | From original delivery     |
+| `target_adapter`   | Yes        | Frozen from original       |
+| `target_channel`   | Yes        | Frozen from original       |
+| `event_id`         | Yes        | Same canonical event       |
+
+Each retry receipt links to the previous attempt via `parent_receipt_id`. When retries are exhausted, the final receipt has `status="dead_lettered"` with `next_retry_at=NULL`. The full chain is visible by following `parent_receipt_id` links:
+
+```sql
+-- Trace the full retry chain for a delivery plan
+SELECT * FROM delivery_receipts WHERE delivery_plan_id = ? ORDER BY attempt_number;
+```
+
+### Suppressed Deliveries and the Retry Queue
+
+Suppressed deliveries (status `"suppressed"` with failure kind `loop_suppressed`, `capability_suppressed`, or `policy_suppressed`) do not enter the retry queue. Suppressed receipts have `next_retry_at=NULL` and are never returned by `list_due_retry_receipts()`. This is by design: suppression indicates a guard fired to prevent delivery, not a transient failure that might resolve with retry.
 
 ### Querying Replay Receipts
 

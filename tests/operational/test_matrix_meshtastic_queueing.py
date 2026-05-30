@@ -372,7 +372,7 @@ class TestQueuedSentCorrelation:
         await storage.append_receipt(q1)
         await storage.append_receipt(q2)
 
-        # No delivery_plan_id on the record -> legacy path.
+        # No delivery_plan_id on the record -> skipped, no supplemental receipt.
         record = OutboundNativeRefRecord(
             event_id="evt-4",
             adapter="test_mesh",

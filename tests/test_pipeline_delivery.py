@@ -13,12 +13,13 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing import Route, RouteDestination, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
@@ -194,6 +195,207 @@ class TestPipeline:
             assert all(r["status"] == "sent" for r in rows)
         finally:
             await runner.stop()
+
+    async def test_route_event_builds_stable_delivery_plan_contract(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Route planning records stable route, target, and capability metadata."""
+
+        class _Adapter:
+            _capabilities = AdapterCapabilities(reactions="unsupported")
+
+        target_a = RouteTarget(
+            adapter="dest",
+            channel="room-1",
+            destination=RouteDestination(
+                kind="matrix_room",
+                destination_hash="!room:id",
+                destination_name="ops",
+                metadata={"via": "example.test"},
+            ),
+        )
+        target_b = RouteTarget(
+            adapter="dest",
+            channel="room-1",
+            destination=RouteDestination(
+                kind="matrix_room",
+                destination_hash="!room:id",
+                destination_name="ops",
+                metadata={"via": "example.test"},
+            ),
+        )
+        route_a = Route(
+            id="stable-contract-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel="ch-0",
+            ),
+            targets=[target_a],
+        )
+        route_b = Route(
+            id="stable-contract-route",
+            source=route_a.source,
+            targets=[target_b],
+        )
+        event = make_event(
+            event_id="stable-contract-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"key": "+1"},
+        )
+
+        config_a = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route_a]),
+            adapters={"dest": _Adapter()},
+        )
+        config_b = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route_b]),
+            adapters={"dest": _Adapter()},
+        )
+        _routed_a, deliveries_a = await PipelineRunner(config_a).route_event(event)
+        _routed_b, deliveries_b = await PipelineRunner(config_b).route_event(event)
+
+        route, plan = deliveries_a[0]
+        _route_b, plan_b = deliveries_b[0]
+
+        assert route.id == "stable-contract-route"
+        assert plan.plan_id == plan_b.plan_id
+        assert plan.route_id == "stable-contract-route"
+        assert plan.event_id == event.event_id
+        assert plan.target.adapter == "dest"
+        assert plan.target.channel == "room-1"
+        assert plan.target_identity == plan_b.target_identity
+        assert plan.target_identity != ""
+        from medre.core.planning.delivery_plan import delivery_target_identity
+
+        assert plan.target_identity == delivery_target_identity(plan.target)
+        assert plan.primary_strategy.method == "skip"
+        assert plan.capability_level == "unsupported"
+        assert plan.capability_field == "reactions"
+        assert plan.capability_reason is not None
+
+    async def test_duplicate_targets_have_distinct_stable_plan_ids(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Repeated equivalent targets are disambiguated by route target index."""
+        target = RouteTarget(adapter="dest", channel="room-1")
+        route = Route(
+            id="duplicate-target-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[target, RouteTarget(adapter="dest", channel="room-1")],
+        )
+        event = make_event(
+            event_id="duplicate-target-001",
+            source_adapter="src",
+            source_channel_id="ch-0",
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={"dest": FakePresentationAdapter(adapter_id="dest")},
+        )
+
+        _routed, deliveries = await PipelineRunner(config).route_event(event)
+
+        plan_ids = [plan.plan_id for _route, plan in deliveries]
+        assert len(plan_ids) == 2
+        assert len(set(plan_ids)) == 2
+
+    async def test_different_route_attribution_produces_different_plan_ids(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Same event, same target, but different route_id → different plan IDs."""
+        event = make_event(
+            event_id="diff-route-001",
+            source_adapter="src",
+            source_channel_id="ch-0",
+        )
+        target = RouteTarget(adapter="dest", channel="room-1")
+
+        # Route A
+        route_a = Route(
+            id="route-a",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[target],
+        )
+        config_a = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route_a]),
+            adapters={"dest": FakePresentationAdapter(adapter_id="dest")},
+        )
+        _, deliveries_a = await PipelineRunner(config_a).route_event(event)
+        plan_a = deliveries_a[0][1]
+
+        # Route B — different route_id, same target
+        route_b = Route(
+            id="route-b",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[target],
+        )
+        config_b = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route_b]),
+            adapters={"dest": FakePresentationAdapter(adapter_id="dest")},
+        )
+        _, deliveries_b = await PipelineRunner(config_b).route_event(event)
+        plan_b = deliveries_b[0][1]
+
+        assert plan_a.event_id == plan_b.event_id
+        assert plan_a.route_id == "route-a"
+        assert plan_b.route_id == "route-b"
+        assert plan_a.plan_id != plan_b.plan_id, (
+            f"Different route_id must produce different plan IDs: "
+            f"{plan_a.plan_id} == {plan_b.plan_id}"
+        )
+
+    async def test_different_target_identity_produces_different_plan_ids(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Same event, same route, but different target → different plan IDs."""
+        event = make_event(
+            event_id="diff-target-001",
+            source_adapter="src",
+            source_channel_id="ch-0",
+        )
+        route = Route(
+            id="stability-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[
+                RouteTarget(adapter="dest", channel="room-1"),
+                RouteTarget(adapter="dest", channel="room-2"),
+            ],
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={"dest": FakePresentationAdapter(adapter_id="dest")},
+        )
+        _, deliveries = await PipelineRunner(config).route_event(event)
+
+        plan_ids = [plan.plan_id for _route, plan in deliveries]
+        assert len(plan_ids) == 2
+        assert plan_ids[0] != plan_ids[1], (
+            f"Different targets must produce different plan IDs: "
+            f"{plan_ids[0]} == {plan_ids[1]}"
+        )
 
     async def test_error_isolation(
         self,

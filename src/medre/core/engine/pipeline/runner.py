@@ -57,6 +57,8 @@ from medre.core.planning.delivery_plan import (
     DeliveryOutcome,
     DeliveryPlan,
     RetryPolicy,
+    delivery_target_identity,
+    stable_delivery_plan_id,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_enricher import RelationEnricher
@@ -892,12 +894,20 @@ class PipelineRunner:
         for route in matched_routes:
             targets = self._config.router.resolve_targets(event, route)
 
-            for target in targets:
+            for target_index, target in enumerate(targets):
                 capabilities = self._get_adapter_capabilities(target)
                 plan = self._config.fallback_resolver.resolve_fallback(
                     event,
                     target,
                     capabilities,
+                )
+                plan.route_id = route.id
+                plan.target_identity = delivery_target_identity(target)
+                plan.plan_id = stable_delivery_plan_id(
+                    event.event_id,
+                    target,
+                    route_id=route.id,
+                    target_index=target_index,
                 )
                 # Attach route-level retry policy if configured.
                 retry_policy = self._config.route_retry_policies.get(route.id)
@@ -1587,6 +1597,14 @@ class PipelineRunner:
             _lease_until = (
                 _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
             ).isoformat()
+            _dest_meta: dict | None = None
+            if target.destination is not None:
+                _dest_meta = {
+                    "destination_kind": target.destination.kind,
+                    "destination_hash": target.destination.destination_hash,
+                    "destination_name": target.destination.destination_name,
+                    "destination_metadata": target.destination.metadata,
+                }
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -1602,6 +1620,7 @@ class PipelineRunner:
                 locked_at=_now.isoformat(),
                 lease_until=_lease_until,
                 worker_id=pipeline_worker,
+                metadata=_dest_meta,
             )
             created = await self._config.storage.create_outbox_item(outbox_item)
             outbox_id = created.outbox_id
@@ -1759,8 +1778,9 @@ class PipelineRunner:
         Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
         with the configured adapter registry.  When the adapter is missing
         from the registry (yields ``None``), falls back to a default
-        :class:`AdapterCapabilities` for backward compatibility — the
-        pipeline has its own adapter-missing check at Phase 2.5.
+        :class:`AdapterCapabilities` as a conservative internal default
+        used only after adapter-missing checks — the pipeline has its own
+        adapter-missing check at Phase 2.5.
         """
         caps = resolve_adapter_capabilities(self._config.adapters, target)
         if caps is None:

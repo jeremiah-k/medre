@@ -277,14 +277,19 @@ asserts all of the following for its fixtures:
 
 ### 6.5 Conformance Test Modules
 
-| Module                                   | Coverage                                                                                                                                                                                  |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_ingress_conformance.py`            | Codec decode → CanonicalEvent contracts                                                                                                                                                   |
-| `test_rendering_conformance.py`          | Renderer output + RenderingEvidence                                                                                                                                                       |
-| `test_capability_runtime_conformance.py` | CapabilityDecisionResolver transport profiles                                                                                                                                             |
-| `test_delivery_lifecycle_conformance.py` | Receipt lifecycle and evidence contracts: shape characterization (manually-constructed receipts) and service-path conformance (TargetDeliveryService + RenderingPipeline + fake adapters) |
-| `test_replay_conformance.py`             | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |
-| `test_evidence_bundle_conformance.py`    | EvidenceBundle assembly conformance: sent, queued, queued→sent, suppressed, replay-origin, invalid rendering_evidence, schema version, deterministic JSON                                 |
+| Module                                        | Coverage                                                                                                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test_ingress_conformance.py`                 | Codec decode → CanonicalEvent contracts                                                                                                                                                   |
+| `test_rendering_conformance.py`               | Renderer output + RenderingEvidence                                                                                                                                                       |
+| `test_capability_runtime_conformance.py`      | CapabilityDecisionResolver transport profiles                                                                                                                                             |
+| `test_delivery_lifecycle_conformance.py`      | Receipt lifecycle and evidence contracts: shape characterization (manually-constructed receipts) and service-path conformance (TargetDeliveryService + RenderingPipeline + fake adapters) |
+| `test_replay_conformance.py`                  | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |
+| `test_evidence_bundle_conformance.py`         | EvidenceBundle assembly conformance: sent, queued, queued→sent, suppressed, replay-origin, invalid rendering_evidence, schema version, deterministic JSON                                 |
+| `test_pipeline_live_replay_parity.py`         | Live/replay plan and receipt parity: deterministic plan IDs, strategy equivalence, capability field parity, receipt field matching after normalisation                                    |
+| `test_pipeline_suppression_no_send.py`        | Suppression gate conformance: capability skip, loop suppression, plan-level skip never call adapter send; suppressed receipts distinct from failed sends; no retry queue entry            |
+| `test_receipt_lineage_retry_parity.py`        | Receipt lineage and retry conformance: delivery_plan_id/route_id/target preservation across retry chain; evidence append semantics; dead_lettered durability                              |
+| `test_pipeline_native_ref_loop_prevention.py` | Native ref persistence, dedup, bridge loop prevention, and suppression evidence completeness                                                                                              |
+| `test_evidence_operator_diagnostics.py`       | Operator-facing evidence bundle field coverage: all pipeline stages, all status values, capability/strategy/failure traceability, live vs replay source distinction                       |
 
 ## 7. Transport Capability Semantics and Delivery Evidence Conformance
 
@@ -310,6 +315,21 @@ This section documents conformance test coverage for transport capability semant
 | Replay BEST_EFFORT applies capability filtering via `_filter_plans_by_capability` using real pipeline                        | `test_replay_engine_plan_filters.py`, `conformance/test_replay_conformance.py`                                                   | S    |
 | All-suppressed replay result includes `capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`, `source="replay"` | `test_replay_engine_plan_filters.py`                                                                                             | S    |
 | Replay capability filtering uses same `CapabilityDecisionResolver` as live delivery                                          | `test_replay_engine_plan_filters.py`                                                                                             | S    |
+| Deterministic plan IDs via `stable_delivery_plan_id` (same event + route = same plan ID)                                     | `test_pipeline_live_replay_parity.py`                                                                                            | S    |
+| Live and replay plans are semantically equivalent (plan_id, strategy, capability fields)                                     | `test_pipeline_live_replay_parity.py`                                                                                            | S    |
+| Live and replay receipts match on core fields (status, failure_kind, delivery_plan_id, target, route)                        | `test_pipeline_live_replay_parity.py`                                                                                            | S    |
+| Repeated replay runs produce identical plan IDs                                                                              | `test_pipeline_live_replay_parity.py`                                                                                            | S    |
+| Capability skip suppression does not call adapter send                                                                       | `test_pipeline_suppression_no_send.py`                                                                                           | S    |
+| Loop suppression does not call adapter send                                                                                  | `test_pipeline_suppression_no_send.py`                                                                                           | S    |
+| Suppressed receipts have `status="suppressed"` (not `"failed"`) and distinct failure kinds                                   | `test_pipeline_suppression_no_send.py`                                                                                           | S    |
+| Suppressed deliveries do not enter retry queue                                                                               | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py`                                                   | S    |
+| Retry reconstruction preserves `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`                            | `test_receipt_lineage_retry_parity.py`                                                                                           | S    |
+| Retry attempts append new receipts (not overwrite existing)                                                                  | `test_receipt_lineage_retry_parity.py`                                                                                           | S    |
+| Retry exhaustion produces durable `dead_lettered` evidence                                                                   | `test_receipt_lineage_retry_parity.py`                                                                                           | S    |
+| Native message refs persisted and resolvable for replay                                                                      | `test_pipeline_native_ref_loop_prevention.py`                                                                                    | S    |
+| Loop suppression evidence includes `event_id`, `route_id`, `target_adapter`, `failure_kind=LOOP_SUPPRESSED`                  | `test_pipeline_native_ref_loop_prevention.py`                                                                                    | S    |
+| Operator diagnostics cover all pipeline stages (store, route, plan, render, deliver) in a single evidence bundle             | `test_evidence_operator_diagnostics.py`                                                                                          | S    |
+| Report dict enrichment includes `delivery_strategy`, `capability_field`, `capability_level`, `suppression_reason`            | `test_evidence_operator_diagnostics.py`                                                                                          | S    |
 
 ### 7.2 Known Gaps
 
@@ -326,3 +346,73 @@ The following behaviors have S-tier test coverage but lack R-tier (live endpoint
 5. **Thread relation capability gating is deferred.** No `AdapterCapabilities.threads` field exists. Thread-carrying events receive native/direct delivery with `capability_field=None` when no other candidate overrides. This is intentional (see Routing and Delivery Specification § 6.3.6) but means thread relations are never capability-suppressed.
 
 6. **`capability_policy` field is reserved and unpopulated.** `RenderingContext.capability_policy` defaults to `None` and is not set by the current pipeline. No test exercises this field.
+
+7. **No live/hardware validation for deterministic plan IDs, suppression gates, retry lineage, or operator diagnostics.** All tests use fake adapters and synthetic configurations. No test validates these behaviours against real transport endpoints.
+
+## 8. Deterministic Delivery Plan Identity and Suppression Semantics Conformance
+
+This section documents conformance test coverage for deterministic plan IDs, live/replay parity, suppression semantics, retry lineage, native ref/loop prevention, and operator diagnostics.
+
+### 8.1 Delivery Plan Identity Conformance
+
+A conforming implementation satisfies:
+
+1. **Deterministic plan IDs**: `plan_id` is derived from `event_id`, `route_id`, `target_index`, and a SHA-256 digest of the target identity. It MUST NOT depend on Python object identity (`id()`). Repeated calls with the same inputs produce the same `plan_id`.
+
+2. **Live/replay plan parity**: Live delivery and replay planning produce plans with identical `plan_id`, `route_id`, `target_identity`, `capability_level`, `capability_field`, `capability_reason`, and `primary_strategy.method` for the same event and route configuration.
+
+3. **Receipt parity**: Live and replay receipts for the same event and target match on `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `error`, `failure_kind`, and `rendering_evidence`. The fields `source`, `replay_run_id`, `receipt_id`, `created_at`, and `adapter_message_id` intentionally differ.
+
+4. **Capability fields populated**: `FallbackResolver.resolve_fallback` populates `capability_level`, `capability_field`, and `capability_reason` from the `CapabilityDecision` on every plan it produces.
+
+### 8.2 Suppression Semantics Conformance
+
+A conforming implementation satisfies:
+
+1. **Adapter not called**: When a suppression guard fires (capability unsupported, self-loop, route-trace cycle), the adapter's `deliver()` method is NOT invoked.
+
+2. **Suppressed status distinct from failed**: Suppressed outcomes have `status="skipped"` and receipts have `status="suppressed"`. These are not `"failed"` or `"transient_failure"` or `"permanent_failure"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `CAPABILITY_SUPPRESSED`, `POLICY_SUPPRESSED`), not an adapter error kind.
+
+3. **Suppressed deliveries not retried**: Suppressed receipts have `next_retry_at=None` and do not appear in `list_due_retry_receipts()`. They are permanently excluded from the retry queue.
+
+4. **Suppression evidence persisted**: Suppressed receipts are persisted in storage and appear in evidence bundles with full `event_id`, `route_id`, `target_adapter`, `failure_kind`, and reason context.
+
+### 8.3 Retry Lineage Conformance
+
+A conforming implementation satisfies:
+
+1. **Identity preservation**: Retry reconstruction preserves `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` from the original delivery through the entire retry chain.
+
+2. **Append-only evidence**: Each retry attempt appends a new receipt row. Earlier receipts are not overwritten or deleted.
+
+3. **Dead-lettered durability**: Retry exhaustion produces a `dead_lettered` receipt with `parent_receipt_id` linking to the last failed attempt. This receipt is durable and queryable.
+
+### 8.4 Native Ref and Loop Prevention Conformance
+
+A conforming implementation satisfies:
+
+1. **Native ref persistence**: Inbound and outbound native message refs are persisted to storage and resolvable via `(adapter, native_channel_id, native_message_id)`.
+
+2. **Consistent replay usage**: Native refs are used consistently in replay — `resolve_native_ref` returns the original `event_id` for previously seen triples.
+
+3. **Loop suppression evidence**: Self-loop and route-trace suppression produce outcomes and receipts with `event_id`, `route_id`, `target_adapter`, and `failure_kind=LOOP_SUPPRESSED`. Runtime accounting and route stats reflect `loop_prevented` count.
+
+### 8.5 Operator Diagnostics Conformance
+
+A conforming implementation satisfies:
+
+1. **Pipeline stage coverage**: A single evidence bundle for a fully-processed event contains data from all five pipeline stages (store, route, plan, render, deliver).
+
+2. **Report dict enrichment**: Every receipt report dict includes derived fields: `delivery_strategy`, `capability_field`, `capability_level`, `suppression_reason`, `failure_kind_detail`, and `retryable`.
+
+3. **Live/replay distinction**: Evidence bundles distinguish live from replay deliveries via `source` and `replay_run_id` fields. When both exist for the same event, separate entries are visible.
+
+### 8.6 Known Gaps
+
+All conformance tests in §8 use S-tier evidence (fake adapters). No R-tier (live endpoint) validation exists for:
+
+1. Deterministic plan ID generation against real transport endpoints.
+2. Suppression gate behaviour with real adapters.
+3. Retry lineage preservation across process restart with real adapters.
+4. Native ref persistence and replay consistency with real adapters.
+5. Operator diagnostics completeness with real transport data.

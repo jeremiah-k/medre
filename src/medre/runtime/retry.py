@@ -42,8 +42,9 @@ from medre.core.planning.delivery_plan import (
     DeliveryStrategy,
     RetryExecutor,
     RetryPolicy,
+    delivery_target_identity,
 )
-from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
@@ -353,9 +354,18 @@ class RetryWorker:
 
         try:
             # Reconstruct Route and DeliveryPlan from outbox metadata.
+            _dest: RouteDestination | None = None
+            if item.metadata and "destination_kind" in item.metadata:
+                _dest = RouteDestination(
+                    kind=item.metadata["destination_kind"],
+                    destination_hash=item.metadata.get("destination_hash"),
+                    destination_name=item.metadata.get("destination_name"),
+                    metadata=item.metadata.get("destination_metadata", {}),
+                )
             target = RouteTarget(
                 adapter=item.target_adapter,
                 channel=item.target_channel,
+                destination=_dest,
             )
             route = Route(
                 id=item.route_id or "",
@@ -374,6 +384,8 @@ class RetryWorker:
                     max_delay_seconds=_max_delay,
                     jitter=_jitter,
                 ),
+                route_id=item.route_id or None,
+                target_identity=delivery_target_identity(target),
             )
 
             self._emit(
