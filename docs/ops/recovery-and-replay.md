@@ -483,7 +483,7 @@ Key distinctions:
 1. Replay receipts are distinguishable from live receipts via `source='replay'` and `replay_run_id`.
 2. Replay is not dedupe — each `best_effort` run produces fresh receipts regardless of existing live or replay receipts for the same event.
 3. Native refs created during replay are not directly source-tagged. Correlate through the associated `DeliveryReceipt`'s `event_id` linkage.
-4. Replay produces the same deterministic `delivery_plan_id` as the original live delivery, because plan IDs are derived from `event_id`, `route_id`, `target_index`, and a stable target identity hash — not from Python object identity. This means the same event replayed multiple times produces the same `delivery_plan_id` values each time.
+4. Replay produces the same deterministic `delivery_plan_id` as the original live delivery, because plan IDs are derived from `event_id`, `route_id`, `target_index`, and a stable target identity hash — not from Python object identity. This means the same event replayed multiple times produces the same `delivery_plan_id` values each time. Plan IDs are stable only when `event_id`, `route_id`, `target_index`/order, and the stable target identity hash are unchanged. If any of those inputs change (different route match, different target order, different adapter metadata), the plan ID changes.
 
 ### Live/Replay Plan Parity
 
@@ -536,13 +536,7 @@ Each retry receipt links to the previous attempt via `parent_receipt_id`. When r
 
 ```sql
 -- Trace the full retry chain for a delivery plan
-WITH RECURSIVE chain AS (
-  SELECT * FROM delivery_receipts WHERE delivery_plan_id = 'plan:evt_abc:route1:0:abc123'
-  UNION ALL
-  SELECT r.* FROM delivery_receipts r JOIN chain c ON r.parent_receipt_id = c.receipt_id
-)
-SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at, parent_receipt_id
-FROM chain ORDER BY attempt_number;
+SELECT * FROM delivery_receipts WHERE delivery_plan_id = ? ORDER BY attempt_number;
 ```
 
 ### Suppressed Deliveries and the Retry Queue

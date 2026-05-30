@@ -1597,6 +1597,14 @@ class PipelineRunner:
             _lease_until = (
                 _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
             ).isoformat()
+            _dest_meta: dict | None = None
+            if target.destination is not None:
+                _dest_meta = {
+                    "destination_kind": target.destination.kind,
+                    "destination_hash": target.destination.destination_hash,
+                    "destination_name": target.destination.destination_name,
+                    "destination_metadata": target.destination.metadata,
+                }
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -1612,6 +1620,7 @@ class PipelineRunner:
                 locked_at=_now.isoformat(),
                 lease_until=_lease_until,
                 worker_id=pipeline_worker,
+                metadata=_dest_meta,
             )
             created = await self._config.storage.create_outbox_item(outbox_item)
             outbox_id = created.outbox_id

@@ -542,3 +542,68 @@ class TestSuppressedRetryExclusion:
         assert len(supp_stored) == 1
         assert supp_stored[0].next_retry_at is None
         assert supp_stored[0].failure_kind == "loop_suppressed"
+
+
+# ===================================================================
+# Plan ID format validation
+# ===================================================================
+
+
+class TestPlanIdFormat:
+    """Unit tests for stable_delivery_plan_id format invariants."""
+
+    def test_none_route_id_uses_unrouted(self) -> None:
+        """route_id=None produces 'unrouted' in plan ID, no double colon."""
+        target = RouteTarget(adapter="test", channel="ch-0")
+        plan_id = stable_delivery_plan_id(
+            "evt-001", target, route_id=None, target_index=0
+        )
+        assert "unrouted" in plan_id
+        assert "::" not in plan_id
+
+    def test_empty_route_id_uses_unrouted(self) -> None:
+        """route_id='' produces 'unrouted' in plan ID, no double colon."""
+        target = RouteTarget(adapter="test", channel="ch-0")
+        plan_id = stable_delivery_plan_id(
+            "evt-001", target, route_id="", target_index=0
+        )
+        assert "unrouted" in plan_id
+        assert "::" not in plan_id
+
+    def test_valid_route_id_present_in_plan_id(self) -> None:
+        """route_id='route-xyz' appears in plan ID."""
+        target = RouteTarget(adapter="test", channel="ch-0")
+        plan_id = stable_delivery_plan_id(
+            "evt-001", target, route_id="route-xyz", target_index=3
+        )
+        assert "route-xyz" in plan_id
+        assert "::" not in plan_id
+
+    def test_plan_id_format_structure(self) -> None:
+        """Plan ID follows format plan:{event_id}:{route_part}:{index_part}:{target_hash}."""
+        target = RouteTarget(adapter="test", channel="ch-0")
+        plan_id = stable_delivery_plan_id(
+            "evt-001", target, route_id="r1", target_index=0
+        )
+        parts = plan_id.split(":")
+        assert (
+            len(parts) == 5
+        ), f"Expected 5 colon-separated parts, got {len(parts)}: {plan_id}"
+        assert parts[0] == "plan"
+        assert parts[1] == "evt-001"
+        assert parts[2] == "r1"
+        assert parts[3] == "0"
+        assert (
+            len(parts[4]) == 16
+        ), f"Target hash should be 16 hex chars, got {len(parts[4])}"
+        assert all(
+            c in "0123456789abcdef" for c in parts[4]
+        ), "Target hash should be hex"
+
+    def test_none_target_index_uses_target(self) -> None:
+        """target_index=None produces 'target' in index position."""
+        target = RouteTarget(adapter="test", channel="ch-0")
+        plan_id = stable_delivery_plan_id(
+            "evt-001", target, route_id="r1", target_index=None
+        )
+        assert ":target:" in plan_id

@@ -168,6 +168,23 @@ class DeliveryPlan:
     capability_reason: str | None = None
 
 
+def _canonical_json_value(value: object) -> object:
+    """Recursively validate and canonicalize a value for deterministic JSON.
+
+    Supported types: ``None``, ``bool``, ``int``, ``float``, ``str``,
+    ``list``, ``tuple``, and ``dict`` (with string keys).  Any other
+    type raises :class:`TypeError` so that unsupported values are never
+    silently coerced.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_canonical_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _canonical_json_value(v) for k, v in sorted(value.items())}
+    raise TypeError(f"Unsupported type in target identity: {type(value).__name__}")
+
+
 def delivery_target_identity(target: RouteTarget) -> str:
     """Return a stable JSON identity for a delivery target.
 
@@ -182,7 +199,7 @@ def delivery_target_identity(target: RouteTarget) -> str:
             "kind": destination.kind,
             "destination_hash": destination.destination_hash,
             "destination_name": destination.destination_name,
-            "metadata": destination.metadata,
+            "metadata": _canonical_json_value(destination.metadata),
         }
     return json.dumps(
         {
@@ -192,7 +209,6 @@ def delivery_target_identity(target: RouteTarget) -> str:
         },
         sort_keys=True,
         separators=(",", ":"),
-        default=str,
     )
 
 

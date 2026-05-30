@@ -369,7 +369,7 @@ A conforming implementation satisfies:
 
 A conforming implementation satisfies:
 
-1. **Adapter not called**: When a suppression guard fires (capability unsupported, self-loop, route-trace cycle), the adapter's `send()` method is NOT invoked.
+1. **Adapter not called**: When a suppression guard fires (capability unsupported, self-loop, route-trace cycle), the adapter's `deliver()` method is NOT invoked.
 
 2. **Suppressed status distinct from failed**: Suppressed outcomes have `status="skipped"` and receipts have `status="suppressed"`. These are not `"failed"` or `"transient_failure"` or `"permanent_failure"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `CAPABILITY_SUPPRESSED`, `POLICY_SUPPRESSED`), not an adapter error kind.
 

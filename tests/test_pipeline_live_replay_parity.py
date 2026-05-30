@@ -236,6 +236,18 @@ class TestDirectDeliveryPlanParity:
         ), f"Replay path should produce at least one plan, got {len(replay_plans)}"
         replay_norm = normalize_plan(replay_plans[0])
 
+        # -- Pre-comparison: metadata must be populated --
+        assert live_plan.target_identity, "live target_identity must be non-empty"
+        assert replay_plans[
+            0
+        ].target_identity, "replay target_identity must be non-empty"
+        assert (
+            live_plan.capability_field is not None
+        ), "live capability_field must be populated"
+        assert (
+            replay_plans[0].capability_field is not None
+        ), "replay capability_field must be populated"
+
         # -- Compare normalised plans --
         assert live_norm == replay_norm, (
             f"Live plan != replay plan.\n"
@@ -374,6 +386,9 @@ class TestCapabilitySkipParity:
         _, live_deliveries = await runner.route_event(live_event)
         assert len(live_deliveries) >= 1
         _lr, live_plan = live_deliveries[0]
+        assert live_plan.target_identity, "target_identity must be populated"
+        assert live_plan.capability_level, "capability_level must be populated"
+        assert live_plan.capability_field, "capability_field must be populated"
         live_norm = normalize_plan(live_plan)
 
         assert live_norm["primary_strategy_method"] == "skip", (

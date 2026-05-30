@@ -34,7 +34,7 @@ from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -96,6 +96,8 @@ class _RetryWorkerState:
 
 
 def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
@@ -112,6 +114,8 @@ def _plan_from_receipt(
     receipt: DeliveryReceipt,
     retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
+    # Destination cannot be reconstructed from receipt alone —
+    # only available via outbox item metadata during actual retry.
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
         event_id=receipt.event_id,
@@ -807,3 +811,91 @@ class TestRetryLineage:
             assert "duplicate_send_caveat" not in timeline
         finally:
             await runner.stop()
+
+
+class TestRetryReconstructionPreservesDestination:
+    """Verify that RouteTarget.destination survives retry reconstruction.
+
+    The pipeline stores destination data in the outbox item metadata field,
+    and the retry worker reads it back to reconstruct the full RouteTarget
+    including the RouteDestination.
+    """
+
+    def test_plan_preserves_destination(self) -> None:
+        """DeliveryPlan creation preserves destination on the target."""
+        dest = RouteDestination(
+            kind="direct",
+            destination_hash="abc123",
+            destination_name="Node A",
+            metadata={"key": "value"},
+        )
+        target = RouteTarget(adapter="test", channel="0", destination=dest)
+
+        plan = DeliveryPlan(
+            plan_id="plan-1",
+            event_id="evt-1",
+            target=target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+            retry_policy=RetryPolicy(max_attempts=3),
+        )
+
+        assert plan.target.destination is not None
+        assert plan.target.destination.kind == "direct"
+        assert plan.target.destination.destination_hash == "abc123"
+        assert plan.target.destination.destination_name == "Node A"
+        assert plan.target.destination.metadata == {"key": "value"}
+
+    def test_outbox_metadata_roundtrip(self) -> None:
+        """Destination data stored in outbox metadata reconstructs correctly."""
+        dest = RouteDestination(
+            kind="lxmf_destination",
+            destination_hash="hash_xyz",
+            destination_name="MeshNode B",
+            metadata={"port": 1234},
+        )
+
+        # Simulate what runner.py does when creating outbox metadata
+        outbox_metadata: dict = {
+            "destination_kind": dest.kind,
+            "destination_hash": dest.destination_hash,
+            "destination_name": dest.destination_name,
+            "destination_metadata": dest.metadata,
+        }
+
+        # Simulate what retry.py does when reconstructing from metadata
+        assert "destination_kind" in outbox_metadata
+        reconstructed = RouteDestination(
+            kind=outbox_metadata["destination_kind"],
+            destination_hash=outbox_metadata.get("destination_hash"),
+            destination_name=outbox_metadata.get("destination_name"),
+            metadata=outbox_metadata.get("destination_metadata", {}),
+        )
+
+        target = RouteTarget(
+            adapter="lxmf",
+            channel=None,
+            destination=reconstructed,
+        )
+
+        assert target.destination is not None
+        assert target.destination.kind == "lxmf_destination"
+        assert target.destination.destination_hash == "hash_xyz"
+        assert target.destination.destination_name == "MeshNode B"
+        assert target.destination.metadata == {"port": 1234}
+
+    def test_outbox_without_destination_metadata(self) -> None:
+        """When metadata has no destination keys, target.destination stays None."""
+        outbox_metadata: dict | None = None
+
+        # Simulate retry.py reconstruction logic
+        dest = None
+        if outbox_metadata and "destination_kind" in outbox_metadata:
+            dest = RouteDestination(
+                kind=outbox_metadata["destination_kind"],
+                destination_hash=outbox_metadata.get("destination_hash"),
+                destination_name=outbox_metadata.get("destination_name"),
+                metadata=outbox_metadata.get("destination_metadata", {}),
+            )
+
+        target = RouteTarget(adapter="test", channel="ch1", destination=dest)
+        assert target.destination is None

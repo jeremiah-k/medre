@@ -6,7 +6,7 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 ## Failure Category Quick Reference
 
-| Category              | Exit code | Receipt status                                     | Retry?                     | Where to inspect                                 |
+| Category              | Exit code | Receipt/Outcome status                             | Retry?                     | Where to inspect                                 |
 | --------------------- | --------- | -------------------------------------------------- | -------------------------- | ------------------------------------------------ |
 | Config error          | 2         | None (no runtime)                                  | No                         | stderr, `medre config check`                     |
 | Build failure         | 3         | None (no delivery)                                 | No                         | `startup.build_failures`, logs                   |

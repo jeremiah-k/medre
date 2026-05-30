@@ -837,7 +837,7 @@ Delivery suppression falls into three distinct categories:
 
 **No route or no target.** The event matched zero routes (Section 3.4) or no target adapter was identified. No `DeliveryOutcome` is produced. No receipt is created. The event remains in the canonical event log and is available for replay if routes are added later.
 
-**Pre-outbox skip.** A route matched and a target was identified, but a guard fired before the outbox, capacity, rendering, or adapter stages. This includes: self-loop guard (`target_adapter == source_adapter`), route-trace cycle detection (route ID appears more than once), route-policy denial (`failure_kind="policy_suppressed"`), and capability-level `"unsupported"` suppression for the event's relation type. Produces `DeliveryOutcome(status="skipped")` and persists `DeliveryReceipt(status="suppressed")` when the event has already been stored. No renderer invocation. No adapter call. The reason is recorded in the outcome and receipt `error` fields.
+**Pre-outbox skip.** A route matched and a target was identified, but a guard fired before the outbox, capacity, rendering, or adapter stages. This includes: self-loop guard (`target_adapter == source_adapter`), route-trace cycle detection (route ID appears more than once), route-policy denial (`failure_kind="policy_suppressed"`), and capability-level `"unsupported"` suppression for the event's relation type. Produces `DeliveryOutcome(status="skipped")` and persists `DeliveryReceipt(status="suppressed")` when the event has already been stored. No renderer invocation. No adapter call. The suppression reason is recorded in the outcome and receipt `error` fields; route and target attribution (`route_id`, `target_adapter`, `target_channel`) belong in dedicated receipt fields.
 
 **Post-planning direct-call suppression.** Suppression that occurs after the planning stage, where recording a receipt provides defense-in-depth audit value. Produces `DeliveryReceipt(status="suppressed")`. The receipt includes `route_id`, `target_adapter`, `target_channel`, and the suppression reason. This category is distinct from pre-outbox skip: a receipt MAY exist, but no renderer or adapter was invoked.
 
@@ -1120,13 +1120,13 @@ Effectively unbounded for propagated delivery. Multi-hop Reticulum transport can
 
 Route policy suppression is a cross-transport failure classification. It occurs when the route-policy evaluator denies a delivery after route matching but before delivery side effects.
 
-| Property       | Value                                                                                                                     |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Failure kind   | `policy_suppressed`                                                                                                       |
-| Retryable      | No — permanent classification                                                                                             |
-| Pipeline stage | Route policy (after route match, before delivery)                                                                         |
-| Outcome        | `DeliveryOutcome(status="skipped")` plus `DeliveryReceipt(status="suppressed")` for stored routed events (Section 11.2.1) |
-| Error context  | `error` field carries `route_id`, `target_adapter`, `target_channel`, and denial reason                                   |
+| Property       | Value                                                                                                                                                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Failure kind   | `policy_suppressed`                                                                                                                                                                                                          |
+| Retryable      | No — permanent classification                                                                                                                                                                                                |
+| Pipeline stage | Route policy (after route match, before delivery)                                                                                                                                                                            |
+| Outcome        | `DeliveryOutcome(status="skipped")` plus `DeliveryReceipt(status="suppressed")` for stored routed events (Section 11.2.1)                                                                                                    |
+| Error context  | `error` field carries the denial reason/message (e.g., `'text capability unsupported'`, `'loop detected'`). Route and target attribution belong in dedicated receipt fields: `route_id`, `target_adapter`, `target_channel`. |
 
 ## 16. Duplicate-Send Risk Classification
 

@@ -296,9 +296,9 @@ class TestDisabledRouteSuppressionNoSend:
             outcomes = await runner.handle_ingress(event)
 
             # No routes matched — empty outcomes.
-            assert len(outcomes) == 0, (
-                f"Expected 0 outcomes for disabled route, got {len(outcomes)}"
-            )
+            assert (
+                len(outcomes) == 0
+            ), f"Expected 0 outcomes for disabled route, got {len(outcomes)}"
             # Adapter never invoked.
             assert len(adapter.delivered_payloads) == 0, (
                 f"Expected 0 delivered_payloads for disabled route, "
@@ -432,9 +432,9 @@ class TestSuppressedOutcomeProducesEvidence:
         stored_receipts = await temp_storage.list_receipts_for_event(
             event.event_id,
         )
-        assert len(stored_receipts) == 1, (
-            f"Expected exactly 1 persisted receipt, got {len(stored_receipts)}"
-        )
+        assert (
+            len(stored_receipts) == 1
+        ), f"Expected exactly 1 persisted receipt, got {len(stored_receipts)}"
         assert stored_receipts[0].status == "suppressed", (
             f"Expected receipt status='suppressed', "
             f"got {stored_receipts[0].status!r}"
@@ -585,9 +585,9 @@ class TestSuppressedOutcomeNotLikeFailedSend:
             assert len(outcomes) == 1
             outcome = outcomes[0]
 
-            assert outcome.status == "skipped", (
-                f"Loop-suppressed outcome must be 'skipped', got {outcome.status!r}"
-            )
+            assert (
+                outcome.status == "skipped"
+            ), f"Loop-suppressed outcome must be 'skipped', got {outcome.status!r}"
             assert (
                 outcome.failure_kind is DeliveryFailureKind.LOOP_SUPPRESSED
             ), f"Expected LOOP_SUPPRESSED, got {outcome.failure_kind}"
