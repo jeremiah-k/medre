@@ -85,31 +85,22 @@ class TestExecutorLifecycle:
         await s.close()
 
     async def test_run_in_thread_raises_after_close(self, tmp_path: Path) -> None:
-        """After close(), _run_in_thread must raise RuntimeError on the
-        aiosqlite path where _db is None and executor is None."""
+        """After close(), _run_in_thread must raise RuntimeError regardless
+        of whether aiosqlite is available."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
         await s.close()
-        # After close(), both _db and _executor are None.  On the
-        # aiosqlite path, _run_in_thread raises RuntimeError because
-        # _db is None and _use_aiosqlite is True.
-        if s._use_aiosqlite:
-            with pytest.raises(RuntimeError, match="private executor is closed"):
-                await s._run_in_thread(lambda: None)
-        else:
-            # Sync path: executor is None and _db is None, but the sync
-            # fallback creates a new executor — no RuntimeError expected.
-            # Just verify it doesn't crash trying to use a None _db by
-            # checking that a StorageInitializationError or similar is raised
-            # when actually running a DB operation.
-            assert s._db is None
+        with pytest.raises(RuntimeError, match="SQLiteStorage is closed"):
+            await s._run_in_thread(lambda: None)
 
     async def test_close_sets_executor_none(self, tmp_path: Path) -> None:
-        """close() must set _executor to None."""
+        """close() must set _executor to None and _closed to True."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
+        assert s._closed is False
         await s.close()
         assert s._executor is None
+        assert s._closed is True
 
 
 # ===================================================================

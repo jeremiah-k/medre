@@ -82,11 +82,14 @@ class _SQLiteStorageBase:
         self._async_write_lock = asyncio.Lock()
         self._use_aiosqlite = _HAS_AIOSQLITE
         self._executor: ThreadPoolExecutor | None = None
+        self._closed: bool = False
 
     # -- Internal helpers ---------------------------------------------------
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run a synchronous function in the private executor."""
+        if self._closed:
+            raise RuntimeError("SQLiteStorage is closed.")
         executor = self._executor
         if executor is None:
             if self._db is None and self._use_aiosqlite:
@@ -123,6 +126,7 @@ class _SQLiteStorageBase:
             version.  The operator must resolve the mismatch manually
             (no silent migration or reset).
         """
+        self._closed = False
         if self._use_aiosqlite:
             db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
             try:
@@ -350,6 +354,7 @@ class _SQLiteStorageBase:
             with self._lock:
                 db.close()
         self._db = None
+        self._closed = True
         # Shut down the private executor so Python 3.14's ThreadPoolExecutor
         # releases its internal references to the connection object.
         # All work was awaited before close(), so the executor is idle.
