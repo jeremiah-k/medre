@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
@@ -200,6 +200,7 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
     return {
         "outbox_id": item.outbox_id,
         "route_id": item.route_id,
+        "delivery_plan_id": item.delivery_plan_id,
         "target_adapter": item.target_adapter,
         "target_channel": item.target_channel,
         "attempt_number": item.attempt_number,
@@ -282,7 +283,9 @@ class EvidenceCollector:
         outbox_items: list[Any] = []
         list_outbox = getattr(self._storage, "list_outbox_items_for_event", None)
         if callable(list_outbox):
-            outbox_items = await list_outbox(event_id)
+            outbox_items = await cast(
+                Coroutine[Any, Any, list[Any]], list_outbox(event_id)
+            )
         else:
             # Backward-compat: storage backends predating list_outbox_items_for_event.
             warnings.append(

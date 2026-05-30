@@ -798,8 +798,8 @@ class TestOutboxDatetimeTimestamps:
             delivery_plan_id="plan-1",
             target_adapter="adapter_a",
             status="sent",
-            created_at=dt_created,
-            updated_at=dt_updated,
+            created_at=dt_created,  # type: ignore[arg-type]
+            updated_at=dt_updated,  # type: ignore[arg-type]
         )
 
         storage = _populated_fake(event_id="evt-dt", outbox_items=[item])

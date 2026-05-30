@@ -553,18 +553,18 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.2 Contents
 
-| Field               | Type                   | Semantics                                                                                               |
-| ------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| `schema_version`    | `int`                  | Currently `1`. Frozen during pre-release.                                                               |
-| `event_id`          | `str`                  | The canonical event ID this bundle covers.                                                              |
-| `event_summary`     | `dict or None`         | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
-| `delivery_receipts` | `list[ReceiptSummary]` | Ordered by `sequence` (append order).                                                                   |
-| `native_refs`       | `list[dict]`           | Ordered by `created_at`, then `id`.                                                                     |
-| `outbox_items`      | `list[dict]`           | Ordered by `created_at`, then `outbox_id`.                                                              |
-| `replay_run_ids`    | `list[str]`            | Sorted distinct `replay_run_id` values from receipts.                                                   |
-| `sources_seen`      | `list[str]`            | Sorted distinct `source` values from receipts.                                                          |
-| `warnings`          | `list[str]`            | Deterministic insertion-order warnings collected during assembly.                                       |
-| `generated_at`      | `str`                  | ISO 8601 timestamp of bundle generation.                                                                |
+| Field               | Type                       | Semantics                                                                                               |
+| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `schema_version`    | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
+| `event_id`          | `str`                      | The canonical event ID this bundle covers.                                                              |
+| `event_summary`     | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
+| `delivery_receipts` | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
+| `native_refs`       | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
+| `outbox_items`      | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| `replay_run_ids`    | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `sources_seen`      | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
+| `warnings`          | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
+| `generated_at`      | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
 
 ### 16.3 ReceiptSummary
 
