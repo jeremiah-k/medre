@@ -1,0 +1,293 @@
+"""Read-only evidence collector backed by :class:`~medre.core.storage.backend.StorageBackend`.
+
+The :class:`EvidenceCollector` reads stored data (events, receipts, native
+refs, outbox items) and assembles a deterministic, JSON-safe
+:class:`~medre.core.evidence.bundle.EvidenceBundle` for a single event.
+It **never** writes to storage or mutates runtime state.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any, Protocol, runtime_checkable
+
+from medre.core.evidence.bundle import (
+    BUNDLE_SCHEMA_VERSION,
+    EvidenceBundle,
+    ReceiptSummary,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Minimal storage protocol for the collector
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class _EvidenceStorage(Protocol):
+    """The subset of :class:`StorageBackend` the collector needs.
+
+    Kept as a duck-typing protocol so that tests can supply fakes
+    without implementing the full backend.
+    """
+
+    async def get(self, event_id: str) -> Any: ...
+    async def list_receipts_for_event(self, event_id: str) -> list[Any]: ...
+    async def list_native_refs_for_event(self, event_id: str) -> list[Any]: ...
+
+    async def list_outbox_items_for_event(self, event_id: str) -> list[Any]: ...
+
+
+# ---------------------------------------------------------------------------
+# Rendering evidence parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_rendering_evidence(
+    raw: str | None,
+    *,
+    receipt_id: str,
+    event_id: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse ``rendering_evidence`` defensively.
+
+    Returns ``(parsed_dict_or_None, warning_or_None)``.
+
+    * ``None`` raw -> ``(None, None)`` — no warning.
+    * Valid JSON object -> ``(dict, None)``.
+    * Valid non-object JSON -> ``(None, warning)`` — schema expects object.
+    * Invalid JSON -> ``(None, warning)`` — with receipt/event context,
+      raw evidence not echoed except for length.
+    """
+    if raw is None:
+        return None, None
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        length = len(raw) if isinstance(raw, str) else 0
+        return None, (
+            f"Invalid rendering_evidence JSON on receipt {receipt_id} "
+            f"(event {event_id}): parse error (raw length={length})"
+        )
+
+    if isinstance(parsed, dict):
+        return parsed, None
+
+    # Valid JSON but not an object.
+    return None, (
+        f"Non-object rendering_evidence on receipt {receipt_id} "
+        f"(event {event_id}): expected JSON object, got {type(parsed).__name__}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Event summary
+# ---------------------------------------------------------------------------
+
+
+def _summarize_event(event: Any) -> dict[str, Any]:
+    """Build a JSON-safe summary dict from a :class:`CanonicalEvent`.
+
+    Avoids embedding full payloads.  Summarises key fields only.
+    """
+    import msgspec
+
+    raw = msgspec.json.encode(event)
+    full: dict[str, Any] = msgspec.json.decode(raw)
+    # Strip large fields; keep summary metadata.
+    summary: dict[str, Any] = {
+        "event_id": full.get("event_id", ""),
+        "event_kind": full.get("event_kind", ""),
+        "schema_version": full.get("schema_version"),
+        "timestamp": full.get("timestamp"),
+        "source_adapter": full.get("source_adapter", ""),
+        "source_transport_id": full.get("source_transport_id", ""),
+        "source_channel_id": full.get("source_channel_id"),
+        "parent_event_id": full.get("parent_event_id"),
+        "depth": full.get("depth", 0),
+        "trace_id": full.get("trace_id"),
+        "relation_count": len(full.get("relations", [])),
+        "relation_types": sorted(
+            {r.get("relation_type", "") for r in full.get("relations", [])}
+        ),
+        "payload_keys": sorted(full.get("payload", {}).keys()),
+        "has_source_native_ref": full.get("source_native_ref") is not None,
+    }
+    return summary
+
+
+def _summarize_receipt(receipt: Any, warnings: list[str]) -> ReceiptSummary:
+    """Build a :class:`ReceiptSummary` from a :class:`DeliveryReceipt`.
+
+    Parses ``rendering_evidence`` defensively, appending warnings for
+    invalid JSON.
+    """
+    parsed_evidence, warn = _parse_rendering_evidence(
+        receipt.rendering_evidence,
+        receipt_id=receipt.receipt_id,
+        event_id=receipt.event_id,
+    )
+    if warn is not None:
+        warnings.append(warn)
+
+    return ReceiptSummary(
+        receipt_id=receipt.receipt_id,
+        sequence=receipt.sequence,
+        target_adapter=receipt.target_adapter,
+        target_channel=receipt.target_channel,
+        route_id=receipt.route_id,
+        status=receipt.status,
+        attempt_number=receipt.attempt_number,
+        source=receipt.source,
+        replay_run_id=receipt.replay_run_id,
+        failure_kind=receipt.failure_kind,
+        error=receipt.error,
+        rendering_evidence=parsed_evidence,
+        created_at=(
+            receipt.created_at.isoformat()
+            if isinstance(receipt.created_at, datetime)
+            else str(receipt.created_at)
+        ),
+    )
+
+
+def _summarize_native_ref(ref: Any) -> dict[str, Any]:
+    """Build a JSON-safe summary dict from a :class:`NativeMessageRef`."""
+    return {
+        "id": ref.id,
+        "adapter": ref.adapter,
+        "native_channel_id": ref.native_channel_id,
+        "native_message_id": ref.native_message_id,
+        "direction": ref.direction,
+        "created_at": (
+            ref.created_at.isoformat()
+            if isinstance(ref.created_at, datetime)
+            else str(ref.created_at)
+        ),
+    }
+
+
+def _summarize_outbox_item(item: Any) -> dict[str, Any]:
+    """Build a JSON-safe summary dict from a :class:`DeliveryOutboxItem`."""
+    return {
+        "outbox_id": item.outbox_id,
+        "route_id": item.route_id,
+        "target_adapter": item.target_adapter,
+        "target_channel": item.target_channel,
+        "attempt_number": item.attempt_number,
+        "status": item.status,
+        "failure_kind": item.failure_kind,
+        "error_summary": item.error_summary,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Collector
+# ---------------------------------------------------------------------------
+
+
+class EvidenceCollector:
+    """Read-only collector that assembles an :class:`EvidenceBundle`.
+
+    Parameters
+    ----------
+    storage:
+        Any object satisfying the
+        :class:`~medre.core.storage.backend.StorageBackend` protocol
+        (or at minimum the :class:`_EvidenceStorage` subset).
+    now_fn:
+        Injectable clock for deterministic testing.
+    """
+
+    def __init__(
+        self,
+        storage: Any,
+        *,
+        now_fn: Any | None = None,
+    ) -> None:
+        self._storage = storage
+        self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+
+    async def collect_for_event(self, event_id: str) -> EvidenceBundle:
+        """Collect a deterministic evidence bundle for one event.
+
+        Reads event, receipts, native refs, and outbox items from storage
+        (all read-only).  Assembles a frozen bundle with deterministic
+        ordering.  Missing event produces a warning but not a crash.
+        Missing related records produce empty collections, not errors.
+
+        Parameters
+        ----------
+        event_id:
+            The canonical event ID to collect evidence for.
+
+        Returns
+        -------
+        EvidenceBundle
+            Frozen, JSON-safe evidence bundle.
+        """
+        warnings: list[str] = []
+
+        # -- Event summary -------------------------------------------------
+        event = await self._storage.get(event_id)
+        event_summary: dict[str, Any] | None = None
+        if event is not None:
+            event_summary = _summarize_event(event)
+        else:
+            warnings.append(f"Event {event_id!r} not found in storage")
+
+        # -- Receipts (ordered by sequence) --------------------------------
+        receipts = await self._storage.list_receipts_for_event(event_id)
+        # Defensive: ensure order by sequence.
+        receipts = sorted(receipts, key=lambda r: r.sequence)
+        receipt_summaries = tuple(_summarize_receipt(r, warnings) for r in receipts)
+
+        # -- Native refs (ordered by created_at, id) -----------------------
+        native_refs = await self._storage.list_native_refs_for_event(event_id)
+        native_ref_summaries = tuple(_summarize_native_ref(r) for r in native_refs)
+
+        # -- Outbox items (ordered by created_at, outbox_id) ---------------
+        outbox_items: list[Any] = []
+        try:
+            outbox_items = await self._storage.list_outbox_items_for_event(
+                event_id,
+            )
+        except AttributeError:
+            # Storage backend does not implement the method — degrade.
+            warnings.append(
+                "list_outbox_items_for_event not available on storage backend"
+            )
+        outbox_summaries = tuple(_summarize_outbox_item(i) for i in outbox_items)
+
+        # -- Replay run IDs (sorted) ---------------------------------------
+        replay_run_ids = sorted({r.replay_run_id for r in receipts if r.replay_run_id})
+
+        # -- Sources seen (sorted) -----------------------------------------
+        sources_seen = sorted({r.source for r in receipts}) if receipts else []
+
+        # -- Empty data check ----------------------------------------------
+        if event is None and not receipts and not native_refs and not outbox_items:
+            warnings.append(
+                f"No event, receipts, native refs, or outbox items found for "
+                f"event {event_id!r}"
+            )
+
+        return EvidenceBundle(
+            schema_version=BUNDLE_SCHEMA_VERSION,
+            event_id=event_id,
+            event_summary=event_summary,
+            delivery_receipts=receipt_summaries,
+            native_refs=native_ref_summaries,
+            outbox_items=outbox_summaries,
+            replay_run_ids=tuple(replay_run_ids),
+            sources_seen=tuple(sources_seen),
+            warnings=tuple(warnings),
+            generated_at=self._now_fn().isoformat(),
+        )
