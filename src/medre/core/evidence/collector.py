@@ -13,6 +13,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
+import msgspec
+
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,
     EvidenceBundle,
@@ -95,8 +97,6 @@ def _summarize_event(event: Any) -> dict[str, Any]:
 
     Avoids embedding full payloads.  Summarises key fields only.
     """
-    import msgspec
-
     raw = msgspec.json.encode(event)
     full: dict[str, Any] = msgspec.json.decode(raw)
     # Strip large fields; keep summary metadata.
@@ -183,8 +183,16 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "status": item.status,
         "failure_kind": item.failure_kind,
         "error_summary": item.error_summary,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": (
+            item.created_at.isoformat()
+            if isinstance(item.created_at, datetime)
+            else str(item.created_at)
+        ),
+        "updated_at": (
+            item.updated_at.isoformat()
+            if isinstance(item.updated_at, datetime)
+            else str(item.updated_at)
+        ),
     }
 
 

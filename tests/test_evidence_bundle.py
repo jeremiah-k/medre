@@ -132,7 +132,10 @@ class FakeStorage:
         return sorted(self._receipts.get(event_id, []), key=lambda r: r.sequence)
 
     async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
-        return self._native_refs.get(event_id, [])
+        return sorted(
+            self._native_refs.get(event_id, []),
+            key=lambda r: (r.created_at, r.id),
+        )
 
     async def list_outbox_items_for_event(
         self, event_id: str
