@@ -444,6 +444,20 @@ class TestReRouteMode:
 # ===================================================================
 
 
+class _BrokenPipeline:
+    """Pipeline stub that has route_event but lacks plan_delivery.
+
+    Unlike AsyncMock (which auto-creates every attribute on access),
+    this class genuinely raises ``AttributeError`` for ``plan_delivery``,
+    making ``hasattr`` checks work correctly.
+    """
+
+    def __init__(self, route_return: Any) -> None:
+        self.route_event = AsyncMock(return_value=route_return)
+        self.transform_event = AsyncMock(return_value=route_return[0])
+        self.render_event = AsyncMock(return_value="rendered")
+
+
 class TestPlanningInvariant:
     """Planning stage raises RuntimeError for broken pipeline configuration.
 
@@ -464,19 +478,12 @@ class TestPlanningInvariant:
         """Pipeline without plan_delivery and non-DeliveryPlan routes raises."""
         await temp_storage.append(sample_event)
 
-        # Create a pipeline that returns non-DeliveryPlan route results
-        # but lacks plan_delivery.
-        pipeline = AsyncMock()
-        pipeline.route_event = AsyncMock(
-            return_value=(
+        pipeline = _BrokenPipeline(
+            route_return=(
                 sample_event,
                 [("route", "not_a_delivery_plan")],
             ),
         )
-        # AsyncMock auto-creates every attribute on access, so we must
-        # explicitly delete plan_delivery to simulate a broken pipeline
-        # that implements neither deliver_to_targets nor plan_delivery.
-        del pipeline.plan_delivery
 
         engine = make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
@@ -496,17 +503,12 @@ class TestPlanningInvariant:
         """BEST_EFFORT mode catches the RuntimeError and returns error result."""
         await temp_storage.append(sample_event)
 
-        pipeline = AsyncMock()
-        pipeline.route_event = AsyncMock(
-            return_value=(
+        pipeline = _BrokenPipeline(
+            route_return=(
                 sample_event,
                 [("route", "not_a_delivery_plan")],
             ),
         )
-        pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
-        # Explicitly remove plan_delivery to simulate broken pipeline.
-        del pipeline.plan_delivery
 
         engine = make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(

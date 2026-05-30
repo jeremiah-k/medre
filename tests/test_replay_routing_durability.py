@@ -73,7 +73,7 @@ def _make_event(
 
 
 class _StubPipeline:
-    """Minimal pipeline collaborator satisfying _PipelineProtocol for tests."""
+    """Minimal pipeline collaborator satisfying pipeline protocol for tests."""
 
     def __init__(
         self,

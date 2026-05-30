@@ -97,9 +97,13 @@ class TestMeshtasticSessionCallbackBridge:
         packet = make_text_packet(text="callback path test", packet_id=55555)
         mesh_adapter._on_packet(packet)
 
-        # Allow background task to complete.
-        _YIELD_MS = 0.1
-        await asyncio.sleep(_YIELD_MS)
+        # Wait for the background task to complete delivery.
+        # Poll rather than blind-sleep so the test passes immediately
+        # once delivery finishes, with a bounded timeout.
+        for _ in range(30):  # 30 × 10ms = 300ms max
+            if fake_adapter.delivered_payloads:
+                break
+            await asyncio.sleep(0.01)
 
         # Background task should have completed and been discarded.
         assert len(mesh_adapter._background_tasks) == 0

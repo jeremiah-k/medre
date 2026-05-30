@@ -16,13 +16,21 @@ summary
     :func:`_build_summary`.
 engine
     :class:`ReplayEngine` -- the main replay orchestrator.
+selection
+    Event selection, counting, and missing-event handling.
+store
+    Event existence and integrity verification stage.
 helpers
     Internal helpers: filter conversion, stage resolution, timing.
 protocols
-    Collaboration protocols: :class:`_PipelineProtocol`,
-    :class:`_EventBusProtocol`.
+    Collaboration protocols: :class:`_RealPipelineProtocol`,
+    :class:`_StubPipelineProtocol`.
 routing
     Route metadata cleanup and loop-prevention filtering.
+planning
+    Delivery plan construction stage.
+rendering
+    Transform and render event output stage.
 delivery
     Delivery envelope, adapter filtering, capability filtering.
 """

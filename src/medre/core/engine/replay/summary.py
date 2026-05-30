@@ -241,9 +241,7 @@ async def collect_replay_summary(
     ReplaySummary
         Immutable summary of the replay operation.
     """
-    collected: list[ReplayResult] = []
-    async for result in results:
-        collected.append(result)
+    collected = [result async for result in results]
 
     if events_scanned is None:
         # Derive from distinct event_ids in results

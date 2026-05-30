@@ -310,6 +310,8 @@ class ReplayState:
                 self.errors.append(result.error)
         if result.lineage:
             self.current_lineage = list(result.lineage)
+        else:
+            self.current_lineage = []
 
 
 async def collect_replay_state(

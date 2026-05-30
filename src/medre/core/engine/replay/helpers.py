@@ -84,7 +84,8 @@ def _verify_immutability(original: CanonicalEvent, event_id: str) -> None:
     # The frozen=True on CanonicalEvent prevents mutation at the
     # Python level.  This function verifies key identity fields are
     # present as an additional guard.
-    assert original.event_id == event_id, (
-        f"Event ID mismatch during immutability check: "
-        f"{original.event_id!r} != {event_id!r}"
-    )
+    if original.event_id != event_id:
+        raise AssertionError(
+            f"Event ID mismatch during immutability check: "
+            f"{original.event_id!r} != {event_id!r}"
+        )

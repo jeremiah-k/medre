@@ -174,10 +174,12 @@ class TestCanonicalImports:
 
     def test_protocols_import(self) -> None:
         from medre.core.engine.replay.protocols import (
-            _PipelineProtocol,
+            _RealPipelineProtocol,
+            _StubPipelineProtocol,
         )
 
-        assert _PipelineProtocol is not None
+        assert _RealPipelineProtocol is not None
+        assert _StubPipelineProtocol is not None
 
     def test_routing_import(self) -> None:
         from medre.core.engine.replay.routing import (

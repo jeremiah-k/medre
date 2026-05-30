@@ -22,6 +22,12 @@ class _ReplaySelectionMixin:
         Follows the same dual-path strategy as :meth:`replay`: individual
         gets when ``correlation_ids`` is set, storage query otherwise.
 
+        **Contract**: When ``correlation_ids`` is set, the count includes
+        IDs that do not exist in storage (missing events).  This is
+        consistent with :meth:`replay`, which emits ``"failed"`` results
+        for missing correlation IDs.  Use the count as a work estimate,
+        not a "exists-in-storage" count.
+
         Parameters
         ----------
         request:
@@ -30,7 +36,7 @@ class _ReplaySelectionMixin:
         Returns
         -------
         int
-            Count of matching events.
+            Count of matching events (including missing IDs).
         """
         count = 0
 
@@ -39,7 +45,11 @@ class _ReplaySelectionMixin:
                 if count >= request.limit:
                     break
                 event = await self._storage.get(eid)
-                if event is not None and _event_matches_filters(event, request):
+                if event is None:
+                    # Missing ID — count it to stay consistent with
+                    # _iter_by_ids and replay().
+                    count += 1
+                elif _event_matches_filters(event, request):
                     count += 1
         else:
             event_filter = _request_to_filter(request)

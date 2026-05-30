@@ -28,7 +28,7 @@ from medre.core.supervision.accounting import RuntimeAccounting
 
 
 class StubPipeline:
-    """Minimal pipeline collaborator satisfying _PipelineProtocol for tests.
+    """Minimal pipeline collaborator satisfying pipeline protocol for tests.
 
     Delegates routing to a :class:`Router` and rendering to a
     :class:`RenderingPipeline`.  Transforms are identity (no-op).

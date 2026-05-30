@@ -1,52 +1,41 @@
-"""Pipeline and event-bus protocols for replay engine collaboration."""
+"""Pipeline protocols for replay engine collaboration.
+
+The replay engine uses structural subtyping (Protocol) to describe the
+minimal interface it expects from pipeline collaborators.  Two protocols
+are defined:
+
+* ``_RealPipelineProtocol`` — methods present on the production
+  :class:`~medre.core.engine.pipeline.runner.PipelineRunner`.
+* ``_StubPipelineProtocol`` — methods used by test / dummy pipelines
+  that do not return :class:`DeliveryPlan` objects from
+  ``route_event``.
+
+The replay engine dispatches between them at runtime via ``hasattr``
+detection (not ``isinstance``), so ``@runtime_checkable`` is intentionally
+omitted.  Adding it would encourage ``isinstance`` checks against a
+protocol that intentionally mixes mandatory and optional methods.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from medre.core.events import CanonicalEvent
 
 
 # ---------------------------------------------------------------------------
-# Pipeline protocol (optional collaborator)
+# Real (production) pipeline protocol
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class _PipelineProtocol(Protocol):
-    """Minimal protocol that the pipeline collaborator must satisfy.
+class _RealPipelineProtocol(Protocol):
+    """Methods supplied by the production PipelineRunner.
 
-    The replay engine only calls the methods it needs for the requested
-    replay mode.  If a method is not needed (e.g. ``deliver`` in STRICT
-    mode), the pipeline does not have to provide it.
-
-    Methods
-    -------
-    transform_event:
-        Apply registered transforms to an event.
-    render_event:
-        Render an event for delivery.
-    route_event:
-        Match an event against current routes and resolve targets.
-    plan_delivery:
-        Build delivery plans from routing results.  (Stub pipelines only;
-        real pipelines return plans directly from ``route_event``.)
-    deliver:
-        Execute delivery plans to adapters.  (Stub pipelines only; real
-        pipelines use ``deliver_to_targets`` instead.)
-    deliver_to_targets:
-        Deliver an event to route--plan pairs.  (Real PipelineRunner only;
-        stub pipelines use ``deliver`` instead.)
+    The replay engine calls only the methods it needs for the requested
+    replay mode.  ``transform_event`` and ``render_event`` are optional
+    at runtime — the engine checks via ``hasattr`` before calling.
     """
-
-    async def transform_event(self, event: CanonicalEvent) -> CanonicalEvent:
-        """Apply registered transforms to *event* and return the result."""
-        ...
-
-    async def render_event(self, event: CanonicalEvent) -> Any:
-        """Render *event* for delivery and return the rendering result."""
-        ...
 
     async def route_event(
         self,
@@ -55,7 +44,8 @@ class _PipelineProtocol(Protocol):
         """Match *event* against current routes and resolve targets.
 
         Returns a tuple of (enriched_event, deliveries) where deliveries
-        is a list of ``(route, plan)`` pairs.
+        is a list of ``(route, plan)`` pairs with real
+        :class:`DeliveryPlan` objects.
         """
         ...
 
@@ -74,11 +64,34 @@ class _PipelineProtocol(Protocol):
         """
         ...
 
-    # -- Stub-pipeline methods (not on real PipelineRunner) ----------------
-    # These are kept so that test stub pipelines that only implement
-    # ``plan_delivery`` / ``deliver`` continue to work.  The replay
-    # engine uses ``hasattr`` detection to branch between real and
-    # stub pipelines at runtime.
+    async def transform_event(self, event: CanonicalEvent) -> CanonicalEvent:
+        """Apply registered transforms to *event* and return the result."""
+        ...
+
+    async def render_event(self, event: CanonicalEvent) -> Any:
+        """Render *event* for delivery and return the rendering result."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Stub / test pipeline protocol
+# ---------------------------------------------------------------------------
+
+
+class _StubPipelineProtocol(Protocol):
+    """Methods used by test stub pipelines.
+
+    Stub pipelines do not return :class:`DeliveryPlan` objects from
+    ``route_event``; instead they use a separate ``plan_delivery`` step
+    and ``deliver`` for execution.
+    """
+
+    async def route_event(
+        self,
+        event: CanonicalEvent,
+    ) -> tuple[CanonicalEvent, list[tuple[Any, Any]]]:
+        """Match *event* against routes, returning (event, pairs)."""
+        ...
 
     async def plan_delivery(
         self,
@@ -94,22 +107,4 @@ class _PipelineProtocol(Protocol):
         plans: list[Any],
     ) -> list[Any]:
         """Execute delivery plans and return receipts."""
-        ...
-
-
-@runtime_checkable
-class _EventBusProtocol(Protocol):
-    """Minimal event-bus protocol for publishing replayed events.
-
-    Accepted by :class:`ReplayEngine` but not invoked during replay.
-    Reserved for future notification use.
-    """
-
-    async def publish(
-        self,
-        event: CanonicalEvent,
-        *,
-        source: str = "",
-    ) -> None:
-        """Publish *event* to the bus."""
         ...

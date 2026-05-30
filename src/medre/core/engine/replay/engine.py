@@ -33,7 +33,7 @@ from medre.core.engine.replay.helpers import (
     _verify_immutability,
 )
 from medre.core.engine.replay.planning import _ReplayPlanningMixin
-from medre.core.engine.replay.protocols import _EventBusProtocol, _PipelineProtocol
+from medre.core.engine.replay.protocols import _RealPipelineProtocol
 from medre.core.engine.replay.rendering import _ReplayRenderingMixin
 from medre.core.engine.replay.routing import _ReplayRoutingMixin
 from medre.core.engine.replay.selection import _ReplaySelectionMixin
@@ -62,8 +62,8 @@ class _ReplayEngineBase:
     def __init__(
         self,
         storage: StorageBackend,
-        pipeline: _PipelineProtocol | None = None,
-        event_bus: _EventBusProtocol | None = None,
+        pipeline: _RealPipelineProtocol | None = None,
+        event_bus: Any | None = None,
         diagnostician: Diagnostician | None = None,
         capacity_controller: CapacityController | None = None,
         accounting: RuntimeAccounting | None = None,
@@ -143,7 +143,7 @@ class ReplayEngine(
         The storage backend to read historical events from.
     pipeline:
         Optional pipeline collaborator that satisfies
-        :class:`_PipelineProtocol`.  Required for ``RE_RENDER``,
+        :class:`_RealPipelineProtocol`.  Required for ``RE_RENDER``,
         ``RE_ROUTE``, ``BEST_EFFORT``, and ``DRY_RUN`` modes.
     event_bus:
         Optional event bus for publishing replayed events.  Accepted
