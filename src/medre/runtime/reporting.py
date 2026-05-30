@@ -218,6 +218,17 @@ def _derive_capability_evidence(
             pass
 
     # 2. For suppressed receipts, derive from error text patterns.
+    #
+    # COUPLING NOTE: The regexes below parse reason strings produced by
+    # CapabilityDecisionResolver in
+    # medre.core.planning.capability_decision.  The reason format is
+    # ``"{field} {level} …"`` where ``{field}`` is a capability-field
+    # name and ``{level}`` is ``"unsupported"`` or ``"fallback"``.
+    # Changes to _make_event_kind_reason / _make_relation_reason in
+    # capability_decision.py MUST preserve the leading
+    # ``"{field} {level}"`` prefix or this derivation will silently
+    # break.  Regression tests in TestResolverReasonRoundTrip guard
+    # this contract.
     if status == "suppressed" and error:
         # Pattern: "capability_suppressed: {reason}"
         cap_match = re.match(r"^capability_suppressed:\s*(.+)$", error)

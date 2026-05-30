@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
@@ -24,6 +25,10 @@ from medre.runtime.reporting import (
     _derive_capability_evidence,
     delivery_receipt_to_report_dict,
 )
+from tests.helpers.pipeline import make_event
+
+if TYPE_CHECKING:
+    from medre.core.planning.capability_decision import CapabilityDecision
 
 # ===================================================================
 # 13. Loop-suppression suppression-evidence: PipelineRunner → suppressed
@@ -817,3 +822,205 @@ class TestCapabilitySuppressedEvidenceBundle:
         assert entry["capability_field"] == "reactions"
         assert entry["capability_level"] == "unsupported"
         assert entry["delivery_strategy"] == "skip"
+
+
+# ===================================================================
+# 15. Resolver-reason round-trip: coupling guard
+# ===================================================================
+
+
+class TestResolverReasonRoundTrip:
+    """Regression tests guarding the coupling between
+    CapabilityDecisionResolver.reason and
+    _derive_capability_evidence / delivery_receipt_to_report_dict.
+
+    Every test uses the **real resolver** to produce a decision, then
+    constructs the ``"capability_suppressed: {reason}"`` error string
+    that the delivery pipeline would emit, and feeds it through
+    ``_derive_capability_evidence`` (or
+    ``delivery_receipt_to_report_dict``) to assert that the
+    capability_field and capability_level are correctly derived.
+
+    If a reason-format change in capability_decision.py breaks the
+    parser in reporting.py, these tests fail first — before the change
+    reaches production.
+    """
+
+    @staticmethod
+    def _error_from_decision(decision: "CapabilityDecision") -> str:
+        """Build the error string the pipeline would emit for a suppressed decision."""
+        assert decision.reason is not None, "decision.reason must not be None"
+        return f"capability_suppressed: {decision.reason}"
+
+    def test_event_kind_unsupported_round_trip(self) -> None:
+        """Event-kind unsupported reason → _derive_capability_evidence."""
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(reactions="unsupported")
+        event = make_event(event_kind="message.reacted")
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == decision.capability_field
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
+    def test_event_kind_fallback_round_trip(self) -> None:
+        """Event-kind fallback reason → _derive_capability_evidence."""
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(reactions="fallback")
+        event = make_event(event_kind="message.reacted")
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == decision.capability_field
+        assert result["capability_level"] == "fallback"
+        assert result["delivery_strategy"] == "fallback_text"
+
+    def test_relation_unsupported_round_trip(self) -> None:
+        """Relation unsupported reason → _derive_capability_evidence."""
+        from medre.core.events.canonical import EventRelation, NativeRef
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(replies="unsupported")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-parent",
+            target_native_ref=NativeRef(
+                adapter="test_adapter",
+                native_channel_id="ch-0",
+                native_message_id="native-001",
+            ),
+            key=None,
+            fallback_text="original",
+        )
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(rel,),
+        )
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == "replies"
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
+    def test_relation_fallback_round_trip(self) -> None:
+        """Relation fallback reason → _derive_capability_evidence."""
+        from medre.core.events.canonical import EventRelation, NativeRef
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(replies="fallback")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-parent",
+            target_native_ref=NativeRef(
+                adapter="test_adapter",
+                native_channel_id="ch-0",
+                native_message_id="native-001",
+            ),
+            key=None,
+            fallback_text="original",
+        )
+        event = make_event(
+            event_kind="plugin.custom",
+            relations=(rel,),
+        )
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == "replies"
+        assert result["capability_level"] == "fallback"
+        assert result["delivery_strategy"] == "fallback_text"
+
+    def test_boolean_field_unsupported_round_trip(self) -> None:
+        """Boolean capability field (text=False) unsupported → round trip."""
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(text=False)
+        event = make_event(event_kind="message.text")
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == "text"
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
+    def test_edits_event_kind_round_trip(self) -> None:
+        """Edits field (string 3-level) event-kind round trip."""
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(edits="fallback")
+        event = make_event(event_kind="message.edited")
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        result = _derive_capability_evidence(
+            error=error,
+            rendering_evidence=None,
+            failure_kind="capability_suppressed",
+            status="suppressed",
+        )
+        assert result["capability_field"] == "edits"
+        assert result["capability_level"] == "fallback"
+        assert result["delivery_strategy"] == "fallback_text"
+
+    def test_full_receipt_round_trip(self) -> None:
+        """Full delivery_receipt_to_report_dict round trip via resolver."""
+        from medre.core.planning.capability_decision import resolver
+
+        caps = AdapterCapabilities(reactions="unsupported")
+        event = make_event(event_kind="message.reacted")
+        decision = resolver.decide(event, caps)
+
+        error = self._error_from_decision(decision)
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-roundtrip-001",
+            event_id=event.event_id,
+            delivery_plan_id="dp-roundtrip-001",
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id="route-roundtrip-1",
+            status="suppressed",
+            error=error,
+            failure_kind="capability_suppressed",
+            attempt_number=1,
+            source="live",
+            created_at=_ts(second=1),
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["capability_field"] == decision.capability_field
+        assert report["capability_level"] == "unsupported"
+        assert report["delivery_strategy"] == "skip"
+        assert report["suppression_reason"] == decision.reason
