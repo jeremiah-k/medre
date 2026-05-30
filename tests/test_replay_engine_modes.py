@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
-from medre.core.engine.replay import ReplayMode, ReplayRequest
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router

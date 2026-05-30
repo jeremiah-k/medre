@@ -11,11 +11,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.engine.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-)
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -83,7 +80,7 @@ class TestFilterPlansByAdapter:
 
     def test_matching_adapter_included(self) -> None:
         """Plan with matching target adapter is included."""
-        from medre.core.engine.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay.delivery import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
@@ -91,7 +88,7 @@ class TestFilterPlansByAdapter:
 
     def test_non_matching_adapter_excluded(self) -> None:
         """Plan with non-matching adapter is excluded."""
-        from medre.core.engine.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay.delivery import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([plan], ["other-adapter"])
@@ -99,7 +96,7 @@ class TestFilterPlansByAdapter:
 
     def test_none_adapter_included_conservatively(self) -> None:
         """Plan with adapter=None is included (conservative)."""
-        from medre.core.engine.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay.delivery import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter=None)
         result = _filter_plans_by_adapter([plan], ["matrix-bridge"])
@@ -107,7 +104,7 @@ class TestFilterPlansByAdapter:
 
     def test_tuple_plan_matching_adapter(self) -> None:
         """Tuple (route, DeliveryPlan) with matching adapter is included."""
-        from medre.core.engine.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay.delivery import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([("route-stub", plan)], ["matrix-bridge"])
@@ -115,7 +112,7 @@ class TestFilterPlansByAdapter:
 
     def test_tuple_plan_non_matching_excluded(self) -> None:
         """Tuple (route, DeliveryPlan) with non-matching adapter excluded."""
-        from medre.core.engine.replay import _filter_plans_by_adapter
+        from medre.core.engine.replay.delivery import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
         result = _filter_plans_by_adapter([("route-stub", plan)], ["other-adapter"])
@@ -148,7 +145,7 @@ class TestFilterPlansByCapability:
 
     def test_returns_plans_when_pipeline_is_none(self) -> None:
         """When adapters is None, all plans pass through."""
-        from medre.core.engine.replay import _filter_plans_by_capability
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters=None)
@@ -156,7 +153,7 @@ class TestFilterPlansByCapability:
 
     def test_returns_plans_when_pipeline_lacks_method(self) -> None:
         """Empty adapters dict passes everything conservatively."""
-        from medre.core.engine.replay import _filter_plans_by_capability
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
 
         plans = [_make_delivery_plan()]
         result = _filter_plans_by_capability(self._make_event(), plans, adapters={})
@@ -164,7 +161,7 @@ class TestFilterPlansByCapability:
 
     def test_supported_event_kind_passes(self) -> None:
         """Plan with adapter that supports the event kind is included."""
-        from medre.core.engine.replay import _filter_plans_by_capability
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
 
         caps = AdapterCapabilities(text=True)
 
@@ -180,7 +177,7 @@ class TestFilterPlansByCapability:
 
     def test_unsupported_event_kind_filtered(self) -> None:
         """Plan with adapter that doesn't support event kind is excluded."""
-        from medre.core.engine.replay import _filter_plans_by_capability
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
 
         caps = AdapterCapabilities(text=False)
 
@@ -196,7 +193,7 @@ class TestFilterPlansByCapability:
 
     def test_missing_adapter_included_conservatively(self) -> None:
         """Plan targeting adapter NOT in adapters dict is included (conservative)."""
-        from medre.core.engine.replay import _filter_plans_by_capability
+        from medre.core.engine.replay.delivery import _filter_plans_by_capability
 
         # Plan targets "adapter-unknown" which is absent from adapters dict.
         plan = _make_delivery_plan(adapter="adapter-unknown")

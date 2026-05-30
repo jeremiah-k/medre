@@ -35,7 +35,7 @@ class TestReplayEngineBoundary:
     any concrete transport SDK or concrete adapter package."""
 
     def test_replay_engine_does_not_import_transport_sdks(self) -> None:
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = import_lines(source)
 
         banned_sdk = banned_imports(lines, _SDK_PACKAGES)

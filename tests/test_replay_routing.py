@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.engine.replay import (
+from medre.core.engine.replay.routing import _filter_replay_loops
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     ReplayRouteAttribution,
-    _filter_replay_loops,
 )
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget

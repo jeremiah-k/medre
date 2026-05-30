@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from medre.core.engine.replay import (
-    ReplayMode,
-    ReplayRequest,
-)
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import CanonicalEvent, DeliveryReceipt
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router

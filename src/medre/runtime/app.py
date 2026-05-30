@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from medre.config.paths import MedrePaths
     from medre.core.contracts.adapter import AdapterContract
     from medre.core.engine.pipeline import PipelineRunner
-    from medre.core.engine.replay import ReplayEngine
+    from medre.core.engine.replay.engine import ReplayEngine
     from medre.core.events.bus import EventBus
     from medre.core.observability.metrics import Diagnostician
     from medre.core.planning.fallback_resolution import FallbackResolver

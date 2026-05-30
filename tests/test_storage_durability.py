@@ -23,7 +23,8 @@ from typing import Literal, cast
 
 import pytest
 
-from medre.core.engine.replay import ReplayEngine, ReplayMode, ReplayRequest
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,

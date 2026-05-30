@@ -19,16 +19,18 @@ import pytest
 
 from medre.config.model import RuntimeLimits
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.engine.replay import (
-    ReplayEngine,
+from medre.core.engine.replay.engine import ReplayEngine
+from medre.core.engine.replay.summary import (
+    ReplaySummary,
+    _build_summary,
+    collect_replay_summary,
+)
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
     ReplayRouteAttribution,
-    ReplaySummary,
-    _build_summary,
     collect_replay_state,
-    collect_replay_summary,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
@@ -769,7 +771,7 @@ class TestObservabilityConsistency:
 
     def test_summary_error_truncation(self) -> None:
         """_build_summary truncates error messages to _MAX_ERROR_LENGTH."""
-        from medre.core.engine.replay import _MAX_ERROR_LENGTH
+        from medre.core.engine.replay.summary import _MAX_ERROR_LENGTH
 
         long_error = "x" * 600
         results = [
@@ -786,7 +788,7 @@ class TestObservabilityConsistency:
 
     def test_summary_error_count_cap(self) -> None:
         """_build_summary caps the number of retained errors."""
-        from medre.core.engine.replay import _MAX_SUMMARY_ERRORS
+        from medre.core.engine.replay.summary import _MAX_SUMMARY_ERRORS
 
         results = [
             ReplayResult(

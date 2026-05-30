@@ -208,7 +208,7 @@ class TestReplayEngineSDKFreedom:
 
     def test_replay_engine_remains_sdk_free(self) -> None:
         """Verify replay.py has zero transport SDK imports."""
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)

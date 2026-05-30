@@ -13,7 +13,7 @@ from typing import Any, cast
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
-from medre.core.engine.replay import ReplayEngine
+from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer

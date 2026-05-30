@@ -602,8 +602,8 @@ class TestReplayRetryInteraction:
     ) -> None:
         """Transient failure during BEST_EFFORT replay produces a receipt
         with source='replay', replay_run_id, next_retry_at, and retry metadata."""
-        from medre.core.engine.replay import (
-            ReplayEngine,
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import (
             ReplayMode,
             ReplayRequest,
             collect_replay_state,
@@ -692,8 +692,8 @@ class TestReplayRetryInteraction:
     ) -> None:
         """Successful replay delivery through retry-enabled route has no
         next_retry_at."""
-        from medre.core.engine.replay import (
-            ReplayEngine,
+        from medre.core.engine.replay.engine import ReplayEngine
+        from medre.core.engine.replay.types import (
             ReplayMode,
             ReplayRequest,
             collect_replay_state,

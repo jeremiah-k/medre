@@ -962,7 +962,7 @@ async def _drill_replay_duplicate_risk(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """Deliver once, replay BEST_EFFORT; verify duplicate receipts."""
-    from medre.core.engine.replay import ReplayMode, ReplayRequest
+    from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 
     report = _base_report("replay_duplicate_risk", storage_path=storage_path)
     steps: list[dict[str, Any]] = []

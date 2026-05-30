@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from medre.core.engine.replay import (
+from medre.core.engine.replay.types import (
     ReplayMode,
     ReplayRequest,
     collect_replay_state,

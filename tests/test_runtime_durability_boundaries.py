@@ -211,7 +211,7 @@ class TestStorageNoRuntimeInternals:
 
         It must not import runtime.app, builder, route_engine, etc.
         """
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 
         # Check classic runtime prefixes (app, builder, route_engine, etc.).
@@ -248,7 +248,7 @@ class TestReplayNoAdapterLifecycleOwnership:
 
     def test_replay_no_adapter_start_stop_patterns(self) -> None:
         """replay.py must not contain adapter lifecycle management patterns."""
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
 
         # Verify no "start" or "stop" methods on adapters.
         lifecycle_patterns = [
@@ -273,7 +273,7 @@ class TestReplayNoAdapterLifecycleOwnership:
         ), "replay.py contains adapter lifecycle patterns:\n" + "\n".join(violations)
 
     def test_replay_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.engine.replay")
+        source = _source_of("medre.core.engine.replay.engine")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
