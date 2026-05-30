@@ -180,7 +180,8 @@ Runtime conformance tests are distinct from:
 
 - **Static schema conformance** — validating JSON payloads against schemas.
 - **Pure capability conformance** — testing the `CapabilityDecisionResolver`
-  in isolation (covered by `test_capability_runtime_conformance.py`).
+  in isolation (covered by `test_capability_decision_transport_profiles.py`
+  and `test_capability_decision.py`).
 - **Live validation** — testing against real transport endpoints (see §4.4).
 
 ### 6.2 Fixture Location and Format

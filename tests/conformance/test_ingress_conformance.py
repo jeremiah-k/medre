@@ -46,7 +46,7 @@ class TestMatrixIngressConformance:
         """Parameterise over all Matrix fixtures."""
         return request.param
 
-    @pytest.fixture()
+    @pytest.fixture
     def decoded_event(self, matrix_codec, fixture):
         """Decode the fixture once and return the CanonicalEvent."""
         return matrix_codec.decode(
@@ -154,7 +154,7 @@ class TestMeshtasticIngressConformance:
         """Parameterise over all Meshtastic fixtures."""
         return request.param
 
-    @pytest.fixture()
+    @pytest.fixture
     def decoded_event(self, meshtastic_codec, fixture):
         """Decode the fixture once and return the CanonicalEvent."""
         return meshtastic_codec.decode(
