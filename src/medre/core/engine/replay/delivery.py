@@ -22,13 +22,14 @@ class _CapabilitySuppressedPlan(NamedTuple):
 
     Collected during ``_filter_plans_by_capability`` so that replay results
     can preserve the evidence linkage that live delivery produces via
-    suppression receipts (delivery_plan_id, target_adapter, reason).
+    suppression receipts (delivery_plan_id, target_adapter, strategy, reason).
     """
 
     delivery_plan_id: str
     target_adapter: str | None
     capability_level: str
     capability_field: str | None
+    delivery_strategy: str | None
     reason: str | None
 
 
@@ -41,7 +42,7 @@ class _CapabilityFilterResult(NamedTuple):
         Plans that passed capability checks (supported or passthrough).
     suppressed:
         Plans that were suppressed due to unsupported capabilities,
-        with full evidence (delivery_plan_id, target_adapter, reason).
+        with full evidence (delivery_plan_id, target_adapter, strategy, reason).
     """
 
     kept: list[Any]
@@ -69,6 +70,7 @@ def _build_suppressed_evidence(
             "target_adapter": s.target_adapter,
             "capability_level": s.capability_level,
             "capability_field": s.capability_field,
+            "delivery_strategy": s.delivery_strategy,
             "reason": s.reason,
         }
         for s in suppressed
@@ -238,6 +240,7 @@ def _filter_plans_by_capability(
                     target_adapter=adapter_name,
                     capability_level=decision.capability_level,
                     capability_field=decision.capability_field,
+                    delivery_strategy=decision.delivery_strategy,
                     reason=decision.reason,
                 )
             )

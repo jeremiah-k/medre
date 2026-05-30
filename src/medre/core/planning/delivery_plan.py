@@ -16,6 +16,7 @@ should be delivered to a target:
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -137,6 +138,20 @@ class DeliveryPlan:
     deadline:
         Absolute deadline after which the delivery should be abandoned.
         ``None`` means no deadline.
+    route_id:
+        Route attribution when the plan was created from a matched route.
+        ``None`` when the plan is constructed outside routing context
+        (for example, unit tests or retry reconstruction).
+    target_identity:
+        Stable JSON identity for the target adapter/channel/destination.
+        Used for diagnostics and deterministic plan-ID construction.
+    capability_level:
+        Capability decision level for this event-target pair.
+    capability_field:
+        AdapterCapabilities field that determined the capability decision,
+        or ``None`` for passthrough event kinds.
+    capability_reason:
+        Human-readable capability reason for fallback/suppression decisions.
     """
 
     plan_id: str
@@ -146,6 +161,60 @@ class DeliveryPlan:
     fallback_chain: list[DeliveryStrategy] = field(default_factory=list)
     retry_policy: RetryPolicy | None = None
     deadline: datetime | None = None
+    route_id: str | None = None
+    target_identity: str = ""
+    capability_level: str | None = None
+    capability_field: str | None = None
+    capability_reason: str | None = None
+
+
+def delivery_target_identity(target: RouteTarget) -> str:
+    """Return a stable JSON identity for a delivery target.
+
+    The identity intentionally uses structured target fields rather than
+    object identity so equivalent route targets produce the same value across
+    process restarts and replay runs.
+    """
+    destination = target.destination
+    destination_data: dict[str, object] | None = None
+    if destination is not None:
+        destination_data = {
+            "kind": destination.kind,
+            "destination_hash": destination.destination_hash,
+            "destination_name": destination.destination_name,
+            "metadata": destination.metadata,
+        }
+    return json.dumps(
+        {
+            "adapter": target.adapter,
+            "channel": target.channel,
+            "destination": destination_data,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def stable_delivery_plan_id(
+    event_id: str,
+    target: RouteTarget,
+    *,
+    route_id: str | None = None,
+    target_index: int | None = None,
+) -> str:
+    """Build a deterministic delivery-plan ID.
+
+    ``target_index`` is included when routing context is available so repeated
+    equivalent targets in the same route remain distinct while still being
+    reproducible.  The hashed target identity keeps the ID compact and stable
+    without depending on Python object addresses.
+    """
+    target_key = delivery_target_identity(target)
+    target_hash = hashlib.sha256(target_key.encode("utf-8")).hexdigest()[:16]
+    route_part = route_id if route_id is not None else "unrouted"
+    index_part = str(target_index) if target_index is not None else "target"
+    return f"plan:{event_id}:{route_part}:{index_part}:{target_hash}"
 
 
 # ---------------------------------------------------------------------------

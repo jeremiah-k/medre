@@ -18,6 +18,8 @@ from medre.core.planning.capability_decision import resolver as _resolver
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
+    delivery_target_identity,
+    stable_delivery_plan_id,
 )
 from medre.core.routing.models import RouteTarget
 
@@ -65,13 +67,23 @@ class FallbackResolver:
             A plan whose primary strategy has been adjusted for the
             target's capabilities.
         """
-        strategy = self._resolve_strategy(event, capabilities)
+        decision = _resolver.decide(
+            event,
+            capabilities,
+            target_adapter=target.adapter,
+        )
+        strategy = DeliveryStrategy(method=decision.delivery_strategy)
+        target_identity = delivery_target_identity(target)
 
         return DeliveryPlan(
-            plan_id=f"plan:{event.event_id}:{id(target):x}",
+            plan_id=stable_delivery_plan_id(event.event_id, target),
             event_id=event.event_id,
             target=target,
             primary_strategy=strategy,
+            target_identity=target_identity,
+            capability_level=decision.capability_level,
+            capability_field=decision.capability_field,
+            capability_reason=decision.reason,
         )
 
     # -- Internal ---------------------------------------------------------

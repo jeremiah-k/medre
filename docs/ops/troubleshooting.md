@@ -6,24 +6,24 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 ## Failure Category Quick Reference
 
-| Category              | Exit code | Receipt status                            | Retry?                     | Where to inspect                                 |
-| --------------------- | --------- | ----------------------------------------- | -------------------------- | ------------------------------------------------ |
-| Config error          | 2         | None (no runtime)                         | No                         | stderr, `medre config check`                     |
-| Build failure         | 3         | None (no delivery)                        | No                         | `startup.build_failures`, logs                   |
-| Total startup failure | 4         | None (no delivery)                        | No                         | `startup.boot_summary`, logs                     |
-| Degraded startup      | 0         | Partial                                   | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
-| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)               | No                         | `medre inspect receipts`, RouteStats             |
-| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)              | No                         | receipt lineage, adapter `diagnostics()`         |
-| Adapter transient     | 0         | `sent` (after retry) or `failed`          | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
-| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)     | No                         | `capacity_rejections` counter, logs              |
-| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)              | No                         | delivery plan timestamps                         |
-| Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)     | No                         | `outbound_failed` counter                        |
-| Replay capacity       | 0         | `error` (replay_capacity_exceeded)        | No                         | `capacity_rejections` counter                    |
-| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay) | N/A (by design)            | receipt `replay_run_id`                          |
-| Capability suppressed | 0         | `skipped` (no receipt) or `suppressed`    | No                         | receipt `failure_kind`, `error` field            |
-| Loop prevented        | 0         | `suppressed` receipt persisted            | No                         | `loop_prevented` counter, RouteStats             |
-| Degraded live health  | 0         | N/A                                       | No                         | `health.live_health.adapters[]`                  |
-| Failed live health    | 0         | N/A                                       | No                         | `health.live_health.adapters[]`, `.error`        |
+| Category              | Exit code | Receipt status                                     | Retry?                     | Where to inspect                                 |
+| --------------------- | --------- | -------------------------------------------------- | -------------------------- | ------------------------------------------------ |
+| Config error          | 2         | None (no runtime)                                  | No                         | stderr, `medre config check`                     |
+| Build failure         | 3         | None (no delivery)                                 | No                         | `startup.build_failures`, logs                   |
+| Total startup failure | 4         | None (no delivery)                                 | No                         | `startup.boot_summary`, logs                     |
+| Degraded startup      | 0         | Partial                                            | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
+| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)                        | No                         | `medre inspect receipts`, RouteStats             |
+| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)                       | No                         | receipt lineage, adapter `diagnostics()`         |
+| Adapter transient     | 0         | `sent` (after retry) or `failed`                   | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
+| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)              | No                         | `capacity_rejections` counter, logs              |
+| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                       | No                         | delivery plan timestamps                         |
+| Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)              | No                         | `outbound_failed` counter                        |
+| Replay capacity       | 0         | `error` (replay_capacity_exceeded)                 | No                         | `capacity_rejections` counter                    |
+| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)          | N/A (by design)            | receipt `replay_run_id`                          |
+| Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events | No                         | receipt `failure_kind`, `error` field            |
+| Loop prevented        | 0         | `suppressed` receipt persisted                     | No                         | `loop_prevented` counter, RouteStats             |
+| Degraded live health  | 0         | N/A                                                | No                         | `health.live_health.adapters[]`                  |
+| Failed live health    | 0         | N/A                                                | No                         | `health.live_health.adapters[]`, `.error`        |
 
 ## Config Failure Drills
 
@@ -312,11 +312,11 @@ MEDRE suppresses delivery when the target adapter lacks capability for the event
 
 #### Pre-outbox Capability Skip
 
-When the `CapabilityDecisionResolver` determines the capability level is `"unsupported"`, the delivery is skipped before rendering and adapter invocation. No receipt is created. The outcome carries `failure_kind="capability_suppressed"`.
+When the `CapabilityDecisionResolver` determines the capability level is `"unsupported"`, the delivery is skipped before rendering and adapter invocation. For stored routed events, a `DeliveryReceipt(status="suppressed")` is persisted with `failure_kind="capability_suppressed"`. The outcome also carries `failure_kind="capability_suppressed"`.
 
 #### Post-planning Suppressed Receipt
 
-When suppression occurs after the planning stage (defense-in-depth), a `DeliveryReceipt(status="suppressed")` is persisted with `failure_kind="capability_suppressed"`. The `error` field contains the suppression reason (e.g. `"capability_suppressed: reactions unsupported"`).
+When suppression occurs through the direct target-delivery defense-in-depth path, a `DeliveryReceipt(status="suppressed")` is also persisted with `failure_kind="capability_suppressed"`. The `error` field contains the suppression reason (e.g. `"capability_suppressed: reactions unsupported"`).
 
 #### Diagnosis
 

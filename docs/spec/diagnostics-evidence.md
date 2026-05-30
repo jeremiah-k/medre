@@ -564,6 +564,8 @@ The `delivery_plan_id` field provides the correlation key. The pipeline threads 
 1. `RenderingResult.delivery_plan_id` — stamped by `TargetDeliveryService` before adapter delivery.
 2. `OutboundNativeRefRecord.delivery_plan_id` — populated by adapter queue processing at send-confirmation time.
 
+For routed live and replay planning, `delivery_plan_id` is deterministic from `event_id`, matched `route_id`, route target index, and a stable JSON target identity. It MUST NOT depend on Python object identity. This lets equivalent live and replay plans correlate to the same semantic target while repeated equivalent targets in one route still receive distinct plan IDs.
+
 When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against existing `queued` receipts. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
 
 ### 15.3 Evidence Signals

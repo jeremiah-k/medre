@@ -196,6 +196,7 @@ class TestFilterPlansByCapability:
         assert len(result.suppressed) == 1
         assert result.suppressed[0].delivery_plan_id == "plan-001"
         assert result.suppressed[0].target_adapter == "adapter-1"
+        assert result.suppressed[0].delivery_strategy == "skip"
         assert result.suppressed[0].reason is not None
 
     def test_missing_adapter_included_conservatively(self) -> None:
@@ -607,6 +608,7 @@ class TestCapabilityEvidenceParity:
         sup = result.suppressed[0]
         assert sup.capability_level == live_decision.capability_level
         assert sup.capability_field == live_decision.capability_field
+        assert sup.delivery_strategy == live_decision.delivery_strategy
         assert sup.reason == live_decision.reason
 
     async def test_suppressed_result_has_delivery_plan_id_and_replay_run_id(
@@ -665,6 +667,7 @@ class TestCapabilityEvidenceParity:
         sup = output["capability_suppressed_plans"][0]
         assert "delivery_plan_id" in sup
         assert sup["target_adapter"] == "target-adapter"
+        assert sup["delivery_strategy"] == "skip"
         assert sup["reason"] is not None
 
     async def test_fallback_capability_not_suppressed(
@@ -877,6 +880,7 @@ class TestCapabilityEvidenceParity:
         sup = output["capability_suppressed_plans"][0]
         assert "delivery_plan_id" in sup
         assert sup["target_adapter"] == "adapter-no-attachments"
+        assert sup["delivery_strategy"] == "skip"
         assert sup["reason"] is not None
 
         assert len(output["delivery_plan_ids"]) == 1

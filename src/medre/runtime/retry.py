@@ -42,6 +42,7 @@ from medre.core.planning.delivery_plan import (
     DeliveryStrategy,
     RetryExecutor,
     RetryPolicy,
+    delivery_target_identity,
 )
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -374,6 +375,8 @@ class RetryWorker:
                     max_delay_seconds=_max_delay,
                     jitter=_jitter,
                 ),
+                route_id=item.route_id or None,
+                target_identity=delivery_target_identity(target),
             )
 
             self._emit(

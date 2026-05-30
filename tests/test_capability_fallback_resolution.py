@@ -214,6 +214,33 @@ class TestFallbackResolverDeliveryPlan:
         plan = resolver.resolve_fallback(event, _DEFAULT_TARGET, caps)
         assert event.event_id in plan.plan_id
 
+    def test_plan_id_stable_for_equivalent_targets(self) -> None:
+        """Equivalent target values must not depend on Python object identity."""
+        resolver = FallbackResolver()
+        event = make_event(event_id="stable-plan-001", event_kind="message.text")
+        caps = AdapterCapabilities()
+        target_a = RouteTarget(adapter="test_target", channel="ch-out")
+        target_b = RouteTarget(adapter="test_target", channel="ch-out")
+
+        plan_a = resolver.resolve_fallback(event, target_a, caps)
+        plan_b = resolver.resolve_fallback(event, target_b, caps)
+
+        assert plan_a.plan_id == plan_b.plan_id
+        assert plan_a.target_identity == plan_b.target_identity
+
+    def test_plan_carries_capability_decision_fields(self) -> None:
+        resolver = FallbackResolver()
+        event = make_event(event_kind="message.text")
+        caps = AdapterCapabilities(text=False)
+
+        plan = resolver.resolve_fallback(event, _DEFAULT_TARGET, caps)
+
+        assert plan.primary_strategy.method == "skip"
+        assert plan.capability_level == "unsupported"
+        assert plan.capability_field == "text"
+        assert plan.capability_reason is not None
+        assert "unsupported" in plan.capability_reason
+
     @pytest.mark.parametrize(
         "event_kind,caps_kwargs,expected_method",
         [
