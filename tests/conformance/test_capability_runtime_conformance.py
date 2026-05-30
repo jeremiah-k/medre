@@ -38,9 +38,9 @@ from medre.core.planning.capability_decision import resolver as _module_resolver
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.routing.models import RouteTarget
 
-_DEFAULT_TARGET = RouteTarget(adapter="test_target", channel="ch-out")
-
 from .conftest import make_reaction_event, make_reply_event, make_text_event
+
+_DEFAULT_TARGET = RouteTarget(adapter="test_target", channel="ch-out")
 
 # Re-use singleton resolver
 _resolver = CapabilityDecisionResolver()
