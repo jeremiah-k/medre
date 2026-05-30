@@ -24,7 +24,7 @@ from medre.core.engine.replay import (
 )
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.replay_routing import (
     StubPipeline,
     make_engine,

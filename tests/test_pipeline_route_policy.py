@@ -26,7 +26,7 @@ from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.policies.route_policy import RoutePolicy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline

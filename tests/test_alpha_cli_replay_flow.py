@@ -56,7 +56,7 @@ class TestAlphaReplayDryRunCLI:
         """DRY_RUN does not create replay receipts."""
         import asyncio
 
-        from medre.core.storage import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         event_id, db_path = seed_via_smoke_cli(tmp_path)
         config_path = write_replay_config(tmp_path, db_path)
@@ -127,7 +127,7 @@ class TestAlphaReplayBestEffortCLI:
         """BEST_EFFORT replay creates receipts with source='replay'."""
         import asyncio
 
-        from medre.core.storage import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         event_id, db_path = seed_via_smoke_cli(tmp_path)
         config_path = write_replay_config(tmp_path, db_path)

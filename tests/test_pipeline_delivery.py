@@ -20,7 +20,7 @@ from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------

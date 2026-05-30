@@ -26,7 +26,8 @@ from medre.core.planning import (
     RelationResolver,
 )
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Helper: adapter-wrapping storage for RelationResolver

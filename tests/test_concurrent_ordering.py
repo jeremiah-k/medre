@@ -24,7 +24,7 @@ from medre.core.events import (
     EventMetadata,
     NativeMessageRef,
 )
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 
 # ---------------------------------------------------------------------------

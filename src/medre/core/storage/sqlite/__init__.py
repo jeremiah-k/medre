@@ -1,6 +1,6 @@
-"""SQLite storage backend package."""
+"""SQLite storage backend package.
 
-from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
-from medre.core.storage.sqlite.storage import SQLiteStorage
-
-__all__ = ["SQLiteStorage", "STALE_QUEUED_GRACE_SECONDS"]
+Import concrete types from their canonical modules:
+- ``medre.core.storage.sqlite.storage`` – SQLiteStorage.
+- ``medre.core.storage.sqlite.constants`` – SQLite-specific constants.
+"""

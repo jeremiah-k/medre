@@ -470,7 +470,7 @@ class TestTraceReplayBaseline:
             DeliveryReceipt,
             EventMetadata,
         )
-        from medre.core.storage import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = tmp_path / "inspect_replay_baseline.db"
         event_id = "evt-replay-baseline"
@@ -878,7 +878,7 @@ class TestInspectReplayEquivalence:
             DeliveryReceipt,
             EventMetadata,
         )
-        from medre.core.storage import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = tmp_path / "inspect_replay_equiv.db"
         event_id = "evt-replay-equiv"

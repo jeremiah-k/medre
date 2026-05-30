@@ -45,8 +45,8 @@ from medre.core.engine.replay import (
 )
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.bridge import make_pipeline_config
 from tests.helpers.pipeline import make_event

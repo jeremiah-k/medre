@@ -16,12 +16,12 @@ from medre.core.events import (
     DeliveryReceipt,
     NativeMessageRef,
 )
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import (
     DuplicateEventError,
     StorageError,
     StorageInitializationError,
 )
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 # ===================================================================

@@ -20,7 +20,8 @@ from medre.core.rendering.evidence import (
     EVIDENCE_SCHEMA_VERSION,
     RenderingEvidence,
 )
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 # ===================================================================

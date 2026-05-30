@@ -12,7 +12,8 @@ from medre.core.events import (
     NativeMessageRef,
     NativeRef,
 )
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 # ===================================================================

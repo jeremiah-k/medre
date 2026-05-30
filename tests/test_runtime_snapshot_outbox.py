@@ -83,8 +83,8 @@ class TestStorageBackedOutboxRefresh:
 
     @pytest.mark.asyncio
     async def test_refresh_populates_snapshot_from_storage(self, tmp_path) -> None:
-        from medre.core.storage import SQLiteStorage
         from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = tmp_path / "test_refresh.db"
         storage = SQLiteStorage(str(db_path))
@@ -132,8 +132,8 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
         self, tmp_path
     ) -> None:
         """Storage pending/retry_wait rows + worker cache {} + refresh → snapshot returns storage counts."""
-        from medre.core.storage import SQLiteStorage
         from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         # Real storage with outbox rows.
         db_path = tmp_path / "test_authority.db"
