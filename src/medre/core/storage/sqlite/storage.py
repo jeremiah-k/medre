@@ -1,13 +1,15 @@
 """SQLite-backed storage backend for the medre.
 
 Uses *aiosqlite* when available for native async database access; otherwise
-falls back to synchronous ``sqlite3`` wrapped in ``asyncio.to_thread``.
-The database runs in WAL mode for safe concurrent reads.
+falls back to synchronous ``sqlite3`` dispatched through a private
+``ThreadPoolExecutor``.  The database runs in WAL mode for safe concurrent
+reads.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 import sqlite3
@@ -104,7 +106,7 @@ class SQLiteStorage:
     -----
     * Prefers *aiosqlite* for native async database access.  When *aiosqlite*
       is not installed the implementation falls back to synchronous
-      ``sqlite3`` wrapped in ``asyncio.to_thread``.
+      ``sqlite3`` dispatched through a private ``ThreadPoolExecutor``.
     * The database is opened in WAL mode for safe concurrent reads.
     * All public methods are async and require ``initialize()`` to have been
       called first.
@@ -125,9 +127,11 @@ class SQLiteStorage:
 
     # -- Internal helpers ---------------------------------------------------
 
-    async def _run_in_thread(self, func, *args):
+    async def _run_in_thread(self, func, *args, **kwargs):
         """Run a synchronous function in the private executor."""
         loop = asyncio.get_running_loop()
+        if kwargs:
+            func = functools.partial(func, **kwargs)
         return await loop.run_in_executor(self._executor, func, *args)
 
     def _require_db(self) -> Any:
