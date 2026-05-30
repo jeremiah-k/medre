@@ -294,7 +294,9 @@ class TestEngineIsThin:
         engine_path = _REPLAY_DIR / "engine.py"
         lines = engine_path.read_text().splitlines()
         # Count non-blank, non-comment lines
-        code_lines = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+        code_lines = [
+            ln for ln in lines if ln.strip() and not ln.strip().startswith("#")
+        ]
         assert len(code_lines) < 300, (
             f"engine.py has {len(code_lines)} non-blank non-comment lines; "
             "stage logic belongs in mixins, not engine.py"

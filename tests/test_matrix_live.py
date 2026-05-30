@@ -832,8 +832,8 @@ class TestMatrixLiveSmoke:
 
         This is **not** a core replay-engine test.  This validates that the
         Matrix adapter can redeliver rendered output through ``room_send``
-        and receive a new native ``event_id``.  See ``test_replay.py`` for
-        the storage-level replay mechanism.
+        and receive a new native ``event_id``.  See ``test_replay_engine_modes.py``
+        for the replay engine tests.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.core.contracts.adapter import AdapterContext

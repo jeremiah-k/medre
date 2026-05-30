@@ -86,7 +86,7 @@ class TestModuleImport:
         ):
             assert not hasattr(
                 engine_mod, attr
-            ), f"engine root must not re-export {attr}; import from medre.core.engine.replay instead"
+            ), f"engine root must not re-export {attr}; import from the appropriate replay submodule (e.g. replay.engine, replay.types)"
 
 
 # ---------------------------------------------------------------------------

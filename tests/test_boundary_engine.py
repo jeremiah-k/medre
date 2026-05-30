@@ -226,8 +226,14 @@ class TestReplayTestPurity:
 
     @pytest.fixture(
         params=[
-            "test_replay.py",
+            "test_replay_engine_modes.py",
+            "test_replay_engine_count_and_state.py",
+            "test_replay_engine_plan_filters.py",
+            "test_replay_engine_diagnostics.py",
             "test_replay_routing.py",
+            "test_replay_routing_controls.py",
+            "test_replay_routing_isolation.py",
+            "test_replay_routing_durability.py",
             "test_replay_summary.py",
         ]
     )
