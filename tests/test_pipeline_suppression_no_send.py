@@ -297,7 +297,7 @@ class TestDisabledRouteSuppressionNoSend:
 
             # No routes matched — empty outcomes.
             assert len(outcomes) == 0, (
-                f"Expected 0 outcomes for disabled route, " f"got {len(outcomes)}"
+                f"Expected 0 outcomes for disabled route, got {len(outcomes)}"
             )
             # Adapter never invoked.
             assert len(adapter.delivered_payloads) == 0, (
@@ -433,7 +433,7 @@ class TestSuppressedOutcomeProducesEvidence:
             event.event_id,
         )
         assert len(stored_receipts) == 1, (
-            f"Expected exactly 1 persisted receipt, " f"got {len(stored_receipts)}"
+            f"Expected exactly 1 persisted receipt, got {len(stored_receipts)}"
         )
         assert stored_receipts[0].status == "suppressed", (
             f"Expected receipt status='suppressed', "
@@ -586,7 +586,7 @@ class TestSuppressedOutcomeNotLikeFailedSend:
             outcome = outcomes[0]
 
             assert outcome.status == "skipped", (
-                f"Loop-suppressed outcome must be 'skipped', " f"got {outcome.status!r}"
+                f"Loop-suppressed outcome must be 'skipped', got {outcome.status!r}"
             )
             assert (
                 outcome.failure_kind is DeliveryFailureKind.LOOP_SUPPRESSED

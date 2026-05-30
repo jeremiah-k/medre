@@ -622,13 +622,13 @@ class TestEvidenceShowsFailureReason:
                 _receipt(
                     event_id=event_id,
                     status="failed",
-                    failure_kind="adapter_permanent_failure",
+                    failure_kind="adapter_permanent",
                     error="Target adapter crashed permanently",
                 ),
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        assert entry["failure_kind"] == "adapter_permanent_failure"
+        assert entry["failure_kind"] == "adapter_permanent"
         assert entry["error"] is not None
 
     async def test_failure_kind_detail_enriched(self, tmp_path: Any) -> None:
@@ -695,11 +695,11 @@ class TestEvidenceShowsFailureReason:
         """delivery_receipt_to_report_dict includes failure_kind and error."""
         receipt = _receipt(
             status="failed",
-            failure_kind="adapter_permanent_failure",
+            failure_kind="adapter_permanent",
             error="ConnectionRefusedError: target unreachable",
         )
         report = delivery_receipt_to_report_dict(receipt)
-        assert report["failure_kind"] == "adapter_permanent_failure"
+        assert report["failure_kind"] == "adapter_permanent"
         assert report["error"] is not None
 
 

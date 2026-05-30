@@ -96,6 +96,7 @@ class TestDelegationIntegration:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-q"
         assert sent[0].adapter_message_id == "pkt-42"
+        assert sent[0].delivery_plan_id == "plan-001"
 
 
 # ===================================================================
