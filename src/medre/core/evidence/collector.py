@@ -14,6 +14,7 @@ from typing import Any, Callable, Protocol
 
 import msgspec
 
+from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,
     EvidenceBundle,
@@ -30,13 +31,16 @@ class _EvidenceStorage(Protocol):
 
     Tests can supply any object satisfying these methods without
     implementing the full backend.
+
+    ``list_outbox_items_for_event`` is intentionally omitted from this
+    protocol because the collector probes for it via ``getattr`` /
+    ``callable`` — backends that predate the outbox method are
+    supported without raising ``AttributeError``.
     """
 
     async def get(self, event_id: str) -> Any: ...
     async def list_receipts_for_event(self, event_id: str) -> list[Any]: ...
     async def list_native_refs_for_event(self, event_id: str) -> list[Any]: ...
-
-    async def list_outbox_items_for_event(self, event_id: str) -> list[Any]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +91,7 @@ def _parse_rendering_evidence(
 # ---------------------------------------------------------------------------
 
 
-def _summarize_event(event: Any) -> dict[str, Any]:
+def _summarize_event(event: CanonicalEvent) -> dict[str, Any]:
     """Build a JSON-safe summary dict from a :class:`CanonicalEvent`.
 
     Avoids embedding full payloads.  Summarises key fields only.
@@ -108,7 +112,11 @@ def _summarize_event(event: Any) -> dict[str, Any]:
         "trace_id": full.get("trace_id"),
         "relation_count": len(full.get("relations") or []),
         "relation_types": sorted(
-            {r.get("relation_type") or "" for r in (full.get("relations") or [])}
+            {
+                r.get("relation_type")
+                for r in (full.get("relations") or [])
+                if r.get("relation_type") is not None
+            }
         ),
         "payload_keys": sorted((full.get("payload") or {}).keys()),
         "has_source_native_ref": full.get("source_native_ref") is not None,
@@ -136,6 +144,7 @@ def _summarize_receipt(receipt: Any, warnings: list[str]) -> ReceiptSummary:
         target_adapter=receipt.target_adapter,
         target_channel=receipt.target_channel,
         route_id=receipt.route_id,
+        delivery_plan_id=receipt.delivery_plan_id,
         status=receipt.status,
         attempt_number=receipt.attempt_number,
         source=receipt.source,
@@ -170,9 +179,14 @@ def _summarize_native_ref(ref: Any) -> dict[str, Any]:
 def _to_json_safe_timestamp(value: Any) -> Any:
     """Normalize a timestamp value to a JSON-safe string or ``None``.
 
-    Some storage backends may return :class:`datetime` objects instead of
-    strings for timestamp fields.  This helper ensures deterministic
-    serialisation while preserving ``None`` as-is.
+    Expected input types:
+
+    * :class:`datetime` — converted via ``.isoformat()``.
+    * :class:`str` (ISO 8601) — passed through via ``str()``.
+    * ``None`` — returned as-is.
+
+    This codebase does **not** use raw integer (epoch) timestamps for
+    created_at / updated_at fields, so integer handling is not required.
     """
     if value is None:
         return None
@@ -275,7 +289,9 @@ class EvidenceCollector:
                 "list_outbox_items_for_event not available on storage backend"
             )
         # Defensive: ensure order by created_at, outbox_id even if storage sorts.
-        outbox_items = sorted(outbox_items, key=lambda i: (i.created_at or "", i.outbox_id))
+        outbox_items = sorted(
+            outbox_items, key=lambda i: (str(i.created_at or ""), i.outbox_id)
+        )
         outbox_summaries = tuple(_summarize_outbox_item(i) for i in outbox_items)
 
         # -- Replay run IDs (sorted) ---------------------------------------

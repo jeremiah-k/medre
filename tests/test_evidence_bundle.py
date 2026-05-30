@@ -594,9 +594,7 @@ class TestCollectorCanonicalEvidence:
 class _UnsortedNativeRefStorage(FakeStorage):
     """FakeStorage that returns native refs in *reverse* order deliberately."""
 
-    async def list_native_refs_for_event(
-        self, event_id: str
-    ) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
         # Return refs in reverse order to prove collector re-sorts.
         return sorted(
             self._native_refs.get(event_id, []),
@@ -722,7 +720,11 @@ class TestEvidencePackageExport:
     """Public API surface of medre.core.evidence is importable and complete."""
 
     def test_imports_succeed(self) -> None:
-        from medre.core.evidence import EvidenceBundle, EvidenceCollector, ReceiptSummary
+        from medre.core.evidence import (
+            EvidenceBundle,
+            EvidenceCollector,
+            ReceiptSummary,
+        )
 
         assert EvidenceBundle is not None
         assert EvidenceCollector is not None
@@ -742,8 +744,7 @@ class TestEvidencePackageExport:
 class TestNullPayloadRelationGuard:
     """_summarize_event handles explicit None values for payload/relations."""
 
-    @pytest.mark.asyncio
-    async def test_payload_none(self) -> None:
+    def test_payload_none(self) -> None:
         """Event with payload=None should not crash _summarize_event."""
         event = make_storage_event(event_id="evt-pnull")
         # Manipulate the encoded form to inject None values.
@@ -761,9 +762,8 @@ class TestNullPayloadRelationGuard:
         assert summary["relation_types"] == []
         assert summary["payload_keys"] == []
 
-    @pytest.mark.asyncio
-    async def test_relation_type_none(self) -> None:
-        """Relation with relation_type=None should produce empty string."""
+    def test_relation_type_none(self) -> None:
+        """Relation with relation_type=None should be filtered out."""
         from medre.core.evidence.collector import _summarize_event
 
         event = make_storage_event(event_id="evt-rtnull")
@@ -774,7 +774,7 @@ class TestNullPayloadRelationGuard:
         patched_event = msgspec.json.decode(msgspec.json.encode(full))
         summary = _summarize_event(patched_event)
 
-        assert summary["relation_types"] == [""]
+        assert summary["relation_types"] == []
         assert summary["payload_keys"] == ["key1"]
 
 
@@ -876,8 +876,7 @@ class TestMissingOutboxMethodWarning:
 
         assert bundle.outbox_items == ()
         assert any(
-            "list_outbox_items_for_event not available on storage backend"
-            in w
+            "list_outbox_items_for_event not available on storage backend" in w
             for w in bundle.warnings
         )
 
@@ -920,6 +919,7 @@ class TestReceiptSummaryAsdict:
         assert rcpt_dict["target_adapter"] == "adapter_x"
         assert rcpt_dict["target_channel"] == "chan-1"
         assert rcpt_dict["route_id"] == "route-99"
+        assert rcpt_dict["delivery_plan_id"] == ""
         assert rcpt_dict["status"] == "sent"
         assert rcpt_dict["attempt_number"] == 3
         assert rcpt_dict["source"] == "replay"
