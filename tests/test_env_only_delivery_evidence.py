@@ -19,7 +19,7 @@ from medre.core.events import (
     EventMetadata,
     NativeMessageRef,
 )
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from medre.runtime.evidence._storage_sections import _collect_storage_data_from_backend
 from medre.runtime.trace import assemble_event_timeline as assemble_trace_entries
 

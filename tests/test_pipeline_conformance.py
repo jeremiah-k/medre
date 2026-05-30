@@ -34,7 +34,7 @@ from medre.core.events import (
     DeliveryReceipt,
 )
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------

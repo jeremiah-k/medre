@@ -26,7 +26,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.assertions import snap_value
 from tests.helpers.bridge import (

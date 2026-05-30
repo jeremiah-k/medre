@@ -34,8 +34,8 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing import Router
 from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------

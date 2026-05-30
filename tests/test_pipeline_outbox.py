@@ -12,7 +12,7 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.policies.route_policy import RoutePolicy
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
 from tests.helpers.async_utils import wait_until
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline

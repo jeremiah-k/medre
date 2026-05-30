@@ -206,7 +206,7 @@ class TestEvidenceBundleWithMeshCoreAdapter:
             NativeRef,
         )
         from medre.core.events.metadata import NativeMetadata
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         db_path = str(tmp_path / "meshcore_events.db")
         storage = SQLiteStorage(db_path=db_path)

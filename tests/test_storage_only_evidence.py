@@ -46,7 +46,7 @@ async def _make_db_with_event_and_receipts(
     )
     from medre.core.events.kinds import EventKind
     from medre.core.events.metadata import EventMetadata
-    from medre.core.storage.sqlite.storage import SQLiteStorage
+    from medre.core.storage import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
     await storage.initialize()
@@ -319,7 +319,7 @@ class TestStorageOnlyEmptyDb:
     @pytest.mark.asyncio
     async def test_empty_db_returns_zero_counts(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "empty.db")
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path)
         await storage.initialize()

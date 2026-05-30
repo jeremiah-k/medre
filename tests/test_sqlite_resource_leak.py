@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
+from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageInitializationError
-from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
 # Mock connection helpers — used when the defensive try/except blocks

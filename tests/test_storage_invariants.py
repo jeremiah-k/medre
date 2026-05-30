@@ -25,7 +25,7 @@ from medre.core.events import (
     EventMetadata,
     NativeMessageRef,
 )
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 
 # -- Helpers ----------------------------------------------------------------
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from medre.core.events import DeliveryReceipt
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 

@@ -37,8 +37,8 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_fresh_db_stamps_schema_version(self, tmp_path: Path) -> None:
         """Fresh database gets schema version stamped."""
+        from medre.core.storage import SQLiteStorage
         from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
-        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
@@ -59,7 +59,7 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_matching_version_succeeds(self, tmp_path: Path) -> None:
         """Re-initialising a DB with the same version succeeds."""
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
@@ -74,9 +74,9 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_version_mismatch_raises(self, tmp_path: Path) -> None:
         """Mismatched schema version raises StorageInitializationError."""
+        from medre.core.storage import SQLiteStorage
         from medre.core.storage.backend import StorageInitializationError
         from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
-        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
@@ -100,7 +100,7 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_count_events_on_fresh_db(self, tmp_path: Path) -> None:
         """count_events returns 0 on a fresh database."""
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)

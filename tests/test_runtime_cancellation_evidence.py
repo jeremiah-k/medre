@@ -173,7 +173,7 @@ class TestDrainAbandonedEvidencePersistence:
         assert app.state == RuntimeState.STOPPED
 
         # Reopen storage to verify persisted receipts.
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         verify_storage = SQLiteStorage(db_path)
         await verify_storage.initialize()
@@ -285,7 +285,7 @@ class TestDrainAbandonedEvidencePersistence:
         assert app.state == RuntimeState.STOPPED
 
         # Reopen storage to verify persisted receipts.
-        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.core.storage import SQLiteStorage
 
         verify_storage = SQLiteStorage(db_path)
         await verify_storage.initialize()

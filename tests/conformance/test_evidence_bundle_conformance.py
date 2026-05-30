@@ -28,7 +28,7 @@ from medre.core.evidence.bundle import (
     EvidenceBundle,
 )
 from medre.core.evidence.collector import EvidenceCollector
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------

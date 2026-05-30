@@ -23,7 +23,7 @@ import pytest
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
-from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.storage import SQLiteStorage
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
 # ---------------------------------------------------------------------------
