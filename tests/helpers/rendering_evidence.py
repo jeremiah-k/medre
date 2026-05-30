@@ -37,7 +37,7 @@ def make_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         source_adapter=source_adapter,
         source_transport_id="transport-1",
         source_channel_id="ch-0",

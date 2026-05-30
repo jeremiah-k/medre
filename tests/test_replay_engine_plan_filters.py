@@ -750,14 +750,15 @@ class TestCapabilityEvidenceParity:
         result; it should be passed through so the downstream delivery
         can produce the correct ADAPTER_MISSING outcome.
         """
-        # Empty adapters dict: target-adapter is missing.
+        # Build pipeline with any valid caps to satisfy the factory,
+        # then override adapters to empty dict so the target-adapter
+        # is missing from the registry (testing missing-adapter path).
         caps = AdapterCapabilities(text=True)
         router, pipeline = _make_capability_route_and_pipeline(
             "message.created",
             "target-adapter",
             caps,
         )
-        # Override adapters to be empty so target-adapter is missing.
         pipeline._config.adapters = {}
 
         engine = make_engine(temp_storage, pipeline=pipeline)

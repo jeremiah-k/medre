@@ -434,8 +434,9 @@ class TestMultiRelationDeterminism:
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
         # First relation is edit → degrade_relations_inline appends [edit of: ...]
-        # The shared helper appends to text
-        assert "edit" in text.lower() or "multi-rel" in text
+        assert "edit" in text.lower()
+        # Second relation (delete) must NOT be processed
+        assert "deleted" not in text.lower()
 
     async def test_multi_relation_deterministic_across_calls(self) -> None:
         """Same multi-relation event produces identical output every time."""
