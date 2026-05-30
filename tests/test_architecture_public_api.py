@@ -322,6 +322,8 @@ class TestPackageRootsSystematic:
         "medre/adapters/lxmf/__init__.py",
         "medre/config/__init__.py",
         "medre/config/adapters/__init__.py",
+        "medre/core/storage/__init__.py",
+        "medre/core/storage/sqlite/__init__.py",
         "medre/runtime/__init__.py",
         "medre/runtime/evidence/__init__.py",
         "medre/runtime/run_session/__init__.py",
@@ -442,6 +444,18 @@ class TestPackageRootsSystematic:
             "FakeTransportAdapter",
             "collect_evidence_bundle",
             "run_bridge_session",
+            # Storage facade symbols — must not be re-exported from package roots
+            "SQLiteStorage",
+            "STALE_QUEUED_GRACE_SECONDS",
+            "EventFilter",
+            "DeliveryOutboxItem",
+            "StorageBackend",
+            "StorageGuarantees",
+            "StorageError",
+            "DuplicateEventError",
+            "EventNotFoundError",
+            "StorageInitializationError",
+            "SchemaValidationError",
         }
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
@@ -468,3 +482,40 @@ class TestPackageRootsSystematic:
             Path(__file__).resolve().parents[1] / "src" / "medre" / "observability"
         )
         assert not obs_dir.exists(), "medre/observability/ directory still exists"
+
+    def test_storage_init_has_no_symbols(self) -> None:
+        """medre.core.storage must not expose any storage symbols."""
+        import medre.core.storage as storage_pkg
+
+        forbidden = [
+            "SQLiteStorage",
+            "STALE_QUEUED_GRACE_SECONDS",
+            "EventFilter",
+            "DeliveryOutboxItem",
+            "StorageBackend",
+            "StorageGuarantees",
+            "StorageError",
+            "DuplicateEventError",
+            "EventNotFoundError",
+            "StorageInitializationError",
+            "SchemaValidationError",
+        ]
+        for sym in forbidden:
+            assert not hasattr(storage_pkg, sym), (
+                f"medre.core.storage should not expose {sym}; "
+                f"import from canonical module instead"
+            )
+
+    def test_storage_sqlite_init_has_no_symbols(self) -> None:
+        """medre.core.storage.sqlite must not expose any storage symbols."""
+        import medre.core.storage.sqlite as sqlite_pkg
+
+        forbidden = [
+            "SQLiteStorage",
+            "STALE_QUEUED_GRACE_SECONDS",
+        ]
+        for sym in forbidden:
+            assert not hasattr(sqlite_pkg, sym), (
+                f"medre.core.storage.sqlite should not expose {sym}; "
+                f"import from canonical module instead"
+            )

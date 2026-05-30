@@ -1327,3 +1327,136 @@ class TestReusableAdapterModuleBoundary:
         assert (
             violations == []
         ), "Reusable adapter module boundary violations:\n" + "\n".join(violations)
+
+
+# ===================================================================
+# X) Storage clean import surface
+# ===================================================================
+
+
+class TestStorageCleanSurface:
+    """Enforce the clean import surface after SQLite storage decomposition.
+
+    After the SQLite storage decomposition:
+    - ``src/medre/core/storage/sqlite.py`` must not exist (moved to package).
+    - ``src/medre/core/storage/__init__.py`` must not re-export storage symbols.
+    - ``src/medre/core/storage/sqlite/__init__.py`` must not re-export symbols.
+    - No file under src/, tests/, or docs/ may import from the old
+      ``medre.core.storage`` package root or ``medre.core.storage.sqlite``
+      package root.
+    """
+
+    # Forbidden import lines (prefix match).
+    _FORBIDDEN_IMPORTS = (
+        "from medre.core.storage import ",
+        "from medre.core.storage.sqlite import ",
+    )
+
+    # Files excluded from the scan (this file references the forbidden
+    # patterns as literal strings for the scan logic).
+    _EXCLUDED_FILES = frozenset({"test_architectural_boundaries.py"})
+
+    def test_old_sqlite_module_does_not_exist(self) -> None:
+        """src/medre/core/storage/sqlite.py must not exist."""
+        repo_root = Path(__file__).resolve().parents[1]
+        old_module = repo_root / "src" / "medre" / "core" / "storage" / "sqlite.py"
+        assert (
+            not old_module.exists()
+        ), f"Old monolith module still exists: {old_module}"
+
+    def test_storage_init_does_not_re_export(self) -> None:
+        """storage/__init__.py must not contain SQLiteStorage or backend symbols."""
+        repo_root = Path(__file__).resolve().parents[1]
+        init = repo_root / "src" / "medre" / "core" / "storage" / "__init__.py"
+        assert init.exists()
+        text = init.read_text()
+        forbidden_symbols = (
+            "SQLiteStorage",
+            "EventFilter",
+            "DeliveryOutboxItem",
+            "StorageBackend",
+            "StorageGuarantees",
+            "StorageError",
+            "DuplicateEventError",
+            "EventNotFoundError",
+            "StorageInitializationError",
+            "SchemaValidationError",
+        )
+        for sym in forbidden_symbols:
+            assert (
+                sym not in text
+            ), f"storage/__init__.py contains forbidden symbol '{sym}'"
+
+    def test_sqlite_init_does_not_re_export(self) -> None:
+        """storage/sqlite/__init__.py must not contain SQLiteStorage or STALE_QUEUED_GRACE_SECONDS."""
+        repo_root = Path(__file__).resolve().parents[1]
+        init = (
+            repo_root / "src" / "medre" / "core" / "storage" / "sqlite" / "__init__.py"
+        )
+        assert init.exists()
+        text = init.read_text()
+        forbidden_symbols = (
+            "SQLiteStorage",
+            "STALE_QUEUED_GRACE_SECONDS",
+        )
+        for sym in forbidden_symbols:
+            assert (
+                sym not in text
+            ), f"storage/sqlite/__init__.py contains forbidden symbol '{sym}'"
+
+    def test_no_root_or_sqlite_facade_imports_in_src(self) -> None:
+        """No src/ file may import from medre.core.storage or .sqlite root."""
+        repo_root = Path(__file__).resolve().parents[1]
+        violations = _scan_multiple_dirs_for_prefixes(
+            (repo_root / "src",),
+            self._FORBIDDEN_IMPORTS,
+        )
+        # Filter out this test file if it were somehow scanned
+        violations = [
+            v
+            for v in violations
+            if Path(v.split(":")[0]).name not in self._EXCLUDED_FILES
+        ]
+        assert (
+            violations == []
+        ), "Forbidden facade imports found in src/:\n" + "\n".join(violations)
+
+    def test_no_root_or_sqlite_facade_imports_in_tests(self) -> None:
+        """No tests/ file may import from medre.core.storage or .sqlite root."""
+        repo_root = Path(__file__).resolve().parents[1]
+        violations = _scan_multiple_dirs_for_prefixes(
+            (repo_root / "tests",),
+            self._FORBIDDEN_IMPORTS,
+        )
+        violations = [
+            v
+            for v in violations
+            if Path(v.split(":")[0]).name not in self._EXCLUDED_FILES
+        ]
+        assert (
+            violations == []
+        ), "Forbidden facade imports found in tests/:\n" + "\n".join(violations)
+
+    def test_no_root_or_sqlite_facade_imports_in_docs(self) -> None:
+        """No docs/ file may reference old medre.core.storage or .sqlite root imports."""
+        repo_root = Path(__file__).resolve().parents[1]
+        docs_dir = repo_root / "docs"
+        if not docs_dir.exists():
+            return
+
+        violations: list[str] = []
+        for md_file in sorted(docs_dir.rglob("*.md")):
+            text = md_file.read_text(encoding="utf-8")
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if any(
+                    stripped.startswith(prefix) for prefix in self._FORBIDDEN_IMPORTS
+                ):
+                    violations.append(
+                        f"{md_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
+        assert (
+            violations == []
+        ), "Forbidden facade imports found in docs/:\n" + "\n".join(violations)

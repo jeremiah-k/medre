@@ -597,7 +597,6 @@ class TestReceiptQueryHelpers:
         assert status.attempt_number == 3
 
 
-
 # ===================================================================
 # Track 6: Receipt sequence monotonicity
 # ===================================================================

@@ -31,9 +31,12 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
-from medre.core.storage.backend import EventFilter
+from medre.core.storage.backend import (
+    EventFilter,
+    StorageBackend,
+    StorageInitializationError,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from medre.core.storage.backend import StorageBackend, StorageInitializationError
 
 # ---------------------------------------------------------------------------
 # Helpers
