@@ -103,7 +103,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     sources_seen: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     generated_at: str = ""
-    evidence_tier: str = ""
+    evidence_tier: str = "synthetic"
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict representation.

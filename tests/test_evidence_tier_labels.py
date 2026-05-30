@@ -372,24 +372,24 @@ class TestCollectorTierNotLive:
 
 
 class TestBundleBackwardCompat:
-    """Old EvidenceBundle construction still works (default evidence_tier="")."""
+    """Old EvidenceBundle construction still works (conservative synthetic default)."""
 
     def test_old_construction_no_tier_arg(self) -> None:
-        """Constructing EvidenceBundle without evidence_tier still works."""
+        """Constructing EvidenceBundle without evidence_tier defaults to synthetic."""
         bundle = EvidenceBundle(
             event_id="evt-compat",
             generated_at="2026-01-15T12:00:00+00:00",
         )
-        assert bundle.evidence_tier == ""
+        assert bundle.evidence_tier == "synthetic"
 
-    def test_old_construction_to_dict_includes_empty_tier(self) -> None:
+    def test_old_construction_to_dict_includes_tier(self) -> None:
         bundle = EvidenceBundle(
             event_id="evt-compat2",
             generated_at="2026-01-15T12:00:00+00:00",
         )
         d = bundle.to_dict()
         assert "evidence_tier" in d
-        assert d["evidence_tier"] == ""
+        assert d["evidence_tier"] == "synthetic"
 
     def test_old_construction_json_safe(self) -> None:
         bundle = EvidenceBundle(
@@ -398,7 +398,7 @@ class TestBundleBackwardCompat:
         )
         json_str = json.dumps(bundle.to_dict(), sort_keys=True)
         parsed = json.loads(json_str)
-        assert parsed["evidence_tier"] == ""
+        assert parsed["evidence_tier"] == "synthetic"
 
     def test_explicit_tier_on_bundle(self) -> None:
         bundle = EvidenceBundle(
