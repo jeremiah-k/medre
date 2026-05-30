@@ -112,24 +112,31 @@ class TestMatrixIngressConformance:
         assert rel.relation_type == first["relation_type"]
         if "key" in first:
             assert rel.key == first["key"]
+        else:
+            assert rel.key is None
         if "target_native_ref" in first:
             assert rel.target_native_ref is not None
             tnr = first["target_native_ref"]
             assert rel.target_native_ref.adapter == tnr["adapter"]
             assert rel.target_native_ref.native_channel_id == tnr["native_channel_id"]
             assert rel.target_native_ref.native_message_id == tnr["native_message_id"]
+        else:
+            assert rel.target_native_ref is None
 
     def test_metadata_deterministic(self, matrix_codec, fixture):
-        """Native metadata is present and carries room_id/event_id/sender."""
+        """Native metadata carries deterministic fixture-known values."""
         event = matrix_codec.decode(
             fixture["native_input"],
             **fixture["decode_context"],
         )
         assert event.metadata.native is not None
         native_data = event.metadata.native.data
-        assert "room_id" in native_data
-        assert "event_id" in native_data
-        assert "sender" in native_data
+        expected_meta = fixture["expected"]["expected_metadata"]
+        for key, expected_value in expected_meta.items():
+            assert native_data[key] == expected_value, (
+                f"metadata[{key!r}]: expected {expected_value!r}, "
+                f"got {native_data.get(key)!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -220,21 +227,28 @@ class TestMeshtasticIngressConformance:
         assert rel.relation_type == first["relation_type"]
         if "key" in first:
             assert rel.key == first["key"]
+        else:
+            assert rel.key is None
         if "target_native_ref" in first:
             assert rel.target_native_ref is not None
             tnr = first["target_native_ref"]
             assert rel.target_native_ref.adapter == tnr["adapter"]
             assert rel.target_native_ref.native_channel_id == tnr["native_channel_id"]
             assert rel.target_native_ref.native_message_id == tnr["native_message_id"]
+        else:
+            assert rel.target_native_ref is None
 
     def test_metadata_deterministic(self, meshtastic_codec, fixture):
-        """Native metadata is present with packet_id, from_id, channel."""
+        """Native metadata carries deterministic fixture-known values."""
         event = meshtastic_codec.decode(
             fixture["native_input"],
             **fixture["decode_context"],
         )
         assert event.metadata.native is not None
         native_data = event.metadata.native.data
-        assert "packet_id" in native_data
-        assert "from_id" in native_data
-        assert "channel" in native_data
+        expected_meta = fixture["expected"]["expected_metadata"]
+        for key, expected_value in expected_meta.items():
+            assert native_data[key] == expected_value, (
+                f"metadata[{key!r}]: expected {expected_value!r}, "
+                f"got {native_data.get(key)!r}"
+            )

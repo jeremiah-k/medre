@@ -23,6 +23,7 @@ import pytest
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import StorageBackend
 
 # ---------------------------------------------------------------------------
@@ -76,9 +77,15 @@ class TestDeliveryLifecycleConformance:
     def lifecycle(self):
         return DeliveryLifecycleService()
 
-    @pytest.mark.asyncio()
-    async def test_direct_sent_receipt(self, storage, lifecycle):
-        """Direct sent delivery creates a receipt with status='sent'."""
+    @pytest.mark.asyncio
+    async def test_direct_sent_receipt(self, storage):
+        """Direct sent delivery creates a receipt with status='sent'.
+
+        Shape characterization: verifies receipt field contracts for a
+        manually-constructed sent receipt.  The lifecycle service is not
+        used for initial receipt creation (it creates supplemental and
+        suppression receipts only).
+        """
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
         receipt = DeliveryReceipt(
@@ -100,9 +107,14 @@ class TestDeliveryLifecycleConformance:
         assert receipts[0].delivery_plan_id == plan_id
         assert receipts[0].source == "live"
 
-    @pytest.mark.asyncio()
-    async def test_queued_receipt(self, storage, lifecycle):
-        """Queued delivery creates a receipt with status='queued'."""
+    @pytest.mark.asyncio
+    async def test_queued_receipt(self, storage):
+        """Queued delivery creates a receipt with status='queued'.
+
+        Shape characterization: verifies receipt field contracts for a
+        manually-constructed queued receipt.  The lifecycle service is not
+        used for initial receipt creation.
+        """
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
         receipt = DeliveryReceipt(
@@ -124,7 +136,7 @@ class TestDeliveryLifecycleConformance:
         assert receipts[0].status == "queued"
         assert receipts[0].delivery_plan_id == plan_id
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_queued_to_sent_supplemental_receipt(self, storage, lifecycle):
         """Queued -> sent supplemental receipt correlates by delivery_plan_id."""
         event_id = str(uuid.uuid4())
@@ -167,7 +179,7 @@ class TestDeliveryLifecycleConformance:
         assert sent.parent_receipt_id == queued.receipt_id
         assert sent.source == "live"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_supplemental_preserves_evidence(self, storage, lifecycle):
         """Supplemental sent receipt carries rendering_evidence from queued."""
         event_id = str(uuid.uuid4())
@@ -202,24 +214,28 @@ class TestDeliveryLifecycleConformance:
         sent = [r for r in receipts if r.status == "sent"][0]
         assert sent.rendering_evidence == evidence_json
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_suppressed_receipt_no_rendering_evidence(self, storage, lifecycle):
-        """Suppressed receipt does not carry rendering_evidence."""
+        """Suppressed receipt via lifecycle service: no rendering_evidence."""
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
 
-        receipt = DeliveryReceipt(
-            sequence=0,
-            receipt_id=f"rcpt-sup-{uuid.uuid4()}",
+        receipt = await lifecycle.build_and_persist_suppression_receipt(
+            storage,
             event_id=event_id,
             delivery_plan_id=plan_id,
             target_adapter="matrix_conf",
             target_channel="!room:example.com",
             route_id="route-1",
-            status="suppressed",
-            source="live",
+            failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
             error="capability_suppressed",
-            failure_kind="capability",
         )
+
         assert receipt.rendering_evidence is None
         assert receipt.status == "suppressed"
+        assert receipt.failure_kind == DeliveryFailureKind.POLICY_SUPPRESSED.value
+
+        # Verify persisted
+        receipts = await storage.list_receipts_for_event(event_id)
+        assert len(receipts) == 1
+        assert receipts[0].status == "suppressed"

@@ -17,6 +17,8 @@ Covers:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from medre.core.rendering.evidence import (
@@ -43,7 +45,7 @@ from .conftest import (
 class TestMatrixRenderingConformance:
     """Assert Matrix renderer output matches MEDRE rendering contracts."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_matrix_direct_text_renders_native_envelope(self, matrix_renderer):
         """Matrix direct text renders msgtype=m.text and body."""
         event = make_text_event(source_adapter="matrix_conf", body="Hello Matrix")
@@ -56,7 +58,7 @@ class TestMatrixRenderingConformance:
         assert result.payload.get("msgtype") == "m.text"
         assert result.payload.get("body") == "Hello Matrix"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_matrix_direct_reply_includes_m_relates_to(self, matrix_renderer):
         """Matrix direct reply renders m.relates_to.m.in_reply_to."""
         event = make_reply_event(
@@ -75,7 +77,7 @@ class TestMatrixRenderingConformance:
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig_001"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_matrix_fallback_text_reply_omits_m_relates_to(self, matrix_renderer):
         """Matrix fallback_text reply omits m.relates_to and preserves body."""
         event = make_reply_event(
@@ -103,7 +105,7 @@ class TestMatrixRenderingConformance:
 class TestMeshtasticRenderingConformance:
     """Assert Meshtastic renderer output matches MEDRE rendering contracts."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_meshtastic_direct_text_includes_text_channel_meshnet(
         self, meshtastic_renderer
     ):
@@ -119,7 +121,7 @@ class TestMeshtasticRenderingConformance:
         assert result.payload.get("channel_index") == 0
         assert "meshnet_name" in result.payload
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_meshtastic_fallback_text_reply_preserves_channel(
         self, meshtastic_renderer
     ):
@@ -141,7 +143,7 @@ class TestMeshtasticRenderingConformance:
         assert result.fallback_applied == "strategy_fallback_text"
         assert "Fallback reply" in result.payload.get("text", "")
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_meshtastic_byte_budget_truncation_evidence(
         self, meshtastic_renderer
     ):
@@ -175,12 +177,11 @@ class TestMeshtasticRenderingConformance:
 class TestRenderingEvidenceConformance:
     """Assert RenderingEvidence captures correct decision inputs."""
 
-    @pytest.mark.asyncio()
-    async def test_evidence_schema_version_is_one(self):
+    def test_evidence_schema_version_is_one(self):
         """Evidence schema_version is currently '1'."""
         assert EVIDENCE_SCHEMA_VERSION == "1"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_evidence_from_pipeline_render(self, matrix_renderer):
         """Pipeline.render attaches RenderingEvidence with correct fields."""
         pipeline = RenderingPipeline()
@@ -205,7 +206,7 @@ class TestRenderingEvidenceConformance:
         assert isinstance(evidence.rendered_text_bytes, int)
         assert evidence.truncated is False
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_evidence_includes_capability_level(self, meshtastic_renderer):
         """Evidence records capability_level from rendering context."""
         pipeline = RenderingPipeline()
@@ -224,7 +225,7 @@ class TestRenderingEvidenceConformance:
         assert evidence is not None
         assert evidence.capability_level == "native"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_evidence_fallback_strategy_recorded(self, matrix_renderer):
         """Evidence records fallback_applied when fallback_text is used."""
         event = make_reply_event(
@@ -247,7 +248,7 @@ class TestRenderingEvidenceConformance:
         assert evidence.fallback_applied == "strategy_fallback_text"
         assert evidence.delivery_strategy == "fallback_text"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_evidence_to_dict_keys_stable(self, matrix_renderer):
         """Evidence.to_dict() produces a stable set of keys."""
         event = make_text_event(body="Dict test")
@@ -282,3 +283,47 @@ class TestRenderingEvidenceConformance:
             "original_text_bytes",
         }
         assert set(d.keys()) == expected_keys
+
+    @pytest.mark.asyncio
+    async def test_evidence_serializes_to_parseable_json(self, matrix_renderer):
+        """Evidence.to_dict() serializes via json.dumps to a parseable blob.
+
+        Verifies that the full evidence dict round-trips through JSON
+        serialization and includes the mandatory keys: schema_version,
+        renderer, delivery_strategy, target_adapter, capability_level,
+        and text char/byte metrics.
+        """
+        event = make_text_event(body="JSON round-trip test")
+        ctx = RenderingContext(
+            delivery_strategy="direct",
+            target_adapter=MATRIX_ADAPTER_ID,
+            target_platform="matrix",
+        )
+        result = await matrix_renderer.render(event, ctx)
+        evidence = RenderingEvidence.from_context_and_result(
+            renderer_name="matrix",
+            ctx=ctx,
+            result=result,
+        )
+        d = evidence.to_dict()
+        blob = json.dumps(d, sort_keys=True)
+        parsed = json.loads(blob)
+
+        mandatory_keys = {
+            "schema_version",
+            "renderer",
+            "delivery_strategy",
+            "target_adapter",
+            "capability_level",
+            "rendered_text_chars",
+            "rendered_text_bytes",
+        }
+        for key in mandatory_keys:
+            assert key in parsed, f"Missing mandatory key: {key!r}"
+
+        assert parsed["schema_version"] == "1"
+        assert parsed["renderer"] == "matrix"
+        assert parsed["delivery_strategy"] == "direct"
+        assert parsed["target_adapter"] == MATRIX_ADAPTER_ID
+        assert isinstance(parsed["rendered_text_chars"], int)
+        assert isinstance(parsed["rendered_text_bytes"], int)

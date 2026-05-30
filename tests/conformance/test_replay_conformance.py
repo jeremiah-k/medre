@@ -56,7 +56,7 @@ def _make_event(event_id: str | None = None) -> CanonicalEvent:
 class TestReplayDryRunConformance:
     """DRY_RUN mode: all stages except delivery, no adapter calls."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_dry_run_skips_delivery(self, temp_storage: SQLiteStorage):
         """DRY_RUN: deliver stage is skipped, not executed."""
         event = _make_event("dry-001")
@@ -77,9 +77,13 @@ class TestReplayDryRunConformance:
         assert deliver_results[0].status == "skipped"
         assert "dry_run" in (deliver_results[0].error or "")
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_dry_run_includes_earlier_stages(self, temp_storage: SQLiteStorage):
-        """DRY_RUN: store, route, plan, render stages are executed."""
+        """DRY_RUN: all five stages produce results (store, route, plan, render, deliver).
+
+        StubPipeline has no router so route returns "failed" and plan/render
+        may be skipped, but every stage is represented in the results.
+        """
         event = _make_event("dry-002")
         await temp_storage.append(event)
 
@@ -90,10 +94,9 @@ class TestReplayDryRunConformance:
         results = [r async for r in engine.replay(request)]
         stages = {r.stage for r in results}
 
-        assert "store" in stages
-        assert "deliver" in stages
+        assert stages == {"store", "route", "plan", "render", "deliver"}
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_dry_run_preserves_event(
         self, temp_storage: SQLiteStorage, sample_event: CanonicalEvent
     ):
@@ -117,7 +120,7 @@ class TestReplayDryRunConformance:
 class TestReplayBestEffortConformance:
     """BEST_EFFORT mode: capability filtering parity with live delivery."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_best_effort_stub_pipeline_no_adapter_registry(
         self, temp_storage: SQLiteStorage
     ):
@@ -161,7 +164,7 @@ class TestReplayBestEffortConformance:
         assert len(deliver_results) == 1
         assert deliver_results[0].status == "skipped"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_best_effort_stub_pipeline_deliver_stage_handled(
         self, temp_storage: SQLiteStorage
     ):
@@ -194,9 +197,16 @@ class TestReplayBestEffortConformance:
         # StubPipeline has no router, so no plans are produced.
         assert "No delivery plans" in (deliver_results[0].error or "")
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_best_effort_run_id_populated(self, temp_storage: SQLiteStorage):
-        """BEST_EFFORT: replay_run_id is propagated to the pipeline."""
+        """BEST_EFFORT: run_id propagates to route attribution.
+
+        Verifies that the replay request's ``run_id`` is carried into the
+        ``ReplayRouteAttribution`` on the route-stage result.  Receipt-level
+        ``source='replay'`` and ``replay_run_id`` tagging requires a real
+        pipeline with ``deliver_to_targets`` and is covered by
+        integration-level replay tests.
+        """
         event = _make_event("be-runid-001")
         await temp_storage.append(event)
 
@@ -209,10 +219,17 @@ class TestReplayBestEffortConformance:
         )
 
         results = [r async for r in engine.replay(request)]
-        # At minimum the store stage should pass
+
+        # Store stage must pass
         store_results = [r for r in results if r.stage == "store"]
         assert len(store_results) == 1
         assert store_results[0].status == "passed"
+
+        # Route stage carries the run_id in its attribution
+        route_results = [r for r in results if r.stage == "route"]
+        assert len(route_results) == 1
+        assert route_results[0].route_attribution is not None
+        assert route_results[0].route_attribution.run_id == run_id
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +240,7 @@ class TestReplayBestEffortConformance:
 class TestReplayEvidenceConformance:
     """Assert rendering evidence parity between replay and live paths."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_replay_render_stage_produces_evidence(
         self, temp_storage: SQLiteStorage
     ):

@@ -38,6 +38,11 @@
       "msgtype": "m.text"
     },
     "relations_count": 0,
-    "metadata_has_native": true
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "room_id": "!room_conf:example.com",
+      "event_id": "$evt_conf_text_001",
+      "sender": "@alice:example.com"
+    }
   }
 }

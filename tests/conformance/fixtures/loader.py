@@ -51,7 +51,9 @@ def load_fixture(adapter: str, name: str) -> dict[str, Any]:
     ValueError
         If the fixture cannot be parsed as JSON.
     """
-    path = _FIXTURES_DIR / adapter / f"{name}.json"
+    path = (_FIXTURES_DIR / adapter / f"{name}.json").resolve()
+    if not path.is_relative_to(_FIXTURES_DIR.resolve()):
+        raise ValueError(f"Fixture path escapes fixtures directory: {path}")
     if not path.exists():
         raise FileNotFoundError(f"Fixture not found: {path}")
     with path.open("r", encoding="utf-8") as f:
@@ -76,7 +78,9 @@ def load_all_fixtures(adapter: str) -> list[dict[str, Any]]:
     list[dict[str, Any]]
         All parsed fixtures sorted by filename.
     """
-    adapter_dir = _FIXTURES_DIR / adapter
+    adapter_dir = (_FIXTURES_DIR / adapter).resolve()
+    if not adapter_dir.is_relative_to(_FIXTURES_DIR.resolve()):
+        raise ValueError(f"Adapter path escapes fixtures directory: {adapter_dir}")
     if not adapter_dir.is_dir():
         return []
     results: list[dict[str, Any]] = []

@@ -30,6 +30,11 @@
       "body": "Hello from mesh"
     },
     "relations_count": 0,
-    "metadata_has_native": true
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "packet_id": 42,
+      "from_id": "!abc123",
+      "channel": 0
+    }
   }
 }

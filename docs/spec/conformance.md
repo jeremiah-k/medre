@@ -180,15 +180,14 @@ Runtime conformance tests are distinct from:
 
 - **Static schema conformance** — validating JSON payloads against schemas.
 - **Pure capability conformance** — testing the `CapabilityDecisionResolver`
-  in isolation (covered by `test_capability_decision.py` and
-  `test_capability_decision_transport_profiles.py`).
+  in isolation (covered by `test_capability_runtime_conformance.py`).
 - **Live validation** — testing against real transport endpoints (see §4.4).
 
 ### 6.2 Fixture Location and Format
 
 Fixtures live under:
 
-```
+```text
 tests/conformance/fixtures/
 ├── loader.py            # load_fixture() / load_all_fixtures()
 ├── matrix/
@@ -256,8 +255,9 @@ asserts all of the following for its fixtures:
    `rendering_evidence`. Supplemental queued→sent receipts preserve
    parent, plan, route, channel, and evidence.
 5. **Replay**: DRY_RUN skips delivery. BEST_EFFORT applies capability
-   filtering. Replay receipts carry `source="replay"` and
-   `replay_run_id`.
+   filtering. Replay requests carry `run_id`; receipt-level
+   `source="replay"` and `replay_run_id` tagging is asserted in
+   integration-level tests with real pipeline components.
 
 ### 6.5 Conformance Test Modules
 

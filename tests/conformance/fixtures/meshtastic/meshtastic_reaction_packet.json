@@ -41,6 +41,11 @@
         "native_message_id": "42"
       }
     },
-    "metadata_has_native": true
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "packet_id": 44,
+      "from_id": "!abc123",
+      "channel": 0
+    }
   }
 }
