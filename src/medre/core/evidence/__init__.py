@@ -12,11 +12,21 @@ Public API
   :class:`~medre.core.storage.backend.StorageBackend`.
 """
 
+from medre.core.evidence.adapter_status import (
+    OPERATOR_STATUSES,
+    AdapterStatusEvidence,
+    build_adapter_status_evidence,
+    derive_operator_status,
+)
 from medre.core.evidence.bundle import EvidenceBundle, ReceiptSummary
 from medre.core.evidence.collector import EvidenceCollector
 
 __all__ = [
+    "AdapterStatusEvidence",
     "EvidenceBundle",
     "EvidenceCollector",
+    "OPERATOR_STATUSES",
     "ReceiptSummary",
+    "build_adapter_status_evidence",
+    "derive_operator_status",
 ]
