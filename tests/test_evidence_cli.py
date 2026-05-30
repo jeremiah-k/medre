@@ -210,7 +210,7 @@ async def _make_populated_db(
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.events.kinds import EventKind
     from medre.core.events.metadata import EventMetadata
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
     await storage.initialize()
@@ -260,7 +260,7 @@ async def _make_populated_db_with_failure(
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.events.kinds import EventKind
     from medre.core.events.metadata import EventMetadata
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
     await storage.initialize()
@@ -1051,7 +1051,7 @@ async def _make_populated_db_with_dead_letter(
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.events.kinds import EventKind
     from medre.core.events.metadata import EventMetadata
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
     await storage.initialize()
@@ -1201,7 +1201,7 @@ class TestDeadLetterIncidentSummary:
         from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
         from medre.core.events.kinds import EventKind
         from medre.core.events.metadata import EventMetadata
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         event_id = "ev-target-ch-001"

@@ -36,7 +36,7 @@ from medre.core.evidence.collector import EvidenceCollector
 from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.storage.backend import DeliveryOutboxItem
-from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------

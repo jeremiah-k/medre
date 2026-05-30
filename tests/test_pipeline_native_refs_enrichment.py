@@ -24,7 +24,7 @@ from medre.core.events import (
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
-from medre.core.storage import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ===================================================================
 # Text enrichment tests

@@ -21,8 +21,8 @@ from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ===================================================================

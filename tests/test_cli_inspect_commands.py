@@ -45,7 +45,7 @@ def _seed_inspect_db(
         EventMetadata,
         NativeMessageRef,
     )
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)

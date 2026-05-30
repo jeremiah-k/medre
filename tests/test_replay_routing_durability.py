@@ -35,8 +35,8 @@ from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 

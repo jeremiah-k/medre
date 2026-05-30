@@ -570,7 +570,7 @@ async def _export_storage_artifacts_async(
     - ``inspect-timeline.json`` from :func:`assemble_event_timeline`
     - ``evidence.json`` from :func:`collect_evidence_bundle`
     """
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
     from medre.runtime.timeline import assemble_event_timeline
     from medre.runtime.trace import timeline_to_json
 

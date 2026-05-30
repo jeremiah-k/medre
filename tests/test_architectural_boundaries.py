@@ -208,7 +208,7 @@ class TestFakeAdapterRuntimeBuild:
     @pytest.fixture
     async def _temp_storage(self) -> AsyncGenerator:
         """Temp SQLite storage for the pipeline build test."""
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name

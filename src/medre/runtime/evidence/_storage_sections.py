@@ -295,7 +295,7 @@ async def _collect_storage_section(
     Never creates or mutates the database file.  Missing/invalid storage
     produces a partial or skipped section.
     """
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     storage_config = config.storage
 
@@ -407,7 +407,7 @@ async def _collect_storage_path_bundle(
     :func:`_collect_storage_data_from_backend`, shared with the config-backed
     path.
     """
-    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     _now = now_fn or _now_utc
 

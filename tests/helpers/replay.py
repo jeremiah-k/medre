@@ -18,8 +18,8 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Router
-from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 
 # ---------------------------------------------------------------------------

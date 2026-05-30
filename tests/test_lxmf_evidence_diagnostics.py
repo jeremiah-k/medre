@@ -203,7 +203,7 @@ class TestEvidenceBundleWithLxmfAdapter:
             NativeRef,
         )
         from medre.core.events.metadata import NativeMetadata
-        from medre.core.storage.sqlite import SQLiteStorage
+        from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(tmp_path / "lxmf_events.db")
         storage = SQLiteStorage(db_path=db_path)
