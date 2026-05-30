@@ -20,6 +20,7 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 | Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)     | No                         | `outbound_failed` counter                        |
 | Replay capacity       | 0         | `error` (replay_capacity_exceeded)        | No                         | `capacity_rejections` counter                    |
 | Replay duplicate      | 0         | `sent` (multiple receipts, source=replay) | N/A (by design)            | receipt `replay_run_id`                          |
+| Capability suppressed | 0         | `skipped` (no receipt) or `suppressed`    | No                         | receipt `failure_kind`, `error` field            |
 | Loop prevented        | 0         | `suppressed` receipt persisted            | No                         | `loop_prevented` counter, RouteStats             |
 | Degraded live health  | 0         | N/A                                       | No                         | `health.live_health.adapters[]`                  |
 | Failed live health    | 0         | N/A                                       | No                         | `health.live_health.adapters[]`, `.error`        |
@@ -305,6 +306,43 @@ Both config-time checks produce warnings only. They do not block startup.
 | Runtime     | Self-loop guard                    | N/A               | Yes              |
 | Replay      | `_filter_replay_loops`             | N/A               | Yes              |
 
+### Capability Suppression
+
+MEDRE suppresses delivery when the target adapter lacks capability for the event's relation type (reactions, edits, deletes, replies) or event kind (attachments, presence).
+
+#### Pre-outbox Capability Skip
+
+When the `CapabilityDecisionResolver` determines the capability level is `"unsupported"`, the delivery is skipped before rendering and adapter invocation. No receipt is created. The outcome carries `failure_kind="capability_suppressed"`.
+
+#### Post-planning Suppressed Receipt
+
+When suppression occurs after the planning stage (defense-in-depth), a `DeliveryReceipt(status="suppressed")` is persisted with `failure_kind="capability_suppressed"`. The `error` field contains the suppression reason (e.g. `"capability_suppressed: reactions unsupported"`).
+
+#### Diagnosis
+
+```bash
+# Check for capability-suppressed receipts
+sqlite3 {state}/medre.sqlite "
+  SELECT event_id, target_adapter, failure_kind, error, created_at
+  FROM delivery_receipts
+  WHERE failure_kind = 'capability_suppressed'
+  ORDER BY created_at DESC
+  LIMIT 20;
+"
+
+# Check the evidence bundle for capability context
+medre inspect event <event_id> --evidence --storage-path /path/to/medre.db
+```
+
+Look for `suppression_reason`, `capability_field`, and `capability_level` in the `delivery_state_by_target` section of the evidence output. These identify which capability caused the suppression and at what level.
+
+#### Resolution
+
+1. Check the target adapter's transport profile capability declarations.
+2. If the adapter should support the capability, update its profile JSON and adapter code.
+3. If the adapter genuinely cannot support the capability, this suppression is correct behavior. No action needed.
+4. Re-evaluate by replaying the event after capability changes.
+
 ## Route Lifecycle
 
 A route progresses through: Configuration -> Validation -> Registration -> Matching -> Delivery.
@@ -427,22 +465,23 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 Read-only inspection commands accept `--storage-path` for direct SQLite access.
 
-| After this failure...          | Run this to inspect                                                   |
-| ------------------------------ | --------------------------------------------------------------------- |
-| Config error (exit 2)          | `medre config check --config <path>`                                  |
-| Config error (drill)           | `medre smoke --drill bad_route_config --json`                         |
-| Build failure (exit 3)         | `medre diagnostics --config <path>` → `startup.build_failures`        |
-| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary`          |
-| Degraded startup               | `medre diagnostics --refresh-health` → `health.live_health`           |
-| Renderer failure               | `medre inspect receipts --event <id> --storage-path <db>`             |
-| Adapter permanent              | `medre inspect receipts --event <id>` + adapter `diagnostics()`       |
-| Adapter transient              | Full receipt chain via `parent_receipt_id`                            |
-| Capacity exceeded              | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
-| Deadline exceeded              | Delivery plan timestamps vs. actual adapter latency                   |
-| Shutdown rejection             | `outbound_failed` counter; replay orphaned events after restart       |
-| Replay duplicate               | `medre inspect receipts --replay-run <id> --storage-path <db>`        |
-| Live health degraded           | `medre diagnostics --refresh-health` → per-adapter `.error`           |
-| Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`              |
+| After this failure...          | Run this to inspect                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Config error (exit 2)          | `medre config check --config <path>`                                                                        |
+| Config error (drill)           | `medre smoke --drill bad_route_config --json`                                                               |
+| Build failure (exit 3)         | `medre diagnostics --config <path>` → `startup.build_failures`                                              |
+| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary`                                                |
+| Degraded startup               | `medre diagnostics --refresh-health` → `health.live_health`                                                 |
+| Renderer failure               | `medre inspect receipts --event <id> --storage-path <db>`                                                   |
+| Adapter permanent              | `medre inspect receipts --event <id>` + adapter `diagnostics()`                                             |
+| Adapter transient              | Full receipt chain via `parent_receipt_id`                                                                  |
+| Capacity exceeded              | `capacity_rejections` counter in logs; tune `max_inflight_deliveries`                                       |
+| Deadline exceeded              | Delivery plan timestamps vs. actual adapter latency                                                         |
+| Shutdown rejection             | `outbound_failed` counter; replay orphaned events after restart                                             |
+| Replay duplicate               | `medre inspect receipts --replay-run <id> --storage-path <db>`                                              |
+| Live health degraded           | `medre diagnostics --refresh-health` → per-adapter `.error`                                                 |
+| Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`                                                    |
+| Capability suppressed          | `failure_kind="capability_suppressed"` in receipts; `suppression_reason`, `capability_field` in report dict |
 
 ## Explicit Non-Guarantees
 

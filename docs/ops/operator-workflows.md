@@ -278,32 +278,34 @@ Always review the JSON output before sharing. Look for any field containing your
 
 ### Failure Kinds
 
-| Kind                 | Retryable | When                                        |
-| -------------------- | --------- | ------------------------------------------- |
-| `adapter_transient`  | Yes       | Timeout, network error, connection reset    |
-| `adapter_permanent`  | No        | Malformed payload, business-logic rejection |
-| `adapter_missing`    | No        | Target adapter not registered               |
-| `planner_failure`    | No        | Routing/planning misconfiguration           |
-| `renderer_failure`   | No        | No renderer for event kind                  |
-| `deadline_exceeded`  | No        | Delivery plan deadline passed               |
-| `capacity_rejection` | No        | All in-flight slots occupied                |
-| `shutdown_rejection` | No        | Runtime shutdown cancelled delivery         |
-| `loop_suppressed`    | No        | Route-trace or self-loop prevention         |
-| `policy_suppressed`  | No        | Route-policy denial                         |
+| Kind                    | Retryable | When                                                            |
+| ----------------------- | --------- | --------------------------------------------------------------- |
+| `adapter_transient`     | Yes       | Timeout, network error, connection reset                        |
+| `adapter_permanent`     | No        | Malformed payload, business-logic rejection                     |
+| `adapter_missing`       | No        | Target adapter not registered                                   |
+| `planner_failure`       | No        | Routing/planning misconfiguration                               |
+| `renderer_failure`      | No        | No renderer for event kind                                      |
+| `deadline_exceeded`     | No        | Delivery plan deadline passed                                   |
+| `capacity_rejection`    | No        | All in-flight slots occupied                                    |
+| `shutdown_rejection`    | No        | Runtime shutdown cancelled delivery                             |
+| `loop_suppressed`       | No        | Route-trace or self-loop prevention                             |
+| `policy_suppressed`     | No        | Route-policy denial                                             |
+| `capability_suppressed` | No        | Target adapter lacks capability for event kind or relation type |
 
 Only `adapter_transient` is retryable.
 
 ### Common Failure Patterns
 
-| Pattern                                      | Likely cause                         | What to check                                 |
-| -------------------------------------------- | ------------------------------------ | --------------------------------------------- |
-| `failed` with `AdapterPermanentError`        | Bad room, forbidden                  | Target room/channel exists, bot has access    |
-| `failed` with `AdapterSendError` (transient) | Network/homeserver error             | Connectivity, homeserver health               |
-| No receipt at all                            | Never reached delivery stage         | Routing config, adapter health, pipeline logs |
-| `suppressed` with `loop_suppressed`          | Circular routes                      | Route config for self-referencing adapters    |
-| `suppressed` with `policy_suppressed`        | Route-policy denial                  | Route's `[policy]` section in config          |
-| Multiple receipts: `failed` then `sent`      | Transient failure + successful retry | `parent_receipt_id` chain                     |
-| `source='replay'` with `failed`              | Replay re-delivery failed            | Target adapter healthy during replay          |
+| Pattern                                              | Likely cause                                                  | What to check                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `failed` with `AdapterPermanentError`                | Bad room, forbidden                                           | Target room/channel exists, bot has access                       |
+| `failed` with `AdapterSendError` (transient)         | Network/homeserver error                                      | Connectivity, homeserver health                                  |
+| No receipt at all                                    | Never reached delivery stage                                  | Routing config, adapter health, pipeline logs                    |
+| `suppressed` with `loop_suppressed`                  | Circular routes                                               | Route config for self-referencing adapters                       |
+| `suppressed` with `policy_suppressed`                | Route-policy denial                                           | Route's `[policy]` section in config                             |
+| `suppressed` or skipped with `capability_suppressed` | Target adapter lacks capability for the event's relation type | Transport profile capability declarations, `AdapterCapabilities` |
+| Multiple receipts: `failed` then `sent`              | Transient failure + successful retry                          | `parent_receipt_id` chain                                        |
+| `source='replay'` with `failed`                      | Replay re-delivery failed                                     | Target adapter healthy during replay                             |
 
 ## Replay Workflow
 
@@ -377,6 +379,7 @@ Three types:
 
 - **Loop suppressed**: `failure_kind: "loop_suppressed"` — route-trace or self-loop guard fired.
 - **Policy suppressed**: `failure_kind: "policy_suppressed"` — route-policy denied the delivery. Adjust the route's `[policy]` section to resolve.
+- **Capability suppressed**: `failure_kind: "capability_suppressed"` — the target adapter does not support the event's relation type (e.g. reactions, edits, replies). Check the transport profile capability declarations. The `suppression_reason`, `capability_field`, and `capability_level` fields in the receipt report dict identify which capability caused the suppression and at what level.
 - **Duplicate suppressed**: No receipt at all. The event was never stored (native-ref dedup at ingress). Check `RuntimeAccounting.loop_prevented` counters in diagnostics for aggregate counts.
 
 ### "Dead-lettered why?"

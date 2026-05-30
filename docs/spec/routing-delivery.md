@@ -339,6 +339,8 @@ Boolean capability fields (`text`, `attachments`, `presence`,
 Three-level string fields (`reactions`, `edits`, `deletes`, `replies`)
 map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported.
 
+> **Known gap: fallback capability level is dormant in production transport profiles.** As of this writing, no production transport profile declares a three-level string field at `"fallback"`. All current profile declarations use `"native"` or `"unsupported"`. The fallback path (`"fallback_text"` strategy, inline text degradation) is exercised by tests with synthetic capability configurations but has not been validated against a live transport endpoint with a real adapter producing degraded output. The `CapabilityLevel.METADATA_NATIVE` and `CapabilityLevel.METADATA_NATIVE_OR_FALLBACK` enum values exist and map to the `"fallback"` decision level; they are not currently used in any transport profile. This gap does not affect correctness (the code path exists and is tested) but means the fallback rendering path has no R-tier evidence.
+
 #### 6.3.3 Event-Kind Mapping
 
 | Event Kind           | Capability Field  | Field Type |
@@ -356,6 +358,8 @@ map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` 
 Event kinds not in this table produce no event-kind candidate and
 default to native/direct (passthrough).
 
+> **Passthrough semantics for unknown event kinds.** Event kinds not in the mapping table above are treated as natively supported. The resolver produces no event-kind candidate, and the decision defaults to native/direct. This means unknown event kinds are delivered rather than suppressed. If a future event kind requires capability gating, it **MUST** be added to this table with an appropriate capability field.
+
 #### 6.3.4 Relation Mapping
 
 | Relation Type | Capability Field | Note                                                                                                           |
@@ -372,6 +376,8 @@ four relation types follow the same three-level semantics (native /
 fallback / unsupported) and the same precedence rules. The resolver
 evaluates every relation in `event.relations` order; there is no
 relation-type-specific short-circuit or special case.
+
+> **Fail-closed for unknown relation types.** Relation types not in the mapping table above (e.g. `thread`, or any future relation type) produce no relation-level capability candidate. They do not suppress delivery. If a relation type requires capability gating in the future, it **MUST** be added to the table. Thread relations are explicitly deferred (see § 6.3.6).
 
 #### 6.3.5 Multiple-Relation Precedence
 

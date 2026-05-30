@@ -322,6 +322,39 @@ medre run --config config.toml
 
 Always run `dry_run` or `re_route` first. Only use `best_effort` when you have verified the route matching preview and accept the duplicate delivery risk.
 
+### Capability Filtering During Replay
+
+`BEST_EFFORT` replay applies capability filtering before delivery, using the same `CapabilityDecisionResolver` as live delivery. Plans targeting adapters that lack capability for the event's kind or relation types are filtered out.
+
+When `_filter_plans_by_capability` suppresses all plans for an event, the `ReplayResult` includes enriched output:
+
+```json
+{
+  "status": "skipped",
+  "error": "capability_suppressed: message.reacted not supported by target adapter(s)",
+  "output": {
+    "capability_suppressed_plans": [
+      {
+        "delivery_plan_id": "plan-001",
+        "target_adapter": "radio",
+        "capability_level": "unsupported",
+        "capability_field": "reactions",
+        "reason": "reactions unsupported"
+      }
+    ],
+    "delivery_plan_ids": ["plan-001"],
+    "replay_run_id": "replay_xyz789",
+    "source": "replay"
+  }
+}
+```
+
+This output is carried in the in-memory `ReplayResult`. It is not persisted to storage unless a receipt is created through a different code path. If the process crashes before you inspect the replay output, this evidence is lost.
+
+#### Capability Re-evaluation at Replay Time
+
+Replay re-evaluates capabilities against the current adapter registry, not the adapter state at the time the original event was processed. If you add or remove adapters between the original delivery and the replay, capability decisions may differ. This is intentional: replay reflects what would happen with the current configuration.
+
 ## Replay Command Shape
 
 ```bash
