@@ -106,11 +106,11 @@ def _summarize_event(event: Any) -> dict[str, Any]:
         "parent_event_id": full.get("parent_event_id"),
         "depth": full.get("depth", 0),
         "trace_id": full.get("trace_id"),
-        "relation_count": len(full.get("relations", [])),
+        "relation_count": len(full.get("relations") or []),
         "relation_types": sorted(
-            {r.get("relation_type", "") for r in full.get("relations", [])}
+            {r.get("relation_type") or "" for r in (full.get("relations") or [])}
         ),
-        "payload_keys": sorted(full.get("payload", {}).keys()),
+        "payload_keys": sorted((full.get("payload") or {}).keys()),
         "has_source_native_ref": full.get("source_native_ref") is not None,
     }
     return summary
@@ -167,6 +167,20 @@ def _summarize_native_ref(ref: Any) -> dict[str, Any]:
     }
 
 
+def _to_json_safe_timestamp(value: Any) -> Any:
+    """Normalize a timestamp value to a JSON-safe string or ``None``.
+
+    Some storage backends may return :class:`datetime` objects instead of
+    strings for timestamp fields.  This helper ensures deterministic
+    serialisation while preserving ``None`` as-is.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def _summarize_outbox_item(item: Any) -> dict[str, Any]:
     """Build a JSON-safe summary dict from a :class:`DeliveryOutboxItem`."""
     return {
@@ -178,11 +192,8 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "status": item.status,
         "failure_kind": item.failure_kind,
         "error_summary": item.error_summary,
-        # created_at/updated_at are already str | None on DeliveryOutboxItem
-        # (unlike receipt/native ref timestamps which are datetime), so they
-        # are passed through directly without isoformat() conversion.
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _to_json_safe_timestamp(item.created_at),
+        "updated_at": _to_json_safe_timestamp(item.updated_at),
     }
 
 
@@ -255,13 +266,11 @@ class EvidenceCollector:
 
         # -- Outbox items (ordered by created_at, outbox_id) ---------------
         outbox_items: list[Any] = []
-        try:
-            outbox_items = await self._storage.list_outbox_items_for_event(
-                event_id,
-            )
-        except AttributeError:
+        list_outbox = getattr(self._storage, "list_outbox_items_for_event", None)
+        if callable(list_outbox):
+            outbox_items = await list_outbox(event_id)
+        else:
             # Backward-compat: storage backends predating list_outbox_items_for_event.
-            # TODO: Remove in next minor release once all backends are updated.
             warnings.append(
                 "list_outbox_items_for_event not available on storage backend"
             )

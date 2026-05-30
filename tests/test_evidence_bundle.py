@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+import msgspec
 import pytest
 
 from medre.core.events import (
@@ -583,3 +584,365 @@ class TestCollectorCanonicalEvidence:
         assert parsed["target_adapter"] == "matrix_conf"
         assert parsed["capability_level"] == "native"
         assert not any("rendering_evidence" in w for w in bundle.warnings)
+
+
+# ===========================================================================
+# A: Defensive ordering — native refs
+# ===========================================================================
+
+
+class _UnsortedNativeRefStorage(FakeStorage):
+    """FakeStorage that returns native refs in *reverse* order deliberately."""
+
+    async def list_native_refs_for_event(
+        self, event_id: str
+    ) -> list[NativeMessageRef]:
+        # Return refs in reverse order to prove collector re-sorts.
+        return sorted(
+            self._native_refs.get(event_id, []),
+            key=lambda r: (r.created_at, r.id),
+            reverse=True,
+        )
+
+
+class TestNativeRefDefensiveOrdering:
+    """Collector defensively sorts native refs by (created_at, id)."""
+
+    @pytest.mark.asyncio
+    async def test_native_refs_sorted_by_created_at_then_id(self) -> None:
+        t1 = datetime(2026, 1, 10, 8, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 1, 10, 9, 0, 0, tzinfo=timezone.utc)
+        t3 = datetime(2026, 1, 10, 9, 0, 0, tzinfo=timezone.utc)
+
+        refs = [
+            _make_native_ref(event_id="evt-nr-sort", ref_id="nref-z", created_at=t2),
+            _make_native_ref(event_id="evt-nr-sort", ref_id="nref-a", created_at=t3),
+            _make_native_ref(event_id="evt-nr-sort", ref_id="nref-m", created_at=t1),
+        ]
+
+        storage = _UnsortedNativeRefStorage()
+        storage._events["evt-nr-sort"] = make_storage_event(event_id="evt-nr-sort")
+        storage._native_refs["evt-nr-sort"] = refs
+
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-nr-sort")
+
+        ids = [nr["id"] for nr in bundle.native_refs]
+        # Expect: t1("nref-m"), t2("nref-a"), t2("nref-z") — created_at ascending, then id ascending.
+        assert ids == ["nref-m", "nref-a", "nref-z"]
+
+
+# ===========================================================================
+# B: Defensive ordering — outbox items
+# ===========================================================================
+
+
+class _UnsortedOutboxStorage(FakeStorage):
+    """FakeStorage that returns outbox items in *reverse* order deliberately."""
+
+    async def list_outbox_items_for_event(
+        self, event_id: str
+    ) -> list[DeliveryOutboxItem]:
+        return sorted(
+            self._outbox.get(event_id, []),
+            key=lambda i: (i.created_at or "", i.outbox_id),
+            reverse=True,
+        )
+
+
+class TestOutboxItemDefensiveOrdering:
+    """Collector defensively sorts outbox items by (created_at, outbox_id)."""
+
+    @pytest.mark.asyncio
+    async def test_outbox_items_sorted_by_created_at_then_outbox_id(self) -> None:
+        items = [
+            _make_outbox_item(
+                event_id="evt-ob-sort",
+                outbox_id="ob-z",
+                created_at="2026-01-10T09:00:00+00:00",
+            ),
+            _make_outbox_item(
+                event_id="evt-ob-sort",
+                outbox_id="ob-a",
+                created_at="2026-01-10T10:00:00+00:00",
+            ),
+            _make_outbox_item(
+                event_id="evt-ob-sort",
+                outbox_id="ob-m",
+                created_at="2026-01-10T08:00:00+00:00",
+            ),
+        ]
+
+        storage = _UnsortedOutboxStorage()
+        storage._events["evt-ob-sort"] = make_storage_event(event_id="evt-ob-sort")
+        storage._outbox["evt-ob-sort"] = items
+
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-ob-sort")
+
+        outbox_ids = [oi["outbox_id"] for oi in bundle.outbox_items]
+        assert outbox_ids == ["ob-m", "ob-z", "ob-a"]
+
+    @pytest.mark.asyncio
+    async def test_outbox_items_with_none_created_at(self) -> None:
+        """Items with None created_at sort first (empty-string fallback)."""
+        late = _make_outbox_item(
+            event_id="evt-ob-null",
+            outbox_id="ob-late",
+            created_at="2026-01-10T12:00:00+00:00",
+        )
+        none_item = DeliveryOutboxItem(
+            outbox_id="ob-none-a",
+            event_id="evt-ob-null",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="adapter_a",
+            status="sent",
+            created_at=None,
+            updated_at="2026-01-10T12:00:01+00:00",
+        )
+
+        storage = _UnsortedOutboxStorage()
+        storage._events["evt-ob-null"] = make_storage_event(event_id="evt-ob-null")
+        storage._outbox["evt-ob-null"] = [late, none_item]
+
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-ob-null")
+
+        outbox_ids = [oi["outbox_id"] for oi in bundle.outbox_items]
+        assert outbox_ids == ["ob-none-a", "ob-late"]
+
+
+# ===========================================================================
+# C: EvidenceCollector export test
+# ===========================================================================
+
+
+class TestEvidencePackageExport:
+    """Public API surface of medre.core.evidence is importable and complete."""
+
+    def test_imports_succeed(self) -> None:
+        from medre.core.evidence import EvidenceBundle, EvidenceCollector, ReceiptSummary
+
+        assert EvidenceBundle is not None
+        assert EvidenceCollector is not None
+        assert ReceiptSummary is not None
+
+    def test_evidence_collector_in_all(self) -> None:
+        import medre.core.evidence
+
+        assert "EvidenceCollector" in medre.core.evidence.__all__
+
+
+# ===========================================================================
+# D: Null payload/relation guard
+# ===========================================================================
+
+
+class TestNullPayloadRelationGuard:
+    """_summarize_event handles explicit None values for payload/relations."""
+
+    @pytest.mark.asyncio
+    async def test_payload_none(self) -> None:
+        """Event with payload=None should not crash _summarize_event."""
+        event = make_storage_event(event_id="evt-pnull")
+        # Manipulate the encoded form to inject None values.
+        from medre.core.evidence.collector import _summarize_event
+
+        raw = msgspec.json.encode(event)
+        full = msgspec.json.decode(raw)
+        full["payload"] = None
+        full["relations"] = None
+        # Re-encode so _summarize_event processes it.
+        patched_event = msgspec.json.decode(msgspec.json.encode(full))
+        summary = _summarize_event(patched_event)
+
+        assert summary["relation_count"] == 0
+        assert summary["relation_types"] == []
+        assert summary["payload_keys"] == []
+
+    @pytest.mark.asyncio
+    async def test_relation_type_none(self) -> None:
+        """Relation with relation_type=None should produce empty string."""
+        from medre.core.evidence.collector import _summarize_event
+
+        event = make_storage_event(event_id="evt-rtnull")
+        raw = msgspec.json.encode(event)
+        full = msgspec.json.decode(raw)
+        full["relations"] = [{"relation_type": None}]
+        full["payload"] = {"key1": "val1"}
+        patched_event = msgspec.json.decode(msgspec.json.encode(full))
+        summary = _summarize_event(patched_event)
+
+        assert summary["relation_types"] == [""]
+        assert summary["payload_keys"] == ["key1"]
+
+
+# ===========================================================================
+# E: Datetime outbox timestamps
+# ===========================================================================
+
+
+class TestOutboxDatetimeTimestamps:
+    """Outbox items with datetime objects in created_at/updated_at serialize safely."""
+
+    @pytest.mark.asyncio
+    async def test_datetime_outbox_timestamps_json_safe(self) -> None:
+        dt_created = datetime(2026, 2, 20, 14, 30, 0, tzinfo=timezone.utc)
+        dt_updated = datetime(2026, 2, 20, 14, 30, 5, tzinfo=timezone.utc)
+
+        item = DeliveryOutboxItem(
+            outbox_id="ob-dt",
+            event_id="evt-dt",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="adapter_a",
+            status="sent",
+            created_at=dt_created,
+            updated_at=dt_updated,
+        )
+
+        storage = _populated_fake(event_id="evt-dt", outbox_items=[item])
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-dt")
+
+        # to_json() must succeed without TypeError on datetime.
+        json_str = bundle.to_json()
+        parsed = json.loads(json_str)
+
+        ob = parsed["outbox_items"][0]
+        assert ob["created_at"] == "2026-02-20T14:30:00+00:00"
+        assert ob["updated_at"] == "2026-02-20T14:30:05+00:00"
+
+    @pytest.mark.asyncio
+    async def test_none_outbox_timestamps(self) -> None:
+        """None timestamps stay None in output."""
+        item = DeliveryOutboxItem(
+            outbox_id="ob-null-ts",
+            event_id="evt-null-ts",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="adapter_a",
+            status="pending",
+            created_at=None,
+            updated_at=None,
+        )
+
+        storage = _populated_fake(event_id="evt-null-ts", outbox_items=[item])
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-null-ts")
+
+        json_str = bundle.to_json()
+        parsed = json.loads(json_str)
+        ob = parsed["outbox_items"][0]
+        assert ob["created_at"] is None
+        assert ob["updated_at"] is None
+
+
+# ===========================================================================
+# G: Missing-backend-method warning
+# ===========================================================================
+
+
+class _NoOutboxStorage:
+    """Minimal storage that has get, list_receipts_for_event, list_native_refs_for_event
+    but does NOT have list_outbox_items_for_event."""
+
+    def __init__(self) -> None:
+        self._events: dict[str, CanonicalEvent] = {}
+        self._receipts: dict[str, list[DeliveryReceipt]] = {}
+        self._native_refs: dict[str, list[NativeMessageRef]] = {}
+
+    async def get(self, event_id: str) -> CanonicalEvent | None:
+        return self._events.get(event_id)
+
+    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
+        return self._receipts.get(event_id, [])
+
+    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+        return self._native_refs.get(event_id, [])
+
+
+class TestMissingOutboxMethodWarning:
+    """Storage missing list_outbox_items_for_event produces warning and empty outbox."""
+
+    @pytest.mark.asyncio
+    async def test_missing_method_warning(self) -> None:
+        storage = _NoOutboxStorage()
+        storage._events["evt-no-ob"] = make_storage_event(event_id="evt-no-ob")
+
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-no-ob")
+
+        assert bundle.outbox_items == ()
+        assert any(
+            "list_outbox_items_for_event not available on storage backend"
+            in w
+            for w in bundle.warnings
+        )
+
+
+# ===========================================================================
+# H: msgspec.structs.asdict for ReceiptSummary
+# ===========================================================================
+
+
+class TestReceiptSummaryAsdict:
+    """_receipt_summary_to_dict produces correct output via msgspec.structs.asdict."""
+
+    def test_to_dict_shape_matches(self) -> None:
+        rs = ReceiptSummary(
+            receipt_id="rcpt-asdict",
+            sequence=7,
+            target_adapter="adapter_x",
+            target_channel="chan-1",
+            route_id="route-99",
+            status="sent",
+            attempt_number=3,
+            source="replay",
+            replay_run_id="run-abc",
+            failure_kind=None,
+            error=None,
+            rendering_evidence={"key": "val"},
+            created_at="2026-01-15T12:00:00+00:00",
+        )
+
+        bundle = EvidenceBundle(
+            event_id="evt-asdict",
+            delivery_receipts=(rs,),
+            generated_at="2026-01-15T12:00:00+00:00",
+        )
+        d = bundle.to_dict()
+
+        rcpt_dict = d["delivery_receipts"][0]
+        assert rcpt_dict["receipt_id"] == "rcpt-asdict"
+        assert rcpt_dict["sequence"] == 7
+        assert rcpt_dict["target_adapter"] == "adapter_x"
+        assert rcpt_dict["target_channel"] == "chan-1"
+        assert rcpt_dict["route_id"] == "route-99"
+        assert rcpt_dict["status"] == "sent"
+        assert rcpt_dict["attempt_number"] == 3
+        assert rcpt_dict["source"] == "replay"
+        assert rcpt_dict["replay_run_id"] == "run-abc"
+        assert rcpt_dict["failure_kind"] is None
+        assert rcpt_dict["error"] is None
+        assert rcpt_dict["rendering_evidence"] == {"key": "val"}
+        assert rcpt_dict["created_at"] == "2026-01-15T12:00:00+00:00"
+
+        # Round-trip through JSON.
+        json_str = json.dumps(d, sort_keys=True)
+        assert json.loads(json_str) == d
+
+    def test_defaults_round_trip(self) -> None:
+        """ReceiptSummary with all defaults serializes cleanly."""
+        rs = ReceiptSummary()
+        bundle = EvidenceBundle(
+            event_id="evt-defaults",
+            delivery_receipts=(rs,),
+            generated_at="2026-01-15T12:00:00+00:00",
+        )
+        d = bundle.to_dict()
+        json_str = json.dumps(d, sort_keys=True)
+        parsed = json.loads(json_str)
+        assert parsed["delivery_receipts"][0]["receipt_id"] == ""
+        assert parsed["delivery_receipts"][0]["sequence"] == 0
