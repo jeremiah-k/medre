@@ -599,6 +599,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-0",
+            delivery_plan_id="plan-ch0",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
 
@@ -608,6 +609,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="1",
             native_message_id="packet-1",
+            delivery_plan_id="plan-ch1",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
 
@@ -742,6 +744,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id=None,
             native_message_id="packet-single",
+            delivery_plan_id="plan-only",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
@@ -812,6 +815,7 @@ class TestSupplementalReceiptChannelCorrelation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="packet-retry",
+            delivery_plan_id="plan-retry",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

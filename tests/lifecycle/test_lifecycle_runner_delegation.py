@@ -87,6 +87,7 @@ class TestDelegationIntegration:
             adapter="mesh",
             native_channel_id="0",
             native_message_id="pkt-42",
+            delivery_plan_id="plan-001",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
