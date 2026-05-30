@@ -34,6 +34,11 @@ from tests.helpers.storage import make_storage_event
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# NOTE: _make_receipt / _fixed_now are intentionally duplicated from
+# tests/test_evidence_bundle.py (with different defaults) so each test file
+# remains independently runnable without cross-directory imports coupling
+# their setups together.
+# ---------------------------------------------------------------------------
 
 _FIXED_NOW = datetime(2026, 3, 15, 10, 30, 0, tzinfo=timezone.utc)
 

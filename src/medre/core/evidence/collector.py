@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import msgspec
 
@@ -26,10 +26,10 @@ from medre.core.evidence.bundle import (
 
 
 class _EvidenceStorage(Protocol):
-    """The subset of :class:`StorageBackend` the collector needs.
+    """Minimal storage interface the collector requires.
 
-    Kept as a duck-typing protocol so that tests can supply fakes
-    without implementing the full backend.
+    Tests can supply any object satisfying these methods without
+    implementing the full backend.
     """
 
     async def get(self, event_id: str) -> Any: ...
@@ -178,6 +178,9 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "status": item.status,
         "failure_kind": item.failure_kind,
         "error_summary": item.error_summary,
+        # created_at/updated_at are already str | None on DeliveryOutboxItem
+        # (unlike receipt/native ref timestamps which are datetime), so they
+        # are passed through directly without isoformat() conversion.
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }
@@ -203,9 +206,9 @@ class EvidenceCollector:
 
     def __init__(
         self,
-        storage: Any,
+        storage: _EvidenceStorage,
         *,
-        now_fn: Any | None = None,
+        now_fn: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
         self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
@@ -263,14 +266,14 @@ class EvidenceCollector:
                 "list_outbox_items_for_event not available on storage backend"
             )
         # Defensive: ensure order by created_at, outbox_id even if storage sorts.
-        outbox_items = sorted(outbox_items, key=lambda i: (i.created_at, i.outbox_id))
+        outbox_items = sorted(outbox_items, key=lambda i: (i.created_at or "", i.outbox_id))
         outbox_summaries = tuple(_summarize_outbox_item(i) for i in outbox_items)
 
         # -- Replay run IDs (sorted) ---------------------------------------
         replay_run_ids = sorted({r.replay_run_id for r in receipts if r.replay_run_id})
 
         # -- Sources seen (sorted) -----------------------------------------
-        sources_seen = sorted({r.source for r in receipts}) if receipts else []
+        sources_seen = sorted({r.source for r in receipts})
 
         # -- Empty data check ----------------------------------------------
         if event is None and not receipts and not native_refs and not outbox_items:

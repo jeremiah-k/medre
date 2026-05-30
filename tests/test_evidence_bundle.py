@@ -41,6 +41,11 @@ from tests.helpers.storage import make_storage_event
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# NOTE: _make_receipt / _fixed_now are intentionally duplicated in
+# tests/conformance/test_evidence_bundle_conformance.py (with different
+# defaults) so each test file remains independently runnable without
+# cross-directory imports coupling their setups together.
+# ---------------------------------------------------------------------------
 
 _FIXED_NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -521,6 +526,7 @@ class TestSQLiteRoundTrip:
         # Outbox item present.
         assert len(bundle.outbox_items) == 1
         assert bundle.outbox_items[0]["outbox_id"] == "ob-sqlite"
+        assert bundle.outbox_items[0]["status"] == "sent"
 
         # JSON-safe.
         d = bundle.to_dict()
