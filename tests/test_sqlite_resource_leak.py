@@ -240,7 +240,8 @@ class TestSyncOpenReadonlyRowFactoryFailure:
         mock_conn = _FailingRowFactoryConnection()
 
         with patch(
-            "medre.core.storage.sqlite.connection.sqlite3.connect", return_value=mock_conn
+            "medre.core.storage.sqlite.connection.sqlite3.connect",
+            return_value=mock_conn,
         ), pytest.raises(
             RuntimeError, match="simulated row_factory assignment failure"
         ):

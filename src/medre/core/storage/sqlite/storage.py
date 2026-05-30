@@ -12,6 +12,7 @@ import logging
 import os
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator
 
@@ -120,8 +121,14 @@ class SQLiteStorage:
         self._lock = threading.Lock()
         self._async_write_lock = asyncio.Lock()
         self._use_aiosqlite = _HAS_AIOSQLITE
+        self._executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1)
 
     # -- Internal helpers ---------------------------------------------------
+
+    async def _run_in_thread(self, func, *args):
+        """Run a synchronous function in the private executor."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, func, *args)
 
     def _require_db(self) -> Any:
         """Return the active connection or raise if not initialised."""
@@ -155,7 +162,7 @@ class SQLiteStorage:
                 raise
             self._db = db
         else:
-            self._db = await asyncio.to_thread(sync_open, self._db_path)
+            self._db = await self._run_in_thread(sync_open, self._db_path)
 
         try:
             # Verify schema version after DDL.
@@ -256,7 +263,7 @@ class SQLiteStorage:
             await self._db.executescript(_INDEXES)  # type: ignore[union-attr]
             await self._db.commit()  # type: ignore[union-attr]
         else:
-            await asyncio.to_thread(sync_create_indexes, self._require_db())
+            await self._run_in_thread(sync_create_indexes, self._require_db())
 
     @classmethod
     async def open_readonly(cls, db_path: str) -> SQLiteStorage:
@@ -294,7 +301,7 @@ class SQLiteStorage:
                 raise
             instance._db = db
         else:
-            instance._db = await asyncio.to_thread(
+            instance._db = await instance._run_in_thread(
                 sync_open_readonly, instance._db_path
             )
 
@@ -367,22 +374,16 @@ class SQLiteStorage:
         if self._use_aiosqlite:
             await db.close()
         else:
-            # Close synchronously under the lock instead of via
-            # asyncio.to_thread.  On Python 3.14 ThreadPoolExecutor retains
-            # the sqlite3.Connection reference through internal work items,
-            # which causes a false ResourceWarning even after db.close()
-            # completes.  Use non-blocking lock acquisition with
-            # asyncio.sleep(0) to avoid blocking the event loop.  This is
-            # safe because self._db has already been snapshot into *db* —
-            # new operations will see None and raise before reaching the
-            # connection.
-            while not self._lock.acquire(blocking=False):
-                await asyncio.sleep(0)
-            try:
+            with self._lock:
                 db.close()
-            finally:
-                self._lock.release()
         self._db = None
+        # Shut down the private executor so Python 3.14's ThreadPoolExecutor
+        # releases its internal references to the connection object.
+        # All work was awaited before close(), so the executor is idle.
+        executor = self._executor
+        if executor is not None:
+            executor.shutdown(wait=False)
+            self._executor = None
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events.
@@ -469,7 +470,7 @@ class SQLiteStorage:
                     await db.execute(sql, params)
                     await db.commit()
             else:
-                await asyncio.to_thread(sync_write, db, self._lock, sql, params)
+                await self._run_in_thread(sync_write, db, self._lock, sql, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
@@ -483,7 +484,7 @@ class SQLiteStorage:
                         await db.execute(sql, params)
                     await db.commit()
             else:
-                await asyncio.to_thread(sync_write_batch, db, self._lock, ops)
+                await self._run_in_thread(sync_write_batch, db, self._lock, ops)
         except sqlite3.IntegrityError as exc:
             msg = str(exc)
             # Only raise DuplicateEventError for canonical_events PK/UNIQUE
@@ -508,7 +509,7 @@ class SQLiteStorage:
                     row = await cur.fetchone()
                 return dict(row) if row else None
             else:
-                return await asyncio.to_thread(
+                return await self._run_in_thread(
                     sync_read_one, db, self._lock, sql, params
                 )
         except sqlite3.Error as exc:
@@ -525,7 +526,7 @@ class SQLiteStorage:
                     rows = await cur.fetchall()
                 return [dict(r) for r in rows]
             else:
-                return await asyncio.to_thread(
+                return await self._run_in_thread(
                     sync_read_all, db, self._lock, sql, params
                 )
         except sqlite3.Error as exc:
@@ -1013,7 +1014,7 @@ class SQLiteStorage:
                     raise
         else:
             try:
-                existing_id = await asyncio.to_thread(
+                existing_id = await self._run_in_thread(
                     self._sync_atomic_create_outbox,
                     self._require_db(),
                     select_sql,
