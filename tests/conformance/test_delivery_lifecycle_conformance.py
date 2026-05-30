@@ -73,6 +73,10 @@ class _MemoryStorage(StorageBackend):
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs.append(ref)
 
+    async def count_native_refs(self) -> int:
+        """Return the number of stored native refs."""
+        return len(self._native_refs)
+
     # -- Required by abstract protocol but unused in these tests --
 
     async def append(self, event) -> None:
@@ -168,7 +172,7 @@ class TestDeliveryLifecycleConformance:
         """Queued -> sent supplemental receipt correlates by delivery_plan_id."""
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
-        now = datetime.now(tz=timezone.utc)
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
         # First: queued receipt
         queued = DeliveryReceipt(
@@ -211,7 +215,7 @@ class TestDeliveryLifecycleConformance:
         """Supplemental sent receipt carries rendering_evidence from queued."""
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
-        now = datetime.now(tz=timezone.utc)
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
         evidence_json = '{"schema_version":"1","renderer":"meshtastic"}'
 
         queued = DeliveryReceipt(
@@ -275,7 +279,16 @@ class TestDeliveryLifecycleConformance:
 
 class _FakeQueuedAdapter:
     """Minimal adapter that returns delivery_status='enqueued' for queued
-    delivery conformance tests."""
+    delivery conformance tests.
+
+    Informal duck-type contract (mirrors TargetDeliveryService expectations):
+      - ``adapter_id``: str identifier used for adapter lookup.
+      - ``platform``: str platform name.
+      - ``_capabilities``: AdapterCapabilities instance.
+      - ``deliver(result) -> AdapterDeliveryResult``: async, accepts a
+        RenderingResult and returns an AdapterDeliveryResult with
+        delivery_status='enqueued'.
+    """
 
     adapter_id: str = "queued_adapter"
     platform: str = "fake_queued"
@@ -307,7 +320,7 @@ def _make_event(
         event_id=event_id,
         event_kind=event_kind,
         schema_version=1,
-        timestamp=datetime.now(tz=timezone.utc),
+        timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
         source_adapter="src_adapter",
         source_transport_id="node-1",
         source_channel_id=None,
@@ -427,7 +440,7 @@ class TestServicePathDeliveryConformance:
         assert stored[0].delivery_plan_id == plan_id
 
         # Native ref stored (sent delivery).
-        assert len(storage._native_refs) == 1
+        assert await storage.count_native_refs() == 1
 
     @pytest.mark.asyncio
     async def test_queued_delivery_via_service(self, storage):
@@ -484,4 +497,4 @@ class TestServicePathDeliveryConformance:
         assert stored[0].delivery_plan_id == plan_id
 
         # No native ref for queued (no native_message_id).
-        assert len(storage._native_refs) == 0
+        assert await storage.count_native_refs() == 0

@@ -144,6 +144,10 @@ class TestReplayBestEffortConformance:
         parity with live delivery is tested in
         ``test_capability_runtime_conformance`` using the real
         ``CapabilityDecisionResolver``.
+
+        Distinct from ``test_best_effort_stub_pipeline_deliver_stage_handled``:
+        this test uses a reaction event_kind to verify stage presence is
+        correct even when the event type differs from plain text.
         """
         event = CanonicalEvent(
             event_id="be-cap-001",
@@ -191,6 +195,10 @@ class TestReplayBestEffortConformance:
         The real contract (source='replay' + replay_run_id on delivery
         receipts) is asserted in the integration-level replay tests that
         use PipelineRunner with actual adapters.
+
+        Distinct from ``test_best_effort_stub_pipeline_no_adapter_registry``:
+        this test asserts the *error message content* ("No delivery plans")
+        rather than just stage status, and uses a plain text event.
         """
         event = _make_event("be-src-001")
         await temp_storage.append(event)
@@ -439,9 +447,15 @@ class TestReplayBestEffortCapabilityFiltering:
                 correlation_ids=["replay-cap-fallback-001"],
             )
 
-            [r async for r in engine.replay(request)]
+            results = [r async for r in engine.replay(request)]
 
             # The event should NOT be filtered: adapter was called.
             assert len(adapter.delivered_payloads) == 1
+
+            # Stage-level: no deliver stage should be skipped.
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert all(
+                dr.status != "skipped" for dr in deliver_results
+            ), f"Expected no skipped deliver stages, got: {deliver_results}"
         finally:
             await runner.stop()
