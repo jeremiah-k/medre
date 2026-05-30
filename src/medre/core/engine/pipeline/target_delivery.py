@@ -823,8 +823,9 @@ class TargetDeliveryService:
         Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
         with the configured adapter registry.  When the adapter is missing
         from the registry (yields ``None``), falls back to a default
-        :class:`AdapterCapabilities` for backward compatibility - the
-        pipeline has its own adapter-missing check at Phase 2.5.
+        :class:`AdapterCapabilities` as a conservative internal default
+        used only after adapter-missing checks - the pipeline has its own
+        adapter-missing check at Phase 2.5.
         """
         caps = resolve_adapter_capabilities(self._adapters, target)
         if caps is None:

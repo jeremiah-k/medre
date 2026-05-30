@@ -57,7 +57,7 @@ _DEFAULT_TARGET = RouteTarget(adapter="test_target", channel="ch-out")
 
 
 class TestFallbackResolverEventKindSupport:
-    """Parameterized tests for ``_resolve_strategy`` across all event kinds."""
+    """Parameterized tests for ``resolve_fallback`` across all event kinds."""
 
     @pytest.mark.parametrize(
         "event_kind,cap_field,cap_value,expected_method",
@@ -107,7 +107,9 @@ class TestFallbackResolverEventKindSupport:
         caps = AdapterCapabilities(**{cap_field: cap_value})
         resolver = FallbackResolver()
         event = make_event(event_kind=event_kind)
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == expected_method, (
             f"event_kind={event_kind!r} caps.{cap_field}={cap_value!r} "
             f"→ expected method={expected_method!r}, got {strategy.method!r}"
@@ -130,7 +132,9 @@ class TestFallbackResolverReplyRelation:
             event_kind="message.text",
             relations=(_REPLY_RELATION,),
         )
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == "direct"
 
     def test_text_with_reply_unsupported_replies_skip(self) -> None:
@@ -141,7 +145,9 @@ class TestFallbackResolverReplyRelation:
             event_kind="message.text",
             relations=(_REPLY_RELATION,),
         )
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == "skip"
 
     def test_text_without_reply_unsupported_replies_direct(self) -> None:
@@ -149,7 +155,9 @@ class TestFallbackResolverReplyRelation:
         caps = AdapterCapabilities(replies="unsupported")
         resolver = FallbackResolver()
         event = make_event(event_kind="message.text")
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == "direct"
 
     def test_text_with_non_reply_relation_unsupported_replies_direct(self) -> None:
@@ -167,7 +175,9 @@ class TestFallbackResolverReplyRelation:
             event_kind="message.text",
             relations=(reaction_rel,),
         )
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == "direct"
 
 
@@ -301,7 +311,9 @@ class TestFallbackResolverCapabilitySuppressionReceipt:
         resolver = FallbackResolver()
         caps = AdapterCapabilities(**caps_kwargs)
         event = make_event(event_kind=event_kind)
-        strategy = resolver._resolve_strategy(event, caps)
+        strategy = resolver.resolve_fallback(
+            event, _DEFAULT_TARGET, caps
+        ).primary_strategy
         assert strategy.method == "skip"
 
     def test_capability_suppressed_receipt_scenario_text(self) -> None:

@@ -36,6 +36,9 @@ from medre.core.planning.capability_decision import (
 )
 from medre.core.planning.capability_decision import resolver as _module_resolver
 from medre.core.planning.fallback_resolution import FallbackResolver
+from medre.core.routing.models import RouteTarget
+
+_DEFAULT_TARGET = RouteTarget(adapter="test_target", channel="ch-out")
 
 from .conftest import make_reaction_event, make_reply_event, make_text_event
 
@@ -566,7 +569,7 @@ class TestThreadRelationFallbackResolverConformance:
             payload={"text": "in thread"},
             metadata=EventMetadata(),
         )
-        strategy = fb._resolve_strategy(event, caps)
+        strategy = fb.resolve_fallback(event, _DEFAULT_TARGET, caps).primary_strategy
         assert strategy.method == "direct"
 
     def test_thread_with_unsupported_reply_reply_wins(self) -> None:
@@ -609,7 +612,7 @@ class TestThreadRelationFallbackResolverConformance:
             payload={"text": "thread reply"},
             metadata=EventMetadata(),
         )
-        strategy = fb._resolve_strategy(event, caps)
+        strategy = fb.resolve_fallback(event, _DEFAULT_TARGET, caps).primary_strategy
         assert strategy.method == "skip"
 
     def test_thread_unmapped_event_kind_resolver_passthrough(self) -> None:

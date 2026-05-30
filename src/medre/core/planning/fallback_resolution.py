@@ -85,25 +85,3 @@ class FallbackResolver:
             capability_field=decision.capability_field,
             capability_reason=decision.reason,
         )
-
-    # -- Internal ---------------------------------------------------------
-
-    def _resolve_strategy(
-        self,
-        event: CanonicalEvent,
-        caps: AdapterCapabilities,
-    ) -> DeliveryStrategy:
-        """Determine the effective delivery strategy for *event*.
-
-        Delegates to :class:`CapabilityDecisionResolver` for the actual
-        capability resolution, then maps the decision's delivery strategy
-        to a :class:`DeliveryStrategy` instance.
-
-        For capability fields that use the three-level string scheme
-        (``"native"``, ``"fallback"``, ``"unsupported"``), both
-        ``"native"`` and ``"fallback"`` are treated as supported.
-        ``"unsupported"`` triggers event-specific behavior (``"skip"``
-        for both lifecycle events and hard-incompatible capabilities).
-        """
-        decision = _resolver.decide(event, caps)
-        return DeliveryStrategy(method=decision.delivery_strategy)
