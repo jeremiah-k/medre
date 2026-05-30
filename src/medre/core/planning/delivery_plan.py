@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -176,11 +177,23 @@ def _canonical_json_value(value: object) -> object:
     type raises :class:`TypeError` so that unsupported values are never
     silently coerced.
     """
-    if value is None or isinstance(value, (bool, int, float, str)):
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            raise TypeError(
+                f"Unsupported float value in target identity: {value}"
+            )
         return value
     if isinstance(value, (list, tuple)):
         return [_canonical_json_value(item) for item in value]
     if isinstance(value, dict):
+        for k in value:
+            if not isinstance(k, str):
+                raise TypeError(
+                    f"Dict keys in target identity must be strings, "
+                    f"got {type(k).__name__}"
+                )
         return {k: _canonical_json_value(v) for k, v in sorted(value.items())}
     raise TypeError(f"Unsupported type in target identity: {type(value).__name__}")
 

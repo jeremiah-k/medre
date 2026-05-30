@@ -531,7 +531,7 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. The grouping key includes `source` and `replay_run_id` so that live and replay entries for the same target remain distinct. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. The grouping key includes `source` and `replay_run_id` so that live and replay entries for the same target remain distinct. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
 
 | Field                | Present? | Source                          |
 | -------------------- | -------- | ------------------------------- |
@@ -704,7 +704,7 @@ A single evidence bundle for a fully-processed event contains data from all five
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the receipt with the highest `attempt_number` per group. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. Including `source` and `replay_run_id` in the key keeps live and replay entries distinct. Each target entry includes:
 
 | Field                 | Source                                |
 | --------------------- | ------------------------------------- |

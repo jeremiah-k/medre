@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 import uuid
 from decimal import Decimal
 
@@ -162,6 +163,9 @@ def test_sorted_dict_keys_produce_canonical_output() -> None:
         {1, 2, 3},
         complex(1, 2),
         Decimal("1.5"),
+        float("nan"),
+        float("inf"),
+        float("-inf"),
     ],
 )
 def test_unsupported_type_raises_typeerror(bad_value: object) -> None:
@@ -172,7 +176,7 @@ def test_unsupported_type_raises_typeerror(bad_value: object) -> None:
         metadata={"bad": bad_value},
     )
     target = RouteTarget(adapter="matrix", channel=None, destination=dest)
-    with pytest.raises(TypeError, match="Unsupported type in target identity"):
+    with pytest.raises(TypeError, match=r"Unsupported.*target identity"):
         delivery_target_identity(target)
 
 
