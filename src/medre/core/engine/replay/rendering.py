@@ -49,7 +49,7 @@ class _ReplayRenderingMixin:
                 rendered = await self._pipeline.render_event(transformed)
             else:
                 _logger.debug(
-                    "Pipeline has no render_event; skipping render " "for event_id=%s",
+                    "Pipeline has no render_event; skipping render for event_id=%s",
                     event.event_id,
                 )
                 rendered = transformed

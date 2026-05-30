@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from medre.core.engine.replay.delivery import _ReplayDeliveryMixin
 from medre.core.engine.replay.helpers import (

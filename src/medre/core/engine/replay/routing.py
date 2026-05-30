@@ -121,13 +121,22 @@ def _filter_replay_loops(
         routing_meta = previous_routing
     if routing_meta is not None and routing_meta.matched_routes:
         prev_matched = set(routing_meta.matched_routes)
-    # Also check route_trace for historical traversal.  A route ID that
-    # appears only once in the trace was added by the current routing pass
-    # --- do NOT filter it.  Only filter when the same route ID appears
-    # multiple times (indicating a prior routing pass).
+    # Also check route_trace for historical traversal.  The count > 1
+    # check is intentional: when ``previous_routing`` is the default
+    # sentinel (``_UNSET``), this function falls back to the event's
+    # *post-enrichment* routing metadata, which includes routes added
+    # by the current routing pass.  A route appearing exactly once may
+    # be from the current pass, so filtering it would be a false
+    # positive.  Only routes appearing more than once (indicating
+    # accumulation across prior passes) are treated as "previously
+    # matched".
+    #
+    # When ``previous_routing`` is explicitly provided (the normal path
+    # from ``_stage_route``), the matched_routes check above already
+    # catches all prior-pass routes.  The route_trace check here is a
+    # supplementary safety net for the sentinel-fallback path.
     if routing_meta is not None and routing_meta.route_trace:
         trace = routing_meta.route_trace
-        # Build a multiset: only routes appearing >1 time are "previously matched".
         trace_counts = Counter(trace)
         prev_matched |= {rid for rid, cnt in trace_counts.items() if cnt > 1}
 
@@ -296,7 +305,7 @@ class _ReplayRoutingMixin:
                         duration_ms=_elapsed_ms(t0),
                         route_attribution=attribution,
                     ),
-                    routes if routes else [],
+                    [],
                     event,
                 )
 

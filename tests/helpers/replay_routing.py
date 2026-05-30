@@ -48,12 +48,16 @@ def make_replay_event(
 def make_event_with_routing(
     source_adapter: str = "adapter_a",
     matched_routes: tuple[str, ...] = ("route-1",),
+    route_trace: tuple[str, ...] = (),
 ) -> CanonicalEvent:
     """Create an event with routing metadata indicating prior routing."""
     return make_replay_event(
         source_adapter=source_adapter,
         metadata=EventMetadata(
-            routing=RoutingMetadata(matched_routes=matched_routes),
+            routing=RoutingMetadata(
+                matched_routes=matched_routes,
+                route_trace=route_trace,
+            ),
         ),
     )
 

@@ -418,3 +418,123 @@ class TestReplayLoopPrevention:
         assert len(warnings) == 1
         assert len(filtered) == 0
         assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_route_trace_repeated(self) -> None:
+        """Route appearing >1 time in route_trace is treated as previously matched."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1", "r2", "r1"),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_route_trace_single_not_filtered(self) -> None:
+        """Route appearing exactly once in route_trace is NOT filtered (current pass)."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_route_trace_multi_hop(self) -> None:
+        """Multi-hop trace: only routes appearing >1 time are filtered."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("a_to_b", "b_to_c", "a_to_b"),
+        )
+        routes = [
+            (
+                Route(
+                    id="a_to_b",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+            (
+                Route(
+                    id="b_to_c",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="c")],
+                ),
+                [RouteTarget(adapter="c")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes)
+        # a_to_b appears twice in trace -> filtered
+        # b_to_c appears once -> not filtered
+        assert len(warnings) == 1
+        assert "a_to_b" in warnings[0]
+        assert len(filtered) == 1
+        assert filtered[0][0].id == "b_to_c"
+
+    def test_filter_replay_loops_unit_previous_routing_override(self) -> None:
+        """Explicit previous_routing overrides event's routing metadata."""
+        from medre.core.events import RoutingMetadata
+
+        # Event has route_trace with r1 appearing once (current pass)
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        # But previous_routing says r1 was previously matched
+        prior = RoutingMetadata(matched_routes=("r1",))
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=prior)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]
+
+    def test_filter_replay_loops_unit_previous_routing_none(self) -> None:
+        """previous_routing=None (fresh event) skips matched_routes check."""
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        event = make_replay_event(source_adapter="a")
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=None)
+        assert warnings == []
+        assert len(filtered) == 1
