@@ -212,7 +212,7 @@ def stable_delivery_plan_id(
     """
     target_key = delivery_target_identity(target)
     target_hash = hashlib.sha256(target_key.encode("utf-8")).hexdigest()[:16]
-    route_part = route_id if route_id is not None else "unrouted"
+    route_part = route_id if route_id else "unrouted"
     index_part = str(target_index) if target_index is not None else "target"
     return f"plan:{event_id}:{route_part}:{index_part}:{target_hash}"
 
