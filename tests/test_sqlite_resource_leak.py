@@ -145,7 +145,7 @@ class TestSyncFallbackFailureClose:
             warnings.simplefilter("always", ResourceWarning)
 
             with patch(
-                "medre.core.storage.sqlite.storage._SCHEMA", "INVALID SQL !!@@##"
+                "medre.core.storage.sqlite.connection._SCHEMA", "INVALID SQL !!@@##"
             ), pytest.raises(sqlite3.OperationalError):
                 await storage.initialize()
 
@@ -240,7 +240,7 @@ class TestSyncOpenReadonlyRowFactoryFailure:
         mock_conn = _FailingRowFactoryConnection()
 
         with patch(
-            "medre.core.storage.sqlite.storage.sqlite3.connect", return_value=mock_conn
+            "medre.core.storage.sqlite.connection.sqlite3.connect", return_value=mock_conn
         ), pytest.raises(
             RuntimeError, match="simulated row_factory assignment failure"
         ):
