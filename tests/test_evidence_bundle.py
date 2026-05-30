@@ -984,3 +984,31 @@ class TestToDictDefensiveCopy:
         assert bundle.native_refs[0]["nested"]["x"] == 1
         assert bundle.outbox_items[0]["status"] == "sent"
         assert bundle.outbox_items[0]["meta"]["y"] == 2
+
+    def test_rendering_evidence_mutation_is_isolated(self) -> None:
+        """Mutating delivery_receipts[].rendering_evidence in to_dict() output
+        does not affect the original bundle."""
+        rs = ReceiptSummary(
+            receipt_id="rcpt-re",
+            sequence=1,
+            target_adapter="adapter_a",
+            status="sent",
+            rendering_evidence={"key": "value", "nested": {"a": 1}},
+            created_at="2026-01-15T12:00:00+00:00",
+        )
+        bundle = EvidenceBundle(
+            event_id="evt-re-copy",
+            delivery_receipts=(rs,),
+            generated_at="2026-01-15T12:00:00+00:00",
+        )
+        d = bundle.to_dict()
+
+        # Mutate both top-level and nested keys.
+        d["delivery_receipts"][0]["rendering_evidence"]["key"] = "mutated"
+        d["delivery_receipts"][0]["rendering_evidence"]["nested"]["a"] = 999
+
+        # Original bundle's rendering_evidence is unchanged.
+        orig = bundle.delivery_receipts[0].rendering_evidence
+        assert orig is not None
+        assert orig["key"] == "value"
+        assert orig["nested"]["a"] == 1

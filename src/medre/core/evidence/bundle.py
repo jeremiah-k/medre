@@ -133,7 +133,10 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
 
 def _receipt_summary_to_dict(rs: ReceiptSummary) -> dict[str, Any]:
     """Convert a ReceiptSummary to a JSON-safe dict."""
-    return msgspec.structs.asdict(rs)
+    result: dict[str, Any] = msgspec.structs.asdict(rs)
+    if result.get("rendering_evidence") is not None:
+        result["rendering_evidence"] = copy.deepcopy(result["rendering_evidence"])
+    return result
 
 
 def _bundle_to_dict(bundle: EvidenceBundle) -> dict[str, Any]:
