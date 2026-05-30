@@ -1,0 +1,59 @@
+{
+  "fixture_version": 1,
+  "name": "matrix_reaction_message",
+  "adapter": "matrix",
+  "description": "True Matrix reaction (m.annotation) targeting a previous event.",
+  "native_input": {
+    "sender": "@alice:example.com",
+    "body": "👍",
+    "event_id": "$evt_conf_reaction_001",
+    "msgtype": "m.text",
+    "server_timestamp": 1700000002000,
+    "source": {
+      "type": "m.reaction",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.annotation",
+          "event_id": "$evt_conf_text_001",
+          "key": "👍"
+        }
+      },
+      "event_id": "$evt_conf_reaction_001",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000002000
+    }
+  },
+  "decode_context": {
+    "room_id": "!room_conf:example.com"
+  },
+  "expected": {
+    "event_kind": "message.reacted",
+    "source_adapter": "matrix_conf",
+    "source_transport_id": "@alice:example.com",
+    "source_channel_id": "!room_conf:example.com",
+    "source_native_ref": {
+      "adapter": "matrix_conf",
+      "native_channel_id": "!room_conf:example.com",
+      "native_message_id": "$evt_conf_reaction_001"
+    },
+    "payload_shape": {
+      "key": "👍"
+    },
+    "relations_count": 1,
+    "first_relation": {
+      "relation_type": "reaction",
+      "key": "👍",
+      "target_native_ref": {
+        "adapter": "matrix_conf",
+        "native_channel_id": "!room_conf:example.com",
+        "native_message_id": "$evt_conf_text_001"
+      }
+    },
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "room_id": "!room_conf:example.com",
+      "event_id": "$evt_conf_reaction_001",
+      "sender": "@alice:example.com"
+    }
+  }
+}

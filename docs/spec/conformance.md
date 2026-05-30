@@ -166,3 +166,121 @@ Test evidence is classified into four tiers:
 Simulated evidence MUST NOT be used to support claims about real transport
 behavior. Real-live evidence is the only tier that supports claims about
 production-adjacent behavior.
+
+## 6. Runtime Conformance Harness
+
+### 6.1 Overview
+
+The runtime conformance harness lives under `tests/conformance/` and asserts
+MEDRE runtime contracts — ingress, rendering, capability decisions,
+delivery/evidence, and replay — using deterministic JSON fixtures and real
+codecs/renderers/services. It does **not** use real SDK network or hardware.
+
+Runtime conformance tests are distinct from:
+
+- **Static schema conformance** — validating JSON payloads against schemas.
+- **Pure capability conformance** — testing the `CapabilityDecisionResolver`
+  in isolation (covered by `test_capability_decision_transport_profiles.py`
+  and `test_capability_decision.py`).
+- **Live validation** — testing against real transport endpoints (see §4.4).
+
+### 6.2 Fixture Location and Format
+
+Fixtures live under:
+
+```text
+tests/conformance/fixtures/
+├── loader.py            # load_fixture() / load_all_fixtures()
+├── matrix/
+│   ├── matrix_text_message.json
+│   ├── matrix_reply_message.json
+│   └── matrix_reaction_message.json
+└── meshtastic/
+    ├── meshtastic_text_packet.json
+    ├── meshtastic_reply_packet.json
+    └── meshtastic_reaction_packet.json
+```
+
+Each fixture is a self-describing JSON file with these fields:
+
+| Field             | Purpose                                            |
+| ----------------- | -------------------------------------------------- |
+| `fixture_version` | Schema version (currently `1`).                    |
+| `name`            | Human-readable fixture name.                       |
+| `adapter`         | Adapter identifier (`"matrix"` or `"meshtastic"`). |
+| `description`     | What the fixture exercises.                        |
+| `native_input`    | The native dict payload consumed by the codec.     |
+| `decode_context`  | Extra kwargs passed to `codec.decode()`.           |
+| `expected`        | Assertions about the resulting `CanonicalEvent`.   |
+
+The `expected` block specifies:
+
+- `event_kind` — the expected event kind string.
+- `source_adapter`, `source_transport_id`, `source_channel_id`.
+- `source_native_ref` — adapter, channel, and message ID.
+- `payload_shape` — key-value pairs that must appear in the payload.
+- `relations_count` and optionally `first_relation` with type, key,
+  and target_native_ref.
+- `metadata_has_native` — whether native metadata must be present.
+
+### 6.3 Adding a New Adapter Fixture
+
+To add fixtures for a new adapter (e.g. LXMF, MeshCore):
+
+1. Create `tests/conformance/fixtures/<adapter>/` directory with an
+   `__init__.py`.
+2. Write JSON fixture files following the format in §6.2.
+3. Write ingress conformance tests (or extend
+   `test_ingress_conformance.py`) that load fixtures via
+   `load_fixture()` or `load_all_fixtures()`, decode through the
+   adapter's codec, and assert the expected fields.
+4. Add rendering conformance tests if the adapter has a renderer.
+5. Run `pytest tests/conformance/ -v` to verify.
+
+### 6.4 What Must Be True for MEDRE Runtime Conformance
+
+An adapter claims MEDRE runtime conformance when the conformance harness
+asserts all of the following for its fixtures:
+
+1. **Ingress**: native input decodes to a `CanonicalEvent` with correct
+   `event_kind`, `source_native_ref`, `source_adapter`,
+   `source_channel_id`, payload shape, relations, and metadata.
+2. **Rendering**: canonical events render to native payloads with correct
+   envelope fields (e.g. Matrix `msgtype`/`body`/`m.relates_to`,
+   Meshtastic `text`/`channel_index`/`meshnet_name`).
+3. **Capability decisions**: `CapabilityDecisionResolver` produces
+   `direct` for native capabilities, `fallback_text` for fallback,
+   and `skip` for unsupported, consistent with transport-profile JSONs.
+4. **Delivery lifecycle**: receipts carry correct status, plan
+   correlation, and evidence. Service-path tests exercise
+   `TargetDeliveryService` with fake adapters and real
+   `RenderingPipeline` to verify:
+   - Sent receipts: `status == "sent"`, `delivery_plan_id` matches,
+     `source == "live"`, canonical `RenderingEvidence` JSON with
+     `schema_version`, `renderer`, `delivery_strategy`,
+     `target_adapter`, `capability_level`.
+   - Queued receipts: `status == "queued"`, `delivery_plan_id` matches,
+     canonical `RenderingEvidence` JSON, `target_channel` preserved.
+   - Suppressed receipts omit `rendering_evidence`.
+   - Supplemental queued→sent receipts preserve parent, plan, route,
+     channel, and evidence.
+     Shape characterization tests verify receipt field contracts for
+     manually-constructed receipts.
+5. **Replay**: DRY_RUN skips delivery. BEST_EFFORT applies capability
+   filtering through `_filter_plans_by_capability` using real
+   `PipelineRunner` with fake adapters — unsupported event kinds are
+   filtered to `status="skipped"` with `capability_suppressed` error;
+   fallback-capable events remain deliverable. Replay requests carry
+   `run_id`; receipt-level `source="replay"` and `replay_run_id`
+   tagging is asserted in integration-level tests with real pipeline
+   components.
+
+### 6.5 Conformance Test Modules
+
+| Module                                   | Coverage                                                                                                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test_ingress_conformance.py`            | Codec decode → CanonicalEvent contracts                                                                                                                                                   |
+| `test_rendering_conformance.py`          | Renderer output + RenderingEvidence                                                                                                                                                       |
+| `test_capability_runtime_conformance.py` | CapabilityDecisionResolver transport profiles                                                                                                                                             |
+| `test_delivery_lifecycle_conformance.py` | Receipt lifecycle and evidence contracts: shape characterization (manually-constructed receipts) and service-path conformance (TargetDeliveryService + RenderingPipeline + fake adapters) |
+| `test_replay_conformance.py`             | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |

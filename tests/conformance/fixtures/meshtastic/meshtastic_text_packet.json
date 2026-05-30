@@ -1,0 +1,40 @@
+{
+  "fixture_version": 1,
+  "name": "meshtastic_text_packet",
+  "adapter": "meshtastic",
+  "description": "Plain text packet from a Meshtastic radio on channel 0.",
+  "native_input": {
+    "from": 1122867,
+    "fromId": "!abc123",
+    "toId": "",
+    "channel": 0,
+    "id": 42,
+    "rxTime": 1700000000,
+    "decoded": {
+      "portnum": "TEXT_MESSAGE_APP",
+      "text": "Hello from mesh"
+    }
+  },
+  "decode_context": {},
+  "expected": {
+    "event_kind": "message.created",
+    "source_adapter": "mesh_conf",
+    "source_transport_id": "!abc123",
+    "source_channel_id": "0",
+    "source_native_ref": {
+      "adapter": "mesh_conf",
+      "native_channel_id": "0",
+      "native_message_id": "42"
+    },
+    "payload_shape": {
+      "body": "Hello from mesh"
+    },
+    "relations_count": 0,
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "packet_id": 42,
+      "from_id": "!abc123",
+      "channel": 0
+    }
+  }
+}

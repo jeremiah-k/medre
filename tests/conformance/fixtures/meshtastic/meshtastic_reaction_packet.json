@@ -1,0 +1,51 @@
+{
+  "fixture_version": 1,
+  "name": "meshtastic_reaction_packet",
+  "adapter": "meshtastic",
+  "description": "Reaction packet with emoji=1 and replyId targeting a previous message.",
+  "native_input": {
+    "from": 1122867,
+    "fromId": "!abc123",
+    "toId": "",
+    "channel": 0,
+    "id": 44,
+    "rxTime": 1700000002,
+    "decoded": {
+      "portnum": "TEXT_MESSAGE_APP",
+      "text": "\ud83d\udc4d",
+      "replyId": 42,
+      "emoji": 1
+    }
+  },
+  "decode_context": {},
+  "expected": {
+    "event_kind": "message.reacted",
+    "source_adapter": "mesh_conf",
+    "source_transport_id": "!abc123",
+    "source_channel_id": "0",
+    "source_native_ref": {
+      "adapter": "mesh_conf",
+      "native_channel_id": "0",
+      "native_message_id": "44"
+    },
+    "payload_shape": {
+      "key": "\ud83d\udc4d"
+    },
+    "relations_count": 1,
+    "first_relation": {
+      "relation_type": "reaction",
+      "key": "\ud83d\udc4d",
+      "target_native_ref": {
+        "adapter": "mesh_conf",
+        "native_channel_id": "0",
+        "native_message_id": "42"
+      }
+    },
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "packet_id": 44,
+      "from_id": "!abc123",
+      "channel": 0
+    }
+  }
+}

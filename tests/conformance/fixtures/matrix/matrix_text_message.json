@@ -1,0 +1,48 @@
+{
+  "fixture_version": 1,
+  "name": "matrix_text_message",
+  "adapter": "matrix",
+  "description": "Plain text message from a Matrix room, no relations.",
+  "native_input": {
+    "sender": "@alice:example.com",
+    "body": "Hello from Matrix",
+    "event_id": "$evt_conf_text_001",
+    "msgtype": "m.text",
+    "server_timestamp": 1700000000000,
+    "source": {
+      "type": "m.room.message",
+      "content": {
+        "msgtype": "m.text",
+        "body": "Hello from Matrix"
+      },
+      "event_id": "$evt_conf_text_001",
+      "sender": "@alice:example.com",
+      "origin_server_ts": 1700000000000
+    }
+  },
+  "decode_context": {
+    "room_id": "!room_conf:example.com"
+  },
+  "expected": {
+    "event_kind": "message.created",
+    "source_adapter": "matrix_conf",
+    "source_transport_id": "@alice:example.com",
+    "source_channel_id": "!room_conf:example.com",
+    "source_native_ref": {
+      "adapter": "matrix_conf",
+      "native_channel_id": "!room_conf:example.com",
+      "native_message_id": "$evt_conf_text_001"
+    },
+    "payload_shape": {
+      "body": "Hello from Matrix",
+      "msgtype": "m.text"
+    },
+    "relations_count": 0,
+    "metadata_has_native": true,
+    "expected_metadata": {
+      "room_id": "!room_conf:example.com",
+      "event_id": "$evt_conf_text_001",
+      "sender": "@alice:example.com"
+    }
+  }
+}
