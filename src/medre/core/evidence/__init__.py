@@ -28,11 +28,19 @@ from medre.core.evidence.failure_taxonomy import (
     resolve_taxon,
     taxon_category,
 )
+from medre.core.evidence.tiers import (
+    EVIDENCE_TIER_UNKNOWN,
+    EvidenceTier,
+    infer_evidence_tier,
+    tier_is_live,
+)
 
 __all__ = [
     "AdapterStatusEvidence",
+    "EVIDENCE_TIER_UNKNOWN",
     "EvidenceBundle",
     "EvidenceCollector",
+    "EvidenceTier",
     "FAILURE_KIND_TO_TAXON",
     "FailureTaxon",
     "OPERATOR_STATUSES",
@@ -41,6 +49,8 @@ __all__ = [
     "compute_retryable",
     "derive_failure_kind_detail",
     "derive_operator_status",
+    "infer_evidence_tier",
     "resolve_taxon",
     "taxon_category",
+    "tier_is_live",
 ]

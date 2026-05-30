@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
+from medre.core.evidence.tiers import infer_evidence_tier
 from medre.core.observability.sanitization import sanitize_error
 
 from ._config_sections import (
@@ -96,6 +97,7 @@ async def collect_evidence_bundle(
             "command": "evidence",
             "config_source": None,
             "errors": [sanitize_error(str(exc))],
+            "evidence_tier": "synthetic",
             "generated_at": _now().isoformat(),
             "limitations": _LIMITATIONS,
             "medre_version": _get_version(),
@@ -155,11 +157,45 @@ async def collect_evidence_bundle(
     # -- Compute overall status ---------------------------------------------
     overall = _compute_overall_status(sections)
 
+    # -- Tier inference (conservative) --------------------------------------
+    # Determine if any adapter uses fake kind to label synthetic.
+    _adapter_kind: str | None = None
+    try:
+        adapters_cfg = getattr(config, "adapters", None)
+        if adapters_cfg is not None:
+            # Walk transport adapter groups looking for adapter_kind.
+            for _transport_type, adapter_map in (
+                (adapters_cfg if isinstance(adapters_cfg, dict) else {}).items()
+                if isinstance(adapters_cfg, dict)
+                else []
+            ):
+                if isinstance(adapter_map, dict):
+                    for _name, adapter_conf in adapter_map.items():
+                        kind = (
+                            adapter_conf.get("adapter_kind")
+                            if isinstance(adapter_conf, dict)
+                            else getattr(adapter_conf, "adapter_kind", None)
+                        )
+                        if kind == "fake":
+                            _adapter_kind = "fake"
+                            break
+                if _adapter_kind == "fake":
+                    break
+    except Exception:
+        pass
+
+    _is_docker = bool(storage_path) if storage_path else False
+    evidence_tier = infer_evidence_tier(
+        adapter_kind=_adapter_kind,
+        is_docker_artifact=_is_docker,
+    )
+
     return {
         "collected_at": _now().isoformat(),
         "command": "evidence",
         "config_source": source.value,
         "errors": errors,
+        "evidence_tier": evidence_tier,
         "generated_at": _now().isoformat(),
         "limitations": _LIMITATIONS,
         "medre_version": _get_version(),

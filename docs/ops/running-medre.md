@@ -124,6 +124,10 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                          |
 | Replay events                         | Cancelled; completed receipts preserved                                            |
 | Route statistics, diagnostic counters | Lost — in-memory only                                                              |
+| Pending retry receipts                | Not cancelled — remain in storage, processed on next startup                       |
+| Pending outbox items                  | Not cancelled — remain in storage, reclaimable on next startup                     |
+
+Pending retry receipts and outbox items survive shutdown in SQLite. On next startup, the RetryWorker discovers and processes due retry receipts (if retry is enabled). This means retries may be re-attempted for deliveries that were pending when the runtime stopped. A distinct `cancelled` failure kind for shutdown-cancelled deliveries is planned but not yet implemented.
 
 ### Signal Handling
 
@@ -204,7 +208,7 @@ queued → sent
 | `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
 | `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
 | `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
-| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity, shutdown).     |
+| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity, shutdown).      |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
 

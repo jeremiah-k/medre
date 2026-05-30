@@ -185,3 +185,80 @@ complete event-kind to capability-field mapping.
    query for `status IN ('failed', 'dead_lettered')` to exclude suppressed
    entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
    include all non-successful outcomes.
+
+## 11. Delivery Failure Evidence Taxonomy
+
+The following table lists all failure categories that appear in delivery
+evidence (receipts, report dicts, operator diagnostics). Some are first-class
+`DeliveryFailureKind` enum values emitted by the runtime. Others are derived
+evidence taxons: classifications computed from receipt fields, error text
+parsing, or adapter state at report time. Derived taxons are not stored as
+enum values but are available in enriched report dicts and operator-facing
+diagnostics.
+
+| Category                | Source                         | Kind        | Meaning                                                                                   |
+| ----------------------- | ------------------------------ | ----------- | ----------------------------------------------------------------------------------------- |
+| `not_configured`        | Derived (config analysis)      | Pre-runtime | No adapter configuration exists for the referenced transport. No code path exercised.     |
+| `unavailable`           | Derived (adapter state)        | Runtime     | Adapter exists in config but is not reachable. Health reports `unavailable` or `failed`.  |
+| `auth_failed`           | DeliveryFailureKind            | Runtime     | Authentication with the transport endpoint failed. Permanent for Matrix (401/403).        |
+| `connection_failed`     | DeliveryFailureKind            | Runtime     | Transport connection could not be established. Transient (network) or permanent (config). |
+| `capability_suppressed` | DeliveryFailureKind            | Runtime     | Target adapter lacks capability for the event's kind or relation type. See §9.            |
+| `route_disabled`        | Derived (config analysis)      | Pre-runtime | Route configuration has `enabled = false`. Events matching this route are not delivered.  |
+| `route_listen_only`     | Derived (config analysis)      | Pre-runtime | Route is configured for inbound-only or listen-only semantics. Outbound delivery skipped. |
+| `loop_suppressed`       | DeliveryFailureKind            | Runtime     | Self-loop or route-trace guard fired. See §8.                                             |
+| `delivery_failed`       | DeliveryFailureKind            | Runtime     | Generic adapter delivery failure. Classified further by transport-specific error text.    |
+| `retry_exhausted`       | Derived (receipt analysis)     | Runtime     | All retry attempts consumed. Final receipt has `status="dead_lettered"`.                  |
+| `cancelled`             | DeliveryFailureKind (deferred) | Runtime     | Delivery was cancelled (e.g., during shutdown). See §12 for current status.               |
+| `shutdown_pending`      | Derived (runtime state)        | Runtime     | Delivery attempted while shutdown is in progress. Capacity controller rejecting new work. |
+| `not_executed`          | Not a failure kind             | Meta        | No evidence exists. No delivery was attempted. See Evidence Levels §2 rule 6.             |
+
+**Implementation status:**
+
+- First-class `DeliveryFailureKind` values (`auth_failed`, `connection_failed`,
+  `capability_suppressed`, `loop_suppressed`, `delivery_failed`) are emitted by
+  the runtime and stored on receipt rows.
+- `cancelled` is a planned `DeliveryFailureKind` value for shutdown-time
+  delivery cancellation. The current runtime uses `shutdown_rejection` as an
+  error string but does not yet emit a distinct `cancelled` failure kind. See
+  §12.
+- Derived taxons (`not_configured`, `unavailable`, `route_disabled`,
+  `route_listen_only`, `retry_exhausted`, `shutdown_pending`) are computed at
+  report time from receipt fields, config state, or adapter health. They are
+  not stored as enum values on receipt rows.
+- `not_executed` is a meta-classification indicating absence of evidence, not
+  a failure kind. It is used in evidence tables and operator reports to
+  document what was not tested.
+
+## 12. Shutdown Delivery Evidence
+
+### 12.1 Goals
+
+When the runtime shuts down, the delivery evidence system aims to:
+
+- Record receipts for in-flight deliveries that complete during the drain
+  period.
+- Record receipts for deliveries rejected due to shutdown (capacity controller
+  stopped accepting).
+- Preserve all pre-existing receipts and outbox state in SQLite.
+
+### 12.2 Non-Goals
+
+- Cancelling pending outbox items or scheduled retries during shutdown is not
+  currently implemented. Pending retry receipts with `next_retry_at` set remain
+  in storage and are processed on next startup by the RetryWorker.
+- Distinguishing shutdown-cancelled deliveries from other failures by a
+  distinct `cancelled` failure kind is not yet implemented. The runtime uses
+  `shutdown_rejection` as an error string on suppressed receipts, but this is
+  not a first-class `DeliveryFailureKind` value.
+- No receipt is created for deliveries that were never attempted because the
+  runtime was already shutting down when the event arrived.
+
+### 12.3 Current Behaviour
+
+| Scenario                                         | Evidence produced                                           |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| In-flight delivery completes during drain        | Normal receipt with final status (`sent` or `failed`)       |
+| In-flight delivery abandoned after drain timeout | Suppressed receipt with error `delivery_rejected_shutdown`  |
+| New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
+| Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
+| Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |

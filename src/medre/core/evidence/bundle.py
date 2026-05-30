@@ -103,6 +103,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     sources_seen: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     generated_at: str = ""
+    evidence_tier: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict representation.
@@ -154,4 +155,5 @@ def _bundle_to_dict(bundle: EvidenceBundle) -> dict[str, Any]:
         "sources_seen": list(bundle.sources_seen),
         "warnings": list(bundle.warnings),
         "generated_at": bundle.generated_at,
+        "evidence_tier": bundle.evidence_tier,
     }

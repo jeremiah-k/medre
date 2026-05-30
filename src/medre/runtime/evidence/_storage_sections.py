@@ -388,6 +388,7 @@ def _build_storage_path_bundle(
         "command": "evidence",
         "config_source": "storage_path",
         "errors": errors,
+        "evidence_tier": "synthetic",
         "generated_at": now_fn().isoformat(),
         "limitations": _LIMITATIONS,
         "medre_version": _get_version(),

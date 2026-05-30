@@ -627,6 +627,42 @@ ORDER BY e.created_at DESC;
 | **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
 | **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
 
+### Retry Accountability
+
+When retry is enabled, the system produces an auditable chain:
+
+1. Initial failure creates a receipt with `status="failed"`, `failure_kind="adapter_transient"`, and `next_retry_at` set.
+2. The RetryWorker discovers due receipts and re-attempts delivery.
+3. Each retry appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
+4. When retries are exhausted, the final receipt has `status="dead_lettered"`.
+
+The full chain is queryable:
+
+```sql
+SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at, created_at
+FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>'
+ORDER BY attempt_number;
+```
+
+### Outbox Accountability
+
+The outbox tracks in-progress deliveries:
+
+- A delivery starting creates an `in_progress` outbox row with an expiration lease.
+- Delivery completion (success or failure) finalizes the outbox row.
+- On crash recovery, expired `in_progress` rows are reclaimable by the RetryWorker.
+- Outbox rows without corresponding receipts indicate deliveries that were lost before a receipt could be written.
+
+### Pending Shutdown Cancellation Gap
+
+When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not explicitly cancelled. They remain in storage as-is. On next startup:
+
+- Due retry receipts are discovered and processed by the RetryWorker.
+- Expired outbox rows are reclaimed.
+
+This means a retry may be re-attempted after shutdown for a delivery that the operator expected to be cancelled. A `cancelled` failure kind for shutdown-cancelled deliveries is planned but not yet implemented. Operators should be aware that pending retries survive shutdown and are re-processed on restart.
+
 ### Retry States
 
 | State            | `status`        | `next_retry_at`   | `failure_kind`      | Meaning                                                  |

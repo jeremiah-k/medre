@@ -4,35 +4,31 @@ How to collect, interpret, and reason about MEDRE pipeline evidence before and a
 
 ## Evidence Provenance
 
-Bridge behavior is validated at four fidelity levels. Each level adds constraints and reduces the gap between test and production:
+Bridge behavior is validated at six fidelity levels. Each level adds constraints and reduces the gap between test and production:
 
-| Level                   | Environment                  | Transport        | What it proves                                                                                                      |
-| ----------------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Fake bridge**         | In-memory, fake adapters     | Simulated        | Pipeline routing, rendering, receipts, accounting, loop prevention                                                  |
-| **Adapter-wrapper**     | Unit test, real adapter code | Mocked transport | Adapter codec, renderer, session logic                                                                              |
-| **Docker SDK-boundary** | Container, real deps         | Loopback         | Dependency resolution, config loading, adapter lifecycle, real SDK boundary, pipeline routing through real adapters |
-| **Live network**        | Real endpoints               | Real transport   | Actual connectivity, protocol compliance                                                                            |
+| Level               | Environment                  | Transport        | What it proves                                                                                                      |
+| ------------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Synthetic**       | In-memory, fake adapters     | Simulated        | Pipeline routing, rendering, receipts, accounting, loop prevention                                                  |
+| **Conformance**     | Deterministic fixtures       | Real codecs      | Behavioral contracts with real codecs/renderers/services using fixed JSON inputs                                    |
+| **Adapter-wrapper** | Unit test, real adapter code | Mocked transport | Adapter codec, renderer, session logic                                                                              |
+| **Docker**          | Container, real deps         | Loopback         | Dependency resolution, config loading, adapter lifecycle, real SDK boundary, pipeline routing through real adapters |
+| **Live service**    | Real endpoints               | Real transport   | Actual connectivity, protocol compliance against a real external service                                            |
+| **Hardware**        | Physical device              | Real RF          | Physical radio operation, firmware interaction, send/receive against actual hardware                                |
 
-Each provenance level also carries an environment-boundary sub-class for real-live evidence:
+Do not treat Docker evidence as equivalent to live service or hardware evidence. Docker validates SDK integration and adapter wiring. Live service validates network connectivity and real server behavior. Hardware validates physical radio operation. Each boundary validates different properties.
 
-| Sub-class               | Meaning                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Docker SDK-boundary** | Local Docker container running the transport server (e.g. Synapse). SDK boundary test — no external network. |
-| **External live**       | Real external server over the network.                                                                       |
-| **Hardware**            | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     |
-
-Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence. Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
+Storage-only evidence (receipts and outbox rows in SQLite) records what the runtime observed and stored. Stored data alone does not constitute live service or hardware validation.
 
 ## Transport Evidence Matrix
 
-| Adapter    | Fake callback | Wrapper callback | Docker SDK-boundary (outbound) | Docker SDK-boundary (inbound) | Live network/radio |
-| ---------- | :-----------: | :--------------: | :----------------------------: | :---------------------------: | :----------------: |
-| Matrix     |    proven     |      proven      |             proven             |      proven (sync_loop)       |  proven (Synapse)  |
-| Meshtastic |    proven     |      proven      |             proven             |   unconfirmed (2nd client)    |    not claimed     |
-| MeshCore   |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
-| LXMF       |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
+| Adapter    | Synthetic | Adapter-wrapper |  Docker  |       Live service       |  Hardware   |
+| ---------- | :-------: | :-------------: | :------: | :----------------------: | :---------: |
+| Matrix     |  proven   |     proven      |  proven  | proven (Docker Synapse)  | not claimed |
+| Meshtastic |  proven   |     proven      |  proven  | unconfirmed (2nd client) | not claimed |
+| MeshCore   |  proven   |     proven      | no setup |       not claimed        | not claimed |
+| LXMF       |  proven   |     proven      | no setup |       not claimed        | not claimed |
 
-The table above is the authoritative per-transport, per-tier evidence matrix.
+The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. "proven (Docker Synapse)" means Matrix live service evidence uses a Docker container, not an external server. Docker evidence validates SDK integration; it does not prove external network behavior.
 
 ## Quick Bundle Collection
 
@@ -561,6 +557,68 @@ ORDER BY attempt_number;
 ### "Were suppressed deliveries retried?"
 
 No. Suppressed deliveries (status `suppressed`) do not enter the retry queue. Their `next_retry_at` is always `None`. Suppression indicates a guard prevented delivery entirely — it is not a transient condition that retrying would resolve.
+
+## Adapter Status Lifecycle
+
+Adapters present one of the following operator-visible statuses, derived from configuration, runtime state, and health checks:
+
+| Status           | When you see it                                                 | What it means                                                       |
+| ---------------- | --------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `disabled`       | Config has `enabled = false`                                    | Adapter is present in config but intentionally excluded.            |
+| `not_configured` | No adapter entry for this transport/ID in config                | No configuration exists. No adapter object is constructed.          |
+| `configured`     | Valid config entry exists, runtime has not started              | Config is valid but the adapter has not been built or started.      |
+| `starting`       | Runtime is in the startup phase                                 | The adapter is between build and start. Transient, visible in logs. |
+| `connected`      | Health check reports `connected == True`, health OK             | Adapter is connected and operating normally.                        |
+| `unavailable`    | Health check reports `connected == False`, no error             | Transport endpoint is not reachable right now.                      |
+| `failed`         | Health check reports `health == "failed"`, or build/start error | Non-recoverable failure. Adapter is not connected.                  |
+| `stopped`        | Runtime shutdown completed                                      | Adapter was running and has been stopped cleanly.                   |
+| `degraded`       | Health check reports `health == "degraded"`                     | Adapter is connected but experiencing transient errors.             |
+
+These statuses are not a state machine enforced in code. They are evidence labels that operators can observe through `medre diagnostics`, snapshot output, and log entries. An adapter can go from `failed` to `connected` across a runtime restart if the underlying cause is resolved.
+
+Check adapter status at any time:
+
+```bash
+# Build-time snapshot (no adapter start)
+medre diagnostics --config my-bridge.toml
+
+# Live health refresh (starts and polls adapters)
+medre diagnostics --refresh-health --config my-bridge.toml
+```
+
+## Shutdown Delivery Evidence
+
+When the runtime shuts down, the delivery evidence system records what happened to in-flight work:
+
+| Scenario                                           | Evidence produced                                          |
+| -------------------------------------------------- | ---------------------------------------------------------- |
+| In-flight delivery completes during drain period   | Normal receipt with final status (`sent` or `failed`)      |
+| In-flight delivery abandoned after drain timeout   | Suppressed receipt with error `delivery_rejected_shutdown` |
+| New delivery rejected because shutdown is underway | Suppressed receipt with error `delivery_rejected_shutdown` |
+| Pending retry receipt at shutdown                  | No change; receipt stays in storage for next startup       |
+| Pending outbox item at shutdown                    | No change; outbox row stays for next startup               |
+
+Pending retry receipts and outbox items are not explicitly cancelled during shutdown. They survive in SQLite and are processed on next startup by the RetryWorker. This means a retry may be re-attempted for a delivery that the operator expected to be cancelled. A distinct `cancelled` failure kind for shutdown-cancelled deliveries is planned but not yet implemented.
+
+Use `--snapshot-on-shutdown PATH` to capture the final runtime state including counters, route stats, and the bounded event buffer:
+
+```bash
+medre run --config my-bridge.toml --snapshot-on-shutdown /tmp/shutdown-snapshot.json
+```
+
+## Live Validation Boundaries
+
+MEDRE distinguishes three levels of real-endpoint validation. Each level validates different properties:
+
+| Boundary     | Validates                                        | Does not validate                                           |
+| ------------ | ------------------------------------------------ | ----------------------------------------------------------- |
+| Docker       | SDK integration, adapter wiring, config loading  | External network, federation, hardware, real-world rates    |
+| Live service | Network connectivity, protocol compliance, auth  | Hardware, RF behavior, physical device interaction          |
+| Hardware     | Physical radio operation, firmware, send/receive | Network federation, server-side behavior, multi-device mesh |
+
+Docker evidence is not hardware evidence. A Docker container running Synapse proves the Matrix SDK works; it does not prove the adapter can talk to a real homeserver over the internet. A physical Meshtastic radio connected via serial proves hardware interaction; it does not prove the Matrix integration.
+
+No Matrix transport beyond Docker localhost has been validated. No Meshtastic, MeshCore, or LXMF hardware validation has been recorded. See "What Remains Unproven" below for the complete list.
 
 ## What Remains Unproven
 

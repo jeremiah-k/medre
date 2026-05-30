@@ -20,6 +20,7 @@ from medre.core.evidence.bundle import (
     EvidenceBundle,
     ReceiptSummary,
 )
+from medre.core.evidence.tiers import infer_evidence_tier
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
@@ -310,6 +311,16 @@ class EvidenceCollector:
                 f"event {event_id!r}"
             )
 
+        # -- Tier inference (conservative) ----------------------------------
+        source_adapter_name: str | None = None
+        if event_summary is not None:
+            source_adapter_name = event_summary.get("source_adapter")
+
+        evidence_tier = infer_evidence_tier(
+            sources_seen=tuple(sources_seen),
+            source_adapter=source_adapter_name,
+        )
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -321,4 +332,5 @@ class EvidenceCollector:
             sources_seen=tuple(sources_seen),
             warnings=tuple(warnings),
             generated_at=self._now_fn().isoformat(),
+            evidence_tier=evidence_tier,
         )
