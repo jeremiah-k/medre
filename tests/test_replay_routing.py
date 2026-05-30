@@ -538,3 +538,83 @@ class TestReplayLoopPrevention:
         warnings, filtered = _filter_replay_loops(event, routes, previous_routing=None)
         assert warnings == []
         assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_previous_routing_route_trace_single(self) -> None:
+        """Explicit previous_routing with route_trace containing route once:
+        the matched_routes check catches it, not the route_trace Counter."""
+        from medre.core.events import RoutingMetadata
+
+        # previous_routing has r1 in route_trace but NOT in matched_routes.
+        # With count > 1 logic, a single trace entry should NOT be filtered.
+        # This proves the route_trace Counter is a supplementary safety net,
+        # not the primary detection mechanism.
+        prior = RoutingMetadata(route_trace=("r1",))
+        event = make_replay_event(source_adapter="a")
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        warnings, filtered = _filter_replay_loops(event, routes, previous_routing=prior)
+        # r1 appears once in route_trace (count=1), so Counter path does not
+        # catch it.  matched_routes is empty, so that path also does not catch
+        # it.  The route is correctly allowed.
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_sentinel_no_false_positive(self) -> None:
+        """Sentinel fallback with current-pass single route_trace does not
+        false-positive filter the route."""
+        # Event has post-enrichment metadata with a single route_trace entry.
+        # Using sentinel fallback (no previous_routing arg).
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=(),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        # Sentinel fallback: uses event.metadata.routing (post-enrichment).
+        # r1 appears once in route_trace -> count=1 -> NOT filtered.
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert warnings == []
+        assert len(filtered) == 1
+
+    def test_filter_replay_loops_unit_one_hop_loop_blocked(self) -> None:
+        """A single prior-pass traversal through a route blocks re-traversal
+        via matched_routes (primary detection)."""
+        event = make_event_with_routing(
+            source_adapter="a",
+            matched_routes=("r1",),
+            route_trace=("r1",),
+        )
+        routes = [
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
+        ]
+        # r1 is in matched_routes -> filtered by primary detection.
+        # Even though route_trace has r1 only once, the one-hop loop is
+        # blocked.
+        warnings, filtered = _filter_replay_loops(event, routes)
+        assert len(warnings) == 1
+        assert len(filtered) == 0
+        assert "r1" in warnings[0]

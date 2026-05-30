@@ -18,7 +18,7 @@ class _ReplayRenderingMixin:
     async def _stage_render(
         self,
         event: CanonicalEvent,
-        mode: ReplayMode,
+        _mode: ReplayMode,
     ) -> ReplayResult:
         """Re-run transforms and rendering on *event*.
 

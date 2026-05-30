@@ -112,6 +112,12 @@ def _filter_plans_by_capability(
     if adapters is None:
         return plans
 
+    # Cache capability resolution by adapter ID within this call scope.
+    # Replay can process many plans targeting the same adapter; resolving
+    # capabilities is deterministic per adapter so caching is safe.
+    _caps_cache: dict[str, Any] = {}
+    _decision_cache: dict[tuple[str, str], Any] = {}
+
     result: list[Any] = []
     for item in plans:
         # Unwrap tuple (Route, DeliveryPlan) if present.
@@ -126,16 +132,26 @@ def _filter_plans_by_capability(
             result.append(item)
             continue
 
-        caps = resolve_adapter_capabilities(adapters, target)
+        adapter_name = getattr(target, "adapter", None)
+        if adapter_name is not None and adapter_name in _caps_cache:
+            caps = _caps_cache[adapter_name]
+        else:
+            caps = resolve_adapter_capabilities(adapters, target)
+            if adapter_name is not None:
+                _caps_cache[adapter_name] = caps
         if caps is None:
             # Adapter is missing from the registry --- include conservatively
             # rather than suppressing based on default (all-false) caps.
             result.append(item)
             continue
 
-        # Extract target adapter name for traceability in the decision.
-        adapter_name = getattr(target, "adapter", None)
-        decision = _resolver.decide(event, caps, target_adapter=adapter_name)
+        # Cache capability decision by (adapter_name, event_kind) pair.
+        decision_key = (adapter_name, event.event_kind)
+        if decision_key in _decision_cache:
+            decision = _decision_cache[decision_key]
+        else:
+            decision = _resolver.decide(event, caps, target_adapter=adapter_name)
+            _decision_cache[decision_key] = decision
         if decision.supported:
             result.append(item)
         # else: capability-suppressed --- exclude from delivery
