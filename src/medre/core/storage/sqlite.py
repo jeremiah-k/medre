@@ -234,6 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_event_created
+    ON delivery_outbox(event_id, created_at, outbox_id);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
 -- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.
@@ -1846,6 +1848,22 @@ class SQLiteStorage:
         params.append(offset)
 
         rows = await self._read_all(sql, tuple(params))
+        return [_row_to_outbox_item(r) for r in rows]
+
+    async def list_outbox_items_for_event(
+        self,
+        event_id: str,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all outbox items for a specific event.
+
+        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
+        output.  Read-only — does not mutate storage.
+        """
+        rows = await self._read_all(
+            "SELECT * FROM delivery_outbox WHERE event_id = ? "
+            "ORDER BY created_at ASC, outbox_id ASC",
+            (event_id,),
+        )
         return [_row_to_outbox_item(r) for r in rows]
 
     async def claim_due_outbox_items(

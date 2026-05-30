@@ -222,6 +222,15 @@ class StorageBackend(Protocol):
         """List outbox items, optionally filtered by status."""
         ...
 
+    async def list_outbox_items_for_event(
+        self, event_id: str,
+    ) -> list[OutboxItem]:
+        """Return all outbox items for a specific event.
+
+        Ordered by created_at ASC, outbox_id ASC for deterministic
+        output.  Read-only — does not mutate storage."""
+        ...
+
     async def claim_due_outbox_items(
         self, now: datetime, worker_id: str, limit: int = 50
     ) -> list[OutboxItem]:
@@ -728,6 +737,7 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 - `create_outbox_item`: Creates or reclaims an outbox item (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
 - `list_outbox_items`: Lists items, optionally filtered by status.
+- `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
 - `claim_due_outbox_items`: Claims eligible items for a worker.
 - `mark_outbox_sent`: Terminal transition to `sent`.
 - `mark_outbox_failed`: Transitions to `retry_wait` or `dead_lettered`.

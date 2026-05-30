@@ -553,6 +553,17 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_outbox_items_for_event(
+        self,
+        event_id: str,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all outbox items for a specific event.
+
+        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
+        output.  Read-only — does not mutate storage.
+        """
+        ...
+
     async def claim_due_outbox_items(
         self,
         now: str,

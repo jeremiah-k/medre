@@ -544,3 +544,73 @@ When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_r
 5. All ambiguous correlation skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
 6. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
 7. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
+
+## 16. Evidence Bundle Model
+
+### 16.1 Purpose
+
+The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates all stored evidence for a single event into a deterministic, JSON-safe structure. It is assembled by the `EvidenceCollector` without mutating storage or runtime state.
+
+### 16.2 Contents
+
+| Field               | Type                       | Semantics                                                                                               |
+| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `schema_version`    | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
+| `event_id`          | `str`                      | The canonical event ID this bundle covers.                                                              |
+| `event_summary`     | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
+| `delivery_receipts` | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
+| `native_refs`       | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
+| `outbox_items`      | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| `replay_run_ids`    | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `sources_seen`      | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
+| `warnings`          | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
+| `generated_at`      | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+
+### 16.3 ReceiptSummary
+
+Each delivery receipt is represented as a `ReceiptSummary` containing receipt ID, sequence, target adapter/channel, status, attempt number, source, replay run ID, failure kind, error, parsed rendering evidence, and created_at timestamp. Full payloads are excluded.
+
+### 16.4 JSON Safety and Deterministic Ordering
+
+1. `to_dict()` returns a plain dict with only JSON-safe types (`dict`, `list`, `str`, `int`, `float`, `bool`, `None`). `json.dumps()` MUST succeed without a custom encoder.
+2. `to_json(sort_keys=True)` produces deterministic output for identical inputs.
+3. Ordering guarantees:
+   - Receipts by `sequence` ascending.
+   - Native refs by `created_at ASC, id ASC`.
+   - Outbox items by `created_at ASC, outbox_id ASC`.
+   - Replay run IDs sorted lexicographically.
+   - Warnings in deterministic insertion order.
+
+### 16.5 Invalid Rendering Evidence Handling
+
+`DeliveryReceipt.rendering_evidence` is stored as a string. The collector parses it defensively:
+
+- `None` → `None`, no warning.
+- Valid JSON object → parsed `dict`, no warning.
+- Valid non-object JSON → `None`, warning with receipt_id/event_id context.
+- Invalid JSON → `None`, warning with receipt_id/event_id context and raw length.
+
+The collector MUST NOT crash on invalid JSON.
+
+### 16.6 Replay/Source Aggregation
+
+Replay and source information is aggregated from receipt records:
+
+- `replay_run_ids`: sorted distinct non-`None` `replay_run_id` values across all receipts.
+- `sources_seen`: sorted distinct `source` values across all receipts.
+
+### 16.7 Graceful Degradation
+
+- If the event is missing but receipts/native refs/outbox items exist, the bundle is still produced with `event_summary=None` and a warning.
+- If no event and no related records exist, the bundle has a warning noting no data was found.
+- Missing storage capabilities (e.g. `list_outbox_items_for_event` not implemented) degrade with a warning, not a crash.
+
+### 16.8 Limitations
+
+The evidence bundle is:
+
+- **Not a tracing backend.** It is a point-in-time read-only snapshot.
+- **Not a replay job system.** It does not queue or execute replays.
+- **Not a crash recovery mechanism.** It reads from current storage state only.
+- **Not an idempotency guarantee.** Multiple collections at different times may produce different bundles if storage state changed between calls.
+- **Read-only.** Collection MUST NOT mutate storage or runtime state.
