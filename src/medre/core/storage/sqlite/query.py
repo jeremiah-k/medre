@@ -12,7 +12,18 @@ from medre.core.storage.backend import EventFilter
 
 
 def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
-    """Build a parameterised ``SELECT`` for ``canonical_events``."""
+    """Build a parameterised ``SELECT`` for ``canonical_events``.
+
+    Raises
+    ------
+    ValueError
+        If ``filt.limit`` is not a non-negative integer.
+    """
+    if not isinstance(filt.limit, int) or filt.limit < 0:
+        raise ValueError(
+            f"EventFilter.limit must be a non-negative integer, got {filt.limit!r}"
+        )
+
     clauses: list[str] = []
     params: list[Any] = []
 

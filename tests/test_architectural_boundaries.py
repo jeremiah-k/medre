@@ -94,6 +94,41 @@ def _scan_multiple_dirs_for_prefixes(
     return violations
 
 
+def _scan_dir_for_plain_imports(
+    root: Path, package_roots: tuple[str, ...]
+) -> list[str]:
+    """Scan all .py files under *root* for forbidden plain import statements.
+
+    Catches ``import <pkg>``, ``import <pkg> as ...`` at word boundaries
+    so that ``import <pkg>.submodule`` is NOT flagged.
+    """
+    assert root.exists(), f"missing directory: {root}"
+    pattern = re.compile(
+        r"^import\s+(" + "|".join(re.escape(p) for p in package_roots) + r")(\s|$)"
+    )
+    violations: list[str] = []
+    for p in sorted(root.rglob("*.py")):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if pattern.search(s):
+                violations.append(f"{p}:{i}: {s}")
+    return violations
+
+
+def _scan_multiple_dirs_for_plain_imports(
+    roots: tuple[Path, ...], package_roots: tuple[str, ...]
+) -> list[str]:
+    """Scan multiple directories for forbidden plain imports."""
+    violations: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        violations.extend(_scan_dir_for_plain_imports(root, package_roots))
+    return violations
+
+
 # ===================================================================
 # A) ReplayEngine does not import transport SDKs
 # ===================================================================
@@ -1352,9 +1387,22 @@ class TestStorageCleanSurface:
         "from medre.core.storage.sqlite import ",
     )
 
-    # Files excluded from the scan (this file references the forbidden
-    # patterns as literal strings for the scan logic).
-    _EXCLUDED_FILES = frozenset({"test_architectural_boundaries.py"})
+    # Forbidden plain import package roots (exact word-boundary match).
+    _FORBIDDEN_PLAIN_IMPORT_ROOTS = (
+        "medre.core.storage",
+        "medre.core.storage.sqlite",
+    )
+
+    # Files excluded from the scan (these files reference the forbidden
+    # patterns as literal strings for the scan logic or intentionally
+    # import package roots to verify no symbols are exposed).
+    _EXCLUDED_FILES = frozenset(
+        {
+            "test_architectural_boundaries.py",
+            "test_architecture_public_api.py",
+            "test_replay_typechecking.py",
+        }
+    )
 
     def test_old_sqlite_module_does_not_exist(self) -> None:
         """src/medre/core/storage/sqlite.py must not exist."""
@@ -1460,3 +1508,58 @@ class TestStorageCleanSurface:
         assert (
             violations == []
         ), "Forbidden facade imports found in docs/:\n" + "\n".join(violations)
+
+    def test_no_plain_import_of_storage_root_in_src(self) -> None:
+        """No src/ file may plain-import medre.core.storage or .sqlite root."""
+        repo_root = Path(__file__).resolve().parents[1]
+        violations = _scan_multiple_dirs_for_plain_imports(
+            (repo_root / "src",),
+            self._FORBIDDEN_PLAIN_IMPORT_ROOTS,
+        )
+        assert violations == [], "Forbidden plain imports found in src/:\n" + "\n".join(
+            violations
+        )
+
+    def test_no_plain_import_of_storage_root_in_tests(self) -> None:
+        """No tests/ file may plain-import medre.core.storage or .sqlite root."""
+        repo_root = Path(__file__).resolve().parents[1]
+        violations = _scan_multiple_dirs_for_plain_imports(
+            (repo_root / "tests",),
+            self._FORBIDDEN_PLAIN_IMPORT_ROOTS,
+        )
+        # Exclude this file which references the patterns as literal strings.
+        violations = [
+            v
+            for v in violations
+            if Path(v.split(":")[0]).name not in self._EXCLUDED_FILES
+        ]
+        assert (
+            violations == []
+        ), "Forbidden plain imports found in tests/:\n" + "\n".join(violations)
+
+    def test_no_plain_import_of_storage_root_in_docs(self) -> None:
+        """No docs/ file may plain-import medre.core.storage or .sqlite root."""
+        repo_root = Path(__file__).resolve().parents[1]
+        docs_dir = repo_root / "docs"
+        if not docs_dir.exists():
+            return
+
+        violations: list[str] = []
+        pattern = re.compile(
+            r"^import\s+("
+            + "|".join(re.escape(p) for p in self._FORBIDDEN_PLAIN_IMPORT_ROOTS)
+            + r")(\s|$)"
+        )
+        for md_file in sorted(docs_dir.rglob("*.md")):
+            text = md_file.read_text(encoding="utf-8")
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if pattern.search(stripped):
+                    violations.append(
+                        f"{md_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
+        assert (
+            violations == []
+        ), "Forbidden plain imports found in docs/:\n" + "\n".join(violations)

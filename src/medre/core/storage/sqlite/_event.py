@@ -75,18 +75,22 @@ class _EventMixin:
         if not rows:
             return
 
-        # Fetch relations for all matched events in one round-trip.
+        # Fetch relations for all matched events in bounded batches.
+        # SQLite's host-parameter limit is 999 in older builds; chunk
+        # well below that ceiling.
         event_ids = [r["event_id"] for r in rows]
-        placeholders = ",".join("?" for _ in event_ids)
-        rel_sql = (
-            "SELECT * FROM event_relations WHERE event_id "
-            f"IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
-        )
-        rel_rows = await self._read_all(rel_sql, tuple(event_ids))
-
         rel_map: dict[str, list[EventRelation]] = {}
-        for rr in rel_rows:
-            rel_map.setdefault(rr["event_id"], []).append(_row_to_relation(rr))
+        _CHUNK_SIZE = 900
+        for offset in range(0, len(event_ids), _CHUNK_SIZE):
+            chunk = event_ids[offset : offset + _CHUNK_SIZE]
+            placeholders = ",".join("?" for _ in chunk)
+            rel_sql = (
+                "SELECT * FROM event_relations WHERE event_id "
+                f"IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
+            )
+            rel_rows = await self._read_all(rel_sql, tuple(chunk))
+            for rr in rel_rows:
+                rel_map.setdefault(rr["event_id"], []).append(_row_to_relation(rr))
 
         for row in rows:
             yield _row_to_event(row, rel_map.get(row["event_id"], []))

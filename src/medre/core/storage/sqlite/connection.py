@@ -1,9 +1,9 @@
 """Standalone synchronous I/O functions for SQLite storage.
 
-These functions are called via ``asyncio.to_thread`` from the async
-:class:`~medre.core.storage.sqlite.storage.SQLiteStorage` methods.
-Each function is pure with respect to the connection — no instance
-state is accessed.
+These functions are dispatched through
+:class:`~medre.core.storage.sqlite.storage.SQLiteStorage`'s private
+``ThreadPoolExecutor`` via ``loop.run_in_executor``.  Each function is
+pure with respect to the connection — no instance state is accessed.
 """
 
 from __future__ import annotations
@@ -58,8 +58,15 @@ def sync_write(
 ) -> None:
     """Execute a write, thread-safe via lock."""
     with lock:
-        db.execute(sql, params)
-        db.commit()
+        try:
+            db.execute(sql, params)
+            db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
 
 
 def sync_write_batch(
@@ -69,9 +76,16 @@ def sync_write_batch(
 ) -> None:
     """Execute multiple writes in a single transaction."""
     with lock:
-        for sql, params in ops:
-            db.execute(sql, params)
-        db.commit()
+        try:
+            for sql, params in ops:
+                db.execute(sql, params)
+            db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
 
 
 def sync_read_one(

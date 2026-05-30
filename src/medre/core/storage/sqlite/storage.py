@@ -81,16 +81,27 @@ class _SQLiteStorageBase:
         self._lock = threading.Lock()
         self._async_write_lock = asyncio.Lock()
         self._use_aiosqlite = _HAS_AIOSQLITE
-        self._executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1)
+        self._executor: ThreadPoolExecutor | None = None
 
     # -- Internal helpers ---------------------------------------------------
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run a synchronous function in the private executor."""
+        executor = self._executor
+        if executor is None:
+            if self._db is None and self._use_aiosqlite:
+                # aiosqlite path never needs the executor; raise if called
+                # before initialize() or after close().
+                raise RuntimeError(
+                    "SQLiteStorage private executor is closed. "
+                    "Cannot dispatch work after close()."
+                )
+            executor = ThreadPoolExecutor(max_workers=1)
+            self._executor = executor
         loop = asyncio.get_running_loop()
         if kwargs:
             func = functools.partial(func, **kwargs)
-        return await loop.run_in_executor(self._executor, func, *args)
+        return await loop.run_in_executor(executor, func, *args)
 
     def _require_db(self) -> Any:
         """Return the active connection or raise if not initialised."""
@@ -355,8 +366,15 @@ class _SQLiteStorageBase:
         try:
             if self._use_aiosqlite:
                 async with self._async_write_lock:
-                    await db.execute(sql, params)
-                    await db.commit()
+                    try:
+                        await db.execute(sql, params)
+                        await db.commit()
+                    except BaseException:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
             else:
                 await self._run_in_thread(sync_write, db, self._lock, sql, params)
         except sqlite3.Error as exc:
@@ -368,9 +386,16 @@ class _SQLiteStorageBase:
         try:
             if self._use_aiosqlite:
                 async with self._async_write_lock:
-                    for sql, params in ops:
-                        await db.execute(sql, params)
-                    await db.commit()
+                    try:
+                        for sql, params in ops:
+                            await db.execute(sql, params)
+                        await db.commit()
+                    except BaseException:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
             else:
                 await self._run_in_thread(sync_write_batch, db, self._lock, ops)
         except sqlite3.IntegrityError as exc:

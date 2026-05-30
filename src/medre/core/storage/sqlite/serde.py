@@ -83,7 +83,7 @@ def _row_to_event(
 def _row_to_relation(row: dict[str, Any]) -> EventRelation:
     """Map an ``event_relations`` row to an :class:`EventRelation`."""
     target_native_ref: NativeRef | None = None
-    if row["target_native_adapter"]:
+    if row.get("target_native_adapter") and row.get("target_native_message_id"):
         target_native_ref = NativeRef(
             adapter=row["target_native_adapter"],
             native_channel_id=row["target_native_channel_id"],
@@ -160,7 +160,7 @@ def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
         meta: dict[str, Any] = (
             _decode_json(meta_raw) if isinstance(meta_raw, str) else {}
         )
-    except Exception:
+    except msgspec.DecodeError:
         meta = {}
     return DeliveryOutboxItem(
         outbox_id=row["outbox_id"],
