@@ -17,7 +17,7 @@ from medre.core.storage.backend import EventFilter
 from medre.core.storage.sqlite.query import _build_query_sql
 from medre.core.storage.sqlite.serde import _row_to_outbox_item, _row_to_relation
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.test_architectural_boundaries import _scan_dir_for_plain_imports
+from tests.helpers.import_scanner import scan_dir_for_plain_imports
 
 # ===================================================================
 # 1. Query builder limit validation
@@ -291,7 +291,7 @@ class TestPlainImportScanner:
         """`import medre.core.storage` should be flagged."""
         f = tmp_path / "catch_bare.py"
         f.write_text("import medre.core.storage\n")
-        violations = _scan_dir_for_plain_imports(
+        violations = scan_dir_for_plain_imports(
             tmp_path,
             ("medre.core.storage",),
         )
@@ -301,7 +301,7 @@ class TestPlainImportScanner:
         """`import medre.core.storage as s` should be flagged."""
         f = tmp_path / "catch_as.py"
         f.write_text("import medre.core.storage as s\n")
-        violations = _scan_dir_for_plain_imports(
+        violations = scan_dir_for_plain_imports(
             tmp_path,
             ("medre.core.storage",),
         )
@@ -311,7 +311,7 @@ class TestPlainImportScanner:
         """`import medre.core.storage.backend` should NOT be flagged."""
         f = tmp_path / "allow_submod.py"
         f.write_text("import medre.core.storage.backend\n")
-        violations = _scan_dir_for_plain_imports(
+        violations = scan_dir_for_plain_imports(
             tmp_path,
             ("medre.core.storage",),
         )
