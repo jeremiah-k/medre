@@ -376,6 +376,7 @@ class TestAppendQueuedToSentErrorPaths:
             adapter="m",
             native_channel_id="1",
             native_message_id="pkt",
+            delivery_plan_id="plan-001",
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -956,6 +957,7 @@ class TestDeterministicPlanIdCorrelation:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
+
 
 # ===================================================================
 # delivery_state transition guard at queued→sent (D)

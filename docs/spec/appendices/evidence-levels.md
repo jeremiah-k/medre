@@ -77,7 +77,7 @@ been tested and confirmed, it says so.
 ## 8. Pipeline Behaviour Evidence Coverage
 
 The following pipeline behaviours have S-tier test coverage (fake adapters,
-deterministic tests) as of the deterministic delivery plan identity tranche:
+deterministic tests) now covered:
 
 | Behaviour                                              | Test module(s)                                                                 | Tier |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------ | ---- |

@@ -347,7 +347,7 @@ The following behaviors have S-tier test coverage but lack R-tier (live endpoint
 
 6. **`capability_policy` field is reserved and unpopulated.** `RenderingContext.capability_policy` defaults to `None` and is not set by the current pipeline. No test exercises this field.
 
-7. **No live/hardware validation for deterministic plan IDs, suppression gates, retry lineage, or operator diagnostics.** All tests in the deterministic delivery plan identity tranche use fake adapters and synthetic configurations. No test validates these behaviours against real transport endpoints.
+7. **No live/hardware validation for deterministic plan IDs, suppression gates, retry lineage, or operator diagnostics.** All tests use fake adapters and synthetic configurations. No test validates these behaviours against real transport endpoints.
 
 ## 8. Deterministic Delivery Plan Identity and Suppression Semantics Conformance
 
