@@ -12,18 +12,14 @@ import logging
 import os
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator
-
-import msgspec
 
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
-    EventMetadata,
     EventRelation,
     NativeMessageRef,
-    NativeRef,
 )
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
@@ -31,6 +27,48 @@ from medre.core.storage.backend import (
     EventFilter,
     StorageError,
     StorageInitializationError,
+)
+from medre.core.storage.sqlite.connection import (
+    sync_create_indexes,
+    sync_open,
+    sync_open_readonly,
+    sync_read_all,
+    sync_read_one,
+    sync_write,
+    sync_write_batch,
+)
+from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
+from medre.core.storage.sqlite.query import _build_query_sql
+from medre.core.storage.sqlite.schema import (
+    _EXPECTED_SCHEMA_VERSION,
+    _INDEXES,
+    _REQUIRED_COLUMNS,
+    _SCHEMA,
+)
+from medre.core.storage.sqlite.serde import (
+    _add_seconds_iso,
+    _encode_json,
+    _now_iso,
+    _row_to_event,
+    _row_to_native_ref,
+    _row_to_outbox_item,
+    _row_to_receipt,
+    _row_to_relation,
+    _serialize_metadata,
+)
+from medre.core.storage.sqlite.statements import (
+    _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
+    _INSERT_EVENT,
+    _INSERT_NATIVE_REF,
+    _INSERT_RECEIPT,
+    _INSERT_RELATION,
+    _RESOLVE_NATIVE_REF,
+    _SELECT_EVENT,
+    _SELECT_NREFS_FOR_EVENT,
+    _SELECT_RECEIPTS_BY_REPLAY_RUN,
+    _SELECT_RECEIPTS_FOR_EVENT,
+    _SELECT_RECEIPTS_FOR_PLAN,
+    _SELECT_RELATIONS,
 )
 
 try:
@@ -42,642 +80,6 @@ except ImportError:
     _HAS_AIOSQLITE = False
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Outbox constants
-# ---------------------------------------------------------------------------
-
-#: Grace period (in seconds) before a ``queued`` outbox item is considered
-#: stale and eligible for reclaim by :meth:`claim_due_outbox_items`.  A
-#: conservative value avoids reclaiming items that are legitimately waiting
-#: in an adapter-local queue (e.g. Meshtastic) while still preventing
-#: permanently-stuck rows when the adapter never finalizes.
-STALE_QUEUED_GRACE_SECONDS: int = 300  # 5 minutes
-
-
-# ---------------------------------------------------------------------------
-# Schema DDL
-# ---------------------------------------------------------------------------
-
-_SCHEMA: str = """
-CREATE TABLE IF NOT EXISTS canonical_events (
-    event_id TEXT PRIMARY KEY,
-    event_kind TEXT NOT NULL,
-    schema_version INTEGER NOT NULL,
-    timestamp TEXT NOT NULL,
-    source_adapter TEXT NOT NULL,
-    source_transport_id TEXT NOT NULL,
-    source_channel_id TEXT,
-    parent_event_id TEXT,
-    lineage TEXT NOT NULL DEFAULT '[]',
-    payload TEXT NOT NULL DEFAULT '{}',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    depth INTEGER NOT NULL DEFAULT 0,
-    trace_id TEXT,
-    source_native_adapter TEXT,
-    source_native_channel_id TEXT,
-    source_native_message_id TEXT,
-    source_native_thread_id TEXT,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS event_relations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
-    relation_type TEXT NOT NULL,
-    target_event_id TEXT,
-    target_native_adapter TEXT,
-    target_native_channel_id TEXT,
-    target_native_message_id TEXT,
-    target_native_thread_id TEXT,
-    key TEXT,
-    fallback_text TEXT,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS native_message_refs (
-    id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
-    adapter TEXT NOT NULL,
-    native_channel_id TEXT,
-    native_message_id TEXT NOT NULL,
-    native_thread_id TEXT,
-    native_relation_id TEXT,
-    direction TEXT NOT NULL,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    UNIQUE(adapter, native_channel_id, native_message_id)
-);
-
-CREATE TABLE IF NOT EXISTS delivery_receipts (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-    receipt_id TEXT UNIQUE NOT NULL,
-    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
-    delivery_plan_id TEXT NOT NULL,
-    target_adapter TEXT NOT NULL,
-    target_channel TEXT,
-    route_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL,
-    error TEXT,
-    failure_kind TEXT,
-    adapter_message_id TEXT,
-    next_retry_at TEXT,
-    attempt_number INTEGER NOT NULL DEFAULT 1,
-    parent_receipt_id TEXT,
-    source TEXT NOT NULL DEFAULT 'live',
-    replay_run_id TEXT,
-    retry_max_attempts INTEGER,
-    retry_backoff_base REAL,
-    retry_max_delay REAL,
-    retry_jitter INTEGER,
-    rendering_evidence TEXT,
-    created_at TEXT NOT NULL
-);
-
--- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
--- target_channel) tuple, projecting the latest receipt via MAX(sequence).
--- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
--- are treated as the same group, avoiding duplicate rows when some receipts
--- have NULL and others have '' for target_channel.
--- Drop and recreate to ensure column shape stays current (e.g. when
--- rendering_evidence is added).
-DROP VIEW IF EXISTS delivery_status;
-CREATE VIEW delivery_status AS
-SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
-       dr.failure_kind,
-       dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id,
-       dr.retry_max_attempts, dr.retry_backoff_base,
-       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence, dr.created_at
-FROM delivery_receipts dr
-JOIN (
-    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
-) latest ON dr.sequence = latest.max_seq;
-
-CREATE TABLE IF NOT EXISTS delivery_outbox (
-    outbox_id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
-    route_id TEXT NOT NULL DEFAULT '',
-    delivery_plan_id TEXT NOT NULL,
-    target_adapter TEXT NOT NULL,
-    target_channel TEXT,
-    target_address TEXT,
-    attempt_number INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL DEFAULT 'pending',
-    failure_kind TEXT,
-    failure_kind_detail TEXT,
-    next_attempt_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_attempt_at TEXT,
-    locked_at TEXT,
-    lease_until TEXT,
-    worker_id TEXT,
-    payload_hash TEXT,
-    receipt_id TEXT,
-    parent_receipt_id TEXT,
-    error_summary TEXT,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
-);
-
-CREATE TABLE IF NOT EXISTS plugin_state (
-    plugin_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY(plugin_id, key)
-);
-
-CREATE TABLE IF NOT EXISTS _medre_schema_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-"""
-
-# Targeted indexes matching actual query patterns.
-# Run AFTER shape validation so that old-shape DBs fail with a clear
-# StorageInitializationError before index creation is attempted.
-# NOTE: native_message_refs(adapter, native_channel_id, native_message_id) is
-# already covered by the UNIQUE constraint autoindex; no manual duplicate needed.
-# NOTE: idx_nrefs_event_created replaces the older idx_nrefs_event_id.  The
-# composite (event_id, created_at) covers the WHERE + ORDER BY of
-# _SELECT_NREFS_FOR_EVENT and is a strict superset of the single-column index.
-# The DROP IF EXISTS handles databases created before this migration.
-_INDEXES: str = """
-CREATE INDEX IF NOT EXISTS idx_events_timestamp
-    ON canonical_events(timestamp, event_id);
-CREATE INDEX IF NOT EXISTS idx_relations_event_id
-    ON event_relations(event_id, id);
-DROP INDEX IF EXISTS idx_nrefs_event_id;
-CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
-    ON native_message_refs(event_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence);
-CREATE INDEX IF NOT EXISTS idx_receipts_event
-    ON delivery_receipts(event_id, sequence);
-CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
-    ON delivery_receipts(replay_run_id);
-CREATE INDEX IF NOT EXISTS idx_receipts_source
-    ON delivery_receipts(source, replay_run_id);
-CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
-    ON delivery_receipts(status, failure_kind, next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
-    ON delivery_receipts(parent_receipt_id, source);
-CREATE INDEX IF NOT EXISTS idx_outbox_due
-    ON delivery_outbox(status, next_attempt_at);
-CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
-    ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
-CREATE INDEX IF NOT EXISTS idx_outbox_event
-    ON delivery_outbox(event_id);
-CREATE INDEX IF NOT EXISTS idx_outbox_event_created
-    ON delivery_outbox(event_id, created_at, outbox_id);
--- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
--- index closes the gap: no two outbox items with NULL target_channel can
--- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
-    ON delivery_outbox(delivery_plan_id, target_adapter, attempt_number)
-    WHERE target_channel IS NULL;
-"""
-
-# ---------------------------------------------------------------------------
-# Schema versioning
-# ---------------------------------------------------------------------------
-
-_EXPECTED_SCHEMA_VERSION: int = 1
-"""Current storage schema version.
-
-During pre-release development this value stays at **1** — it is only bumped
-when the project curator explicitly declares a public compatibility boundary.
-Even so, the version is checked on every :meth:`SQLiteStorage.initialize` call
-to catch databases that were manually made incompatible (e.g. by an older
-pre-release build).  DDL shape changes during pre-release are handled by
-updating docs and tests directly; no automatic migrations are provided.
-"""
-
-# ---------------------------------------------------------------------------
-# Required column inventory  (derived from _SCHEMA DDL above)
-# ---------------------------------------------------------------------------
-
-_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
-    "canonical_events": frozenset(
-        {
-            "event_id",
-            "event_kind",
-            "schema_version",
-            "timestamp",
-            "source_adapter",
-            "source_transport_id",
-            "source_channel_id",
-            "parent_event_id",
-            "lineage",
-            "payload",
-            "metadata",
-            "depth",
-            "trace_id",
-            "source_native_adapter",
-            "source_native_channel_id",
-            "source_native_message_id",
-            "source_native_thread_id",
-            "created_at",
-        }
-    ),
-    "event_relations": frozenset(
-        {
-            "id",
-            "event_id",
-            "relation_type",
-            "target_event_id",
-            "target_native_adapter",
-            "target_native_channel_id",
-            "target_native_message_id",
-            "target_native_thread_id",
-            "key",
-            "fallback_text",
-            "metadata",
-            "created_at",
-        }
-    ),
-    "native_message_refs": frozenset(
-        {
-            "id",
-            "event_id",
-            "adapter",
-            "native_channel_id",
-            "native_message_id",
-            "native_thread_id",
-            "native_relation_id",
-            "direction",
-            "metadata",
-            "created_at",
-        }
-    ),
-    "delivery_receipts": frozenset(
-        {
-            "sequence",
-            "receipt_id",
-            "event_id",
-            "delivery_plan_id",
-            "target_adapter",
-            "target_channel",
-            "route_id",
-            "status",
-            "error",
-            "failure_kind",
-            "adapter_message_id",
-            "next_retry_at",
-            "attempt_number",
-            "parent_receipt_id",
-            "source",
-            "replay_run_id",
-            "retry_max_attempts",
-            "retry_backoff_base",
-            "retry_max_delay",
-            "retry_jitter",
-            "rendering_evidence",
-            "created_at",
-        }
-    ),
-    "delivery_outbox": frozenset(
-        {
-            "outbox_id",
-            "event_id",
-            "route_id",
-            "delivery_plan_id",
-            "target_adapter",
-            "target_channel",
-            "target_address",
-            "attempt_number",
-            "status",
-            "failure_kind",
-            "failure_kind_detail",
-            "next_attempt_at",
-            "created_at",
-            "updated_at",
-            "last_attempt_at",
-            "locked_at",
-            "lease_until",
-            "worker_id",
-            "payload_hash",
-            "receipt_id",
-            "parent_receipt_id",
-            "error_summary",
-            "metadata",
-        }
-    ),
-    "plugin_state": frozenset(
-        {
-            "plugin_id",
-            "key",
-            "value",
-            "updated_at",
-        }
-    ),
-    "_medre_schema_meta": frozenset(
-        {
-            "key",
-            "value",
-        }
-    ),
-}
-
-# ---------------------------------------------------------------------------
-# Prepared statements
-# ---------------------------------------------------------------------------
-
-_INSERT_EVENT = """
-INSERT INTO canonical_events
-    (event_id, event_kind, schema_version, timestamp,
-     source_adapter, source_transport_id, source_channel_id,
-     parent_event_id, lineage, payload, metadata, depth,
-     trace_id, source_native_adapter, source_native_channel_id,
-     source_native_message_id, source_native_thread_id,
-     created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_INSERT_RELATION = """
-INSERT INTO event_relations
-    (event_id, relation_type, target_event_id,
-     target_native_adapter, target_native_channel_id,
-     target_native_message_id, target_native_thread_id,
-     key, fallback_text,
-     metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_INSERT_NATIVE_REF = """
-INSERT OR IGNORE INTO native_message_refs
-    (id, event_id, adapter, native_channel_id,
-     native_message_id, native_thread_id, native_relation_id,
-     direction, metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_INSERT_RECEIPT = """
-INSERT INTO delivery_receipts
-    (receipt_id, event_id, delivery_plan_id, target_adapter,
-     target_channel, route_id, status, error, failure_kind, adapter_message_id,
-     next_retry_at, attempt_number, parent_receipt_id, source,
-     replay_run_id, retry_max_attempts, retry_backoff_base,
-     retry_max_delay, retry_jitter, rendering_evidence, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
-
-_SELECT_RELATIONS = "SELECT * FROM event_relations WHERE event_id = ? ORDER BY id ASC"
-
-_RESOLVE_NATIVE_REF = """
-SELECT event_id FROM native_message_refs
-WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
-"""
-
-_DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
-SELECT * FROM delivery_receipts
-WHERE delivery_plan_id = ? AND target_adapter = ?
-  AND target_channel IS ?
-ORDER BY attempt_number DESC, sequence DESC
-LIMIT 1
-"""
-
-_SELECT_RECEIPTS_FOR_PLAN = """
-SELECT * FROM delivery_receipts
-WHERE delivery_plan_id = ? AND target_adapter = ?
-ORDER BY attempt_number ASC, sequence ASC
-"""
-
-_SELECT_RECEIPTS_BY_REPLAY_RUN = """
-SELECT * FROM delivery_receipts
-WHERE replay_run_id = ?
-ORDER BY sequence ASC
-"""
-
-_SELECT_RECEIPTS_FOR_EVENT = """
-SELECT * FROM delivery_receipts
-WHERE event_id = ?
-ORDER BY sequence ASC
-"""
-
-_SELECT_NREFS_FOR_EVENT = """
-SELECT * FROM native_message_refs
-WHERE event_id = ?
-ORDER BY created_at ASC, id ASC
-"""
-
-
-# ---------------------------------------------------------------------------
-# Serialisation helpers
-# ---------------------------------------------------------------------------
-
-
-def _now_iso() -> str:
-    """Return the current UTC time as an ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _encode_json(value: Any) -> str:
-    """Encode a value as a JSON string for SQLite storage."""
-    return msgspec.json.encode(value).decode()
-
-
-def _decode_json(text: str) -> Any:
-    """Decode a JSON string from SQLite."""
-    return msgspec.json.decode(text)
-
-
-def _serialize_metadata(metadata: EventMetadata) -> str:
-    """Serialise an :class:`EventMetadata` instance to a JSON string."""
-    return msgspec.json.encode(metadata).decode()
-
-
-def _deserialize_metadata(raw: str) -> EventMetadata:
-    """Reconstruct an :class:`EventMetadata` from its JSON representation."""
-    return msgspec.json.decode(raw, type=EventMetadata)
-
-
-def _row_to_event(
-    row: dict[str, Any],
-    relations: list[EventRelation],
-) -> CanonicalEvent:
-    """Map a database row (plus pre-fetched relations) to a :class:`CanonicalEvent`."""
-    # Reconstruct source_native_ref from split nullable columns.
-    source_native_ref: NativeRef | None = None
-    if row.get("source_native_adapter") and row.get("source_native_message_id"):
-        source_native_ref = NativeRef(
-            adapter=row["source_native_adapter"],
-            native_channel_id=row.get("source_native_channel_id"),
-            native_message_id=row["source_native_message_id"],
-            native_thread_id=row.get("source_native_thread_id"),
-        )
-    return CanonicalEvent(
-        event_id=row["event_id"],
-        event_kind=row["event_kind"],
-        schema_version=row["schema_version"],
-        timestamp=datetime.fromisoformat(row["timestamp"]),
-        source_adapter=row["source_adapter"],
-        source_transport_id=row["source_transport_id"],
-        source_channel_id=row["source_channel_id"],
-        parent_event_id=row["parent_event_id"],
-        lineage=tuple(_decode_json(row["lineage"])),
-        relations=tuple(relations),
-        payload=_decode_json(row["payload"]),
-        metadata=_deserialize_metadata(row["metadata"]),
-        depth=row["depth"],
-        trace_id=row["trace_id"],
-        source_native_ref=source_native_ref,
-    )
-
-
-def _row_to_relation(row: dict[str, Any]) -> EventRelation:
-    """Map an ``event_relations`` row to an :class:`EventRelation`."""
-    target_native_ref: NativeRef | None = None
-    if row["target_native_adapter"]:
-        target_native_ref = NativeRef(
-            adapter=row["target_native_adapter"],
-            native_channel_id=row["target_native_channel_id"],
-            native_message_id=row["target_native_message_id"],
-            native_thread_id=row.get("target_native_thread_id"),
-        )
-    return EventRelation(
-        relation_type=row["relation_type"],  # type: ignore[arg-type]
-        target_event_id=row["target_event_id"],
-        target_native_ref=target_native_ref,
-        key=row["key"],
-        fallback_text=row["fallback_text"],
-        metadata=_decode_json(row["metadata"]),
-    )
-
-
-def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
-    """Map a ``delivery_receipts`` row to a :class:`DeliveryReceipt`."""
-    # Map SQLite INTEGER (0/1) to Python bool for retry_jitter.
-    raw_jitter = row.get("retry_jitter")
-    jitter_val: bool | None = None
-    if raw_jitter is not None:
-        jitter_val = bool(raw_jitter)
-    return DeliveryReceipt(
-        sequence=row["sequence"],
-        receipt_id=row["receipt_id"],
-        event_id=row["event_id"],
-        delivery_plan_id=row["delivery_plan_id"],
-        target_adapter=row["target_adapter"],
-        target_channel=row.get("target_channel"),
-        route_id=row.get("route_id", ""),
-        status=row["status"],  # type: ignore[arg-type]
-        error=row["error"],
-        failure_kind=row.get("failure_kind"),
-        adapter_message_id=row["adapter_message_id"],
-        next_retry_at=(
-            datetime.fromisoformat(row["next_retry_at"])
-            if row["next_retry_at"]
-            else None
-        ),
-        attempt_number=row.get("attempt_number", 1),
-        parent_receipt_id=row.get("parent_receipt_id"),
-        source=row.get("source", "live"),
-        replay_run_id=row.get("replay_run_id"),
-        retry_max_attempts=row.get("retry_max_attempts"),
-        retry_backoff_base=row.get("retry_backoff_base"),
-        retry_max_delay=row.get("retry_max_delay"),
-        retry_jitter=jitter_val,
-        rendering_evidence=row.get("rendering_evidence"),
-        created_at=datetime.fromisoformat(row["created_at"]),
-    )
-
-
-def _row_to_native_ref(row: dict[str, Any]) -> NativeMessageRef:
-    """Map a ``native_message_refs`` row to a :class:`NativeMessageRef`."""
-    return NativeMessageRef(
-        id=row["id"],
-        event_id=row["event_id"],
-        adapter=row["adapter"],
-        native_channel_id=row["native_channel_id"],
-        native_message_id=row["native_message_id"],
-        native_thread_id=row.get("native_thread_id"),
-        native_relation_id=row.get("native_relation_id"),
-        direction=row["direction"],
-        metadata=_decode_json(row["metadata"]) if row.get("metadata") else {},
-        created_at=datetime.fromisoformat(row["created_at"]),
-    )
-
-
-def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
-    """Map a ``delivery_outbox`` row to a :class:`DeliveryOutboxItem`."""
-    meta_raw = row.get("metadata", "{}")
-    try:
-        meta: dict[str, Any] = (
-            _decode_json(meta_raw) if isinstance(meta_raw, str) else {}
-        )
-    except Exception:
-        meta = {}
-    return DeliveryOutboxItem(
-        outbox_id=row["outbox_id"],
-        event_id=row["event_id"],
-        route_id=row.get("route_id", ""),
-        delivery_plan_id=row["delivery_plan_id"],
-        target_adapter=row["target_adapter"],
-        target_channel=row.get("target_channel"),
-        target_address=row.get("target_address"),
-        attempt_number=row.get("attempt_number", 1),
-        status=row.get("status", "pending"),
-        failure_kind=row.get("failure_kind"),
-        failure_kind_detail=row.get("failure_kind_detail"),
-        next_attempt_at=row.get("next_attempt_at"),
-        created_at=row.get("created_at"),
-        updated_at=row.get("updated_at"),
-        last_attempt_at=row.get("last_attempt_at"),
-        locked_at=row.get("locked_at"),
-        lease_until=row.get("lease_until"),
-        worker_id=row.get("worker_id"),
-        payload_hash=row.get("payload_hash"),
-        receipt_id=row.get("receipt_id"),
-        parent_receipt_id=row.get("parent_receipt_id"),
-        error_summary=row.get("error_summary"),
-        metadata=meta,
-    )
-
-
-def _add_seconds_iso(iso_str: str, seconds: int) -> str:
-    """Add *seconds* to an ISO-8601 string and return the new ISO string."""
-    try:
-        dt = datetime.fromisoformat(iso_str)
-    except (ValueError, TypeError):
-        return iso_str
-    return (dt + timedelta(seconds=seconds)).isoformat()
-
-
-def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
-    """Build a parameterised ``SELECT`` for ``canonical_events``."""
-    clauses: list[str] = []
-    params: list[Any] = []
-
-    if filt.event_kinds:
-        holders = ",".join("?" for _ in filt.event_kinds)
-        clauses.append(f"event_kind IN ({holders})")
-        params.extend(filt.event_kinds)
-
-    if filt.source_adapters:
-        holders = ",".join("?" for _ in filt.source_adapters)
-        clauses.append(f"source_adapter IN ({holders})")
-        params.extend(filt.source_adapters)
-
-    if filt.time_start:
-        clauses.append("timestamp >= ?")
-        params.append(filt.time_start.isoformat())
-
-    if filt.time_end:
-        clauses.append("timestamp <= ?")
-        params.append(filt.time_end.isoformat())
-
-    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"  # nosec: clauses are hardcoded field names, values via ? parameters
-    params.append(filt.limit)
-    return sql, tuple(params)
 
 
 # ---------------------------------------------------------------------------
@@ -753,7 +155,7 @@ class SQLiteStorage:
                 raise
             self._db = db
         else:
-            self._db = await asyncio.to_thread(self._sync_open)
+            self._db = await asyncio.to_thread(sync_open, self._db_path)
 
         try:
             # Verify schema version after DDL.
@@ -854,26 +256,7 @@ class SQLiteStorage:
             await self._db.executescript(_INDEXES)  # type: ignore[union-attr]
             await self._db.commit()  # type: ignore[union-attr]
         else:
-            await asyncio.to_thread(self._sync_create_indexes)
-
-    def _sync_create_indexes(self) -> None:
-        """Synchronous counterpart of :meth:`_create_indexes`."""
-        db = self._require_db()
-        db.executescript(_INDEXES)
-        db.commit()
-
-    def _sync_open(self) -> sqlite3.Connection:
-        """Synchronous counterpart of :meth:`initialize` for the fallback path."""
-        db = sqlite3.connect(self._db_path, check_same_thread=False)
-        try:
-            db.row_factory = sqlite3.Row
-            db.executescript(_SCHEMA)
-            db.execute("PRAGMA journal_mode=WAL")
-            db.commit()
-        except BaseException:
-            db.close()
-            raise
-        return db
+            await asyncio.to_thread(sync_create_indexes, self._require_db())
 
     @classmethod
     async def open_readonly(cls, db_path: str) -> SQLiteStorage:
@@ -911,7 +294,9 @@ class SQLiteStorage:
                 raise
             instance._db = db
         else:
-            instance._db = await asyncio.to_thread(instance._sync_open_readonly)
+            instance._db = await asyncio.to_thread(
+                sync_open_readonly, instance._db_path
+            )
 
         try:
             # Validate metadata and shape without writing anything.
@@ -928,20 +313,6 @@ class SQLiteStorage:
             raise
 
         return instance
-
-    def _sync_open_readonly(self) -> sqlite3.Connection:
-        """Synchronous counterpart of :meth:`open_readonly`."""
-        db = sqlite3.connect(
-            f"file:{self._db_path}?mode=ro",
-            uri=True,
-            check_same_thread=False,
-        )
-        try:
-            db.row_factory = sqlite3.Row
-        except BaseException:
-            db.close()
-            raise
-        return db
 
     async def _verify_schema_version_readonly(self) -> None:
         """Check schema version without writing.
@@ -1087,18 +458,6 @@ class SQLiteStorage:
         )
         return row["cnt"] if row else 0
 
-    def _sync_close(self, db: sqlite3.Connection) -> None:
-        """Close a synchronous connection (called from a worker thread).
-
-        Acquires ``self._lock`` to avoid closing the connection while a
-        synchronous write or read is in progress on the same connection
-        object.  Without the lock, ``db.close()`` can race with
-        ``db.execute()`` in another thread, producing a use-after-free
-        crash in SQLite's C extension.
-        """
-        with self._lock:
-            db.close()
-
     # -- Read / write primitives --------------------------------------------
 
     async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None:
@@ -1110,7 +469,7 @@ class SQLiteStorage:
                     await db.execute(sql, params)
                     await db.commit()
             else:
-                await asyncio.to_thread(self._sync_write, db, sql, params)
+                await asyncio.to_thread(sync_write, db, self._lock, sql, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
@@ -1124,7 +483,7 @@ class SQLiteStorage:
                         await db.execute(sql, params)
                     await db.commit()
             else:
-                await asyncio.to_thread(self._sync_write_batch, db, ops)
+                await asyncio.to_thread(sync_write_batch, db, self._lock, ops)
         except sqlite3.IntegrityError as exc:
             msg = str(exc)
             # Only raise DuplicateEventError for canonical_events PK/UNIQUE
@@ -1149,7 +508,9 @@ class SQLiteStorage:
                     row = await cur.fetchone()
                 return dict(row) if row else None
             else:
-                return await asyncio.to_thread(self._sync_read_one, db, sql, params)
+                return await asyncio.to_thread(
+                    sync_read_one, db, self._lock, sql, params
+                )
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
@@ -1164,41 +525,11 @@ class SQLiteStorage:
                     rows = await cur.fetchall()
                 return [dict(r) for r in rows]
             else:
-                return await asyncio.to_thread(self._sync_read_all, db, sql, params)
+                return await asyncio.to_thread(
+                    sync_read_all, db, self._lock, sql, params
+                )
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
-
-    # -- Synchronous I/O helpers (called inside worker threads) -------------
-
-    def _sync_write(
-        self, db: sqlite3.Connection, sql: str, params: tuple[Any, ...]
-    ) -> None:
-        with self._lock:
-            db.execute(sql, params)
-            db.commit()
-
-    def _sync_write_batch(
-        self,
-        db: sqlite3.Connection,
-        ops: list[tuple[str, tuple[Any, ...]]],
-    ) -> None:
-        with self._lock:
-            for sql, params in ops:
-                db.execute(sql, params)
-            db.commit()
-
-    def _sync_read_one(
-        self, db: sqlite3.Connection, sql: str, params: tuple[Any, ...]
-    ) -> dict[str, Any] | None:
-        with self._lock:
-            row = db.execute(sql, params).fetchone()
-            return dict(row) if row else None
-
-    def _sync_read_all(
-        self, db: sqlite3.Connection, sql: str, params: tuple[Any, ...]
-    ) -> list[dict[str, Any]]:
-        with self._lock:
-            return [dict(r) for r in db.execute(sql, params).fetchall()]
 
     # -- Event CRUD ---------------------------------------------------------
 

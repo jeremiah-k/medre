@@ -24,7 +24,7 @@ from medre.core.storage.backend import (
     StorageGuarantees,
     StorageInitializationError,
 )
-from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 __all__ = [
     "DeliveryOutboxItem",
