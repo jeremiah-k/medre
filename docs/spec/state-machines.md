@@ -372,3 +372,35 @@ The `delivery_state` module follows these constraints:
    creation.
 4. Outbox items in terminal statuses MUST NOT have outgoing transitions.
 5. Implicit suppression paths (§3.4) MUST NOT produce `DeliveryReceipt` rows.
+
+## 6. Startup Ownership of Persisted State
+
+### 6.1 Persisted State Machines
+
+The two persisted state machines that survive across process restarts are:
+
+1. **Outbox items** (`delivery_outbox`): mutable operational state with status transitions.
+2. **Delivery receipts** (`delivery_receipts`): append-only evidence trail.
+
+Receipts are never updated or deleted. Outbox items transition through the statuses defined in §2.1. Both are stored in SQLite and survive process crashes and graceful shutdowns.
+
+### 6.2 Startup Ownership Rules
+
+When the runtime starts, it reclaims ownership of non-terminal outbox items according to their status:
+
+| Outbox status at startup | Startup ownership action                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                         |
+| `retry_wait`             | Due retry receipts discovered by `RetryWorker` when `next_retry_at` has passed. Otherwise waits.              |
+| `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry.     |
+| `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.             |
+| `sent`                   | Terminal. No startup action.                                                                                  |
+| `dead_lettered`          | Terminal. No startup action.                                                                                  |
+| `cancelled`              | Terminal. No startup action.                                                                                  |
+| `abandoned`              | Terminal. No startup action.                                                                                  |
+
+Startup does not block on convergence diagnostics. Non-terminal items are reclaimed lazily through the normal `claim_due_outbox_items()` path, not by a startup-time state sweep.
+
+### 6.3 Recovery Convergence and Startup
+
+Convergence diagnostics (see Diagnostics and Evidence Specification §21) are read-only projections derived from outbox and receipt state. They do not drive startup behavior. The runtime does not block, delay, or modify startup sequencing based on convergence severity. Operators inspect convergence diagnostics output after startup to identify and manually address state discrepancies.

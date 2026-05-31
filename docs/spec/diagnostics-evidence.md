@@ -590,6 +590,7 @@ When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_r
 | ------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Supplemental `sent` receipt     | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated and finalized                                       |
 | No supplemental receipt created | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                         |
+| Replay-only skip warning        | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation  |
 | Ambiguity warning               | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt  |
 | Legacy degraded path applied    | `append_queued_to_sent_receipt` | `delivery_plan_id` was `None`; fallback to adapter match with plan_id and channel uniformity   |
 | Same-channel latest-wins        | `append_queued_to_sent_receipt` | Unambiguous retry lineage: same plan_id, same target_channel; latest appended receipt selected |
@@ -603,6 +604,7 @@ When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_r
 5. All ambiguous correlation skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
 6. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
 7. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
+8. When all matching queued receipt candidates are replay-sourced (`source="replay"`), the pipeline MUST NOT create a supplemental sent receipt, MUST NOT transition the outbox from `queued` to `sent`, and MUST log a warning. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation. This restriction applies to both single-candidate and multi-candidate paths. It MAY be relaxed in a future version when callback records carry trusted replay provenance.
 
 ## 16. Evidence Bundle Model
 
@@ -627,6 +629,7 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 | `evidence_tier`           | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
 | `delivery_outcome_ledger` | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
 | `retry_outbox_summary`    | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
+| `convergence_summary`     | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).             |
 
 ### 16.3 ReceiptSummary
 
@@ -903,3 +906,132 @@ Classification rules:
   `resume_on_restart=True`. The item is preserved for restart recovery.
 - **Terminal** (`sent`, `dead_lettered`, `cancelled`, `abandoned`):
   `resume_on_restart=False`. The item is already final.
+
+## 21. Recovery Convergence Diagnostics
+
+### 21.1 Purpose
+
+Recovery convergence diagnostics classify the state of every delivery target by cross-referencing persisted outbox item statuses against delivery receipt statuses. The diagnostics model is **pure** and **read-only**: no storage I/O, no state mutation, no side effects. It is a detection-only system. It does not repair corrupted lineage, does not block startup, and does not write corrective state.
+
+### 21.2 Persisted State Machines
+
+The persisted state machines for convergence diagnostics are the **outbox items** and **delivery receipts** already stored in SQLite. Convergence diagnostics introduce no new storage schema. They derive their results from existing outbox and receipt rows at query time.
+
+### 21.3 Convergence Severity Values
+
+Every delivery target is classified into exactly one of three severity levels:
+
+| Severity       | Semantics                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| `safe`         | Outbox and latest receipt agree on a terminal state, or only one source exists and is terminal.       |
+| `degraded`     | Non-terminal outbox with a `failed` receipt (work stalled, retry expected), or mid-flight state.       |
+| `inconsistent` | Terminal outbox with non-terminal receipt, or non-terminal outbox with terminal receipt `sent`/`suppressed`. Status mismatch that cannot be explained by normal flow. |
+
+Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` field on the aggregate summary reflects the highest severity across all targets.
+
+### 21.4 Classification Rules
+
+Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`. Within each group, the latest receipt is selected deterministically by `(attempt_number DESC, sequence DESC, created_at DESC, receipt_id DESC)`.
+
+**`safe`** classification:
+
+1. Both outbox and receipt terminal with matching statuses.
+2. Both outbox and receipt terminal with different statuses (both agree work is done, warning emitted).
+3. Receipt-only terminal evidence (explicit warning emitted).
+4. Terminal outbox without receipt (e.g. `cancelled`, `abandoned`).
+5. No outbox, no receipt, no `delivery_plan_id` (trivial case).
+
+**`degraded`** classification:
+
+1. Non-terminal outbox (`pending`, `retry_wait`) with a `failed` receipt (work stalled, retry expected).
+2. `in_progress`/`queued` outbox without any receipt (mid-flight, receipt not yet written).
+3. Missing `delivery_plan_id` with outbox or receipt data present.
+4. Non-terminal outbox with `dead_lettered` receipt (outbox retry may produce a different outcome).
+5. Non-terminal outbox with `queued` receipt (in flight).
+6. Receipt-only non-terminal with no outbox.
+
+**`inconsistent`** classification:
+
+1. Terminal outbox but latest receipt is non-terminal.
+2. Non-terminal outbox but latest receipt is terminal `sent` or `suppressed`.
+
+### 21.5 Detection-Only Policy
+
+The convergence diagnostics system is detection-only. It MUST NOT:
+
+1. Repair or mutate outbox items or receipts.
+2. Block or delay runtime startup.
+3. Write corrective state to storage.
+4. Perform automatic remediation of any kind.
+
+Operators use convergence diagnostics output to identify and manually address state discrepancies.
+
+### 21.6 Public Data Models
+
+**`ConvergenceSummary`**: Aggregate summary across all delivery targets for one event.
+
+| Field                  | Type              | Semantics                                                                                     |
+| ---------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `severity_counts`      | `dict[str, int]`  | Count of targets per severity (`safe`, `degraded`, `inconsistent`).                           |
+| `targets`              | `tuple[DTConv,…]` | Per-target convergence results, sorted by group key.                                          |
+| `total_targets`        | `int`             | Total unique delivery targets examined.                                                       |
+| `worst_severity`       | `str or None`     | Worst severity across all targets, or `None` if no targets.                                   |
+| `warnings`             | `tuple[str, …]`   | Aggregate diagnostic messages.                                                                |
+| `orphan_count`         | `int or None`     | Reserved. `None` until orphan SQL integration.                                                |
+| `evidence_bundle_ref`  | `str or None`     | Reserved. `None` until cross-reference integration.                                           |
+
+**`DeliveryTargetConvergence`**: Per-target convergence result.
+
+| Field                    | Type              | Semantics                                                                  |
+| ------------------------ | ----------------- | -------------------------------------------------------------------------- |
+| `delivery_plan_id`       | `str`             | Grouping key. Empty string when absent.                                    |
+| `target_adapter`         | `str`             | Adapter name.                                                              |
+| `target_channel`         | `str or None`     | Channel identifier.                                                        |
+| `outbox_status`          | `str or None`     | Outbox item status, or `None` if no outbox item.                           |
+| `latest_receipt_status`  | `str or None`     | Latest receipt status, or `None` if no receipt.                            |
+| `latest_receipt_id`      | `str or None`     | Latest receipt ID.                                                         |
+| `latest_attempt_number`  | `int or None`     | Latest receipt attempt number.                                             |
+| `severity`               | `str`             | One of `safe`, `degraded`, `inconsistent`.                                 |
+| `warnings`               | `tuple[str, …]`   | Per-target diagnostic messages.                                            |
+| `outbox_id`              | `str or None`     | Outbox item ID.                                                            |
+
+### 21.7 Per-Event Convergence in Evidence Bundles
+
+The `EvidenceCollector` includes a `convergence_summary` field on each per-event `EvidenceBundle`. This field is derived from the event's receipts and outbox items using `build_convergence_summary()`. The field is `None` when no convergence data is available. The JSON schema for `EvidenceBundle` defines this as an optional `ConvergenceSummary` (see `evidence-bundle.schema.json`).
+
+### 21.8 Orphan and Invalid-Lineage Detection
+
+The `build_orphan_report()` function detects orphaned and invalid-lineage records from receipt and outbox snapshots. Like convergence diagnostics, it is pure and read-only.
+
+**Finding kinds:**
+
+| Kind                                 | Severity       | Record type | Condition                                                                                                   |
+| ------------------------------------ | -------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `orphaned_outbox`                    | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from supplied `known_event_ids`.                       |
+| `orphaned_parent_receipt`            | `inconsistent` | receipt     | Receipt with `parent_receipt_id` that does not exist in the receipt set.                                    |
+| `cross_plan_parent`                  | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                             |
+| `cross_event_parent`                 | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                     |
+| `missing_delivery_plan_id`           | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                            |
+| `dead_lettered_retryable_mismatch`   | `degraded`     | outbox      | `dead_lettered` outbox item whose latest receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
+
+Findings are sorted deterministically by `(kind, record_id)`.
+
+**`OrphanReport`** aggregate fields:
+
+| Field             | Type              | Semantics                                                |
+| ----------------- | ----------------- | -------------------------------------------------------- |
+| `findings`        | `tuple[OF, …]`    | Individual findings, sorted deterministically.           |
+| `total_findings`  | `int`             | Total findings.                                          |
+| `severity_counts` | `dict[str, int]`  | Count per severity.                                      |
+| `worst_severity`  | `str or None`     | Worst severity, or `None` if empty.                      |
+| `summary`         | `str`             | Human-readable one-line summary.                         |
+
+### 21.9 Normative Requirements
+
+1. The `build_convergence_summary()` function MUST be pure: no I/O, no state mutation, no storage access.
+2. The `build_orphan_report()` function MUST be pure: no I/O, no state mutation, no storage access.
+3. Convergence severity values MUST be exactly `safe`, `degraded`, `inconsistent`. No other values are valid.
+4. Orphan finding kinds MUST be exactly the six kinds listed in §21.8.
+5. The diagnostics system MUST NOT repair, mutate, or block startup based on convergence findings.
+6. The `convergence_summary` field on `EvidenceBundle` MUST be populated from the event's receipts and outbox items during collection.
+7. Convergence results MUST be JSON-safe and deterministic for identical inputs.

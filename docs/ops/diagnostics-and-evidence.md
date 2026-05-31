@@ -636,6 +636,84 @@ No Matrix transport beyond Docker localhost has been validated. No Meshtastic, M
 | Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
 | Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound              |
 
+## Convergence Diagnostics
+
+The evidence bundle includes a `convergence_summary` for each event that classifies every delivery target's state by cross-referencing outbox and receipt statuses.
+
+### Reading Convergence Output
+
+The convergence summary has three fields to check first:
+
+| Field             | What to look for                                                            |
+| ----------------- | --------------------------------------------------------------------------- |
+| `worst_severity`  | If `"inconsistent"`, investigate the targets with that severity.            |
+| `severity_counts` | How many targets at each level. Any non-zero `inconsistent` count needs attention. |
+| `targets`         | Per-target details with `outbox_status`, `latest_receipt_status`, and `warnings`. |
+
+### Per-Target Details
+
+Each target in the convergence summary includes:
+
+- `delivery_plan_id`, `target_adapter`, `target_channel`: identifies the delivery target.
+- `outbox_status`: the outbox item status (or `null` if no outbox item).
+- `latest_receipt_status`: the highest-authority receipt status (or `null` if no receipt).
+- `severity`: `safe`, `degraded`, or `inconsistent`.
+- `warnings`: human-readable messages explaining why this severity was assigned.
+
+### Operator Actions by Severity
+
+#### `safe`
+
+No action needed. Outbox and receipts agree on the delivery state.
+
+#### `degraded`
+
+Work is stalled or mid-flight. This is normal for recent events during startup recovery. If degraded persists well after startup, check whether:
+
+- The RetryWorker is enabled and processing due retry receipts.
+- `claim_due_outbox_items()` is reclaiming expired leases and stale queued items.
+- The adapter is connected and accepting deliveries.
+
+#### `inconsistent`
+
+State mismatch that cannot be explained by normal flow. Investigate the specific target:
+
+1. Check the receipt chain for the `delivery_plan_id`:
+   ```sql
+   SELECT receipt_id, status, attempt_number, failure_kind, created_at
+   FROM delivery_receipts
+   WHERE delivery_plan_id = '<plan_id>'
+   ORDER BY attempt_number;
+   ```
+
+2. Check the outbox item status:
+   ```sql
+   SELECT outbox_id, status, attempt_number, updated_at
+   FROM delivery_outbox
+   WHERE delivery_plan_id = '<plan_id>';
+   ```
+
+3. Determine whether the outbox or receipt is the stale record. The outbox is the operational authority for current state; receipts are the immutable evidence trail.
+
+4. If the outbox is stale (terminal but receipt shows non-terminal), consider replaying the event after resolving the underlying cause.
+
+5. If the receipt is stale (non-terminal but outbox is terminal), the delivery likely completed successfully and the receipt chain may be incomplete.
+
+### Orphan and Lineage Findings
+
+The convergence system also detects orphaned and invalid-lineage records when supplied with an event catalogue:
+
+| Finding kind                         | What it means                                                                        | What to do                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `orphaned_outbox`                    | Outbox item references an event that no longer exists.                               | Cancel or abandon the orphaned outbox row if the event was intentionally deleted.                       |
+| `orphaned_parent_receipt`            | Receipt references a parent receipt that does not exist.                             | Check for data loss. The receipt lineage is broken.                                                      |
+| `cross_plan_parent`                  | Receipt's parent belongs to a different delivery plan.                               | Retry lineage crossed plan boundaries. Investigate the delivery chain.                                   |
+| `cross_event_parent`                 | Receipt's parent belongs to a different event.                                       | Retry lineage crossed event boundaries. Investigate the delivery chain.                                  |
+| `missing_delivery_plan_id`           | Retry receipt has no delivery plan ID.                                               | The retry may resolve on its own. Check the original delivery.                                           |
+| `dead_lettered_retryable_mismatch`   | Outbox is dead-lettered but latest receipt is non-terminal.                          | The item might still be retryable. Consider replay if the underlying failure cause is resolved.         |
+
+All findings are detection-only. No automatic repair occurs.
+
 ## See Also
 
 - [recovery-and-replay.md](recovery-and-replay.md) — crash recovery, orphan detection, replay modes

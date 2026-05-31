@@ -978,6 +978,7 @@ class TestToDictDefensiveCopy:
         d["outbox_items"][0]["meta"]["y"] = 999
 
         # Original bundle fields are unchanged.
+        assert bundle.event_summary is not None
         assert bundle.event_summary["event_kind"] == "message.created"
         assert bundle.event_summary["payload_keys"] == ["body"]
         assert bundle.native_refs[0]["adapter"] == "a"
@@ -1012,3 +1013,301 @@ class TestToDictDefensiveCopy:
         assert orig is not None
         assert orig["key"] == "value"
         assert orig["nested"]["a"] == 1
+
+
+# ===========================================================================
+# J: Convergence summary in collected bundles
+# ===========================================================================
+
+
+class TestConvergenceSummarySafeEvent:
+    """collect_for_event produces convergence_summary with worst_severity=safe
+    when all delivery targets are in terminal consistent states."""
+
+    @pytest.mark.asyncio
+    async def test_safe_convergence_summary(self) -> None:
+        receipt = _make_receipt(
+            "rcpt-conv-safe",
+            event_id="evt-conv-safe",
+            status="sent",
+            delivery_plan_id="plan-conv",
+        )
+        outbox = _make_outbox_item(
+            event_id="evt-conv-safe",
+            outbox_id="ob-conv-safe",
+            target_adapter="adapter_a",
+            status="sent",
+        )
+        # Override delivery_plan_id to match receipt grouping key.
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-conv-safe",
+            event_id="evt-conv-safe",
+            route_id="route-1",
+            delivery_plan_id="plan-conv",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="sent",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-safe",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-safe")
+
+        assert bundle.convergence_summary is not None
+        cs = bundle.convergence_summary
+        assert cs["total_targets"] == 1
+        assert cs["worst_severity"] == "safe"
+        assert cs["severity_counts"]["safe"] == 1
+        assert cs["severity_counts"]["degraded"] == 0
+        assert cs["severity_counts"]["inconsistent"] == 0
+        assert len(cs["targets"]) == 1
+        assert cs["targets"][0]["severity"] == "safe"
+        assert cs["targets"][0]["outbox_status"] == "sent"
+        assert cs["targets"][0]["latest_receipt_status"] == "sent"
+
+    @pytest.mark.asyncio
+    async def test_safe_convergence_json_safe(self) -> None:
+        """convergence_summary is JSON-safe within the full bundle."""
+        receipt = _make_receipt(
+            "rcpt-conv-json",
+            event_id="evt-conv-json",
+            status="sent",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-json",
+            receipts=[receipt],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-json")
+
+        d = bundle.to_dict()
+        json_str = json.dumps(d, sort_keys=True)
+        parsed = json.loads(json_str)
+        assert parsed["convergence_summary"]["worst_severity"] == "safe"
+
+
+class TestConvergenceSummaryDegradedEvent:
+    """collect_for_event produces convergence_summary with degraded severity
+    for non-terminal states (pending outbox, failed receipt)."""
+
+    @pytest.mark.asyncio
+    async def test_degraded_convergence_pending_outbox(self) -> None:
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-conv-deg",
+            event_id="evt-conv-deg",
+            route_id="route-1",
+            delivery_plan_id="plan-deg",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        receipt = _make_receipt(
+            "rcpt-conv-deg",
+            event_id="evt-conv-deg",
+            status="failed",
+            delivery_plan_id="plan-deg",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-deg",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-deg")
+
+        assert bundle.convergence_summary is not None
+        cs = bundle.convergence_summary
+        assert cs["worst_severity"] == "degraded"
+        assert cs["severity_counts"]["degraded"] == 1
+        assert cs["targets"][0]["severity"] == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_degraded_in_progress_no_receipt(self) -> None:
+        """Outbox in_progress with no receipt → degraded."""
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-conv-ip",
+            event_id="evt-conv-ip",
+            route_id="route-1",
+            delivery_plan_id="plan-ip",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="in_progress",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-ip",
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-ip")
+
+        assert bundle.convergence_summary is not None
+        assert bundle.convergence_summary["worst_severity"] == "degraded"
+
+
+class TestConvergenceSummaryInconsistentEvent:
+    """collect_for_event produces convergence_summary with inconsistent severity
+    for unreconcilable state mismatches."""
+
+    @pytest.mark.asyncio
+    async def test_inconsistent_terminal_outbox_non_terminal_receipt(self) -> None:
+        receipt = _make_receipt(
+            "rcpt-conv-inc",
+            event_id="evt-conv-inc",
+            status="queued",
+            delivery_plan_id="plan-inc",
+        )
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-conv-inc",
+            event_id="evt-conv-inc",
+            route_id="route-1",
+            delivery_plan_id="plan-inc",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="sent",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-inc",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-inc")
+
+        assert bundle.convergence_summary is not None
+        cs = bundle.convergence_summary
+        assert cs["worst_severity"] == "inconsistent"
+        assert cs["severity_counts"]["inconsistent"] == 1
+        target = cs["targets"][0]
+        assert target["severity"] == "inconsistent"
+        assert target["outbox_status"] == "sent"
+        assert target["latest_receipt_status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_inconsistent_non_terminal_outbox_sent_receipt(self) -> None:
+        """Pending outbox but sent receipt → inconsistent."""
+        receipt = _make_receipt(
+            "rcpt-conv-inc2",
+            event_id="evt-conv-inc2",
+            status="sent",
+            delivery_plan_id="plan-inc2",
+        )
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-conv-inc2",
+            event_id="evt-conv-inc2",
+            route_id="route-1",
+            delivery_plan_id="plan-inc2",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-inc2",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-inc2")
+
+        assert bundle.convergence_summary is not None
+        assert bundle.convergence_summary["worst_severity"] == "inconsistent"
+
+
+class TestConvergenceSummaryEmptyEvent:
+    """collect_for_event produces convergence_summary even with no data
+    (empty summary with total_targets=0, worst_severity=None)."""
+
+    @pytest.mark.asyncio
+    async def test_empty_convergence_summary(self) -> None:
+        storage = _populated_fake(event_id="evt-conv-empty")
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-empty")
+
+        assert bundle.convergence_summary is not None
+        cs = bundle.convergence_summary
+        assert cs["total_targets"] == 0
+        assert cs["worst_severity"] is None
+        assert cs["targets"] == []
+        assert cs["severity_counts"] == {"safe": 0, "degraded": 0, "inconsistent": 0}
+
+    @pytest.mark.asyncio
+    async def test_empty_convergence_json_safe(self) -> None:
+        storage = _populated_fake(event_id="evt-conv-empty2")
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-empty2")
+
+        d = bundle.to_dict()
+        json_str = json.dumps(d, sort_keys=True)
+        parsed = json.loads(json_str)
+        assert parsed["convergence_summary"]["total_targets"] == 0
+
+
+class TestConvergenceSummaryMultipleTargets:
+    """Multiple delivery targets produce independent convergence results."""
+
+    @pytest.mark.asyncio
+    async def test_mixed_severity_targets(self) -> None:
+        r_safe = _make_receipt(
+            "rcpt-safe",
+            event_id="evt-conv-mix",
+            delivery_plan_id="plan-safe",
+            target_adapter="adapter_a",
+            status="sent",
+            sequence=1,
+        )
+        r_inc = _make_receipt(
+            "rcpt-inc",
+            event_id="evt-conv-mix",
+            delivery_plan_id="plan-inc",
+            target_adapter="adapter_b",
+            status="sent",
+            sequence=2,
+        )
+        ob_safe = DeliveryOutboxItem(
+            outbox_id="ob-safe",
+            event_id="evt-conv-mix",
+            route_id="route-1",
+            delivery_plan_id="plan-safe",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="sent",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        ob_inc = DeliveryOutboxItem(
+            outbox_id="ob-inc",
+            event_id="evt-conv-mix",
+            route_id="route-1",
+            delivery_plan_id="plan-inc",
+            target_adapter="adapter_b",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-conv-mix",
+            receipts=[r_safe, r_inc],
+            outbox_items=[ob_safe, ob_inc],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-conv-mix")
+
+        cs = bundle.convergence_summary
+        assert cs is not None
+        assert cs["total_targets"] == 2
+        assert cs["severity_counts"]["safe"] == 1
+        assert cs["severity_counts"]["inconsistent"] == 1
+        assert cs["worst_severity"] == "inconsistent"

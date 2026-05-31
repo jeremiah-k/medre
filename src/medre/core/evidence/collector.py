@@ -27,6 +27,7 @@ from medre.core.evidence.retry_outbox import (
     build_retry_outbox_summary,
 )
 from medre.core.evidence.tiers import infer_evidence_tier
+from medre.core.diagnostics.convergence import build_convergence_summary
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
@@ -373,6 +374,13 @@ class EvidenceCollector:
         )
         retry_outbox_dict = _retry_outbox_summary_to_dict(retry_outbox_summary_obj)
 
+        # -- Convergence diagnostics (pure, from receipts + outbox) -----------
+        convergence_summary_obj = build_convergence_summary(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        convergence_dict = convergence_summary_obj.to_dict()
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -387,4 +395,5 @@ class EvidenceCollector:
             evidence_tier=evidence_tier,
             delivery_outcome_ledger=delivery_outcome_ledger,
             retry_outbox_summary=retry_outbox_dict,
+            convergence_summary=convergence_dict,
         )

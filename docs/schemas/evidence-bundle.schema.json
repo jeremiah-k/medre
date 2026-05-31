@@ -94,6 +94,10 @@
       "description": "Runtime shutdown/cancellation evidence extracted from diagnostics, or null.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ShutdownEvidence" }]
     },
+    "convergence_summary": {
+      "description": "Per-event convergence diagnostics summary derived from delivery receipts and outbox items, or null.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ConvergenceSummary" }]
+    },
     "status": {
       "type": "string",
       "enum": ["passed", "partial", "error"],
@@ -337,6 +341,119 @@
         }
       },
       "required": ["status", "error", "data"]
+    },
+    "ConvergenceSummary": {
+      "title": "ConvergenceSummary",
+      "description": "Aggregate convergence summary across all delivery targets for a single event.",
+      "type": "object",
+      "properties": {
+        "evidence_bundle_ref": {
+          "type": ["string", "null"],
+          "description": "Reserved cross-reference to the evidence bundle. Currently null."
+        },
+        "orphan_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Count of orphan records. Currently null until orphan SQL integration."
+        },
+        "severity_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "description": "Count of targets per severity level (safe, degraded, inconsistent)."
+        },
+        "targets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DeliveryTargetConvergence" },
+          "description": "Per-target convergence results, deterministically sorted by group key."
+        },
+        "total_targets": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of unique delivery targets examined."
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Aggregate diagnostic messages."
+        },
+        "worst_severity": {
+          "type": ["string", "null"],
+          "enum": ["safe", "degraded", "inconsistent", null],
+          "description": "The worst convergence severity across all targets, or null if no targets."
+        }
+      },
+      "required": [
+        "evidence_bundle_ref",
+        "orphan_count",
+        "severity_counts",
+        "targets",
+        "total_targets",
+        "warnings",
+        "worst_severity"
+      ],
+      "additionalProperties": false
+    },
+    "DeliveryTargetConvergence": {
+      "title": "DeliveryTargetConvergence",
+      "description": "Convergence state for a single delivery target.",
+      "type": "object",
+      "properties": {
+        "delivery_plan_id": {
+          "type": "string",
+          "description": "Delivery plan grouping key. Empty string when absent."
+        },
+        "target_adapter": {
+          "type": "string",
+          "description": "Adapter name."
+        },
+        "target_channel": {
+          "type": ["string", "null"],
+          "description": "Channel identifier or null."
+        },
+        "outbox_status": {
+          "type": ["string", "null"],
+          "description": "Status of the outbox item, or null if no outbox item."
+        },
+        "latest_receipt_status": {
+          "type": ["string", "null"],
+          "description": "Status of the latest receipt, or null if no receipt."
+        },
+        "latest_receipt_id": {
+          "type": ["string", "null"],
+          "description": "Receipt ID of the latest receipt, or null."
+        },
+        "latest_attempt_number": {
+          "type": ["integer", "null"],
+          "description": "Attempt number from the latest receipt, or null."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["safe", "degraded", "inconsistent"],
+          "description": "Convergence severity classification."
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Diagnostic messages explaining the classification."
+        },
+        "outbox_id": {
+          "type": ["string", "null"],
+          "description": "Outbox item ID, or null."
+        }
+      },
+      "required": [
+        "delivery_plan_id",
+        "target_adapter",
+        "target_channel",
+        "outbox_status",
+        "latest_receipt_status",
+        "latest_receipt_id",
+        "latest_attempt_number",
+        "severity",
+        "warnings",
+        "outbox_id"
+      ],
+      "additionalProperties": false
     }
   }
 }

@@ -465,6 +465,90 @@ class DeliveryLifecycleService:
         await storage.append_receipt(receipt)
         return receipt
 
+    # -- Source-aware candidate selection ------------------------------------
+
+    def _select_source_preferred_candidate(
+        self,
+        candidates: list[DeliveryReceipt],
+        record: OutboundNativeRefRecord,
+    ) -> DeliveryReceipt | None:
+        """Select the best queued receipt candidate with source awareness.
+
+        When multiple candidates match the same
+        ``(delivery_plan_id, adapter, channel)``, prefer non-replay
+        (``"live"`` / ``"retry"``) candidates over ``"replay"`` candidates.
+        This prevents a live callback from silently linking to a replay queued
+        receipt when a live candidate exists.
+
+        Among the preferred source group the most-recent (last in
+        append-order) candidate wins, preserving the existing retry-lineage
+        behaviour.
+
+        If only replay candidates are available the method returns ``None``
+        after logging an operator-visible warning.  ``OutboundNativeRefRecord``
+        carries no trusted ``source`` / ``replay_run_id`` provenance, so
+        replay-only queued receipts cannot be safely used for callback
+        correlation without risking live recovery state mutation.
+
+        Parameters
+        ----------
+        candidates:
+            Non-empty list of matching queued receipts (already filtered by
+            plan_id and optionally channel).
+        record:
+            The outbound native reference record from the adapter callback.
+            Used for log context only.
+
+        Returns
+        -------
+        DeliveryReceipt | None
+            The selected receipt, or ``None`` if no trustworthy candidate is
+            available (empty list or replay-only candidates).
+        """
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            if candidate.source == "replay":
+                self._log.warning(
+                    "Supplemental queued→sent correlation: only replay-sourced "
+                    "queued receipt found for delivery_plan_id=%s event_id=%s "
+                    "adapter=%s channel=%s; skipping replay candidate %s "
+                    "(source=%s, replay_run_id=%s). OutboundNativeRefRecord "
+                    "carries no trusted replay provenance — correlation "
+                    "skipped to prevent live recovery state mutation.",
+                    record.delivery_plan_id,
+                    record.event_id,
+                    record.adapter,
+                    candidate.target_channel,
+                    candidate.receipt_id,
+                    candidate.source,
+                    candidate.replay_run_id,
+                )
+                return None
+            return candidate
+
+        live_candidates = [r for r in candidates if r.source != "replay"]
+        replay_candidates = [r for r in candidates if r.source == "replay"]
+
+        if live_candidates:
+            # Prefer the latest non-replay candidate.
+            return live_candidates[-1]
+
+        # Only replay-sourced candidates — skip with warning.
+        self._log.warning(
+            "Supplemental queued→sent correlation: only replay-sourced "
+            "queued receipts found for delivery_plan_id=%s event_id=%s "
+            "adapter=%s (%d candidates); skipping all replay candidates. "
+            "OutboundNativeRefRecord carries no trusted replay provenance — "
+            "correlation skipped to prevent live recovery state mutation.",
+            record.delivery_plan_id,
+            record.event_id,
+            record.adapter,
+            len(replay_candidates),
+        )
+        return None
+
     # -- Supplemental queued->sent receipt -----------------------------------
 
     async def append_queued_to_sent_receipt(
@@ -493,7 +577,7 @@ class DeliveryLifecycleService:
           log a warning and return (ambiguous).
 
         When *record.delivery_plan_id* is ``None``, the method logs a
-        debug message and returns immediately — no supplemental receipt
+        warning and returns immediately — no supplemental receipt
         is created.
 
         After correlation, the method validates that the selected queued
@@ -577,17 +661,27 @@ class DeliveryLifecycleService:
                     )
                     return
                 # Most recent (last in append-order) wins for retries
-                # under the same plan.
-                queued_receipt = channel_matches[-1]
+                # under the same plan, with source-aware preference.
+                queued_receipt = self._select_source_preferred_candidate(
+                    channel_matches, record,
+                )
             elif len(plan_matches) == 1:
-                queued_receipt = plan_matches[0]
+                # Route single-candidate path through source-aware selector
+                # so replay-only candidates are skipped with warning rather
+                # than selected silently.
+                queued_receipt = self._select_source_preferred_candidate(
+                    plan_matches, record,
+                )
             else:
                 # Multiple candidates under same plan_id, no channel.
                 # Check target_channel uniformity for retry lineage.
                 channels = {r.target_channel for r in plan_matches}
                 if len(channels) == 1:
-                    # Same plan, same channel → retry lineage → latest wins.
-                    queued_receipt = plan_matches[-1]
+                    # Same plan, same channel → retry lineage →
+                    # source-aware latest wins.
+                    queued_receipt = self._select_source_preferred_candidate(
+                        plan_matches, record,
+                    )
                 else:
                     self._log.warning(
                         "Ambiguous queued receipt correlation: %d "
@@ -603,11 +697,17 @@ class DeliveryLifecycleService:
                     return
         else:
             # No delivery_plan_id on record — cannot correlate deterministically.
-            self._log.debug(
+            # Operator-visible warning so that missing correlation is surfaced
+            # rather than buried at debug level (Wave 2 T5).
+            self._log.warning(
                 "Cannot create supplemental sent receipt: delivery_plan_id "
-                "not available on record for event_id=%s adapter=%s",
+                "not available on callback/native ref record for "
+                "event_id=%s adapter=%s native_channel_id=%s — "
+                "queued outbox item remains uncorrelated until "
+                "stale-grace reclaim or adapter callback supplies linkage",
                 record.event_id,
                 record.adapter,
+                record.native_channel_id,
             )
             return
 

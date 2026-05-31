@@ -753,6 +753,106 @@ class TestEvidenceBundleSchemaNewFields:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
 
+    def test_convergence_summary_null_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """convergence_summary=null (no per-event data) must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["convergence_summary"] = None
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_convergence_summary_populated_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """convergence_summary with a populated ConvergenceSummary must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["convergence_summary"] = {
+            "evidence_bundle_ref": None,
+            "orphan_count": None,
+            "severity_counts": {"safe": 1, "degraded": 0, "inconsistent": 0},
+            "targets": [
+                {
+                    "delivery_plan_id": "plan-1",
+                    "target_adapter": "matrix",
+                    "target_channel": "!room:example.com",
+                    "outbox_status": "sent",
+                    "latest_receipt_status": "sent",
+                    "latest_receipt_id": "rcpt-001",
+                    "latest_attempt_number": 1,
+                    "severity": "safe",
+                    "warnings": [],
+                    "outbox_id": "ob-001",
+                },
+            ],
+            "total_targets": 1,
+            "warnings": [],
+            "worst_severity": "safe",
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_convergence_summary_missing_severity_count_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """convergence_summary missing required severity_counts must fail."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["convergence_summary"] = {
+            "evidence_bundle_ref": None,
+            "orphan_count": None,
+            "targets": [],
+            "total_targets": 0,
+            "warnings": [],
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_convergence_summary_target_extra_field_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Extra fields inside convergence_summary targets must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["convergence_summary"] = {
+            "evidence_bundle_ref": None,
+            "orphan_count": None,
+            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 0},
+            "targets": [
+                {
+                    "delivery_plan_id": "plan-1",
+                    "target_adapter": "matrix",
+                    "target_channel": None,
+                    "outbox_status": None,
+                    "latest_receipt_status": None,
+                    "latest_receipt_id": None,
+                    "latest_attempt_number": None,
+                    "severity": "safe",
+                    "warnings": [],
+                    "outbox_id": None,
+                    "rogue_field": "must_fail",
+                },
+            ],
+            "total_targets": 1,
+            "warnings": [],
+            "worst_severity": "safe",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
     def test_shutdown_evidence_null_policy_validates(
         self, _schema: dict[str, Any]
     ) -> None:

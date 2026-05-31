@@ -64,5 +64,6 @@
     }
   },
   "shutdown_evidence": null,
+  "convergence_summary": null,
   "status": "passed"
 }

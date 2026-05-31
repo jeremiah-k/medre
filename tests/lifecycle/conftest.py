@@ -50,6 +50,8 @@ def _make_receipt(
     route_id: str = "route-001",
     failure_kind: str | None = None,
     next_retry_at: datetime | None = None,
+    source: str = "live",
+    replay_run_id: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         sequence=0,
@@ -65,4 +67,6 @@ def _make_receipt(
         created_at=datetime.now(tz=timezone.utc),
         attempt_number=attempt_number,
         next_retry_at=next_retry_at,
+        source=source,
+        replay_run_id=replay_run_id,
     )

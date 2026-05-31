@@ -418,3 +418,50 @@ All conformance tests in §8 use synthetic-tier evidence (fake adapters). No `li
 3. Retry lineage preservation across process restart with real adapters.
 4. Native ref persistence and replay consistency with real adapters.
 5. Operator diagnostics completeness with real transport data.
+
+## 9. Recovery Convergence Diagnostics Conformance
+
+### 9.1 Convergence Classification Conformance
+
+A conforming implementation satisfies:
+
+1. **Pure diagnostics**: `build_convergence_summary()` and `build_orphan_report()` are pure functions with no I/O, no state mutation, and no storage access.
+
+2. **Closed severity vocabulary**: Convergence severity values are exactly `safe`, `degraded`, `inconsistent`. No other values are valid.
+
+3. **Deterministic target grouping**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` with deterministic tie-breaking.
+
+4. **Deterministic receipt selection**: The latest receipt is selected by `(attempt_number DESC, sequence DESC, created_at DESC, receipt_id DESC)` without relying on object identity.
+
+5. **Detection-only policy**: The diagnostics system does not repair state, block startup, or perform automatic remediation.
+
+### 9.2 Orphan Finding Kinds Conformance
+
+A conforming implementation detects exactly the six finding kinds: `orphaned_outbox`, `orphaned_parent_receipt`, `cross_plan_parent`, `cross_event_parent`, `missing_delivery_plan_id`, `dead_lettered_retryable_mismatch`. No other finding kinds are valid.
+
+### 9.3 Evidence Bundle Integration Conformance
+
+1. The `EvidenceCollector` populates `convergence_summary` on each per-event `EvidenceBundle` from the event's receipts and outbox items.
+2. The `convergence_summary` field is JSON-safe and deterministic for identical inputs.
+3. The JSON schema for `EvidenceBundle` accepts `convergence_summary` as an optional `ConvergenceSummary` (see `evidence-bundle.schema.json`).
+
+### 9.4 Replay/Live Separation Conformance
+
+1. Queued callback source selection prefers non-replay (`"live"`, `"retry"`) candidates over `"replay"` candidates when multiple matching queued receipts exist.
+2. When only replay candidates are available, the pipeline skips correlation and emits a warning. No supplemental sent receipt is created. Replay-only queued receipts MUST NOT be used for callback correlation because `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance. This restriction MAY be relaxed in a future version when callback records carry trusted replay provenance.
+3. Replay does not mutate live recovery state (receipts, outbox items, retry state).
+
+### 9.5 Startup Ownership Conformance
+
+1. Startup reclaims non-terminal outbox items lazily through `claim_due_outbox_items()`, not by a startup-time state sweep.
+2. Startup does not block on convergence diagnostics.
+3. Terminal outbox statuses require no startup action.
+
+### 9.6 Known Gaps
+
+All convergence diagnostics tests use synthetic-tier evidence (fake adapters and mock data). No `live_service` or `hardware` tier validation exists for:
+
+1. Convergence classification against real transport data.
+2. Orphan detection against a real event catalogue with real deletions.
+3. Replay/live callback correlation with real queue-based adapters.
+4. Startup reclaim timing with real adapters and real lease durations.

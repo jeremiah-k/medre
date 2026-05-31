@@ -750,6 +750,62 @@ receipt rows:
 9. **Shutdown during replay.** Completed events produce receipts; remaining events are lost. No automatic resume.
 10. **No per-adapter restart.** Only full runtime stop/start is supported.
 
+## Replay and Live Delivery Separation
+
+Replay and live delivery are isolated by the `source` field on receipts (`"live"`, `"retry"`, `"replay"`). This separation is enforced at correlation time:
+
+### Queued Callback Source Selection
+
+When a queue-based adapter callback arrives to confirm a queued delivery (queued-to-sent transition), the pipeline selects among matching queued receipts. The selection prefers non-replay candidates (`"live"` or `"retry"`) over `"replay"` candidates.
+
+| Scenario                                             | Selected candidate                               | Log level |
+| ---------------------------------------------------- | ------------------------------------------------ | --------- |
+| One live/retry candidate, no replay candidates       | Live/retry candidate                             | Debug     |
+| Multiple live/retry candidates, same plan and channel | Latest live/retry candidate                      | Debug     |
+| Only replay candidates available                     | None — correlation skipped (warning logged)      | Warning   |
+| No candidates at all                                 | No supplemental receipt created                  | Debug     |
+
+When only replay-sourced queued receipts are available, the pipeline skips correlation entirely and emits an operator-visible warning. No supplemental sent receipt is created, no outbox transition occurs. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation without risking live recovery state mutation. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
+
+### Uncorrelated Queued Outbox Items
+
+When a queued outbox item has no `delivery_plan_id` and no receipt linkage, the reason-pending derivation flags it as uncorrelated. The evidence output includes:
+
+```
+Queued, uncorrelated (no delivery_plan_id, no receipt linkage)
+-- awaiting stale-grace reclaim or adapter callback correlation
+```
+
+Operators seeing this message should check whether the adapter callback is expected to provide `delivery_plan_id` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
+
+### Replay Does Not Mutate Live Recovery State
+
+Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates due retry receipts (transient failure during `best_effort` mode), those retry receipts sit in storage unprocessed until the runtime starts normally with retry enabled.
+
+## Convergence Diagnostics for Recovery
+
+After a crash or unexpected shutdown, convergence diagnostics help assess the state of delivery targets. The evidence bundle for each event includes a `convergence_summary` that classifies every delivery target as `safe`, `degraded`, or `inconsistent`.
+
+### Interpreting Convergence Severity
+
+| Severity       | Meaning                                                          | Operator action                                                                              |
+| -------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `safe`         | Outbox and receipts agree. No action needed.                     | None.                                                                                        |
+| `degraded`     | Work stalled or mid-flight. Normal for recent events.            | Monitor. If degraded persists after startup recovery, investigate the specific target.        |
+| `inconsistent` | State mismatch that cannot be explained by normal flow.          | Investigate manually. Check outbox and receipt chain for the affected delivery_plan_id.       |
+
+### Checking Convergence After Crash
+
+```bash
+# Collect evidence for a specific event
+medre inspect event <event_id> --evidence --storage-path /path/to/medre.sqlite
+
+# The evidence output includes convergence_summary with per-target severity
+# Look for "inconsistent" targets in the output
+```
+
+Convergence diagnostics are read-only. They do not repair state or block startup.
+
 ## See Also
 
 - [diagnostics-and-evidence.md](diagnostics-and-evidence.md) — evidence provenance, bundle collection, report shapes
