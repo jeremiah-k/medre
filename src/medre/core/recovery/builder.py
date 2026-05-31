@@ -48,22 +48,30 @@ def _now_iso() -> str:
 def _infer_recovery_source(
     *,
     startup_timestamp: str | None = None,
+    recovery_source: str | None = None,
 ) -> str:
     """Infer the recovery source for a claimable outbox item.
 
-    If ``startup_timestamp`` is present, the source is always
-    ``STARTUP_RECOVERY`` regardless of age.  Otherwise the source
-    defaults to ``RETRY_WORKER_RECOVERY``.
+    Resolution order:
 
-    **Note:** ``REPLAY_EXECUTION`` is reserved for future use and not
-    currently produced by any code path.  Replay separation is
-    represented by replay receipts with ``source='replay'`` /
-    ``replay_run_id``, not by recovery ownership actions.
+    1. If an explicit ``recovery_source`` is provided, use it directly.
+    2. If ``startup_timestamp`` is present, the source is
+       ``STARTUP_RECOVERY``.
+    3. Otherwise the source defaults to ``SNAPSHOT_DIAGNOSTICS``
+       (diagnostic classification from stored snapshots — no runtime
+       startup or retry worker involved).
+
+    ``RETRY_WORKER_RECOVERY`` is only used when the caller explicitly
+    provides it.  ``REPLAY_EXECUTION`` is reserved for future use and
+    not currently produced by any code path.
     """
+    if recovery_source is not None:
+        return recovery_source
+
     if startup_timestamp is not None:
         return str(RecoverySource.STARTUP_RECOVERY)
 
-    return str(RecoverySource.RETRY_WORKER_RECOVERY)
+    return str(RecoverySource.SNAPSHOT_DIAGNOSTICS)
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +99,7 @@ def build_startup_recovery_ledger(
     *,
     startup_timestamp: str | None = None,
     recovery_run_id: str | None = None,
+    recovery_source: str | None = None,
     now_fn: Callable[[], str] | None = None,
     known_event_ids: set[str] | frozenset[str] | None = None,
     stale_queued_grace: timedelta | None = None,
@@ -109,6 +118,13 @@ def build_startup_recovery_ledger(
     recovery_run_id:
         UUID identifying this recovery cycle.  ``None`` when no
         runtime context exists (per-event snapshot diagnostics).
+    recovery_source:
+        Explicit recovery source override.  When provided, all actions
+        carry this source regardless of ``startup_timestamp``.  When
+        ``None``, the builder infers the source: ``startup_recovery``
+        if ``startup_timestamp`` is present, otherwise
+        ``snapshot_diagnostics``.  ``retry_worker_recovery`` is only
+        used when the caller explicitly provides it.
     now_fn:
         Injectable clock for deterministic testing.  Returns an
         ISO-8601 string.
@@ -127,6 +143,7 @@ def build_startup_recovery_ledger(
     """
     _now_iso_fn = now_fn or _now_iso
     _run_id = recovery_run_id  # None is valid for per-event snapshot diagnostics
+    _source_override = recovery_source  # Explicit caller override; None → infer
     _grace = (
         stale_queued_grace
         if stale_queued_grace is not None
@@ -158,8 +175,9 @@ def build_startup_recovery_ledger(
             classification, str(RecoveryOwnershipStatus.UNRECOVERABLE)
         )
 
-        recovery_source = _infer_recovery_source(
+        _action_source = _infer_recovery_source(
             startup_timestamp=startup_timestamp,
+            recovery_source=_source_override,
         )
 
         action_timestamp = updated_at or generated_at
@@ -177,7 +195,7 @@ def build_startup_recovery_ledger(
                 ownership_action=ownership_action,
                 reason=reason,
                 worker_identity=worker_id,
-                recovery_source=recovery_source,
+                recovery_source=_action_source,
                 timestamp=action_timestamp,
                 delivery_plan_id=delivery_plan_id,
                 event_id=event_id,

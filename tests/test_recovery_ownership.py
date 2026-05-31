@@ -109,6 +109,7 @@ class TestRecoverySource:
         assert members == {
             RecoverySource.STARTUP_RECOVERY,
             RecoverySource.RETRY_WORKER_RECOVERY,
+            RecoverySource.SNAPSHOT_DIAGNOSTICS,
             RecoverySource.REPLAY_EXECUTION,
         }
 
@@ -737,7 +738,8 @@ class TestRecoverySourceInference:
         )
         assert ledger.actions[0].recovery_source == "startup_recovery"
 
-    def test_retry_worker_without_timestamp(self) -> None:
+    def test_snapshot_diagnostics_without_timestamp(self) -> None:
+        """Without startup_timestamp or explicit source, defaults to snapshot_diagnostics."""
         items = [_make_item(status="pending", worker_id="worker-1")]
         ledger = build_startup_recovery_ledger(
             outbox_items=items,
@@ -745,15 +747,27 @@ class TestRecoverySourceInference:
             now_fn=_fixed_now,
             recovery_run_id="run-1",
         )
-        assert ledger.actions[0].recovery_source == "retry_worker_recovery"
+        assert ledger.actions[0].recovery_source == "snapshot_diagnostics"
 
-    def test_default_retry_worker(self) -> None:
+    def test_default_snapshot_diagnostics(self) -> None:
         items = [_make_item(status="pending")]
         ledger = build_startup_recovery_ledger(
             outbox_items=items,
             startup_timestamp=None,
             now_fn=_fixed_now,
             recovery_run_id="run-1",
+        )
+        assert ledger.actions[0].recovery_source == "snapshot_diagnostics"
+
+    def test_explicit_retry_worker_source(self) -> None:
+        """retry_worker_recovery is only used when explicitly provided."""
+        items = [_make_item(status="pending")]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            startup_timestamp=None,
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+            recovery_source="retry_worker_recovery",
         )
         assert ledger.actions[0].recovery_source == "retry_worker_recovery"
 

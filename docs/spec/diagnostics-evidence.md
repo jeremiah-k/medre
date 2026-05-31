@@ -1061,11 +1061,12 @@ Every outbox item is classified into exactly one recovery ownership status:
 
 Every recovery action carries a `recovery_source` identifying which subsystem reclaimed ownership:
 
-| Source                  | Semantics                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `startup_recovery`      | Outbox item reclaimed during runtime startup via the `RetryWorker` at boot.    |
-| `retry_worker_recovery` | Outbox item reclaimed during steady-state retry polling by the `RetryWorker`.  |
-| `replay_execution`      | Reserved for future replay recovery ownership actions. Not currently produced. |
+| Source                  | Semantics                                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `startup_recovery`      | Outbox item reclaimed during runtime startup via the `RetryWorker` at boot.                                                              |
+| `retry_worker_recovery` | Outbox item reclaimed during steady-state retry polling by the `RetryWorker`.                                                            |
+| `snapshot_diagnostics`  | Diagnostic classification from stored outbox/receipt snapshots — no runtime startup occurred, no retry worker performed actual recovery. |
+| `replay_execution`      | Reserved for future replay recovery ownership actions. Not currently produced.                                                           |
 
 ### 22.3.1 Recovery Evidence Semantic Tiers
 
@@ -1151,7 +1152,7 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 2. The `build_startup_recovery_ledger()` function MUST be pure: no I/O, no state mutation, no storage access.
 3. The `build_recovery_summary()` function MUST be pure: no I/O, no state mutation, no storage access.
 4. Recovery ownership statuses MUST be exactly the six values listed in § 22.2.
-5. Recovery sources MUST be exactly the three values listed in § 22.3.
+5. Recovery sources MUST be exactly the four values listed in § 22.3.
 6. Recovery diagnostic classifiers MUST NOT mutate outbox items or receipts.
 7. The `StartupRecoveryLedger` is immutable after construction: actions SHALL NOT be removed or modified once the ledger is built.
 8. Recovery evidence MUST be JSON-safe and deterministic for identical inputs.
@@ -1162,5 +1163,5 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 
 1. **No live_service or hardware tier validation**: All recovery evidence is synthetic/conformance tier. No real restart cycles with real adapters have been validated.
 2. **Per-event collector has no BootSummary access**: The per-event `EvidenceCollector` cannot access `BootSummary.recovery_run_id` or `startup_timestamp`. Recovery evidence from the per-event collector is limited to classification without full startup context. Full startup-scoped recovery evidence is available through the runtime evidence bundle's `recovery` section.
-3. **Recovery source inference is heuristic without direct worker hooks**: Without a direct hook into `RetryWorker` claiming, the builder infers `retry_worker_recovery` when `startup_timestamp` is absent, otherwise `startup_recovery`; the caller is responsible for providing the timestamp when available. This is correct for diagnostic purposes but may misclassify edge cases.
+3. **Recovery source inference defaults to snapshot_diagnostics**: Without an explicit `recovery_source` or `startup_timestamp`, the builder infers `snapshot_diagnostics`. Callers that need `retry_worker_recovery` must provide it explicitly via the `recovery_source` parameter. This is correct for diagnostic purposes but requires callers to be aware of the default.
 4. **Replay recovery tracking requires receipt evidence**: Outbox items with replay-sourced receipts (`source="replay"`) are detectable through receipt evidence. `recovery_source="replay_execution"` is reserved and not currently produced (see § 22.3).

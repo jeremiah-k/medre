@@ -36,6 +36,7 @@ from medre.core.recovery.builder import (
     build_recovery_summary,
     build_startup_recovery_ledger,
 )
+from medre.core.recovery.recovery_source import RecoverySource
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
@@ -407,8 +408,8 @@ class EvidenceCollector:
 
         # -- Recovery evidence (pure, from outbox snapshots) -----------------
         # Build per-event recovery ledger and summary from outbox items
-        # already loaded.  Without BootSummary the startup_timestamp is
-        # unavailable; recovery source defaults to RETRY_WORKER_RECOVERY.
+        # already loaded.  Per-event diagnostics use snapshot_diagnostics
+        # source — no runtime startup or retry worker is involved.
         # Per-event snapshots pass recovery_run_id=None per spec §22.3.1
         # — determinism comes from stable now_fn, not a synthetic UUID.
         _recovery_now = self._now_fn
@@ -416,6 +417,7 @@ class EvidenceCollector:
             outbox_items=outbox_items,
             startup_timestamp=None,
             recovery_run_id=None,
+            recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
             now_fn=lambda: _recovery_now().isoformat(),
         )
         recovery_summary_obj = build_recovery_summary(recovery_ledger_obj)

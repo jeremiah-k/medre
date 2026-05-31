@@ -27,6 +27,12 @@ class RecoverySource(enum.StrEnum):
     """Outbox item reclaimed during steady-state retry polling
     (the :class:`~medre.runtime.retry.RetryWorker` poll loop)."""
 
+    SNAPSHOT_DIAGNOSTICS = "snapshot_diagnostics"
+    """Diagnostic classification from stored outbox/receipt snapshots.
+
+    No runtime startup occurred.  No retry worker performed actual
+    recovery.  Not proof of delivery or mutation."""
+
     REPLAY_EXECUTION = "replay_execution"
     """Reserved for future replay recovery ownership actions.
 

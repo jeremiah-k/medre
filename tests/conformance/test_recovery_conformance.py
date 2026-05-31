@@ -155,6 +155,7 @@ class TestAttributableRecoveryActions:
             assert action.recovery_source in {
                 str(RecoverySource.STARTUP_RECOVERY),
                 str(RecoverySource.RETRY_WORKER_RECOVERY),
+                str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
                 str(RecoverySource.REPLAY_EXECUTION),
             }
 
@@ -228,6 +229,7 @@ class TestReplayIsNotRecovery:
             assert src.value in {
                 "startup_recovery",
                 "retry_worker_recovery",
+                "snapshot_diagnostics",
                 "replay_execution",
             }
 

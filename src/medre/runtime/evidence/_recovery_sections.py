@@ -53,6 +53,7 @@ async def _collect_recovery_section(
         build_recovery_summary,
         build_startup_recovery_ledger,
     )
+    from medre.core.recovery.recovery_source import RecoverySource
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
     enabled_adapters = config.adapters.all_enabled()
@@ -113,12 +114,13 @@ async def _collect_recovery_section(
         )
 
         # Build recovery ledger with snapshot context (no startup_timestamp).
-        # Without startup_timestamp the builder classifies items using
-        # retry_worker_recovery source — appropriate for a snapshot.
+        # Snapshot diagnostics source — no runtime startup or retry worker
+        # performed actual recovery.
         recovery_ledger = build_startup_recovery_ledger(
             outbox_items=all_items,
             startup_timestamp=None,
             recovery_run_id=recovery_run_id,
+            recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
         )
         recovery_summary = build_recovery_summary(recovery_ledger)
 
