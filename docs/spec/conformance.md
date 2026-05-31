@@ -437,7 +437,7 @@ A conforming implementation satisfies:
 
 ### 9.2 Orphan Finding Kinds Conformance
 
-A conforming implementation detects exactly the six finding kinds: `orphaned_outbox`, `orphaned_parent_receipt`, `cross_plan_parent`, `cross_event_parent`, `missing_delivery_plan_id`, `dead_lettered_retryable_mismatch`. No other finding kinds are valid.
+A conforming implementation detects exactly ten finding kinds: `orphaned_outbox`, `orphaned_parent_receipt`, `cross_plan_parent`, `cross_event_parent`, `missing_delivery_plan_id`, `dead_lettered_retryable_mismatch`, `recovered_not_progressed`, `repeatedly_reclaimed`, `reclaimed_then_terminal`, `reclaimed_then_orphaned`. No other finding kinds are valid.
 
 ### 9.3 Evidence Bundle Integration Conformance
 

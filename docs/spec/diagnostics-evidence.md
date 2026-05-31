@@ -1055,6 +1055,7 @@ Every outbox item is classified into exactly one recovery ownership status:
 | `reclaimed`            | Outbox item was previously in a resumable state (`pending` or `retry_wait`) and has been reclaimed.   |
 | `abandoned`            | Outbox item was previously `in_progress` but recovery was abandoned (e.g. drain timeout).             |
 | `unrecoverable`        | Outbox item is in a terminal status and does not require recovery.                                    |
+| `skipped`              | Item is retry-eligible (e.g. future next_attempt_at) or in_progress with active lease; deferred, not yet reclaimed. |
 
 ### 22.3 Recovery Sources
 
@@ -1099,7 +1100,7 @@ A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery de
 
 | Field               | Type          | Semantics                                                             |
 | ------------------- | ------------- | --------------------------------------------------------------------- |
-| `recovery_run_id`   | `str`         | UUID binding all actions to a single runtime startup.                 |
+| `recovery_run_id`   | `str or None` | UUID binding all actions to a single runtime startup. `None` for per-event diagnostics. |
 | `startup_timestamp` | `str or None` | ISO-8601 startup timestamp. `None` when unavailable.                  |
 | `outbox_id`         | `str`         | Affected outbox item ID.                                              |
 | `prior_status`      | `str`         | Outbox status at the time recovery analysis began.                    |
@@ -1149,7 +1150,7 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 1. The `classify_startup_reclamation()` function MUST be pure: no I/O, no state mutation, no storage access.
 2. The `build_startup_recovery_ledger()` function MUST be pure: no I/O, no state mutation, no storage access.
 3. The `build_recovery_summary()` function MUST be pure: no I/O, no state mutation, no storage access.
-4. Recovery ownership statuses MUST be exactly the five values listed in § 22.2.
+4. Recovery ownership statuses MUST be exactly the six values listed in § 22.2.
 5. Recovery sources MUST be exactly the three values listed in § 22.3.
 6. Recovery diagnostic classifiers MUST NOT mutate outbox items or receipts.
 7. The `StartupRecoveryLedger` is immutable after construction: actions SHALL NOT be removed or modified once the ledger is built.
