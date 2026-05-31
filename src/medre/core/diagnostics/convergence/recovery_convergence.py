@@ -62,7 +62,7 @@ def build_recovery_convergence_findings(
     receipts:
         Duck-typed receipt records.
     recovery_ledger:
-        :class:`~medre.core.recovery._models.StartupRecoveryLedger`
+        :class:`~medre.core.recovery.models.StartupRecoveryLedger`
         or a dict with an ``actions`` key containing recovery actions.
         ``None`` skips recovery-accountability findings.
     known_event_ids:

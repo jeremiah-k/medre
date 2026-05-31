@@ -483,7 +483,11 @@
             "cross_plan_parent",
             "cross_event_parent",
             "missing_delivery_plan_id",
-            "dead_lettered_retryable_mismatch"
+            "dead_lettered_retryable_mismatch",
+            "recovered_not_progressed",
+            "repeatedly_reclaimed",
+            "reclaimed_then_terminal",
+            "reclaimed_then_orphaned"
           ],
           "description": "Category of finding."
         },
@@ -603,11 +607,12 @@
           "items": { "$ref": "#/$defs/RecoveryOwnershipAction" }
         },
         "generated_at": { "type": "string", "format": "date-time" },
-        "recovery_run_id": { "type": "string" },
+        "recovery_run_id": { "type": ["string", "null"] },
         "startup_timestamp": {
           "type": ["string", "null"],
           "format": "date-time"
-        }
+        },
+        "worker_identity": { "type": ["string", "null"] }
       },
       "required": [
         "actions",
@@ -629,7 +634,7 @@
         "prior_status": { "type": "string" },
         "reason": { "type": "string" },
         "recovered_status": { "type": "string" },
-        "recovery_run_id": { "type": "string" },
+        "recovery_run_id": { "type": ["string", "null"] },
         "recovery_source": { "type": "string" },
         "startup_timestamp": {
           "type": ["string", "null"],
