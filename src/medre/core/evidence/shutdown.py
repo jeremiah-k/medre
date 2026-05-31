@@ -41,10 +41,16 @@ Public symbols
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Mapping, Sequence
 
-__all__ = ["ShutdownStatus", "ShutdownEvidence", "build_shutdown_evidence"]
+__all__ = [
+    "OutboxShutdownClassification",
+    "ShutdownEvidence",
+    "ShutdownStatus",
+    "build_shutdown_evidence",
+    "classify_outbox_shutdown_policy",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +257,8 @@ class ShutdownEvidence:
     tasks_cancelled: int | None
     drain_timeout_detected: bool
     evidence_flush_status: str | None
+    resume_expected: bool
+    outbox_shutdown_policy: str | None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict with alphabetically sorted keys."""
@@ -259,8 +267,10 @@ class ShutdownEvidence:
                 "drain_timeout_detected": self.drain_timeout_detected,
                 "evidence_flush_status": self.evidence_flush_status,
                 "in_flight_count": self.in_flight_count,
+                "outbox_shutdown_policy": self.outbox_shutdown_policy,
                 "pending_outbox_counts": self.pending_outbox_counts,
                 "pending_retry_work_total": self.pending_retry_work_total,
+                "resume_expected": self.resume_expected,
                 "retry_worker_dead_lettered": self.retry_worker_dead_lettered,
                 "retry_worker_failed": self.retry_worker_failed,
                 "retry_worker_processed": self.retry_worker_processed,
@@ -462,6 +472,19 @@ def build_shutdown_evidence(
         # Unknown state — default to stopped.
         shutdown_status = ShutdownStatus.STOPPED.value
 
+    # -- Compute resumable policy fields ------------------------------------
+    # resume_expected: True only when non-terminal outbox work exists AND the
+    # resolved shutdown_status is one of the resumable cases. Cancellation,
+    # drain_timeout, adapter_failure, and failed override even if pending work
+    # exists.
+    _resumable_statuses = frozenset(("graceful_stop", "shutdown_pending"))
+    resume_expected: bool = has_pending_work and shutdown_status in _resumable_statuses
+
+    # outbox_shutdown_policy: "resumable" when outbox_counts were supplied
+    # (the operator can expect pending items to resume on next start); None
+    # when no outbox data was provided at all.
+    outbox_shutdown_policy: str | None = "resumable" if oc is not None else None
+
     # -- Build evidence record -----------------------------------------------
     # pending_outbox_counts: None when no outbox data was provided;
     # empty dict when outbox exists but nothing is pending.
@@ -486,4 +509,158 @@ def build_shutdown_evidence(
         tasks_cancelled=tasks_cancelled,
         drain_timeout_detected=drain_timeout_detected,
         evidence_flush_status=evidence_flush_status,
+        resume_expected=resume_expected,
+        outbox_shutdown_policy=outbox_shutdown_policy,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Outbox shutdown policy classifier
+# ---------------------------------------------------------------------------
+#
+# Source of truth for outbox status vocabularies and terminal sets:
+# ``medre.core.engine.pipeline.delivery_state.OUTBOX_STATUSES`` and
+# ``TERMINAL_OUTBOX_STATUSES``.  The mapping below is a static snapshot
+# kept local so this module stays leaf-level (no medre imports).
+
+
+#: Resumable outbox statuses and their shutdown classifications.
+#: These are non-terminal statuses where the item is preserved for
+#: restart recovery.  Graceful shutdown does **not** mutate or append.
+_RESUMABLE_OUTBOX_CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "pending": (
+        "resumable_pending",
+        "Non-terminal outbox status; item left pending for restart recovery.",
+    ),
+    "retry_wait": (
+        "resumable_retry_wait",
+        "Non-terminal outbox status; item left in retry_wait for restart recovery.",
+    ),
+    "in_progress": (
+        "resumable_in_progress",
+        "Non-terminal outbox status; item left in_progress for restart recovery.",
+    ),
+    "queued": (
+        "resumable_queued",
+        "Non-terminal outbox status; item left queued for restart recovery.",
+    ),
+}
+
+#: Terminal outbox statuses and their shutdown classifications.
+#: These statuses are already final; no restart recovery needed.
+_TERMINAL_OUTBOX_CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "sent": (
+        "terminal_sent",
+        "Terminal outbox status; delivery completed before shutdown.",
+    ),
+    "dead_lettered": (
+        "terminal_dead_lettered",
+        "Terminal outbox status; item dead-lettered before shutdown.",
+    ),
+    "cancelled": (
+        "terminal_cancelled",
+        "Terminal outbox status; item cancelled before shutdown.",
+    ),
+    "abandoned": (
+        "terminal_abandoned",
+        "Terminal outbox status; item abandoned before shutdown.",
+    ),
+}
+
+#: Combined lookup for :func:`classify_outbox_shutdown_policy`.
+_OUTBOX_SHUTDOWN_MAP: dict[str, tuple[str, str, bool]] = {
+    status: (cls, reason, True)
+    for status, (cls, reason) in _RESUMABLE_OUTBOX_CLASSIFICATIONS.items()
+}
+_OUTBOX_SHUTDOWN_MAP.update(
+    {
+        status: (cls, reason, False)
+        for status, (cls, reason) in _TERMINAL_OUTBOX_CLASSIFICATIONS.items()
+    }
+)
+
+
+@dataclass(frozen=True)
+class OutboxShutdownClassification:
+    """Immutable classification of an outbox status for graceful-shutdown policy.
+
+    Fields
+    ------
+    status :
+        The original outbox status string (e.g. ``"pending"``).
+    classification :
+        Policy classification label (e.g. ``"resumable_pending"``,
+        ``"terminal_sent"``).
+    mutate_outbox :
+        Whether the shutdown policy requests outbox mutation.  Always
+        ``False`` for graceful shutdown.
+    append_receipt :
+        Whether the shutdown policy requests a receipt append.  Always
+        ``False`` for graceful shutdown.
+    resume_on_restart :
+        ``True`` for resumable (non-terminal) statuses, ``False`` for
+        terminal statuses.
+    evidence_reason :
+        Human-readable explanation of the classification.
+    """
+
+    status: str
+    classification: str
+    mutate_outbox: bool
+    append_receipt: bool
+    resume_on_restart: bool
+    evidence_reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dict with alphabetically sorted keys."""
+        return {
+            name: getattr(self, name) for name in sorted(f.name for f in fields(self))
+        }
+
+
+def classify_outbox_shutdown_policy(status: str) -> OutboxShutdownClassification:
+    """Classify an outbox status for graceful-shutdown policy.
+
+    Returns an :class:`OutboxShutdownClassification` describing how the
+    shutdown policy treats the given *status*.  The function is **pure**:
+    no I/O, no side effects, no runtime state mutation.
+
+    Classification rules:
+
+    * **Resumable** (``pending``, ``retry_wait``, ``in_progress``, ``queued``):
+      ``resume_on_restart=True``, ``mutate_outbox=False``,
+      ``append_receipt=False``.  The item is preserved for restart recovery.
+    * **Terminal** (``sent``, ``dead_lettered``, ``cancelled``, ``abandoned``):
+      ``resume_on_restart=False``, ``mutate_outbox=False``,
+      ``append_receipt=False``.  The item is already final.
+
+    Parameters
+    ----------
+    status :
+        An outbox status string.
+
+    Returns
+    -------
+    OutboxShutdownClassification
+        Frozen classification record.
+
+    Raises
+    ------
+    ValueError
+        If *status* is not a recognised outbox status.
+    """
+    entry = _OUTBOX_SHUTDOWN_MAP.get(status)
+    if entry is None:
+        raise ValueError(
+            f"Unknown outbox status: {status!r}. "
+            f"Expected one of: {', '.join(sorted(_OUTBOX_SHUTDOWN_MAP))}."
+        )
+    classification, evidence_reason, resume_on_restart = entry
+    return OutboxShutdownClassification(
+        status=status,
+        classification=classification,
+        mutate_outbox=False,
+        append_receipt=False,
+        resume_on_restart=resume_on_restart,
+        evidence_reason=evidence_reason,
     )

@@ -39,9 +39,11 @@ from medre.core.evidence.retry_outbox import (
     build_retry_outbox_summary,
 )
 from medre.core.evidence.shutdown import (
+    OutboxShutdownClassification,
     ShutdownEvidence,
     ShutdownStatus,
     build_shutdown_evidence,
+    classify_outbox_shutdown_policy,
 )
 from medre.core.evidence.tiers import (
     EVIDENCE_TIER_UNKNOWN,
@@ -59,6 +61,7 @@ __all__ = [
     "FAILURE_KIND_TO_TAXON",
     "FailureTaxon",
     "OPERATOR_STATUSES",
+    "OutboxShutdownClassification",
     "ReceiptSummary",
     "RetryOutboxItemSummary",
     "RetryOutboxSummary",
@@ -68,6 +71,7 @@ __all__ = [
     "build_delivery_outcome_ledger",
     "build_retry_outbox_summary",
     "build_shutdown_evidence",
+    "classify_outbox_shutdown_policy",
     "compute_retryable",
     "derive_failure_kind_detail",
     "derive_operator_status",

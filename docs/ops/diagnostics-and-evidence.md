@@ -598,7 +598,7 @@ When the runtime shuts down, the delivery evidence system records what happened 
 | Pending retry receipt at shutdown                  | No change; receipt stays in storage for next startup       |
 | Pending outbox item at shutdown                    | No change; outbox row stays for next startup               |
 
-Pending retry receipts and outbox items are not explicitly cancelled during shutdown. They survive in SQLite and are processed on next startup by the RetryWorker. This means a retry may be re-attempted for a delivery that the operator expected to be cancelled. A distinct `cancelled` failure kind for shutdown-cancelled deliveries is planned but not yet implemented.
+Pending retry receipts and outbox items are not cancelled during shutdown. They survive in SQLite and are processed on next startup by the RetryWorker (for due retry receipts) or by the normal outbox reclaim path (`claim_due_outbox_items`) for plain pending/queued/in_progress rows. This is an intentional design choice: non-terminal outbox work is preserved as resumable work, not implicitly transitioned to a cancelled state. The `ShutdownEvidence` record (in the evidence bundle) reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals the resumable policy is active. Operators can inspect `pending_outbox_counts` in the shutdown evidence to see exactly which statuses and counts were preserved.
 
 Use `--snapshot-on-shutdown PATH` to capture the final runtime state including counters, route stats, and the bounded event buffer:
 

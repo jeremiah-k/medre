@@ -612,6 +612,7 @@ class MedreApp:
                 interval_seconds=self.config.retry.interval_seconds,
                 batch_size=self.config.retry.batch_size,
                 max_attempts=self.config.retry.max_attempts,
+                event_buffer=self._event_buffer,
             )
             await self._retry_worker.start()
 

@@ -219,6 +219,10 @@
           "minimum": 0,
           "description": "Number of in-flight deliveries from capacity controller."
         },
+        "outbox_shutdown_policy": {
+          "type": ["string", "null"],
+          "description": "Outbox shutdown policy name. 'resumable' when outbox_counts were supplied; null when no outbox data."
+        },
         "pending_outbox_counts": {
           "oneOf": [
             { "type": "null" },
@@ -233,6 +237,10 @@
           "type": ["integer", "null"],
           "minimum": 0,
           "description": "Total count of pending retry work items."
+        },
+        "resume_expected": {
+          "type": "boolean",
+          "description": "Whether pending outbox work is expected to resume on next start. True when non-terminal outbox work exists and runtime is stopped/stopping."
         },
         "retry_worker_dead_lettered": {
           "type": ["integer", "null"],
@@ -290,8 +298,10 @@
         "drain_timeout_detected",
         "evidence_flush_status",
         "in_flight_count",
+        "outbox_shutdown_policy",
         "pending_outbox_counts",
         "pending_retry_work_total",
+        "resume_expected",
         "retry_worker_dead_lettered",
         "retry_worker_failed",
         "retry_worker_processed",

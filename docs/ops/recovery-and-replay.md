@@ -126,7 +126,7 @@ medre run --config config.toml
 grep "Assembly complete" {state}/logs/medre.log | tail -1
 
 # No further action needed. Drained deliveries produced receipts.
-# Cancelled deliveries are lost but were logged during shutdown.
+# Non-terminal outbox items were preserved as resumable work.
 ```
 
 ## Adapter Failure Recovery
@@ -654,14 +654,23 @@ The outbox tracks in-progress deliveries:
 - On crash recovery, expired `in_progress` rows are reclaimable by the RetryWorker.
 - Outbox rows without corresponding receipts indicate deliveries that were lost before a receipt could be written.
 
-### Pending Shutdown Cancellation Gap
+### Resumable Shutdown Policy
 
-When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not explicitly cancelled. They remain in storage as-is. On next startup:
+When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not cancelled. They remain in storage as resumable work. On next startup:
 
 - Due retry receipts are discovered and processed by the RetryWorker.
-- Expired outbox rows are reclaimed.
+- Expired `in_progress` outbox rows are reclaimed by `claim_due_outbox_items()`.
+- Stale `queued` outbox rows are reclaimed after the configured grace period.
 
-This means a retry may be re-attempted after shutdown for a delivery that the operator expected to be cancelled. A `cancelled` failure kind for shutdown-cancelled deliveries is planned but not yet implemented. Operators should be aware that pending retries survive shutdown and are re-processed on restart.
+This is an intentional design choice. Non-terminal outbox work (`pending`, `retry_wait`, `in_progress`, `queued`) is preserved, not cancelled. Cancellation is a distinct terminal state that requires explicit operator action.
+
+The `ShutdownEvidence` record (available in the evidence bundle) reports:
+
+- `resume_expected=True` when non-terminal outbox work was left at shutdown.
+- `outbox_shutdown_policy="resumable"` to signal the resumable policy.
+- `pending_outbox_counts` with per-status counts of preserved items.
+
+Operators can inspect these fields to understand what work will resume after restart.
 
 ### Retry States
 

@@ -196,21 +196,21 @@ parsing, or adapter state at report time. Derived taxons are not stored as
 enum values but are available in enriched report dicts and operator-facing
 diagnostics.
 
-| Category                | Source                         | Kind        | Meaning                                                                                   |
-| ----------------------- | ------------------------------ | ----------- | ----------------------------------------------------------------------------------------- |
-| `not_configured`        | Derived (config analysis)      | Pre-runtime | No adapter configuration exists for the referenced transport. No code path exercised.     |
-| `unavailable`           | Derived (adapter state)        | Runtime     | Adapter exists in config but is not reachable. Health reports `unavailable` or `failed`.  |
-| `auth_failed`           | Derived (error text analysis)  | Runtime     | Authentication with the transport endpoint failed. Permanent for Matrix (401/403).        |
-| `connection_failed`     | Derived (error text analysis)  | Runtime     | Transport connection could not be established. Transient (network) or permanent (config). |
-| `capability_suppressed` | DeliveryFailureKind            | Runtime     | Target adapter lacks capability for the event's kind or relation type. See §9.            |
-| `route_disabled`        | Derived (config analysis)      | Pre-runtime | Route configuration has `enabled = false`. Events matching this route are not delivered.  |
-| `route_listen_only`     | Derived (config analysis)      | Pre-runtime | Route is configured for inbound-only or listen-only semantics. Outbound delivery skipped. |
-| `loop_suppressed`       | DeliveryFailureKind            | Runtime     | Self-loop or route-trace guard fired. See §8.                                             |
-| `delivery_failed`       | DeliveryFailureKind            | Runtime     | Generic adapter delivery failure. Classified further by transport-specific error text.    |
-| `retry_exhausted`       | Derived (receipt analysis)     | Runtime     | All retry attempts consumed. Final receipt has `status="dead_lettered"`.                  |
-| `cancelled`             | DeliveryFailureKind (deferred) | Runtime     | Delivery was cancelled (e.g., during shutdown). See §12 for current status.               |
-| `shutdown_pending`      | Derived (runtime state)        | Runtime     | Delivery attempted while shutdown is in progress. Capacity controller rejecting new work. |
-| `not_executed`          | Not a failure kind             | Meta        | No evidence exists. No delivery was attempted. See Evidence Levels §2 rule 6.             |
+| Category                | Source                        | Kind        | Meaning                                                                                                            |
+| ----------------------- | ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `not_configured`        | Derived (config analysis)     | Pre-runtime | No adapter configuration exists for the referenced transport. No code path exercised.                              |
+| `unavailable`           | Derived (adapter state)       | Runtime     | Adapter exists in config but is not reachable. Health reports `unavailable` or `failed`.                           |
+| `auth_failed`           | Derived (error text analysis) | Runtime     | Authentication with the transport endpoint failed. Permanent for Matrix (401/403).                                 |
+| `connection_failed`     | Derived (error text analysis) | Runtime     | Transport connection could not be established. Transient (network) or permanent (config).                          |
+| `capability_suppressed` | DeliveryFailureKind           | Runtime     | Target adapter lacks capability for the event's kind or relation type. See §9.                                     |
+| `route_disabled`        | Derived (config analysis)     | Pre-runtime | Route configuration has `enabled = false`. Events matching this route are not delivered.                           |
+| `route_listen_only`     | Derived (config analysis)     | Pre-runtime | Route is configured for inbound-only or listen-only semantics. Outbound delivery skipped.                          |
+| `loop_suppressed`       | DeliveryFailureKind           | Runtime     | Self-loop or route-trace guard fired. See §8.                                                                      |
+| `delivery_failed`       | DeliveryFailureKind           | Runtime     | Generic adapter delivery failure. Classified further by transport-specific error text.                             |
+| `retry_exhausted`       | Derived (receipt analysis)    | Runtime     | All retry attempts consumed. Final receipt has `status="dead_lettered"`.                                           |
+| `cancelled`             | Outbox terminal status        | Runtime     | Delivery was explicitly cancelled by operator action. Not automatically applied during graceful shutdown. See §12. |
+| `shutdown_pending`      | Derived (runtime state)       | Runtime     | Delivery attempted while shutdown is in progress. Capacity controller rejecting new work.                          |
+| `not_executed`          | Not a failure kind            | Meta        | No evidence exists. No delivery was attempted. See Evidence Levels §2 rule 6.                                      |
 
 **Implementation status:**
 
@@ -220,10 +220,12 @@ diagnostics.
 - `auth_failed` and `connection_failed` are derived taxon labels computed from
   error text analysis at report time. They are not first-class enum values
   emitted by transport code.
-- `cancelled` is a planned `DeliveryFailureKind` value for shutdown-time
-  delivery cancellation. The current runtime uses `shutdown_rejection` as an
-  error string but does not yet emit a distinct `cancelled` failure kind. See
-  §12.
+- `cancelled` is a terminal outbox status (`cancelled`), not a
+  `DeliveryFailureKind`. It is set when an operator explicitly cancels a
+  delivery, or when an outbox item is cancelled through explicit operator
+  action. Graceful shutdown does not automatically transition non-terminal
+  outbox items to `cancelled`. Non-terminal outbox rows remain as resumable
+  work for the next startup. See §12.
 - Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
   `connection_failed`, `route_disabled`, `route_listen_only`,
   `retry_exhausted`, `shutdown_pending`) are computed at report time from
@@ -244,20 +246,67 @@ When the runtime shuts down, the delivery evidence system aims to:
 - Record receipts for deliveries rejected due to shutdown (capacity controller
   stopped accepting).
 - Preserve all pre-existing receipts and outbox state in SQLite.
+- Report honest shutdown evidence, including whether resumable work was left
+  pending.
 
-### 12.2 Non-Goals
+### 12.2 Resumable Shutdown Policy
 
-- Cancelling pending outbox items or scheduled retries during shutdown is not
-  currently implemented. Pending retry receipts with `next_retry_at` set remain
-  in storage and are processed on next startup by the RetryWorker.
-- Distinguishing shutdown-cancelled deliveries from other failures by a
-  distinct `cancelled` failure kind is not yet implemented. The runtime uses
-  `shutdown_rejection` as an error string on suppressed receipts, but this is
-  not a first-class `DeliveryFailureKind` value.
-- No receipt is created for deliveries that were never attempted because the
-  runtime was already shutting down when the event arrived.
+Graceful shutdown preserves non-terminal outbox rows as resumable work. The
+runtime does not cancel, mutate, or append receipts to pending outbox items
+during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
+`in_progress`, `queued`) survive in SQLite and are processed on next startup
+by the RetryWorker and outbox reclaim logic.
 
-### 12.3 Current Behaviour
+This is an intentional design choice, not a gap. Automatic cancellation of
+resumable outbox work is not performed because:
+
+- The operator may intend to resume work after restart.
+- Cancellation is a distinct terminal state (`cancelled`) that requires
+  explicit operator action, not implicit shutdown-side mutation.
+- Shutdown evidence records what was left pending, not what was cancelled.
+
+Terminal outbox statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`)
+are already final and require no shutdown-side action.
+
+### 12.3 Outbox Shutdown Classification
+
+Each outbox status is classified for shutdown policy:
+
+| Outbox status   | Classification           | Resumable | Shutdown action      |
+| --------------- | ------------------------ | --------- | -------------------- |
+| `pending`       | `resumable_pending`      | Yes       | None (preserved)     |
+| `retry_wait`    | `resumable_retry_wait`   | Yes       | None (preserved)     |
+| `in_progress`   | `resumable_in_progress`  | Yes       | None (preserved)     |
+| `queued`        | `resumable_queued`       | Yes       | None (preserved)     |
+| `sent`          | `terminal_sent`          | No        | None (already final) |
+| `dead_lettered` | `terminal_dead_lettered` | No        | None (already final) |
+| `cancelled`     | `terminal_cancelled`     | No        | None (already final) |
+| `abandoned`     | `terminal_abandoned`     | No        | None (already final) |
+
+### 12.4 ShutdownEvidence Model
+
+The `ShutdownEvidence` frozen dataclass records structured shutdown evidence.
+It is built by `build_shutdown_evidence()`, a pure function with no I/O or
+side effects.
+
+Key fields:
+
+| Field                      | Type           | Semantics                                                                                                                              |
+| -------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `shutdown_status`          | `str`          | One of: `running`, `graceful_stop`, `cancellation`, `adapter_failure`, `drain_timeout`, `shutdown_pending`, `stopped`, `failed`.       |
+| `resume_expected`          | `bool`         | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart. |
+| `outbox_shutdown_policy`   | `str or None`  | `"resumable"` when outbox data was provided. `None` when no outbox data available.                                                     |
+| `pending_outbox_counts`    | `dict or None` | Per-status counts of non-terminal outbox items at shutdown. `None` when no outbox data available.                                      |
+| `pending_retry_work_total` | `int or None`  | Total count of non-terminal outbox items. `None` when no outbox data available.                                                        |
+| `drain_timeout_detected`   | `bool`         | Whether drain timeout was detected from events or reason.                                                                              |
+| `in_flight_count`          | `int or None`  | In-flight delivery count from capacity controller at shutdown.                                                                         |
+
+The `outbox_shutdown_policy` value `"resumable"` signals that the outbox was
+inspected at shutdown and non-terminal rows were intentionally preserved.
+Operators can use `resume_expected` to determine whether pending work will be
+resumed on next startup.
+
+### 12.5 Current Behaviour
 
 | Scenario                                         | Evidence produced                                           |
 | ------------------------------------------------ | ----------------------------------------------------------- |

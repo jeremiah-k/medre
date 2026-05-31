@@ -225,6 +225,40 @@ example because the worker crashed or the adapter lost the queued message.
 > for terminal statuses. The `delivery_receipts` table preserves the full
 > evidence trail independently of outbox lifecycle.
 
+### 2.5 Graceful Shutdown Behavior
+
+When the runtime shuts down gracefully, the outbox is not mutated. Non-terminal
+outbox rows survive in SQLite and are processed on next startup by the
+RetryWorker and outbox reclaim logic. The shutdown evidence model
+(`ShutdownEvidence`) records `resume_expected=True` when pending non-terminal
+work exists, and `outbox_shutdown_policy="resumable"` to signal the resumable
+policy is active.
+
+The table below describes what happens to each outbox status during graceful
+shutdown:
+
+| Outbox status at shutdown | Classification       | Shutdown action                                                  | Restart recovery                                       |
+| ------------------------- | -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `pending`                 | Resumable            | No mutation. Row preserved.                                      | Claimed by `claim_due_outbox_items()` on next startup. |
+| `retry_wait`              | Resumable            | No mutation. Row preserved.                                      | Due retry receipts discovered by RetryWorker.          |
+| `in_progress`             | Resumable            | No mutation. Row preserved. Lease may expire during shutdown.    | Expired lease reclaimed by `claim_due_outbox_items()`. |
+| `queued`                  | Resumable            | No mutation. Row preserved.                                      | Stale queued reclaim after grace period.               |
+| `sent`                    | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                   |
+| `dead_lettered`           | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                   |
+| `cancelled`               | Terminal (no action) | Already final. Set by explicit operator action, not by shutdown. | N/A.                                                   |
+| `abandoned`               | Terminal (no action) | Already final. Set during drain timeout for in-flight items.     | N/A.                                                   |
+
+Cancellation (`cancelled`) and abandonment (`abandoned`) are distinct terminal
+states. They are not automatically applied to non-terminal outbox work during
+graceful shutdown. Cancellation requires explicit operator action; abandonment
+is set for in-flight deliveries that exceed the drain timeout.
+
+For in-flight adapter deliveries (those actively executing an adapter `deliver()`
+call when shutdown begins), the drain period allows completion. Deliveries
+that complete during drain produce normal receipts. Deliveries abandoned after
+the drain timeout expires produce suppressed receipts with error
+`delivery_rejected_shutdown`.
+
 ---
 
 ## 3. Relationship Between Machines
@@ -315,7 +349,7 @@ Classification subsets:
 
 Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
 
-The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout).
+The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout). The `cancelled` and `abandoned` transitions from `pending`, `queued`, and `retry_wait` are operator-initiated or result from explicit drain-timeout abandon logic; graceful shutdown does **not** automatically transition non-terminal outbox rows to `cancelled` or `abandoned`.
 
 ### 4.2 Design Constraints
 

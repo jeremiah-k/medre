@@ -492,7 +492,7 @@ Read-only inspection commands accept `--storage-path` for direct SQLite access.
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
 7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
-8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries cancelled on shutdown are lost.
+8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries abandoned after drain timeout produce suppressed receipts; non-terminal outbox items survive shutdown as resumable work.
 
 ## See Also
 

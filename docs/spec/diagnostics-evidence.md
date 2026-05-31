@@ -262,7 +262,7 @@ All operational evidence MUST be classified into exactly one of five runtime evi
 
 | Tier             | Label        | Semantics                                                                                                                   | Allowed Claims                                                                                       |
 | ---------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **historical**   | Historical   | *Archival documentation label.* Recorded during a prior development phase. Not a runtime evidence_tier value.                                               | "On date D, behavior X was observed." No claim about current behavior.                               |
+| **historical**   | Historical   | _Archival documentation label._ Recorded during a prior development phase. Not a runtime evidence_tier value.               | "On date D, behavior X was observed." No claim about current behavior.                               |
 | **conformance**  | Conformance  | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                      | "At commit H, behavior X is confirmed."                                                              |
 | **synthetic**    | Synthetic    | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                   | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
 | **docker**       | Docker       | Recorded against a local Docker container with real SDK dependencies. No external network, federation, or hardware.         | "SDK integration and adapter wiring work in a containerized environment."                            |
@@ -837,11 +837,69 @@ The outbox tracks in-progress deliveries:
 - When the delivery completes (success or failure), the outbox row is finalized.
 - On crash recovery, expired `in_progress` outbox rows are reclaimable by the `RetryWorker`.
 
-### 20.3 Known Gap: Pending Shutdown Cancellation
+### 20.3 Resumable Shutdown Policy
 
-When the runtime shuts down, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not explicitly cancelled. They remain in storage as-is. On next startup:
+Graceful shutdown does not cancel pending outbox items or scheduled retries.
+Non-terminal outbox rows (`pending`, `retry_wait`, `in_progress`, `queued`)
+survive in SQLite and are processed on next startup:
 
-- Pending retry receipts are discovered and processed by the `RetryWorker` (if enabled).
-- Expired outbox rows are reclaimed.
+- Pending retry receipts are discovered and processed by the `RetryWorker`
+  (if enabled).
+- Expired `in_progress` outbox rows are reclaimed by
+  `claim_due_outbox_items()`.
+- Stale `queued` outbox rows are reclaimed after the configured grace period.
 
-This means a retry MAY be re-attempted after shutdown for a delivery that the operator expected to be cancelled. This is a known gap. A future implementation MAY add explicit cancellation of pending retries and outbox items during graceful shutdown, producing `cancelled` receipts. Until then, operators should be aware that pending retries survive shutdown and are re-processed on restart.
+This is an intentional design choice. Automatic cancellation of resumable
+outbox work is not performed. Cancellation (`cancelled`) is a distinct
+terminal state requiring explicit operator action; it is not applied
+implicitly during shutdown.
+
+### 20.4 ShutdownEvidence Model
+
+The `ShutdownEvidence` frozen dataclass (defined in
+`medre.core.evidence.shutdown`) records structured shutdown evidence. It is
+built by `build_shutdown_evidence()`, a pure function with no I/O or side
+effects. The function is dict/object tolerant: it accepts both dataclass
+instances and plain dict values for all inputs.
+
+Key fields:
+
+| Field                    | Type          | Semantics                                                                                                                                                           |
+| ------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shutdown_status`        | `str`         | Canonical shutdown classification. One of: `running`, `graceful_stop`, `cancellation`, `adapter_failure`, `drain_timeout`, `shutdown_pending`, `stopped`, `failed`. |
+| `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
+| `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
+
+Pending outbox rows (not tied to retry receipts) are discovered by
+`claim_due_outbox_items()` on next startup. These rows are moved into dispatch
+according to normal outbox logic, independent of RetryWorker retry receipt
+processing.
+
+| `pending_outbox_counts` | `dict or None` | Per-status counts of non-terminal outbox items at shutdown time. `None` when no outbox data was provided. |
+| `pending_retry_work_total` | `int or None` | Total count of non-terminal outbox items across all statuses. `None` when no outbox data was provided. |
+| `drain_timeout_detected` | `bool` | Whether drain timeout was detected from runtime events or shutdown reason. |
+| `in_flight_count` | `int or None` | In-flight delivery count from capacity controller at shutdown time. |
+| `tasks_cancelled` | `int or None` | Count of tasks cancelled during shutdown, extracted from runtime events. |
+| `evidence_flush_status` | `str or None` | Caller-supplied status of evidence persistence at shutdown. |
+
+### 20.5 OutboxShutdownClassification
+
+The `classify_outbox_shutdown_policy()` function classifies each outbox
+status for graceful-shutdown policy. It returns an
+`OutboxShutdownClassification` frozen dataclass with:
+
+| Field               | Semantics                                                        |
+| ------------------- | ---------------------------------------------------------------- |
+| `status`            | Original outbox status string.                                   |
+| `classification`    | Policy label (e.g. `resumable_pending`, `terminal_sent`).        |
+| `mutate_outbox`     | Always `False` for graceful shutdown. No outbox mutation occurs. |
+| `append_receipt`    | Always `False` for graceful shutdown. No receipt append occurs.  |
+| `resume_on_restart` | `True` for non-terminal statuses, `False` for terminal statuses. |
+| `evidence_reason`   | Human-readable explanation of the classification.                |
+
+Classification rules:
+
+- **Resumable** (`pending`, `retry_wait`, `in_progress`, `queued`):
+  `resume_on_restart=True`. The item is preserved for restart recovery.
+- **Terminal** (`sent`, `dead_lettered`, `cancelled`, `abandoned`):
+  `resume_on_restart=False`. The item is already final.
