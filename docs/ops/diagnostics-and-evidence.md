@@ -845,7 +845,7 @@ Gaps may indicate lost receipts or concurrent delivery attempts. Check whether r
 
 - Lifecycle convergence diagnostics are **deterministic and read-only**. They never change retry scheduling, worker behavior, or storage state.
 - No automatic repair occurs. All findings are for operator inspection only.
-- Findings use the same `OrphanFinding` structure as orphan report findings for schema consistency.
+- Findings follow the `LifecycleConvergenceFinding` JSON Schema type (distinct closed `kind` enum from `OrphanFinding`). The Python runtime reuses the `OrphanFinding` dataclass for structural compatibility.
 
 ## See Also
 

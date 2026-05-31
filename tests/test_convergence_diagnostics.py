@@ -26,8 +26,8 @@ Test groups
 11. Receipt latest selection — deterministic tiebreaking.
 12. Aggregate severity counts and worst severity.
 13. Multiple targets with different adapters/channels.
-23. Unrecognised outbox status — DEGRADED with warning.
-24. target_channel empty-string vs None grouping.
+14. Unrecognised outbox status — DEGRADED with warning.
+15. target_channel empty-string vs None grouping.
 """
 
 from __future__ import annotations

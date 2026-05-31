@@ -16,6 +16,7 @@ import msgspec
 
 from medre.core.diagnostics.convergence.lifecycle_convergence import (
     build_lifecycle_convergence_findings,
+    build_lifecycle_convergence_report_dict,
 )
 from medre.core.diagnostics.convergence.orphans import build_orphan_report
 from medre.core.diagnostics.convergence.recovery_convergence import (
@@ -270,36 +271,10 @@ def _build_lifecycle_convergence_report_dict(
 ) -> dict[str, Any]:
     """Build a JSON-safe lifecycle convergence report dict from findings.
 
-    Parameters
-    ----------
-    findings:
-        List of :class:`~medre.core.diagnostics.convergence.types.OrphanFinding`
-        produced by :func:`build_lifecycle_convergence_findings`.
-
-    Returns
-    -------
-    dict[str, Any]
-        Report with ``findings``, ``total_findings``, ``severity_counts``,
-        and ``worst_severity`` keys.
+    Delegates to the canonical serialization helper in
+    :mod:`medre.core.diagnostics.convergence.lifecycle_convergence`.
     """
-    findings_dicts = [f.to_dict() for f in findings]
-    severity_counts: dict[str, int] = {"safe": 0, "degraded": 0, "inconsistent": 0}
-    for f in findings:
-        sev = f.severity
-        severity_counts[sev] = severity_counts.get(sev, 0) + 1
-    worst_severity: str | None = None
-    if severity_counts.get("inconsistent", 0) > 0:
-        worst_severity = "inconsistent"
-    elif severity_counts.get("degraded", 0) > 0:
-        worst_severity = "degraded"
-    elif severity_counts.get("safe", 0) > 0:
-        worst_severity = "safe"
-    return {
-        "findings": findings_dicts,
-        "total_findings": len(findings_dicts),
-        "severity_counts": severity_counts,
-        "worst_severity": worst_severity,
-    }
+    return build_lifecycle_convergence_report_dict(findings)
 
 
 # ---------------------------------------------------------------------------

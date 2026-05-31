@@ -31,6 +31,7 @@ from medre.core.diagnostics.convergence.types import (
 # ---------------------------------------------------------------------------
 
 _NOW = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
+_TS_US = datetime(2026, 5, 31, 10, 0, 0, 123456, tzinfo=timezone.utc)
 _PAST_2H = _NOW - timedelta(hours=2)
 _FUTURE_2H = _NOW + timedelta(hours=2)
 
@@ -159,14 +160,6 @@ class TestTerminalReceiptNonterminalOutbox:
         kinds = {x.kind for x in f}
         assert KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX not in kinds
 
-    def test_not_fired_when_outbox_terminal(self) -> None:
-        f = _build(
-            outbox_items=[_outbox(status="sent")],
-            receipts=[_receipt(status="sent")],
-        )
-        kinds = {x.kind for x in f}
-        assert KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX not in kinds
-
 
 # ===================================================================
 # B. KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT
@@ -253,9 +246,8 @@ class TestReceiptOutboxMismatch:
             receipts=[_receipt(status="failed")],
         )
         kinds = {x.kind for x in f}
-        # pending+failed is NOT in _NORMAL_NON_TERMINAL_COMBOS... actually
-        # it's not explicitly listed. Let me check: ("pending", "failed") is not
-        # in the normal combos set, so it SHOULD fire C.
+        # pending+failed is not in the normal non-terminal combos set,
+        # so it fires as a mismatch.
         assert KIND_RECEIPT_OUTBOX_MISMATCH in kinds
 
     def test_retry_wait_failed_is_normal(self) -> None:
@@ -984,7 +976,7 @@ class TestTimestampEdgeCases:
 
     def test_microsecond_timestamp_parsed(self) -> None:
         """ISO timestamp with microseconds should parse correctly."""
-        ts = (_NOW - timedelta(hours=2)).isoformat()
+        ts = _TS_US.isoformat()
         f = _build(
             outbox_items=[
                 _outbox(status="pending", updated_at=ts),

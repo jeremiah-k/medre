@@ -194,6 +194,44 @@
     "recovery_run_id": null,
     "startup_timestamp": null
   },
-  "lifecycle_convergence_report": null,
+  "lifecycle_convergence_report": {
+    "findings": [
+      {
+        "kind": "terminal_receipt_nonterminal_outbox",
+        "severity": "inconsistent",
+        "record_id": "obx_abc123",
+        "record_type": "outbox",
+        "details": "Terminal receipt (sent) but outbox is non-terminal (pending) for target ('chan_a', 'user_1', 'dm')",
+        "extra": {
+          "outbox_id": "obx_abc123",
+          "receipt_id": "rec_xyz789",
+          "outbox_status": "pending",
+          "receipt_status": "sent",
+          "target_channel": "chan_a",
+          "target_user": "user_1"
+        }
+      },
+      {
+        "kind": "retryable_without_retry_metadata",
+        "severity": "degraded",
+        "record_id": "rec_def456",
+        "record_type": "receipt",
+        "details": "Receipt is retryable (failure_kind=adapter_transient) but has no retry policy metadata for target ('chan_b', 'user_2', 'group')",
+        "extra": {
+          "receipt_id": "rec_def456",
+          "failure_kind": "adapter_transient",
+          "target_channel": "chan_b",
+          "target_user": "user_2"
+        }
+      }
+    ],
+    "total_findings": 2,
+    "severity_counts": {
+      "safe": 0,
+      "degraded": 1,
+      "inconsistent": 1
+    },
+    "worst_severity": "inconsistent"
+  },
   "status": "passed"
 }

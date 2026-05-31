@@ -16,11 +16,13 @@ from typing import Any, Callable, Iterable
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
-    _pick_latest_receipt,
     _TERMINAL_OUTBOX,
-    _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH,
+)
+from .helpers import _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH
+from .helpers import (
     _build_outbox_by_key,
     _get,
+    _pick_latest_receipt,
     _target_key,
     _TargetKey,
     _to_iso,
@@ -38,7 +40,10 @@ from .types import (
     OrphanFinding,
 )
 
-__all__ = ["build_lifecycle_convergence_findings"]
+__all__ = [
+    "build_lifecycle_convergence_findings",
+    "build_lifecycle_convergence_report_dict",
+]
 
 # ---------------------------------------------------------------------------
 # Internal constants
@@ -54,14 +59,16 @@ _RETRY_POLICY_FIELDS = (
 
 #: Normal non-terminal (outbox, receipt) status combinations — these are
 #: not flagged as degraded mismatches.
-_NORMAL_NON_TERMINAL_COMBOS = frozenset({
-    ("retry_wait", "failed"),
-    ("retry_wait", "queued"),
-    ("queued", "queued"),
-    ("pending", "queued"),
-    ("in_progress", "queued"),
-    ("in_progress", "failed"),
-})
+_NORMAL_NON_TERMINAL_COMBOS = frozenset(
+    {
+        ("retry_wait", "failed"),
+        ("retry_wait", "queued"),
+        ("queued", "queued"),
+        ("pending", "queued"),
+        ("in_progress", "queued"),
+        ("in_progress", "failed"),
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +81,8 @@ def _parse_iso_timestamp(value: Any) -> datetime | tuple[None, str]:
 
     Returns ``datetime`` on success or ``(None, error_message)`` on failure.
     """
+    if isinstance(value, datetime):
+        return value
     if value is None:
         return (None, "timestamp is None")
     s = _to_iso(value)
@@ -153,6 +162,7 @@ def build_lifecycle_convergence_findings(
         now_fn = _default_now
 
     now = now_fn()
+    now = _ensure_aware(now)
 
     # -- Index structures ---------------------------------------------------
     outbox_by_key = _build_outbox_by_key(outbox_list)
@@ -164,7 +174,7 @@ def build_lifecycle_convergence_findings(
 
     all_keys = sorted(
         set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
-        key=lambda k: (k[0], k[1], k[2] or ""),
+        key=lambda k: (k[0] or "", k[1] or "", k[2] or ""),
     )
 
     # -- Per-target checks: A, B, C -----------------------------------------
@@ -463,7 +473,7 @@ def build_lifecycle_convergence_findings(
                 )
 
     # -- H: Attempt count regression ----------------------------------------
-    for key, recs in receipts_by_key.items():
+    for _key, recs in receipts_by_key.items():
         if len(recs) < 2:
             continue
 
@@ -504,7 +514,7 @@ def build_lifecycle_convergence_findings(
                     )
 
     # -- I: Receipt sequence gap --------------------------------------------
-    for key, recs in receipts_by_key.items():
+    for _key, recs in receipts_by_key.items():
         if len(recs) < 2:
             continue
 
@@ -551,6 +561,61 @@ def build_lifecycle_convergence_findings(
     findings.sort(key=lambda f: (f.kind, f.record_id))
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# Canonical serialization helper
+# ---------------------------------------------------------------------------
+
+
+def build_lifecycle_convergence_report_dict(
+    findings: list[OrphanFinding] | None,
+) -> dict[str, Any]:
+    """Build a lifecycle convergence report dict from findings.
+
+    Produces a dict with keys ``findings``, ``total_findings``,
+    ``severity_counts``, and ``worst_severity``, matching the
+    ``LifecycleConvergenceReport`` JSON Schema shape.
+
+    This is the canonical serialization helper — used by both
+    ``EvidenceCollector`` and runtime evidence storage sections.
+    """
+    if not findings:
+        return {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 0},
+            "worst_severity": None,
+        }
+    severity_counts: dict[str, int] = {"safe": 0, "degraded": 0, "inconsistent": 0}
+    for f in findings:
+        sev = f.severity
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+    if severity_counts.get("inconsistent", 0) > 0:
+        worst = "inconsistent"
+    elif severity_counts.get("degraded", 0) > 0:
+        worst = "degraded"
+    elif severity_counts.get("safe", 0) > 0:
+        worst = "safe"
+    else:
+        worst = None
+    return {
+        "findings": [
+            {
+                "kind": f.kind,
+                "severity": f.severity,
+                "record_id": f.record_id,
+                "record_type": f.record_type,
+                "details": f.details,
+                "extra": dict(f.extra),
+            }
+            for f in findings
+        ],
+        "total_findings": len(findings),
+        "severity_counts": severity_counts,
+        "worst_severity": worst,
+    }
 
 
 # ---------------------------------------------------------------------------

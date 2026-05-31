@@ -328,33 +328,17 @@ async def _collect_storage_data_from_backend(
                 from medre.core.diagnostics.convergence.lifecycle_convergence import (
                     build_lifecycle_convergence_findings as _build_lifecycle_findings,
                 )
+                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                    build_lifecycle_convergence_report_dict as _build_lifecycle_report,
+                )
 
                 _lifecycle_findings = _build_lifecycle_findings(
                     receipts=receipts,
                     outbox_items=outbox_items,
                 )
-                _lifecycle_sev_counts: dict[str, int] = {
-                    "safe": 0,
-                    "degraded": 0,
-                    "inconsistent": 0,
-                }
-                for _lf in _lifecycle_findings:
-                    _lifecycle_sev_counts[_lf.severity] = (
-                        _lifecycle_sev_counts.get(_lf.severity, 0) + 1
-                    )
-                _lifecycle_worst: str | None = None
-                if _lifecycle_sev_counts.get("inconsistent", 0) > 0:
-                    _lifecycle_worst = "inconsistent"
-                elif _lifecycle_sev_counts.get("degraded", 0) > 0:
-                    _lifecycle_worst = "degraded"
-                elif _lifecycle_sev_counts.get("safe", 0) > 0:
-                    _lifecycle_worst = "safe"
-                data["lifecycle_convergence_report"] = {
-                    "findings": [f.to_dict() for f in _lifecycle_findings],
-                    "total_findings": len(_lifecycle_findings),
-                    "severity_counts": _lifecycle_sev_counts,
-                    "worst_severity": _lifecycle_worst,
-                }
+                data["lifecycle_convergence_report"] = _build_lifecycle_report(
+                    _lifecycle_findings,
+                )
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.
