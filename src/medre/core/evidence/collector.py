@@ -449,8 +449,6 @@ class EvidenceCollector:
                 orphan_report_dict["worst_severity"] = "degraded"
             else:
                 orphan_report_dict["worst_severity"] = "safe"
-            # Update orphan count in convergence dict.
-            convergence_dict["orphan_count"] = len(all_findings)
 
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,

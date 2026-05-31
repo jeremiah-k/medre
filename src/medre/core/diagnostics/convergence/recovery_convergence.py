@@ -114,6 +114,8 @@ def build_recovery_convergence_findings(
 
         for action in actions_list:
             outbox_id = str(_get(action, "outbox_id", ""))
+            if not outbox_id:
+                continue
             raw_run_id = _get(action, "recovery_run_id")
             run_id = str(raw_run_id) if raw_run_id is not None else ""
             ownership_action = str(_get(action, "ownership_action", ""))
