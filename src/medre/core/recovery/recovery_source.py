@@ -28,5 +28,9 @@ class RecoverySource(enum.StrEnum):
     (the :class:`~medre.runtime.retry.RetryWorker` poll loop)."""
 
     REPLAY_EXECUTION = "replay_execution"
-    """Outbox item reclaimed during replay execution
-    (:class:`~medre.core.engine.replay.ReplayEngine`)."""
+    """Reserved for future replay recovery ownership actions.
+
+    Not currently produced by any code path.  Current replay separation
+    is represented by replay receipts with ``source='replay'`` /
+    ``replay_run_id``, not by recovery ownership actions.  Kept in the
+    enum for forward compatibility."""

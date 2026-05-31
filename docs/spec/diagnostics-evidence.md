@@ -1064,7 +1064,19 @@ Every recovery action carries a `recovery_source` identifying which subsystem re
 | ----------------------- | ----------------------------------------------------------------------------- |
 | `startup_recovery`      | Outbox item reclaimed during runtime startup via the `RetryWorker` at boot.   |
 | `retry_worker_recovery` | Outbox item reclaimed during steady-state retry polling by the `RetryWorker`. |
-| `replay_execution`      | Outbox item reclaimed during replay execution by the `ReplayEngine`.          |
+| `replay_execution`      | Reserved for future replay recovery ownership actions. Not currently produced. |
+
+### 22.3.1 Recovery Evidence Semantic Tiers
+
+Recovery evidence exists at three distinct semantic levels. These MUST NOT be conflated:
+
+1. **Actual startup recovery**: Tied to a runtime startup cycle. Uses a real `recovery_run_id` from `BootSummary`. Produced by the runtime recovery path during boot. This is the only evidence path that reflects genuine startup reclamation.
+
+2. **Runtime evidence-bundle snapshot diagnostics**: Built from a storage snapshot at collection time. Uses a snapshot-scoped `recovery_run_id`. This is a diagnostic reconstruction, not proof that a startup recovery cycle occurred. The snapshot reflects outbox state as observed, not a live recovery transaction.
+
+3. **Per-event recovery diagnostics**: Built from an event-scoped outbox snapshot by the `EvidenceCollector`. Uses `recovery_run_id=None` because the per-event collector has no `BootSummary` access (see § 22.10). This is classification only, not proof of startup recovery.
+
+Evidence collection does not perform actual startup recovery. It produces diagnostic bundle snapshots from stored state, not append-only recovery records.
 
 ### 22.4 Startup Reclamation Classification
 
@@ -1102,7 +1114,7 @@ A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery de
 
 ### 22.6 Startup Recovery Ledger
 
-The `StartupRecoveryLedger` is a frozen dataclass containing all recovery actions for a startup cycle. Actions are append-only and deterministically ordered by `(outbox_id, timestamp)`. The ledger is JSON-safe and carries `recovery_run_id`, `startup_timestamp`, and `generated_at`.
+The `StartupRecoveryLedger` is a frozen dataclass containing all recovery actions for a startup cycle. Actions are deterministically ordered by `(outbox_id, timestamp)`. The ledger is JSON-safe and carries `recovery_run_id`, `startup_timestamp`, and `generated_at`. The ledger is built as a bundle snapshot from stored state at construction time, not as an append-only log of live recovery transactions.
 
 ### 22.7 Recovery Summary
 
@@ -1140,7 +1152,7 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 4. Recovery ownership statuses MUST be exactly the five values listed in § 22.2.
 5. Recovery sources MUST be exactly the three values listed in § 22.3.
 6. Recovery diagnostic classifiers MUST NOT mutate outbox items or receipts.
-7. The `StartupRecoveryLedger` MUST be append-only: actions SHALL NOT be removed or modified after construction.
+7. The `StartupRecoveryLedger` is immutable after construction: actions SHALL NOT be removed or modified once the ledger is built.
 8. Recovery evidence MUST be JSON-safe and deterministic for identical inputs.
 9. Startup recovery SHALL NOT block on recovery diagnostics.
 10. Recovery actions SHALL NOT be presented as proof of delivery.
@@ -1150,4 +1162,4 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 1. **No live_service or hardware tier validation**: All recovery evidence is synthetic/conformance tier. No real restart cycles with real adapters have been validated.
 2. **Per-event collector has no BootSummary access**: The per-event `EvidenceCollector` cannot access `BootSummary.recovery_run_id` or `startup_timestamp`. Recovery evidence from the per-event collector is limited to classification without full startup context. Full startup-scoped recovery evidence is available through the runtime evidence bundle's `recovery` section.
 3. **Recovery source inference is heuristic without direct worker hooks**: Without a direct hook into `RetryWorker` claiming, the builder infers `retry_worker_recovery` from worker identity and timestamps. This is correct for diagnostic purposes but may misclassify edge cases.
-4. **Replay recovery tracking requires receipt evidence**: Outbox items reclaimed during replay execution can only be detected if receipts with `source="replay"` exist for the same `delivery_plan_id`.
+4. **Replay recovery tracking requires receipt evidence**: Outbox items with replay-sourced receipts (`source="replay"`) are detectable through receipt evidence. `recovery_source="replay_execution"` is reserved and not currently produced (see § 22.3).

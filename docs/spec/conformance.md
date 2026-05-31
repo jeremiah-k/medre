@@ -463,13 +463,13 @@ A conforming implementation satisfies:
 
 1. **Observable startup ownership**: Every recovery action carries a `RecoveryOwnershipAction` in a `StartupRecoveryLedger`. The `RecoverySummary` provides deterministic totals with consistency validation (`total_items == sum` of all categories). Ownership statuses MUST be exactly six: `recoverable`, `claimed_for_recovery`, `reclaimed`, `abandoned`, `unrecoverable`, `skipped`.
 
-2. **Attributable recovery actions**: Every recovery action MUST carry a `recovery_source` field identifying which subsystem reclaimed ownership (`startup_recovery`, `retry_worker_recovery`, or `replay_execution`). Every action MUST carry `recovery_run_id`, `outbox_id`, `prior_status`, `recovered_status`, `ownership_action`, `reason`, and `worker_identity` (when available).
+2. **Attributable recovery actions**: Every recovery action MUST carry a `recovery_source` field identifying which subsystem reclaimed ownership (`startup_recovery` or `retry_worker_recovery`). The value `replay_execution` is reserved for future replay recovery ownership actions and MUST NOT be produced by current implementations. Every action MUST carry `recovery_run_id`, `outbox_id`, `prior_status`, `recovered_status`, `ownership_action`, `reason`, and `worker_identity` (when available).
 
 3. **Append-only evidence**: The `StartupRecoveryLedger` is append-only. Recovery actions are deterministically ordered by `(outbox_id, timestamp)`. Once recorded, actions SHALL NOT be removed or modified.
 
 4. **Recovery diagnostics are read-only**: Classification and builder functions SHALL NOT mutate outbox items or receipts. They SHALL NOT perform I/O or access storage.
 
-5. **Replay is not recovery**: Replay execution produces actions with `recovery_source="replay_execution"`. Replay-origin recovery SHALL NOT be conflated with startup recovery. Startup recovery diagnostics MAY carry replay actions but MUST NOT classify them as startup or retry-worker recovery.
+5. **Replay is not recovery**: `recovery_source="replay_execution"` is reserved for future replay recovery ownership actions. Replay-origin recovery SHALL NOT be conflated with startup or retry-worker recovery. Current replay separation is represented by replay receipts (source/replay_run_id), not by recovery ownership actions. Startup recovery diagnostics MUST NOT classify replay-sourced activity as startup or retry-worker recovery.
 
 6. **Recovery is not proof of delivery**: Recovery actions document outbox transitions, not delivery confirmations. The `ownership_action` values reference claim statuses, not delivery statuses. Terminal outbox statuses (`sent`, `dead_lettered`) are classified as `unrecoverable` and SHALL NOT be presented as requiring recovery.
 
@@ -478,6 +478,8 @@ A conforming implementation satisfies:
 8. **Deterministic startup reporting**: The evidence bundle SHALL include a `recovery` section when collected with a runtime configuration. The section SHALL contain a `recovery_summary` and `recovery_ledger` with deterministic JSON output for identical inputs. The per-event `EvidenceBundle` SHALL carry `recovery_summary` and `recovery_ledger` as optional fields.
 
 9. **Schema coverage**: Recovery evidence SHALL be accepted by the `evidence-bundle.schema.json` JSON Schema. JSON examples SHALL exist for `recovery-summary` and `recovery-ledger`.
+
+10. **Recovery evidence is diagnostic, not transactional**: Recovery evidence is generated as bundle snapshots from stored state at collection time. It is not an append-only log of live recovery transactions. Evidence collection does not perform actual startup recovery. Three distinct semantic tiers exist (see diagnostics-evidence.md § 22.3.1): actual startup recovery (real `recovery_run_id` from boot), runtime snapshot diagnostics (snapshot-scoped `recovery_run_id`), and per-event diagnostics (`recovery_run_id=None`). These tiers MUST NOT be conflated.
 
 ### 9.7 Known Gaps
 

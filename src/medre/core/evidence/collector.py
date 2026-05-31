@@ -409,13 +409,15 @@ class EvidenceCollector:
         # Build per-event recovery ledger and summary from outbox items
         # already loaded.  Without BootSummary the startup_timestamp is
         # unavailable; recovery source defaults to RETRY_WORKER_RECOVERY.
-        # Use empty recovery_run_id for per-event determinism (the runtime
-        # evidence section provides the startup-scoped run ID).
+        # Per-event snapshots pass None — EvidenceCollector has no runtime
+        # startup context, so no recovery run ID is available here.
+        # build_startup_recovery_ledger auto-generates a run ID when None
+        # is passed, so the ledger model never holds None.
         _recovery_now = self._now_fn
         recovery_ledger_obj = build_startup_recovery_ledger(
             outbox_items=outbox_items,
             startup_timestamp=None,
-            recovery_run_id="",
+            recovery_run_id=None,
             now_fn=lambda: _recovery_now().isoformat(),
         )
         recovery_summary_obj = build_recovery_summary(recovery_ledger_obj)

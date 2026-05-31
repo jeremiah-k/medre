@@ -56,10 +56,10 @@ def _infer_recovery_source(
     ``STARTUP_RECOVERY`` regardless of age.  Otherwise the source
     defaults to ``RETRY_WORKER_RECOVERY``.
 
-    **Note:** ``REPLAY_EXECUTION`` is inferred later by the collector
-    when receipt-level ``source="replay"`` evidence exists for the same
-    ``delivery_plan_id``.  This builder cannot determine replay without
-    receipt data.
+    **Note:** ``REPLAY_EXECUTION`` is reserved for future use and not
+    currently produced by any code path.  Replay separation is
+    represented by replay receipts with ``source='replay'`` /
+    ``replay_run_id``, not by recovery ownership actions.
     """
     if startup_timestamp is not None:
         return str(RecoverySource.STARTUP_RECOVERY)

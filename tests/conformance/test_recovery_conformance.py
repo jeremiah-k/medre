@@ -4,7 +4,7 @@ Verifies:
 - Startup ownership is observable (RecoverySummary present in evidence bundles)
 - Recovery actions are attributable (every action has recovery_source)
 - Recovery diagnostics are read-only (classification functions don't mutate inputs)
-- Replay is not recovery (REPLAY_EXECUTION actions have distinct source)
+- Replay is not recovery (REPLAY_EXECUTION is a reserved forward-compat enum value; not currently produced)
 - Recovery is not proof of delivery (actions reference outbox transitions only)
 """
 
@@ -212,6 +212,7 @@ class TestReplayIsNotRecovery:
     """Replay execution SHALL NOT be classified as recovery."""
 
     def test_replay_source_is_distinct(self) -> None:
+        """REPLAY_EXECUTION is reserved for future use — assert it exists and is distinct."""
         assert str(RecoverySource.REPLAY_EXECUTION) != str(
             RecoverySource.STARTUP_RECOVERY
         )
@@ -220,6 +221,7 @@ class TestReplayIsNotRecovery:
         )
 
     def test_replay_not_mixed_with_startup(self) -> None:
+        """All enum values (including reserved REPLAY_EXECUTION) have valid string values."""
         for src in RecoverySource:
             assert isinstance(src.value, str)
             assert src.value in {
