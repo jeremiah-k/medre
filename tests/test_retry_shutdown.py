@@ -581,7 +581,7 @@ class TestRetryWorkerStopOrphan:
         that never returns.  After the 5 s grace period the task is
         cancelled and awaited so no orphan remains.
         """
-        from medre.runtime.events import EventBuffer, RuntimeEventType
+        from medre.runtime.events import EventBuffer
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
@@ -611,7 +611,6 @@ class TestRetryWorkerStopOrphan:
 
         # Patch the internal wait_for timeout to make the test fast.
         # We monkey-patch stop() to use a shorter timeout.
-        original_stop = worker.stop
 
         async def _fast_stop():
             if worker._task is None:

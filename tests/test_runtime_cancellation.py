@@ -1371,9 +1371,7 @@ class TestAdapterStopTimeoutSupervision:
         )
 
         # Use a very short shutdown timeout so the test completes quickly.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1381,9 +1379,7 @@ class TestAdapterStopTimeoutSupervision:
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # The slow adapter should have been called but timed out → FAILED.
         assert app.adapters[slow_id].stop_called
@@ -1429,9 +1425,7 @@ class TestAdapterStopTimeoutSupervision:
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
         # Short shutdown timeout.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1439,9 +1433,7 @@ class TestAdapterStopTimeoutSupervision:
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # Storage close MUST have been called.
         assert storage_close_called, "storage.close() was not called"
@@ -1504,9 +1496,7 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters[first_to_stop] = _SlowStopAdapter(real_first, sleep_seconds=300.0)
 
         # Short timeout.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1514,9 +1504,7 @@ class TestAdapterStopTimeoutSupervision:
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # The second adapter (last in reverse order) should also have been
         # attempted — the slow first adapter must not prevent it.
@@ -1552,9 +1540,7 @@ class TestAdapterStopTimeoutSupervision:
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
         # Short timeout.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1562,9 +1548,7 @@ class TestAdapterStopTimeoutSupervision:
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # All adapters should be FAILED.
         for aid in app.adapters:
@@ -1602,9 +1586,7 @@ class TestAdapterStopTimeoutSupervision:
         app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
 
         # Short timeout.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1612,9 +1594,7 @@ class TestAdapterStopTimeoutSupervision:
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert pipeline_stop_called, "pipeline_runner.stop() was not called"
 
@@ -1633,9 +1613,7 @@ class TestAdapterStopTimeoutSupervision:
             app.adapters[slow_id], sleep_seconds=300.0
         )
 
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             from medre.runtime.errors import RuntimeShutdownError
@@ -1646,6 +1624,4 @@ class TestAdapterStopTimeoutSupervision:
             # Error should mention the adapter.
             assert slow_id in str(exc_info.value)
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)

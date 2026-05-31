@@ -685,9 +685,7 @@ class MedreApp:
                                     self.config.runtime.shutdown_timeout_seconds
                                 )
                             ),
-                            timeout=float(
-                                self.config.runtime.shutdown_timeout_seconds
-                            ),
+                            timeout=float(self.config.runtime.shutdown_timeout_seconds),
                         )
                     except asyncio.TimeoutError as cleanup_exc:
                         _logger.debug(
@@ -963,7 +961,7 @@ class MedreApp:
         self.shutdown_event.set()
 
         # 1. Stop adapters in reverse start order for clean teardown.
-        errors: list[tuple[str, Exception]] = []
+        errors: list[tuple[str, BaseException]] = []
         _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
             if self._adapter_states.get(adapter_id) in _terminal:

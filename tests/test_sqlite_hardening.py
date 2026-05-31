@@ -143,9 +143,9 @@ class TestExecutorLifecycle:
         if not s._use_aiosqlite:
             s._db.close = _inspect_closed
             await s.close()
-            assert closed_during_close is True, (
-                "_closed should be True when db.close() is called"
-            )
+            assert (
+                closed_during_close is True
+            ), "_closed should be True when db.close() is called"
         else:
             await s.close()
 
@@ -179,7 +179,9 @@ class TestExecutorLifecycle:
                 raise RuntimeError("simulated sync db.close failure")
 
             with unittest.mock.patch.object(s._db, "close", _failing_sync_close):
-                with pytest.raises(RuntimeError, match="simulated sync db.close failure"):
+                with pytest.raises(
+                    RuntimeError, match="simulated sync db.close failure"
+                ):
                     await s.close()
             assert s._executor is None
 

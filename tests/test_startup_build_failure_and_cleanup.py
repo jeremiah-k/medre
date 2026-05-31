@@ -1361,17 +1361,13 @@ class TestStartupCleanupStopTimeout:
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
         # Short timeout so the slow stop gets cut short quickly.
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             with pytest.raises(RuntimeStartupError, match="Total startup failure"):
                 await app.start()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # Adapter stop should have been called.
         assert app.adapters["fake_matrix"].stop_called
@@ -1402,17 +1398,13 @@ class TestStartupCleanupStopTimeout:
 
         app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
 
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             with pytest.raises(RuntimeStartupError, match="Total startup failure"):
                 await app.start()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert pipeline_stop_called, "pipeline_runner.stop() was not called"
 
@@ -1484,17 +1476,13 @@ class TestStartupCleanupStopTimeout:
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             with pytest.raises(RuntimeStartupError, match="Total startup failure"):
                 await app.start()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # Both adapters should have had stop called.
         assert alpha.stop_called, "alpha stop() not called"
@@ -1530,17 +1518,13 @@ class TestStartupCleanupStopTimeout:
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
-        object.__setattr__(
-            app.config.runtime, "shutdown_timeout_seconds", 0.2
-        )
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
             with pytest.raises(RuntimeStartupError, match="Total startup failure"):
                 await app.start()
         finally:
-            object.__setattr__(
-                app.config.runtime, "shutdown_timeout_seconds", 10
-            )
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert alpha.stop_called
         assert storage_close_called, "storage.close() was not called"
