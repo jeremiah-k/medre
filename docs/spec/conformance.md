@@ -295,7 +295,7 @@ asserts all of the following for its fixtures:
 
 ## 7. Transport Capability Semantics and Delivery Evidence Conformance
 
-This section documents conformance test coverage for transport capability semantics, delivery evidence enrichment, and replay parity introduced in the transport capability evidence wave.
+This section documents conformance test coverage for transport capability semantics, delivery evidence enrichment, and replay parity introduced alongside transport capability evidence support.
 
 ### 7.1 Test Coverage by Behavior
 
