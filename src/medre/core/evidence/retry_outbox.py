@@ -47,14 +47,26 @@ __all__ = [
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:
-    """Retrieve *name* from an object or dict, falling back to *default*."""
+    """Retrieve *name* from an object or dict, falling back to *default*.
+
+    NOTE: This is a parallel implementation of
+    ``medre.core.diagnostics.convergence.helpers._get``.  The two
+    packages are architecturally separate — ``evidence`` must not
+    import from ``diagnostics.convergence`` — so the duplication is
+    intentional and must be kept in sync manually.
+    """
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
 
 
 def _to_iso(value: Any) -> str | None:
-    """Convert a value to an ISO-8601 string or ``None``."""
+    """Convert a value to an ISO-8601 string or ``None``.
+
+    NOTE: Parallel implementation of
+    ``medre.core.diagnostics.convergence.helpers._to_iso`` — see
+    ``_get`` docstring for rationale.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -113,10 +125,31 @@ def _derive_reason_pending(
     failure_kind: str | None,
     *,
     source: str = "outbox",
+    delivery_plan_id: str | None = None,
+    receipt_id: str | None = None,
 ) -> str | None:
     """Derive a human-readable explanation for why work is still pending.
 
     Returns ``None`` for terminal states that don't need an explanation.
+
+    Parameters
+    ----------
+    status:
+        Raw status string (outbox or receipt).
+    next_attempt_at:
+        ISO-8601 next-attempt timestamp, or ``None``.
+    worker_id:
+        Worker that claimed the item, or ``None``.
+    failure_kind:
+        Classified failure kind string, or ``None``.
+    source:
+        ``"outbox"`` or ``"receipt"`` to disambiguate context.
+    delivery_plan_id:
+        The delivery plan correlation key, or ``None``/empty when absent.
+        Used to flag uncorrelated queued items.
+    receipt_id:
+        The receipt identifier, or ``None`` when no receipt linkage exists.
+        Used to flag uncorrelated queued items.
     """
     if source == "receipt":
         if status == "suppressed":
@@ -139,6 +172,23 @@ def _derive_reason_pending(
             return f"Claimed by worker {worker_id}"
         return "In progress"
     if status == "queued":
+        has_plan_id = bool(delivery_plan_id)
+        has_receipt = bool(receipt_id)
+        if not has_plan_id and not has_receipt:
+            return (
+                "Queued, uncorrelated (no delivery_plan_id, no receipt linkage) "
+                "— awaiting stale-grace reclaim or adapter callback correlation"
+            )
+        if not has_plan_id:
+            return (
+                "Queued, uncorrelated (no delivery_plan_id) "
+                "— awaiting stale-grace reclaim or adapter callback correlation"
+            )
+        if not has_receipt:
+            return (
+                "Queued, uncorrelated (no receipt linkage) "
+                "— awaiting stale-grace reclaim or adapter callback correlation"
+            )
         return "Queued in adapter-local queue"
     # terminal — no reason needed
     return None
@@ -192,6 +242,8 @@ def _build_outbox_item_summary(item: Any) -> RetryOutboxItemSummary:
             worker_id,
             failure_kind,
             source="outbox",
+            delivery_plan_id=_get(item, "delivery_plan_id"),
+            receipt_id=_get(item, "receipt_id"),
         ),
     )
 
@@ -236,6 +288,8 @@ def _build_receipt_only_summary(receipt: Any) -> RetryOutboxItemSummary:
             worker_id=None,
             failure_kind=failure_kind,
             source="receipt",
+            delivery_plan_id=_get(receipt, "delivery_plan_id"),
+            receipt_id=_get(receipt, "receipt_id"),
         ),
     )
 

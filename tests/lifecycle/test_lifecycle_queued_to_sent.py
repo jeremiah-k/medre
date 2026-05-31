@@ -2,7 +2,7 @@
 
 Exercises ``append_queued_to_sent_receipt`` including happy paths,
 outbox transitions, error handling, and deterministic plan_id
-correlation (Tranche 5 regression).
+correlation (Deterministic plan_id correlation regression).
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class TestAppendQueuedToSentReceipt:
 
 
 # ===================================================================
-# Same-channel retry lineage regression (Tranche 6)
+# Same-channel retry lineage regression
 # ===================================================================
 
 
@@ -178,6 +178,380 @@ class TestSameChannelRetryLineageRegression:
         assert len(sent) == 0
         assert "Ambiguous queued receipt correlation" in caplog.text
         assert "plan-bx" in caplog.text
+
+
+# ===================================================================
+# Source-aware candidate selection
+# ===================================================================
+
+
+class TestSourceAwareCandidateSelection:
+    """Verify that append_queued_to_sent_receipt prefers non-replay queued
+    receipts over replay queued receipts when multiple candidates match the
+    same (delivery_plan_id, adapter, channel).
+
+    This hardens queued-to-sent correlation against replay/live source
+    contamination.
+    """
+
+    async def test_live_callback_prefers_live_queued_over_replay(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Live and replay queued receipts for same plan/channel → live wins."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Replay queued receipt (appended first).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-replay",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-src",
+                source="replay",
+                replay_run_id="run-42",
+            )
+        )
+        # Live queued receipt (appended second — would also win by recency).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-live",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-src",
+                source="live",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-live",
+            delivery_plan_id="plan-src",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-live"
+        assert sent[0].source == "live"
+        assert sent[0].replay_run_id is None
+
+    async def test_live_callback_prefers_live_even_if_replay_is_newer(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Replay receipt appended after live → live still wins."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Live queued receipt (appended first).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-live-early",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-order",
+                source="live",
+            )
+        )
+        # Replay queued receipt (appended second — would win by recency alone).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-replay-late",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-order",
+                source="replay",
+                replay_run_id="run-99",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-order",
+            delivery_plan_id="plan-order",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-live-early"
+        assert sent[0].source == "live"
+
+    async def test_replay_only_candidate_skipped_with_warning(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Only replay queued receipt exists → skipped with warning, no sent receipt."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-replay-only",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-replay-only",
+                source="replay",
+                replay_run_id="run-77",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-replay",
+            delivery_plan_id="plan-replay-only",
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        # No supplemental sent receipt — replay-only candidate is skipped.
+        assert len(sent) == 0
+        # The original queued receipt remains untouched.
+        queued = [r for r in all_receipts if r.status == "queued"]
+        assert len(queued) == 1
+        assert queued[0].receipt_id == "rcpt-replay-only"
+        assert "only replay-sourced queued receipt" in caplog.text
+        assert "skipping replay candidate" in caplog.text
+        # Must NOT log the spurious "Logic error" warning.
+        assert "Logic error" not in caplog.text
+
+    async def test_normal_live_only_unchanged(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Single live queued receipt → unchanged behaviour (regression)."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-live-single",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-live",
+                source="live",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-plain",
+            delivery_plan_id="plan-live",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-live-single"
+        assert sent[0].source == "live"
+        assert sent[0].replay_run_id is None
+
+    async def test_repeated_callback_creates_append_only_supplemental(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Repeated callback creates a second supplemental receipt (append-only).
+
+        Receipts are immutable: the original queued receipt is never
+        consumed or status-changed, so ``status == "queued"`` always
+        matches on subsequent callbacks and a new supplemental receipt is
+        appended each time.  This is the existing MEDRE behaviour — not
+        idempotent, but outbox transition is idempotent (queued→sent
+        only fires once).
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-dup",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-dup",
+                source="live",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-dup-1",
+            delivery_plan_id="plan-dup",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        # Second callback targeting the same immutable queued receipt
+        # produces another supplemental sent receipt.
+        record2 = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-dup-2",
+            delivery_plan_id="plan-dup",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record2,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 2
+
+    async def test_source_preference_no_channel_same_plan(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """No native_channel_id on record, same plan, same channel, live+replay
+        → live wins (exercises plan_matches path without channel filter)."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Replay candidate first.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-r1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-nc",
+                source="replay",
+                replay_run_id="run-10",
+            )
+        )
+        # Live candidate second.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-l1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-nc",
+                source="live",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id=None,
+            native_message_id="pkt-nc",
+            delivery_plan_id="plan-nc",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-l1"
+        assert sent[0].source == "live"
+
+    async def test_multiple_replay_candidates_skipped_with_warning(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Multiple replay candidates, no live → all skipped with warning."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-rp1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-rmulti",
+                source="replay",
+                replay_run_id="run-a",
+            )
+        )
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-rp2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-rmulti",
+                source="replay",
+                replay_run_id="run-b",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-rmulti",
+            delivery_plan_id="plan-rmulti",
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        # No supplemental sent receipt — all replay candidates skipped.
+        assert len(sent) == 0
+        # Both queued receipts remain untouched.
+        queued = [r for r in all_receipts if r.status == "queued"]
+        assert len(queued) == 2
+        assert "only replay-sourced queued receipts" in caplog.text
+        assert "skipping all replay candidates" in caplog.text
+        # Must NOT log the spurious "Logic error" warning.
+        assert "Logic error" not in caplog.text
 
     async def test_single_candidate_no_channel_succeeds(
         self,
@@ -442,7 +816,7 @@ class TestAppendQueuedToSentErrorPaths:
 
 
 # ===================================================================
-# Deterministic delivery_plan_id correlation (Tranche 5 regression)
+# Deterministic delivery_plan_id correlation regression
 # ===================================================================
 
 
@@ -798,6 +1172,55 @@ class TestDeterministicPlanIdCorrelation:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
+
+    async def test_missing_delivery_plan_id_logs_warning(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Record without delivery_plan_id logs at WARNING level with
+        event_id, adapter, and native_channel_id context."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-no-plan-warn",
+                status="queued",
+                adapter="mesh-1",
+                channel="0",
+                plan_id="plan-warn",
+                event_id="evt-warn",
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-warn",
+            adapter="mesh-1",
+            native_channel_id="ch-warn-42",
+            native_message_id="pkt-warn",
+            # delivery_plan_id is None
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        # Must be WARNING level, not DEBUG.
+        warning_records = [
+            r
+            for r in caplog.records
+            if "delivery_plan_id" in r.message and "not available" in r.message
+        ]
+        assert len(warning_records) >= 1
+        assert warning_records[0].levelname == "WARNING"
+        # Must include operator context.
+        assert "evt-warn" in caplog.text
+        assert "mesh-1" in caplog.text
+        assert "ch-warn-42" in caplog.text
+        assert "uncorrelated" in caplog.text
 
     async def test_missing_delivery_plan_id_no_outbox_transition(
         self,

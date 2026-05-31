@@ -903,7 +903,7 @@ FROM delivery_outbox
 WHERE event_id = ?;
 ```
 
-An `in_progress` row with an expired lease is re-claimable by the RetryWorker on restart. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed. A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
+An `in_progress` row with an expired lease is re-claimable by `claim_due_outbox_items()` on restart. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed. A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
 
 ### 13.6 Database Integrity Verification
 

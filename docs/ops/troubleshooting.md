@@ -17,7 +17,7 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 | Adapter transient     | 0         | `sent` (after retry) or `failed`                   | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
 | Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)              | No                         | `capacity_rejections` counter, logs              |
 | Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                       | No                         | delivery plan timestamps                         |
-| Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)              | No                         | `outbound_failed` counter                        |
+| Shutdown rejection    | 0         | `suppressed` (delivery_rejected_shutdown)          | No                         | `outbound_failed` counter                        |
 | Replay capacity       | 0         | `error` (replay_capacity_exceeded)                 | No                         | `capacity_rejections` counter                    |
 | Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)          | N/A (by design)            | receipt `replay_run_id`                          |
 | Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events | No                         | receipt `failure_kind`, `error` field            |
@@ -247,11 +247,11 @@ Fix: check the delivery plan's deadline configuration, adapter latency, and tran
 
 ### Delivery Rejected During Shutdown
 
-In-flight deliveries when shutdown begins are rejected, not drained.
+In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `delivery_rejected_shutdown`.
 
-Expected: `DeliveryOutcome`: `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
+Expected: `DeliveryReceipt`: `status == "suppressed"`, `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
 
-Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits.
+Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits. Non-terminal outbox rows survive shutdown as resumable work and are reclaimed on next startup.
 
 ### Replay Rejected During Shutdown
 
@@ -483,6 +483,60 @@ Read-only inspection commands accept `--storage-path` for direct SQLite access.
 | Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`                                                    |
 | Capability suppressed          | `failure_kind="capability_suppressed"` in receipts; `suppression_reason`, `capability_field` in report dict |
 
+## Convergence State Troubleshooting
+
+### "Convergence severity is inconsistent"
+
+**Symptom:** The convergence summary for an event shows `worst_severity: "inconsistent"` for one or more targets.
+
+**Cause:** The outbox item and latest receipt disagree on whether the delivery is terminal. For example, the outbox says `sent` but the latest receipt says `queued`.
+
+**Investigation:**
+
+```sql
+-- Check the receipt chain for the affected delivery_plan_id
+SELECT receipt_id, status, attempt_number, failure_kind, created_at
+FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>'
+ORDER BY attempt_number;
+
+-- Check the outbox item
+SELECT outbox_id, status, attempt_number, updated_at
+FROM delivery_outbox
+WHERE delivery_plan_id = '<plan_id>';
+```
+
+**Resolution:**
+
+1. Determine which record is stale (outbox or receipt).
+2. If the outbox is stale (already terminal but receipt is mid-flight), the delivery completed and the receipt may be from a stale queued correlation. No data loss.
+3. If the receipt is stale (says `sent` but outbox is `pending`), the delivery likely completed but the outbox was not updated. Check if the adapter callback was received.
+4. For true inconsistencies (data loss suspected), consider replaying the event.
+
+### "Orphaned outbox items after crash"
+
+**Symptom:** The orphan report shows `orphaned_outbox` findings for non-terminal outbox items referencing events not in the event catalogue.
+
+**Cause:** The event was deleted or the event store was partially corrupted.
+
+**Fix:** If the event was intentionally deleted, cancel or abandon the orphaned outbox row. If the event should exist, investigate the storage integrity.
+
+### "Uncorrelated queued outbox items"
+
+**Symptom:** The retry/outbox summary shows queued items with reason `"Queued, uncorrelated (no delivery_plan_id, no receipt linkage)"`.
+
+**Cause:** The adapter callback has not yet supplied `delivery_plan_id` linkage for the queued item.
+
+**Fix:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, check that the adapter is properly propagating `delivery_plan_id` through its queue processing.
+
+### "Replay-only callback warning"
+
+**Symptom:** Logs show a warning about "only replay-sourced queued receipts found" during callback correlation, and no supplemental sent receipt is created.
+
+**Cause:** A live adapter callback is arriving, but the only matching queued receipt(s) are from a replay run. `OutboundNativeRefRecord` carries no trusted replay provenance, so replay-only queued receipts are skipped to prevent live recovery state mutation.
+
+**Fix:** Verify that the callback is from the replay run, not a live delivery. If a live delivery also occurred, the live receipt chain remains intact. The replay queued receipt stays uncorrelated. If this is a live callback that should have a matching live queued receipt, investigate whether the live delivery produced a queued receipt. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
+
 ## Explicit Non-Guarantees
 
 1. **Distributed loop prevention.** Loop detection is local to a single MEDRE process.
@@ -492,7 +546,7 @@ Read-only inspection commands accept `--storage-path` for direct SQLite access.
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
 7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
-8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries abandoned after drain timeout produce suppressed receipts; non-terminal outbox items survive shutdown as resumable work.
+8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `delivery_rejected_shutdown`; non-terminal outbox items survive shutdown as resumable work.
 
 ## See Also
 

@@ -328,6 +328,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.storage",
         "medre.core.storage.sqlite",
         "medre.core.diagnostics",
+        "medre.core.diagnostics.convergence",
         "medre.core.observability",
         "medre.core.lifecycle",
         "medre.core.identity",

@@ -254,8 +254,10 @@ When the runtime shuts down, the delivery evidence system aims to:
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
 during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
-`in_progress`, `queued`) survive in SQLite and are processed on next startup
-by the RetryWorker and outbox reclaim logic.
+`in_progress`, `queued`) survive in SQLite and are processed on next startup:
+due retry receipts by the RetryWorker, and outbox items (`pending`,
+`retry_wait`, expired `in_progress`, stale `queued`) by
+`claim_due_outbox_items()`.
 
 This is an intentional design choice, not a gap. Automatic cancellation of
 resumable outbox work is not performed because:
@@ -315,3 +317,18 @@ resumed on next startup.
 | New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
 | Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
+
+## 13. Orphan and Invalid-Lineage Finding Kinds
+
+The convergence diagnostics system detects orphaned and invalid-lineage records. These findings are not `DeliveryFailureKind` enum values. They are diagnostic findings produced by the pure `build_orphan_report()` function from existing receipt and outbox snapshots. They do not indicate a delivery failure per se, but rather a state inconsistency in the persisted evidence chain.
+
+| Finding kind                       | Severity       | Record type | Condition                                                                                                                            | Operator action                                                                                               |
+| ---------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `orphaned_outbox`                  | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from the known event catalogue.                                                  | Investigate the event. If the event was deleted, cancel or abandon the orphaned outbox row.                   |
+| `orphaned_parent_receipt`          | `inconsistent` | receipt     | Receipt with `parent_receipt_id` pointing to a receipt that does not exist.                                                          | Check for data loss or partial writes. The child receipt's lineage is broken.                                 |
+| `cross_plan_parent`                | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                                                      | Indicates a retry lineage corruption. The receipt chain crossed plan boundaries.                              |
+| `cross_event_parent`               | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                                              | Indicates a retry lineage corruption. The receipt chain crossed event boundaries.                             |
+| `missing_delivery_plan_id`         | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                                                     | The retry may still succeed once the plan ID is resolved. Check the original delivery.                        |
+| `dead_lettered_retryable_mismatch` | `degraded`     | outbox      | `dead_lettered` outbox item whose latest receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. | The outbox says terminal but the receipt says retryable. Consider replay if the underlying cause is resolved. |
+
+All findings are detection-only. The system does not repair, mutate, or block startup based on these findings. Operators use the findings to guide manual investigation and remediation.

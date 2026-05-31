@@ -132,6 +132,7 @@ class TestQueuedItemSummary:
                     outbox_id="obx-q-1",
                     status="queued",
                     delivery_plan_id="plan-q",
+                    receipt_id="rcpt-q-1",
                     event_id="evt-q",
                     target_adapter="adapter_q",
                     target_channel="ch-q",
@@ -876,3 +877,146 @@ class TestMixedScenario:
 
         # JSON safety.
         json.dumps(asdict(summary))
+
+
+# ===================================================================
+# Tests: uncorrelated queued items
+# ===================================================================
+
+
+class TestUncorrelatedQueuedItems:
+    """Queued items lacking delivery_plan_id or receipt linkage get explicit
+    operator-visible pending/recovery reasons.
+
+    Uncorrelated queued item visibility: operator visibility for queued outbox
+    items that cannot be correlated because callback/native ref lacked
+    delivery_plan_id or receipt linkage.
+    """
+
+    def test_queued_no_plan_id_no_receipt(self) -> None:
+        """Queued item with no delivery_plan_id and no receipt_id gets
+        uncorrelated reason mentioning both missing fields."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-uncorr-1",
+                    status="queued",
+                    delivery_plan_id="",  # empty → no plan correlation
+                    receipt_id=None,
+                    event_id="evt-uncorr",
+                    target_adapter="meshtastic",
+                    target_channel="ch-msh",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        assert summary.counts["queued"] == 1
+        item = summary.items[0]
+        assert item.status == "queued"
+        assert item.reason_pending is not None
+        assert "uncorrelated" in item.reason_pending
+        assert "no delivery_plan_id" in item.reason_pending
+        assert "no receipt linkage" in item.reason_pending
+        assert "stale-grace reclaim" in item.reason_pending
+
+    def test_queued_no_plan_id_with_receipt(self) -> None:
+        """Queued item with receipt_id but no delivery_plan_id gets
+        plan-specific uncorrelated reason."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-uncorr-2",
+                    status="queued",
+                    delivery_plan_id="",
+                    receipt_id="rcpt-existing",
+                    event_id="evt-uncorr-2",
+                    target_adapter="lxmf",
+                    target_channel="ch-lxmf",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        item = summary.items[0]
+        assert item.reason_pending is not None
+        assert "uncorrelated" in item.reason_pending
+        assert "no delivery_plan_id" in item.reason_pending
+        # Should NOT mention receipt linkage since receipt exists.
+        assert "no receipt linkage" not in item.reason_pending
+
+    def test_queued_with_plan_id_no_receipt(self) -> None:
+        """Queued item with delivery_plan_id but no receipt_id gets
+        receipt-specific uncorrelated reason."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-uncorr-3",
+                    status="queued",
+                    delivery_plan_id="plan-has-plan",
+                    receipt_id=None,
+                    event_id="evt-uncorr-3",
+                    target_adapter="meshcore",
+                    target_channel="ch-mc",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        item = summary.items[0]
+        assert item.reason_pending is not None
+        assert "uncorrelated" in item.reason_pending
+        assert "no receipt linkage" in item.reason_pending
+        # Should NOT mention delivery_plan_id since it exists.
+        assert "no delivery_plan_id" not in item.reason_pending
+
+    def test_queued_with_plan_id_and_receipt_is_normal(self) -> None:
+        """Queued item with both delivery_plan_id and receipt_id gets the
+        standard 'Queued in adapter-local queue' reason (no uncorrelated
+        suffix)."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-correlated",
+                    status="queued",
+                    delivery_plan_id="plan-corr",
+                    receipt_id="rcpt-corr",
+                    event_id="evt-corr",
+                    target_adapter="matrix",
+                    target_channel="ch-matrix",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        item = summary.items[0]
+        assert item.reason_pending == "Queued in adapter-local queue"
+
+    def test_uncorrelated_queued_counts_in_shutdown_pending(self) -> None:
+        """Uncorrelated queued items still count in shutdown_pending."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-unc-sp",
+                    status="queued",
+                    delivery_plan_id="",
+                    receipt_id=None,
+                ),
+            ],
+        )
+        assert summary.counts["queued"] == 1
+        assert summary.counts["shutdown_pending"] >= 1
+
+    def test_uncorrelated_queued_is_json_safe(self) -> None:
+        """Uncorrelated queued item evidence is JSON-safe."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="obx-unc-json",
+                    status="queued",
+                    delivery_plan_id="",
+                    receipt_id=None,
+                    event_id="evt-unc-json",
+                ),
+            ],
+        )
+        serialized = json.dumps(asdict(summary))
+        parsed = json.loads(serialized)
+        assert parsed["items"][0]["reason_pending"] is not None
+        assert "uncorrelated" in parsed["items"][0]["reason_pending"]

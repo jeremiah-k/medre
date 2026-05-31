@@ -14,6 +14,8 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
+from medre.core.diagnostics.convergence.orphans import build_orphan_report
+from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,
@@ -373,6 +375,29 @@ class EvidenceCollector:
         )
         retry_outbox_dict = _retry_outbox_summary_to_dict(retry_outbox_summary_obj)
 
+        # -- Convergence diagnostics (pure, from receipts + outbox) -----------
+        # Convergence diagnostics are pure functions over already-loaded snapshots.
+        # Failures surface during pre-release intentionally — no silent degradation.
+        convergence_summary_obj = build_convergence_summary(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        convergence_dict = convergence_summary_obj.to_dict()
+
+        # -- Orphan / invalid-lineage report (pure, from receipts + outbox) ----
+        # Collector does not have an event catalogue, so known_event_ids
+        # is not passed — the orphaned_outbox check is silently skipped.
+        orphan_report_obj = build_orphan_report(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        orphan_report_dict = orphan_report_obj.to_dict()
+
+        # Cross-populate orphan count from the authoritative orphan_report.
+        # Safe to mutate: convergence_dict is a fresh dict from to_dict(),
+        # not the frozen dataclass itself.
+        convergence_dict["orphan_count"] = orphan_report_obj.total_findings
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -387,4 +412,6 @@ class EvidenceCollector:
             evidence_tier=evidence_tier,
             delivery_outcome_ledger=delivery_outcome_ledger,
             retry_outbox_summary=retry_outbox_dict,
+            convergence_summary=convergence_dict,
+            orphan_report=orphan_report_dict,
         )
