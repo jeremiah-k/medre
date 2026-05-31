@@ -254,8 +254,10 @@ When the runtime shuts down, the delivery evidence system aims to:
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
 during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
-`in_progress`, `queued`) survive in SQLite and are processed on next startup
-by the RetryWorker and outbox reclaim logic.
+`in_progress`, `queued`) survive in SQLite and are processed on next startup:
+due retry receipts by the RetryWorker, and outbox items (`pending`,
+`retry_wait`, expired `in_progress`, stale `queued`) by
+`claim_due_outbox_items()`.
 
 This is an intentional design choice, not a gap. Automatic cancellation of
 resumable outbox work is not performed because:

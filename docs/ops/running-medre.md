@@ -447,7 +447,7 @@ What loop prevention does not cover:
 | State                                                      | Nature                                                 |
 | ---------------------------------------------------------- | ------------------------------------------------------ |
 | In-flight deliveries (no outbox row)                       | Fully lost — no receipt                                |
-| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by RetryWorker                             |
+| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by `claim_due_outbox_items()`              |
 | Active replay runs                                         | Must re-initiate manually                              |
 | Runtime counters                                           | Reset to zero on startup                               |
 | RouteStats per-route counters                              | Reset to zero                                          |
