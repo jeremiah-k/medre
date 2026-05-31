@@ -16,6 +16,8 @@ import msgspec
 
 from medre.core.diagnostics.convergence.lifecycle_convergence import (
     build_lifecycle_convergence_findings,
+)
+from medre.core.diagnostics.convergence.lifecycle_report import (
     build_lifecycle_convergence_report_dict,
 )
 from medre.core.diagnostics.convergence.orphans import build_orphan_report
@@ -341,7 +343,7 @@ class EvidenceCollector:
                 Coroutine[Any, Any, list[Any]], list_outbox(event_id)
             )
         else:
-            # Backward-compat: storage backends predating list_outbox_items_for_event.
+            # Optional storage capability: list_outbox_items_for_event is unavailable.
             warnings.append(
                 "list_outbox_items_for_event not available on storage backend"
             )

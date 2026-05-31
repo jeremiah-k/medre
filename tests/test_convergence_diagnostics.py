@@ -13,8 +13,8 @@ Test groups
 1. Safe convergence — matching terminal states, receipt-only terminal.
 2. Degraded convergence — pending/retry_wait+failed, in_progress/queued
    without receipt, missing plan_id.
-3. Inconsistent convergence — terminal outbox + non-terminal receipt,
-   non-terminal outbox + terminal receipt sent.
+3. Inconsistent convergence — terminal outbox + non-terminal receipt.
+   Non-terminal outbox with terminal receipt is now classified as **degraded**.
 4. Deterministic repeated build — same input → same output.
 5. Missing delivery_plan_id — degraded with warning.
 6. Source separation — replay vs live receipts are not conflated when

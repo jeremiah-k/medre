@@ -328,7 +328,7 @@ async def _collect_storage_data_from_backend(
                 from medre.core.diagnostics.convergence.lifecycle_convergence import (
                     build_lifecycle_convergence_findings as _build_lifecycle_findings,
                 )
-                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                from medre.core.diagnostics.convergence.lifecycle_report import (
                     build_lifecycle_convergence_report_dict as _build_lifecycle_report,
                 )
 

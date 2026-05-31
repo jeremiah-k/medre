@@ -24,13 +24,10 @@ from .lifecycle_checks import (  # noqa: F401 (internal, via orchestration)
     _check_target_mismatches,
 )
 
-# Re-export public symbols from extracted modules
-from .lifecycle_report import build_lifecycle_convergence_report_dict  # noqa: F401
 from .types import OrphanFinding
 
 __all__ = [
     "build_lifecycle_convergence_findings",
-    "build_lifecycle_convergence_report_dict",
 ]
 
 

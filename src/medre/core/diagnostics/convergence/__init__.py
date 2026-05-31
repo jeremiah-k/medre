@@ -35,8 +35,9 @@ target_channel``):
    outbox without any receipt (mid-flight, receipt not yet written);
    missing ``delivery_plan_id`` (degraded with warning).
 3. **inconsistent** — terminal outbox but latest receipt is non-terminal;
-   non-terminal outbox but latest receipt is terminal ``sent``/``suppressed``;
-   status mismatch that cannot be explained by normal flow.
+   status mismatch that cannot be explained by normal flow.  Non-terminal
+   outbox with a terminal receipt is classified as **degraded** (receipt
+   persistence may occur before the outbox update).
 
 Cross-populated fields
 ----------------------
