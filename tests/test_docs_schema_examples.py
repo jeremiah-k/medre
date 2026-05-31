@@ -879,3 +879,70 @@ class TestEvidenceBundleSchemaNewFields:
             "tasks_cancelled": None,
         }
         jsonschema.validate(instance=bundle, schema=_schema)
+
+    # -- orphan_report validation ---------------------------------------------
+
+    def test_orphan_report_null_validates(self, _schema: dict[str, Any]) -> None:
+        """orphan_report=null (no orphan data) must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["orphan_report"] = None
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_orphan_report_populated_validates(self, _schema: dict[str, Any]) -> None:
+        """orphan_report with a populated OrphanReport must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["orphan_report"] = {
+            "findings": [
+                {
+                    "kind": "orphaned_parent_receipt",
+                    "severity": "inconsistent",
+                    "record_id": "rcpt-001",
+                    "record_type": "receipt",
+                    "details": "Receipt references missing parent",
+                    "extra": {
+                        "receipt_id": "rcpt-001",
+                        "parent_receipt_id": "rcpt-missing",
+                    },
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 1},
+            "worst_severity": "inconsistent",
+            "summary": "1 finding(s): 1 inconsistent, 0 degraded",
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_orphan_report_missing_required_field_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """OrphanFinding missing required field 'kind' must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["orphan_report"] = {
+            "findings": [
+                {
+                    "severity": "inconsistent",
+                    "record_id": "rcpt-001",
+                    "record_type": "receipt",
+                    "details": "Missing kind field",
+                    "extra": {},
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 1},
+            "worst_severity": "inconsistent",
+            "summary": "1 finding(s): 1 inconsistent, 0 degraded",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)

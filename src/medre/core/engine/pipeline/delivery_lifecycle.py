@@ -701,7 +701,7 @@ class DeliveryLifecycleService:
         else:
             # No delivery_plan_id on record — cannot correlate deterministically.
             # Operator-visible warning so that missing correlation is surfaced
-            # rather than buried at debug level (Wave 2 T5).
+            # rather than buried at debug level.
             self._log.warning(
                 "Cannot create supplemental sent receipt: delivery_plan_id "
                 "not available on callback/native ref record for "

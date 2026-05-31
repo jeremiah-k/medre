@@ -128,8 +128,10 @@ class ConvergenceSummary:
     warnings:
         Aggregate diagnostic messages.
     orphan_count:
-        Count of orphan/invalid-lineage findings.  ``None`` until
-        the orphan report is linked into the evidence bundle.
+        Count of orphan/invalid-lineage findings.  ``None`` in the
+        convergence summary because orphan data is reported separately
+        via :class:`OrphanReport` on the evidence bundle.  The orphan
+        report is the authoritative source for orphan counts.
     evidence_bundle_ref:
         Reference to the EvidenceBundle for cross-referencing.
         ``None`` until the convergence summary is attached to an

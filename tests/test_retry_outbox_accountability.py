@@ -880,7 +880,7 @@ class TestMixedScenario:
 
 
 # ===================================================================
-# Tests: uncorrelated queued items (Wave 2 T5)
+# Tests: uncorrelated queued items
 # ===================================================================
 
 
@@ -888,9 +888,9 @@ class TestUncorrelatedQueuedItems:
     """Queued items lacking delivery_plan_id or receipt linkage get explicit
     operator-visible pending/recovery reasons.
 
-    Wave 2 T5: operator visibility for queued outbox items that cannot be
-    correlated because callback/native ref lacked delivery_plan_id or
-    receipt linkage.
+    Uncorrelated queued item visibility: operator visibility for queued outbox
+    items that cannot be correlated because callback/native ref lacked
+    delivery_plan_id or receipt linkage.
     """
 
     def test_queued_no_plan_id_no_receipt(self) -> None:

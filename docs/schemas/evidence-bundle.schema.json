@@ -98,6 +98,10 @@
       "description": "Per-event convergence diagnostics summary derived from delivery receipts and outbox items, or null.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ConvergenceSummary" }]
     },
+    "orphan_report": {
+      "description": "Per-event orphan/invalid-lineage report derived from delivery receipts and outbox items, or null.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/OrphanReport" }]
+    },
     "status": {
       "type": "string",
       "enum": ["passed", "partial", "error"],
@@ -354,7 +358,7 @@
         "orphan_count": {
           "type": ["integer", "null"],
           "minimum": 0,
-          "description": "Count of orphan records. Currently null until orphan SQL integration."
+          "description": "Count of orphan records. Null in convergence_summary; orphan_report is the authoritative source."
         },
         "severity_counts": {
           "type": "object",
@@ -452,6 +456,96 @@
         "severity",
         "warnings",
         "outbox_id"
+      ],
+      "additionalProperties": false
+    },
+    "OrphanFinding": {
+      "title": "OrphanFinding",
+      "description": "A single orphan or invalid-lineage finding.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "orphaned_outbox",
+            "orphaned_parent_receipt",
+            "cross_plan_parent",
+            "cross_event_parent",
+            "missing_delivery_plan_id",
+            "dead_lettered_retryable_mismatch"
+          ],
+          "description": "Category of finding."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["inconsistent", "degraded"],
+          "description": "Convergence severity string."
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Identifier of the affected record (outbox_id or receipt_id)."
+        },
+        "record_type": {
+          "type": "string",
+          "enum": ["outbox", "receipt"],
+          "description": "Type of the affected record."
+        },
+        "details": {
+          "type": "string",
+          "description": "Human-readable diagnostic message."
+        },
+        "extra": {
+          "type": "object",
+          "description": "Additional JSON-safe context (event IDs, plan IDs, statuses).",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "kind",
+        "severity",
+        "record_id",
+        "record_type",
+        "details",
+        "extra"
+      ],
+      "additionalProperties": false
+    },
+    "OrphanReport": {
+      "title": "OrphanReport",
+      "description": "Aggregate orphan/invalid-lineage report.",
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OrphanFinding" },
+          "description": "Individual findings, deterministically sorted."
+        },
+        "total_findings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of findings."
+        },
+        "severity_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "description": "Count of findings per severity level."
+        },
+        "worst_severity": {
+          "type": ["string", "null"],
+          "enum": ["safe", "degraded", "inconsistent", null],
+          "description": "Worst severity among findings, or null if empty."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Human-readable summary line."
+        }
+      },
+      "required": [
+        "findings",
+        "total_findings",
+        "severity_counts",
+        "worst_severity",
+        "summary"
       ],
       "additionalProperties": false
     }

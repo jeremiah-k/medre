@@ -134,10 +134,10 @@ def _derive_reason_pending(
         ``"outbox"`` or ``"receipt"`` to disambiguate context.
     delivery_plan_id:
         The delivery plan correlation key, or ``None``/empty when absent.
-        Used to flag uncorrelated queued items (Wave 2 T5).
+        Used to flag uncorrelated queued items.
     receipt_id:
         The receipt identifier, or ``None`` when no receipt linkage exists.
-        Used to flag uncorrelated queued items (Wave 2 T5).
+        Used to flag uncorrelated queued items.
     """
     if source == "receipt":
         if status == "suppressed":

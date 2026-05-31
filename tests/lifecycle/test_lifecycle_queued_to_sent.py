@@ -181,7 +181,7 @@ class TestSameChannelRetryLineageRegression:
 
 
 # ===================================================================
-# Source-aware candidate selection (Wave 1 T4 hardening)
+# Source-aware candidate selection
 # ===================================================================
 
 
@@ -1175,7 +1175,7 @@ class TestDeterministicPlanIdCorrelation:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Record without delivery_plan_id logs at WARNING level with
-        event_id, adapter, and native_channel_id context (Wave 2 T5)."""
+        event_id, adapter, and native_channel_id context."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 

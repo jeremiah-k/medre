@@ -1016,7 +1016,7 @@ class TestToDictDefensiveCopy:
 
 
 # ===========================================================================
-# J: Convergence summary in collected bundles
+# Convergence summary in collected bundles
 # ===========================================================================
 
 

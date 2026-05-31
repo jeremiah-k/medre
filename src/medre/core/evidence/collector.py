@@ -14,7 +14,10 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
-from medre.core.diagnostics.convergence import build_convergence_summary
+from medre.core.diagnostics.convergence import (
+    build_convergence_summary,
+    build_orphan_report,
+)
 from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,
@@ -381,6 +384,17 @@ class EvidenceCollector:
         )
         convergence_dict = convergence_summary_obj.to_dict()
 
+        # -- Orphan / invalid-lineage report (pure, from receipts + outbox) ----
+        # Collector does not have an event catalogue, so known_event_ids
+        # is not passed — the orphaned_outbox check is silently skipped.
+        # The orphan_report is the authoritative source for orphan counts;
+        # convergence_summary.orphan_count remains None.
+        orphan_report_obj = build_orphan_report(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        orphan_report_dict = orphan_report_obj.to_dict()
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -396,4 +410,5 @@ class EvidenceCollector:
             delivery_outcome_ledger=delivery_outcome_ledger,
             retry_outbox_summary=retry_outbox_dict,
             convergence_summary=convergence_dict,
+            orphan_report=orphan_report_dict,
         )

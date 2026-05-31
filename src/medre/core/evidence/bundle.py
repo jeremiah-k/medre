@@ -107,6 +107,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     delivery_outcome_ledger: dict[str, Any] | None = None
     retry_outbox_summary: dict[str, Any] | None = None
     convergence_summary: dict[str, Any] | None = None
+    orphan_report: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict representation.
@@ -162,4 +163,5 @@ def _bundle_to_dict(bundle: EvidenceBundle) -> dict[str, Any]:
         "delivery_outcome_ledger": copy.deepcopy(bundle.delivery_outcome_ledger),
         "retry_outbox_summary": copy.deepcopy(bundle.retry_outbox_summary),
         "convergence_summary": copy.deepcopy(bundle.convergence_summary),
+        "orphan_report": copy.deepcopy(bundle.orphan_report),
     }
