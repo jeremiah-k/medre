@@ -586,25 +586,24 @@ When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_r
 
 ### 15.3 Evidence Signals
 
-| Signal                          | Source                          | Meaning                                                                                        |
-| ------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Supplemental `sent` receipt     | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated and finalized                                       |
-| No supplemental receipt created | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                         |
-| Replay-only skip warning        | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation  |
-| Ambiguity warning               | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt  |
-| Legacy degraded path applied    | `append_queued_to_sent_receipt` | `delivery_plan_id` was `None`; fallback to adapter match with plan_id and channel uniformity   |
-| Same-channel latest-wins        | `append_queued_to_sent_receipt` | Unambiguous retry lineage: same plan_id, same target_channel; latest appended receipt selected |
+| Signal                               | Source                          | Meaning                                                                                                           |
+| ------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt          | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated and finalized                                                          |
+| No supplemental receipt created      | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                            |
+| Replay-only skip warning             | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                     |
+| Ambiguity warning                    | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt                     |
+| Missing delivery_plan_id on callback | `append_queued_to_sent_receipt` | `delivery_plan_id` was `None` on outbound ref; deterministic correlation skipped, no heuristic fallback attempted |
+| Same-channel latest-wins             | `append_queued_to_sent_receipt` | Unambiguous retry lineage: same plan_id, same target_channel; latest appended receipt selected                    |
 
 ### 15.4 Normative Requirements
 
-1. When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID correlation. Legacy fallback MUST only activate when `delivery_plan_id` is `None`.
+1. When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID correlation.
 2. When `delivery_plan_id` is present but no `native_channel_id` is available and multiple plan matches exist, the pipeline MUST check `target_channel` uniformity. If all matches share the same `target_channel` (unambiguous retry lineage), the pipeline MAY select the latest candidate (last appended). If `target_channel` values differ, the pipeline MUST NOT create a supplemental receipt and MUST log a warning.
-3. When `delivery_plan_id` is `None` and multiple candidates match by adapter, the pipeline MUST check both `delivery_plan_id` and `target_channel` uniformity. Unambiguous correlation requires exactly one unique `delivery_plan_id` AND exactly one unique `target_channel`. If ambiguous (multiple plans or multiple channels), the pipeline MUST NOT create a supplemental receipt and MUST log a warning.
-4. When `delivery_plan_id` is `None` and candidates are unambiguous (exactly one `delivery_plan_id` and exactly one `target_channel`), the pipeline MAY select the latest candidate (last appended).
-5. All ambiguous correlation skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
-6. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
-7. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
-8. When all matching queued receipt candidates are replay-sourced (`source="replay"`), the pipeline MUST NOT create a supplemental sent receipt, MUST NOT transition the outbox from `queued` to `sent`, and MUST log a warning. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation. This restriction applies to both single-candidate and multi-candidate paths. It MAY be relaxed in a future version when callback records carry trusted replay provenance.
+3. When `delivery_plan_id` is `None` on the outbound ref, no heuristic fallback is attempted. The pipeline MUST log an operator-visible warning and return without creating a supplemental receipt.
+4. All ambiguous correlation skips and missing `delivery_plan_id` skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
+5. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
+6. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
+7. When all matching queued receipt candidates are replay-sourced (`source="replay"`), the pipeline MUST NOT create a supplemental sent receipt, MUST NOT transition the outbox from `queued` to `sent`, and MUST log a warning. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation. This restriction applies to both single-candidate and multi-candidate paths. It MAY be relaxed in a future version when callback records carry trusted replay provenance.
 
 ## 16. Evidence Bundle Model
 
@@ -838,7 +837,8 @@ The outbox tracks in-progress deliveries:
 
 - When a delivery starts, an outbox row is created with status `in_progress` and an expiration lease.
 - When the delivery completes (success or failure), the outbox row is finalized.
-- On crash recovery, expired `in_progress` outbox rows are reclaimable by the `RetryWorker`.
+- On crash recovery, expired `in_progress` outbox rows are reclaimable by
+  `claim_due_outbox_items()`.
 
 ### 20.3 Resumable Shutdown Policy
 
@@ -846,8 +846,8 @@ Graceful shutdown does not cancel pending outbox items or scheduled retries.
 Non-terminal outbox rows (`pending`, `retry_wait`, `in_progress`, `queued`)
 survive in SQLite and are processed on next startup:
 
-- Pending retry receipts are discovered and processed by the `RetryWorker`
-  (if enabled).
+- Due retry receipts (failed receipts with `next_retry_at` due) are discovered
+  and processed by the `RetryWorker` (if enabled).
 - Expired `in_progress` outbox rows are reclaimed by
   `claim_due_outbox_items()`.
 - Stale `queued` outbox rows are reclaimed after the configured grace period.
@@ -873,7 +873,7 @@ Key fields:
 | `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
 | `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
 
-Pending outbox rows (not tied to retry receipts) are discovered by
+Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered by
 `claim_due_outbox_items()` on next startup. These rows are moved into dispatch
 according to normal outbox logic, independent of RetryWorker retry receipt
 processing.

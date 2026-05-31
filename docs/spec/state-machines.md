@@ -110,16 +110,16 @@ type at construction time.
 
 The outbox state machine has eight statuses:
 
-| Status          | Terminal | Meaning                                                         |
-| --------------- | -------- | --------------------------------------------------------------- |
-| `pending`       | No       | Work exists but has not started.                                |
-| `in_progress`   | No       | Claimed by a worker for active delivery processing.             |
-| `queued`        | No       | Handed to adapter-local queue (e.g., Meshtastic send queue).    |
-| `sent`          | Yes      | Operational work item completed after adapter-reported handoff. |
-| `retry_wait`    | No       | Transient failure; awaiting next scheduled retry attempt.       |
-| `dead_lettered` | Yes      | Retries exhausted or terminal failure.                          |
-| `cancelled`     | Yes      | Operator or shutdown cancelled the delivery.                    |
-| `abandoned`     | Yes      | Drain timeout or ambiguous loss during shutdown.                |
+| Status          | Terminal | Meaning                                                            |
+| --------------- | -------- | ------------------------------------------------------------------ |
+| `pending`       | No       | Work exists but has not started.                                   |
+| `in_progress`   | No       | Claimed by a worker for active delivery processing.                |
+| `queued`        | No       | Handed to adapter-local queue (e.g., Meshtastic send queue).       |
+| `sent`          | Yes      | Operational work item completed after adapter-reported handoff.    |
+| `retry_wait`    | No       | Transient failure; awaiting next scheduled retry attempt.          |
+| `dead_lettered` | Yes      | Retries exhausted or terminal failure.                             |
+| `cancelled`     | Yes      | Explicit operator cancellation (not automatic shutdown).           |
+| `abandoned`     | Yes      | Drain-timeout abandonment of tracked in-flight adapter deliveries. |
 
 ### 2.2 Transition Graph
 
@@ -157,7 +157,7 @@ The outbox state machine has eight statuses:
   │ retry_wait │ ◄── transient ─────┘ │
   │            │     failure           │
   └────┬───────┘                       │
-       │  claim (retry worker)         │
+       │  claim_due_outbox_items()       │
        └──────► in_progress            │
        │                               │
        │  cancel / abandon             │ dead-letter
@@ -170,27 +170,27 @@ The outbox state machine has eight statuses:
 
 ### 2.3 Legal Transitions
 
-| From          | To              | Method                        | Condition                               |
-| ------------- | --------------- | ----------------------------- | --------------------------------------- |
-| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot           |
-| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance          |
-| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery  |
-| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff      |
-| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send       |
-| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled      |
-| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy     |
-| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry            |
-| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
-| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
-| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
-| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation       |
-| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
-| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
-| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
-| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss         |
-| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item          |
-| `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item       |
-| `queued`      | `in_progress`   | `claim_due_outbox_items()`    | Stale queued reclaim after grace period |
+| From          | To              | Method                        | Condition                                                                                  |
+| ------------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot                                                              |
+| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance                                                             |
+| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery                                                     |
+| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff                                                         |
+| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send                                                          |
+| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled                                                         |
+| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy                                                        |
+| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry                                                               |
+| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Explicit operator action (not automatic shutdown)                                          |
+| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Explicit operator action (not automatic shutdown)                                          |
+| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Explicit operator action (not automatic shutdown)                                          |
+| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Explicit operator action (not automatic shutdown)                                          |
+| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain-timeout abandonment of tracked in-flight adapter deliveries (not automatic shutdown) |
+| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain-timeout abandonment of tracked in-flight adapter deliveries (not automatic shutdown) |
+| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain-timeout abandonment of tracked in-flight adapter deliveries (not automatic shutdown) |
+| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain-timeout abandonment of tracked in-flight adapter deliveries (not automatic shutdown) |
+| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Due retry_wait outbox item reclaimed                                                       |
+| `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item                                                          |
+| `queued`      | `in_progress`   | `claim_due_outbox_items()`    | Stale queued reclaim after grace period                                                    |
 
 Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) have no
 outgoing transitions. The storage layer enforces `allowed_from` guards on
@@ -229,8 +229,8 @@ example because the worker crashed or the adapter lost the queued message.
 
 When the runtime shuts down gracefully, the outbox is not mutated. Non-terminal
 outbox rows survive in SQLite and are processed on next startup through the
-normal reclaim and dispatch paths: due retry receipts by the RetryWorker,
-outbox items by `claim_due_outbox_items()` and stale queued reclaim. The shutdown evidence model
+normal reclaim and dispatch paths: due retry receipts (where `next_retry_at` has passed) by the RetryWorker,
+due outbox items (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) by `claim_due_outbox_items()`. The shutdown evidence model
 (`ShutdownEvidence`) records `resume_expected=True` when pending non-terminal
 work exists, and `outbox_shutdown_policy="resumable"` to signal the resumable
 policy is active.
@@ -350,7 +350,7 @@ Classification subsets:
 
 Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
 
-The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (operator or shutdown cancellation); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (drain or shutdown); `retry_wait` → `abandoned` (drain timeout). The `cancelled` and `abandoned` transitions from `pending`, `queued`, and `retry_wait` are operator-initiated or result from explicit drain-timeout abandon logic; graceful shutdown does **not** automatically transition non-terminal outbox rows to `cancelled` or `abandoned`.
+The outbox transition table is aligned with §2.3 Legal Transitions. Notable entries include: `pending` → `cancelled` / `abandoned` (explicit operator action, not automatic shutdown); `in_progress` → `pending` (claim release); `queued` → `in_progress` (stale queued reclaim after grace period); `queued` → `cancelled` / `abandoned` (explicit operator or drain-timeout abandon of tracked in-flight deliveries, not automatic shutdown); `retry_wait` → `abandoned` (drain-timeout abandon of tracked in-flight deliveries). The `cancelled` and `abandoned` transitions from `pending`, `queued`, and `retry_wait` are operator-initiated or result from explicit drain-timeout abandon logic; graceful shutdown does **not** automatically transition non-terminal outbox rows to `cancelled` or `abandoned`.
 
 ### 4.2 Design Constraints
 
