@@ -753,9 +753,7 @@ class TestEvidenceBundleSchemaNewFields:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
 
-    def test_convergence_summary_null_validates(
-        self, _schema: dict[str, Any]
-    ) -> None:
+    def test_convergence_summary_null_validates(self, _schema: dict[str, Any]) -> None:
         """convergence_summary=null (no per-event data) must validate."""
         if not _HAS_JSONSCHEMA:
             pytest.skip("jsonschema not installed")

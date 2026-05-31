@@ -388,16 +388,16 @@ Receipts are never updated or deleted. Outbox items transition through the statu
 
 When the runtime starts, it reclaims ownership of non-terminal outbox items according to their status:
 
-| Outbox status at startup | Startup ownership action                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                         |
-| `retry_wait`             | Due retry receipts discovered by `RetryWorker` when `next_retry_at` has passed. Otherwise waits.              |
-| `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry.     |
-| `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.             |
-| `sent`                   | Terminal. No startup action.                                                                                  |
-| `dead_lettered`          | Terminal. No startup action.                                                                                  |
-| `cancelled`              | Terminal. No startup action.                                                                                  |
-| `abandoned`              | Terminal. No startup action.                                                                                  |
+| Outbox status at startup | Startup ownership action                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                     |
+| `retry_wait`             | Due retry receipts discovered by `RetryWorker` when `next_retry_at` has passed. Otherwise waits.          |
+| `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry. |
+| `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.         |
+| `sent`                   | Terminal. No startup action.                                                                              |
+| `dead_lettered`          | Terminal. No startup action.                                                                              |
+| `cancelled`              | Terminal. No startup action.                                                                              |
+| `abandoned`              | Terminal. No startup action.                                                                              |
 
 Startup does not block on convergence diagnostics. Non-terminal items are reclaimed lazily through the normal `claim_due_outbox_items()` path, not by a startup-time state sweep.
 

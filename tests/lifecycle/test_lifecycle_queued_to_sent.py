@@ -1206,7 +1206,8 @@ class TestDeterministicPlanIdCorrelation:
 
         # Must be WARNING level, not DEBUG.
         warning_records = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if "delivery_plan_id" in r.message and "not available" in r.message
         ]
         assert len(warning_records) >= 1

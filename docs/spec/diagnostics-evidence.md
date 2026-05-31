@@ -629,7 +629,7 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 | `evidence_tier`           | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
 | `delivery_outcome_ledger` | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
 | `retry_outbox_summary`    | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
-| `convergence_summary`     | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).             |
+| `convergence_summary`     | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).            |
 
 ### 16.3 ReceiptSummary
 
@@ -921,10 +921,10 @@ The persisted state machines for convergence diagnostics are the **outbox items*
 
 Every delivery target is classified into exactly one of three severity levels:
 
-| Severity       | Semantics                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------ |
-| `safe`         | Outbox and latest receipt agree on a terminal state, or only one source exists and is terminal.       |
-| `degraded`     | Non-terminal outbox with a `failed` receipt (work stalled, retry expected), or mid-flight state.       |
+| Severity       | Semantics                                                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safe`         | Outbox and latest receipt agree on a terminal state, or only one source exists and is terminal.                                                                       |
+| `degraded`     | Non-terminal outbox with a `failed` receipt (work stalled, retry expected), or mid-flight state.                                                                      |
 | `inconsistent` | Terminal outbox with non-terminal receipt, or non-terminal outbox with terminal receipt `sent`/`suppressed`. Status mismatch that cannot be explained by normal flow. |
 
 Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` field on the aggregate summary reflects the highest severity across all targets.
@@ -970,30 +970,30 @@ Operators use convergence diagnostics output to identify and manually address st
 
 **`ConvergenceSummary`**: Aggregate summary across all delivery targets for one event.
 
-| Field                  | Type              | Semantics                                                                                     |
-| ---------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `severity_counts`      | `dict[str, int]`  | Count of targets per severity (`safe`, `degraded`, `inconsistent`).                           |
-| `targets`              | `tuple[DTConv,…]` | Per-target convergence results, sorted by group key.                                          |
-| `total_targets`        | `int`             | Total unique delivery targets examined.                                                       |
-| `worst_severity`       | `str or None`     | Worst severity across all targets, or `None` if no targets.                                   |
-| `warnings`             | `tuple[str, …]`   | Aggregate diagnostic messages.                                                                |
-| `orphan_count`         | `int or None`     | Reserved. `None` until orphan SQL integration.                                                |
-| `evidence_bundle_ref`  | `str or None`     | Reserved. `None` until cross-reference integration.                                           |
+| Field                 | Type              | Semantics                                                           |
+| --------------------- | ----------------- | ------------------------------------------------------------------- |
+| `severity_counts`     | `dict[str, int]`  | Count of targets per severity (`safe`, `degraded`, `inconsistent`). |
+| `targets`             | `tuple[DTConv,…]` | Per-target convergence results, sorted by group key.                |
+| `total_targets`       | `int`             | Total unique delivery targets examined.                             |
+| `worst_severity`      | `str or None`     | Worst severity across all targets, or `None` if no targets.         |
+| `warnings`            | `tuple[str, …]`   | Aggregate diagnostic messages.                                      |
+| `orphan_count`        | `int or None`     | Reserved. `None` until orphan SQL integration.                      |
+| `evidence_bundle_ref` | `str or None`     | Reserved. `None` until cross-reference integration.                 |
 
 **`DeliveryTargetConvergence`**: Per-target convergence result.
 
-| Field                    | Type              | Semantics                                                                  |
-| ------------------------ | ----------------- | -------------------------------------------------------------------------- |
-| `delivery_plan_id`       | `str`             | Grouping key. Empty string when absent.                                    |
-| `target_adapter`         | `str`             | Adapter name.                                                              |
-| `target_channel`         | `str or None`     | Channel identifier.                                                        |
-| `outbox_status`          | `str or None`     | Outbox item status, or `None` if no outbox item.                           |
-| `latest_receipt_status`  | `str or None`     | Latest receipt status, or `None` if no receipt.                            |
-| `latest_receipt_id`      | `str or None`     | Latest receipt ID.                                                         |
-| `latest_attempt_number`  | `int or None`     | Latest receipt attempt number.                                             |
-| `severity`               | `str`             | One of `safe`, `degraded`, `inconsistent`.                                 |
-| `warnings`               | `tuple[str, …]`   | Per-target diagnostic messages.                                            |
-| `outbox_id`              | `str or None`     | Outbox item ID.                                                            |
+| Field                   | Type            | Semantics                                        |
+| ----------------------- | --------------- | ------------------------------------------------ |
+| `delivery_plan_id`      | `str`           | Grouping key. Empty string when absent.          |
+| `target_adapter`        | `str`           | Adapter name.                                    |
+| `target_channel`        | `str or None`   | Channel identifier.                              |
+| `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item. |
+| `latest_receipt_status` | `str or None`   | Latest receipt status, or `None` if no receipt.  |
+| `latest_receipt_id`     | `str or None`   | Latest receipt ID.                               |
+| `latest_attempt_number` | `int or None`   | Latest receipt attempt number.                   |
+| `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.       |
+| `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                  |
+| `outbox_id`             | `str or None`   | Outbox item ID.                                  |
 
 ### 21.7 Per-Event Convergence in Evidence Bundles
 
@@ -1005,26 +1005,26 @@ The `build_orphan_report()` function detects orphaned and invalid-lineage record
 
 **Finding kinds:**
 
-| Kind                                 | Severity       | Record type | Condition                                                                                                   |
-| ------------------------------------ | -------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| `orphaned_outbox`                    | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from supplied `known_event_ids`.                       |
-| `orphaned_parent_receipt`            | `inconsistent` | receipt     | Receipt with `parent_receipt_id` that does not exist in the receipt set.                                    |
-| `cross_plan_parent`                  | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                             |
-| `cross_event_parent`                 | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                     |
-| `missing_delivery_plan_id`           | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                            |
-| `dead_lettered_retryable_mismatch`   | `degraded`     | outbox      | `dead_lettered` outbox item whose latest receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
+| Kind                               | Severity       | Record type | Condition                                                                                                                            |
+| ---------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `orphaned_outbox`                  | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from supplied `known_event_ids`.                                                 |
+| `orphaned_parent_receipt`          | `inconsistent` | receipt     | Receipt with `parent_receipt_id` that does not exist in the receipt set.                                                             |
+| `cross_plan_parent`                | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                                                      |
+| `cross_event_parent`               | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                                              |
+| `missing_delivery_plan_id`         | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                                                     |
+| `dead_lettered_retryable_mismatch` | `degraded`     | outbox      | `dead_lettered` outbox item whose latest receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
 
 Findings are sorted deterministically by `(kind, record_id)`.
 
 **`OrphanReport`** aggregate fields:
 
-| Field             | Type              | Semantics                                                |
-| ----------------- | ----------------- | -------------------------------------------------------- |
-| `findings`        | `tuple[OF, …]`    | Individual findings, sorted deterministically.           |
-| `total_findings`  | `int`             | Total findings.                                          |
-| `severity_counts` | `dict[str, int]`  | Count per severity.                                      |
-| `worst_severity`  | `str or None`     | Worst severity, or `None` if empty.                      |
-| `summary`         | `str`             | Human-readable one-line summary.                         |
+| Field             | Type             | Semantics                                      |
+| ----------------- | ---------------- | ---------------------------------------------- |
+| `findings`        | `tuple[OF, …]`   | Individual findings, sorted deterministically. |
+| `total_findings`  | `int`            | Total findings.                                |
+| `severity_counts` | `dict[str, int]` | Count per severity.                            |
+| `worst_severity`  | `str or None`    | Worst severity, or `None` if empty.            |
+| `summary`         | `str`            | Human-readable one-line summary.               |
 
 ### 21.9 Normative Requirements
 

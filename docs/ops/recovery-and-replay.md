@@ -758,12 +758,12 @@ Replay and live delivery are isolated by the `source` field on receipts (`"live"
 
 When a queue-based adapter callback arrives to confirm a queued delivery (queued-to-sent transition), the pipeline selects among matching queued receipts. The selection prefers non-replay candidates (`"live"` or `"retry"`) over `"replay"` candidates.
 
-| Scenario                                             | Selected candidate                               | Log level |
-| ---------------------------------------------------- | ------------------------------------------------ | --------- |
-| One live/retry candidate, no replay candidates       | Live/retry candidate                             | Debug     |
-| Multiple live/retry candidates, same plan and channel | Latest live/retry candidate                      | Debug     |
-| Only replay candidates available                     | None — correlation skipped (warning logged)      | Warning   |
-| No candidates at all                                 | No supplemental receipt created                  | Debug     |
+| Scenario                                              | Selected candidate                          | Log level |
+| ----------------------------------------------------- | ------------------------------------------- | --------- |
+| One live/retry candidate, no replay candidates        | Live/retry candidate                        | Debug     |
+| Multiple live/retry candidates, same plan and channel | Latest live/retry candidate                 | Debug     |
+| Only replay candidates available                      | None — correlation skipped (warning logged) | Warning   |
+| No candidates at all                                  | No supplemental receipt created             | Debug     |
 
 When only replay-sourced queued receipts are available, the pipeline skips correlation entirely and emits an operator-visible warning. No supplemental sent receipt is created, no outbox transition occurs. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation without risking live recovery state mutation. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
 
@@ -788,11 +788,11 @@ After a crash or unexpected shutdown, convergence diagnostics help assess the st
 
 ### Interpreting Convergence Severity
 
-| Severity       | Meaning                                                          | Operator action                                                                              |
-| -------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `safe`         | Outbox and receipts agree. No action needed.                     | None.                                                                                        |
-| `degraded`     | Work stalled or mid-flight. Normal for recent events.            | Monitor. If degraded persists after startup recovery, investigate the specific target.        |
-| `inconsistent` | State mismatch that cannot be explained by normal flow.          | Investigate manually. Check outbox and receipt chain for the affected delivery_plan_id.       |
+| Severity       | Meaning                                                 | Operator action                                                                         |
+| -------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `safe`         | Outbox and receipts agree. No action needed.            | None.                                                                                   |
+| `degraded`     | Work stalled or mid-flight. Normal for recent events.   | Monitor. If degraded persists after startup recovery, investigate the specific target.  |
+| `inconsistent` | State mismatch that cannot be explained by normal flow. | Investigate manually. Check outbox and receipt chain for the affected delivery_plan_id. |
 
 ### Checking Convergence After Crash
 

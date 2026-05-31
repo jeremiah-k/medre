@@ -663,14 +663,16 @@ class DeliveryLifecycleService:
                 # Most recent (last in append-order) wins for retries
                 # under the same plan, with source-aware preference.
                 queued_receipt = self._select_source_preferred_candidate(
-                    channel_matches, record,
+                    channel_matches,
+                    record,
                 )
             elif len(plan_matches) == 1:
                 # Route single-candidate path through source-aware selector
                 # so replay-only candidates are skipped with warning rather
                 # than selected silently.
                 queued_receipt = self._select_source_preferred_candidate(
-                    plan_matches, record,
+                    plan_matches,
+                    record,
                 )
             else:
                 # Multiple candidates under same plan_id, no channel.
@@ -680,7 +682,8 @@ class DeliveryLifecycleService:
                     # Same plan, same channel → retry lineage →
                     # source-aware latest wins.
                     queued_receipt = self._select_source_preferred_candidate(
-                        plan_matches, record,
+                        plan_matches,
+                        record,
                     )
                 else:
                     self._log.warning(

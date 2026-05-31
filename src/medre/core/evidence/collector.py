@@ -14,6 +14,7 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
+from medre.core.diagnostics.convergence import build_convergence_summary
 from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,
@@ -27,7 +28,6 @@ from medre.core.evidence.retry_outbox import (
     build_retry_outbox_summary,
 )
 from medre.core.evidence.tiers import infer_evidence_tier
-from medre.core.diagnostics.convergence import build_convergence_summary
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector

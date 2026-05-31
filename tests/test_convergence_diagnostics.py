@@ -2,7 +2,7 @@
 
 Covers: safe/degraded/inconsistent classification, deterministic repeated
 build, missing plan_id, source separation, JSON safety, all outbox statuses,
-receipt-only terminal evidence, Wave 2 hook fields, and Wave 2 orphan/
+receipt-only terminal evidence, reserved fields, and orphan/
 invalid-lineage detection.
 
 Test groups
@@ -18,7 +18,7 @@ Test groups
    source is visible in the data.
 7. JSON safety — full summary survives json.dumps round-trip.
 8. All outbox statuses covered.
-9. Wave 2 hook fields — orphan_count and evidence_bundle_ref are None.
+9. Reserved fields — orphan_count and evidence_bundle_ref are None.
 10. Empty input — produces safe empty summary.
 11. Receipt latest selection — deterministic tiebreaking.
 12. Aggregate severity counts and worst severity.
@@ -40,11 +40,6 @@ import json
 from datetime import datetime, timezone
 
 from medre.core.diagnostics.convergence import (
-    ConvergenceSeverity,
-    ConvergenceSummary,
-    DeliveryTargetConvergence,
-    OrphanFinding,
-    OrphanReport,
     build_convergence_summary,
     build_orphan_report,
 )
@@ -344,12 +339,16 @@ class TestDeterminism:
         s = build_convergence_summary(
             receipts=[
                 _receipt(
-                    delivery_plan_id="dp-b", target_adapter="z-adapter",
-                    target_channel="ch-2", receipt_id="r-2",
+                    delivery_plan_id="dp-b",
+                    target_adapter="z-adapter",
+                    target_channel="ch-2",
+                    receipt_id="r-2",
                 ),
                 _receipt(
-                    delivery_plan_id="dp-a", target_adapter="a-adapter",
-                    target_channel="ch-1", receipt_id="r-1",
+                    delivery_plan_id="dp-a",
+                    target_adapter="a-adapter",
+                    target_channel="ch-1",
+                    receipt_id="r-1",
                 ),
             ],
         )
@@ -571,12 +570,12 @@ class TestAllOutboxStatuses:
 
 
 # ===================================================================
-# 9. Wave 2 hook fields
+# 9. Reserved fields
 # ===================================================================
 
 
-class TestWave2Hooks:
-    """Reserved fields are None until Wave 2 integration."""
+class TestReservedFields:
+    """Reserved fields are None until linked to orphan/evidence reports."""
 
     def test_orphan_count_is_none(self) -> None:
         summary = build_convergence_summary()
@@ -586,7 +585,7 @@ class TestWave2Hooks:
         summary = build_convergence_summary()
         assert summary.evidence_bundle_ref is None
 
-    def test_hooks_in_to_dict(self) -> None:
+    def test_reserved_in_to_dict(self) -> None:
         summary = build_convergence_summary(
             receipts=[_receipt(status="sent")],
         )
@@ -646,8 +645,12 @@ class TestReceiptLatestSelection:
     def test_sequence_breaks_attempt_tie(self) -> None:
         summary = build_convergence_summary(
             receipts=[
-                _receipt(receipt_id="r-low", attempt_number=2, sequence=1, status="failed"),
-                _receipt(receipt_id="r-high", attempt_number=2, sequence=5, status="sent"),
+                _receipt(
+                    receipt_id="r-low", attempt_number=2, sequence=1, status="failed"
+                ),
+                _receipt(
+                    receipt_id="r-high", attempt_number=2, sequence=5, status="sent"
+                ),
             ],
         )
         target = summary.targets[0]
@@ -656,10 +659,20 @@ class TestReceiptLatestSelection:
     def test_created_at_breaks_further_tie(self) -> None:
         summary = build_convergence_summary(
             receipts=[
-                _receipt(receipt_id="r-early", attempt_number=1, sequence=0,
-                         status="queued", created_at=_TS),
-                _receipt(receipt_id="r-late", attempt_number=1, sequence=0,
-                         status="sent", created_at=_TS_LATER),
+                _receipt(
+                    receipt_id="r-early",
+                    attempt_number=1,
+                    sequence=0,
+                    status="queued",
+                    created_at=_TS,
+                ),
+                _receipt(
+                    receipt_id="r-late",
+                    attempt_number=1,
+                    sequence=0,
+                    status="sent",
+                    created_at=_TS_LATER,
+                ),
             ],
         )
         target = summary.targets[0]
@@ -668,10 +681,20 @@ class TestReceiptLatestSelection:
     def test_receipt_id_final_tiebreaker(self) -> None:
         summary = build_convergence_summary(
             receipts=[
-                _receipt(receipt_id="rcpt-aaa", attempt_number=1, sequence=0,
-                         status="sent", created_at=_TS),
-                _receipt(receipt_id="rcpt-zzz", attempt_number=1, sequence=0,
-                         status="sent", created_at=_TS),
+                _receipt(
+                    receipt_id="rcpt-aaa",
+                    attempt_number=1,
+                    sequence=0,
+                    status="sent",
+                    created_at=_TS,
+                ),
+                _receipt(
+                    receipt_id="rcpt-zzz",
+                    attempt_number=1,
+                    sequence=0,
+                    status="sent",
+                    created_at=_TS,
+                ),
             ],
         )
         target = summary.targets[0]
@@ -1134,7 +1157,9 @@ class TestDeadLetteredRetryableMismatch:
                 _outbox(status="dead_lettered"),
             ],
         )
-        dl = [f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"]
+        dl = [
+            f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"
+        ]
         assert len(dl) == 1
         f = dl[0]
         assert f.severity == "degraded"
@@ -1151,7 +1176,9 @@ class TestDeadLetteredRetryableMismatch:
                 _outbox(status="dead_lettered"),
             ],
         )
-        dl = [f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"]
+        dl = [
+            f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"
+        ]
         assert len(dl) == 1
 
     def test_dead_lettered_with_sent_receipt_no_mismatch(self) -> None:
@@ -1164,7 +1191,9 @@ class TestDeadLetteredRetryableMismatch:
                 _outbox(status="dead_lettered"),
             ],
         )
-        dl = [f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"]
+        dl = [
+            f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"
+        ]
         assert len(dl) == 0
 
     def test_dead_lettered_no_receipt_no_mismatch(self) -> None:
@@ -1174,7 +1203,9 @@ class TestDeadLetteredRetryableMismatch:
                 _outbox(status="dead_lettered"),
             ],
         )
-        dl = [f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"]
+        dl = [
+            f for f in report.findings if f.kind == "dead_lettered_retryable_mismatch"
+        ]
         assert len(dl) == 0
 
 
