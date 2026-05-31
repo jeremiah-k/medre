@@ -21,7 +21,7 @@ Design constraints
 * Pure / deterministic — no I/O, no clocks, no hidden state.
 * Conservative default — ``synthetic`` when provenance is ambiguous.
 * JSON-safe — all values are plain strings.
-* Backward-compatible — ``""`` (empty string) represents "unknown / not set".
+* Unset sentinel — ``""`` (empty string) represents "unknown / not set".
 """
 
 from __future__ import annotations
