@@ -489,3 +489,48 @@ All convergence diagnostics and recovery ownership tests use synthetic-tier evid
 2. Recovery convergence findings against real outbox/receipt state with real transport data.
 3. Startup recovery ledger across actual process restart cycles.
 4. Recovery source disambiguation with concurrent retry workers and replay sessions.
+
+## 10. Lifecycle Delivery Convergence Diagnostics Conformance
+
+### 10.1 Lifecycle Convergence Conformance
+
+A conforming implementation satisfies:
+
+1. **Pure diagnostics**: `build_lifecycle_convergence_findings()` is a pure function with no I/O, no state mutation, and no storage access. It does not change retry scheduling, worker behavior, or delivery state.
+
+2. **Closed finding-kind vocabulary**: Lifecycle convergence finding kinds are exactly nine: `receipt_outbox_mismatch`, `terminal_receipt_nonterminal_outbox`, `terminal_outbox_nonterminal_receipt`, `retry_wait_missing_next_retry`, `next_retry_in_past`, `retryable_without_retry_metadata`, `stalled_delivery_plan`, `attempt_count_regression`, `receipt_sequence_gap`. No other finding kinds are valid.
+
+3. **Closed severity vocabulary**: Lifecycle convergence severity values are exactly `degraded` and `inconsistent`. The `safe` value is included in `severity_counts` for structural parity but no finding is produced with `safe` severity.
+
+4. **Severity assignment correctness**: Finding kinds classified as `inconsistent` MUST be: `terminal_outbox_nonterminal_receipt`, `retry_wait_missing_next_retry`, `attempt_count_regression`. Finding kinds classified as `degraded` MUST be: `terminal_receipt_nonterminal_outbox`, `receipt_outbox_mismatch`, `next_retry_in_past`, `retryable_without_retry_metadata`, `stalled_delivery_plan`, `receipt_sequence_gap`.
+
+5. **Deterministic target grouping and finding selection**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` using the same deterministic tie-breaking as convergence summary (§9.1). Findings are sorted deterministically by `(kind, record_id)`.
+
+6. **Detection-only policy**: The lifecycle convergence diagnostics system does not repair state, block startup, change retry scheduling, change worker behavior, or perform automatic remediation. It does not write to storage under any circumstances.
+
+7. **Read-only guarantee**: Lifecycle convergence diagnostics do not mutate outbox items, receipts, or any runtime state. They are pure projections from already-loaded snapshots.
+
+### 10.2 Evidence Bundle Integration Conformance
+
+1. The `EvidenceCollector` populates `lifecycle_convergence_report` on each per-event `EvidenceBundle` from the event's receipts and outbox items.
+2. The `lifecycle_convergence_report` field is JSON-safe and deterministic for identical inputs and clock values.
+3. The JSON schema for `EvidenceBundle` accepts `lifecycle_convergence_report` as an optional `LifecycleConvergenceReport` (see `evidence-bundle.schema.json`).
+4. The runtime storage evidence section includes `lifecycle_convergence_report` in its data payload.
+
+### 10.3 Relationship to Other Convergence Reports
+
+The `lifecycle_convergence_report` is distinct from `convergence_summary` and `orphan_report`:
+
+- `convergence_summary` classifies overall per-target state (safe/degraded/inconsistent) based on outbox/receipt status agreement.
+- `orphan_report` detects orphaned records, invalid lineage, and recovery-accountability patterns.
+- `lifecycle_convergence_report` detects specific lifecycle contradictions: status mismatches, retry metadata anomalies, stalled plans, attempt regressions, and sequence gaps.
+
+All three reports are populated from the same receipts and outbox items during evidence collection. They are complementary, not redundant.
+
+### 10.4 Known Gaps
+
+All lifecycle convergence diagnostics tests use synthetic-tier evidence. No `live_service` or `hardware` tier validation exists for:
+
+1. Lifecycle convergence findings against real outbox/receipt state with real transport data.
+2. Stall threshold accuracy under real delivery latency conditions.
+3. Sequence gap detection with real adapter callback timing.

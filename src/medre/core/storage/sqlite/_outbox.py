@@ -11,6 +11,7 @@ from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
     _encode_json,
+    _ensure_iso,
     _now_iso,
     _row_to_outbox_item,
 )
@@ -84,12 +85,12 @@ class _OutboxMixin:
             item.status or "pending",
             item.failure_kind,
             item.failure_kind_detail,
-            item.next_attempt_at,
-            item.created_at or now,
-            item.updated_at or now,
-            item.last_attempt_at,
-            item.locked_at,
-            item.lease_until,
+            _ensure_iso(item.next_attempt_at),
+            _ensure_iso(item.created_at) or now,
+            _ensure_iso(item.updated_at) or now,
+            _ensure_iso(item.last_attempt_at),
+            _ensure_iso(item.locked_at),
+            _ensure_iso(item.lease_until),
             item.worker_id,
             item.payload_hash,
             item.receipt_id,
@@ -124,8 +125,8 @@ class _OutboxMixin:
                                 (
                                     item.status or "pending",
                                     item.worker_id,
-                                    item.locked_at,
-                                    item.lease_until,
+                                    _ensure_iso(item.locked_at),
+                                    _ensure_iso(item.lease_until),
                                     now,
                                     existing["outbox_id"],
                                 ),
@@ -183,8 +184,8 @@ class _OutboxMixin:
                     _reclaimable,
                     reclaim_status=item.status or "pending",
                     reclaim_worker_id=item.worker_id,
-                    reclaim_locked_at=item.locked_at,
-                    reclaim_lease_until=item.lease_until,
+                    reclaim_locked_at=_ensure_iso(item.locked_at),
+                    reclaim_lease_until=_ensure_iso(item.lease_until),
                     reclaim_now=now,
                 )
                 if existing_id is not None:

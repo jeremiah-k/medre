@@ -14,6 +14,12 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
+from medre.core.diagnostics.convergence.lifecycle_convergence import (
+    build_lifecycle_convergence_findings,
+)
+from medre.core.diagnostics.convergence.lifecycle_report import (
+    build_lifecycle_convergence_report_dict,
+)
 from medre.core.diagnostics.convergence.orphans import build_orphan_report
 from medre.core.diagnostics.convergence.recovery_convergence import (
     build_recovery_convergence_findings,
@@ -337,7 +343,7 @@ class EvidenceCollector:
                 Coroutine[Any, Any, list[Any]], list_outbox(event_id)
             )
         else:
-            # Backward-compat: storage backends predating list_outbox_items_for_event.
+            # Optional storage capability: list_outbox_items_for_event is unavailable.
             warnings.append(
                 "list_outbox_items_for_event not available on storage backend"
             )
@@ -452,6 +458,16 @@ class EvidenceCollector:
             else:
                 orphan_report_dict["worst_severity"] = "safe"
 
+        # -- Lifecycle convergence findings (pure, from receipts + outbox) -----
+        lifecycle_findings = build_lifecycle_convergence_findings(
+            receipts=receipts,
+            outbox_items=outbox_items,
+            now_fn=self._now_fn,
+        )
+        lifecycle_report_dict: dict[str, Any] = build_lifecycle_convergence_report_dict(
+            lifecycle_findings
+        )
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -470,4 +486,5 @@ class EvidenceCollector:
             orphan_report=orphan_report_dict,
             recovery_summary=recovery_summary_obj.to_dict(),
             recovery_ledger=recovery_ledger_obj.to_dict(),
+            lifecycle_convergence_report=lifecycle_report_dict,
         )

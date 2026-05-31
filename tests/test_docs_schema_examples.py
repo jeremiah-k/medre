@@ -1012,3 +1012,201 @@ class TestEvidenceBundleSchemaNewFields:
         }
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
+
+    # -- lifecycle_convergence_report validation --------------------------------
+
+    def test_lifecycle_convergence_report_null_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """lifecycle_convergence_report=null (no per-event data) must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = None
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_convergence_report_populated_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """lifecycle_convergence_report with populated findings must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [
+                {
+                    "kind": "terminal_receipt_nonterminal_outbox",
+                    "severity": "degraded",
+                    "record_id": "ob-001",
+                    "record_type": "outbox",
+                    "details": "Terminal receipt (sent) but outbox is non-terminal (pending)",
+                    "extra": {
+                        "outbox_id": "ob-001",
+                        "receipt_id": "rcpt-001",
+                        "outbox_status": "pending",
+                        "receipt_status": "sent",
+                    },
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 0, "degraded": 1, "inconsistent": 0},
+            "worst_severity": "degraded",
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_convergence_report_invalid_kind_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Invalid lifecycle finding kind must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [
+                {
+                    "kind": "orphaned_outbox",
+                    "severity": "inconsistent",
+                    "record_id": "ob-001",
+                    "record_type": "outbox",
+                    "details": "Wrong kind",
+                    "extra": {},
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 1},
+            "worst_severity": "inconsistent",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_convergence_report_invalid_severity_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Invalid severity value in lifecycle finding must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [
+                {
+                    "kind": "next_retry_in_past",
+                    "severity": "safe",
+                    "record_id": "ob-001",
+                    "record_type": "outbox",
+                    "details": "Bad severity",
+                    "extra": {},
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 1, "degraded": 0, "inconsistent": 0},
+            "worst_severity": "safe",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_convergence_report_finding_extra_field_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Extra top-level fields inside lifecycle findings must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [
+                {
+                    "kind": "receipt_sequence_gap",
+                    "severity": "degraded",
+                    "record_id": "rcpt-001",
+                    "record_type": "receipt",
+                    "details": "Gap detected",
+                    "extra": {},
+                    "rogue_field": "must_fail",
+                },
+            ],
+            "total_findings": 1,
+            "severity_counts": {"safe": 0, "degraded": 1, "inconsistent": 0},
+            "worst_severity": "degraded",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_convergence_report_missing_required_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """LifecycleConvergenceReport missing required field must fail."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            # missing severity_counts and worst_severity
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_empty_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts={} must be rejected (requires safe/degraded/inconsistent)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_bad_key_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts={'foo': 1} must be rejected (additionalProperties: false)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {"foo": 1},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_missing_key_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts missing 'inconsistent' must be rejected (required)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {"safe": 0, "degraded": 0},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)

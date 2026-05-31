@@ -113,6 +113,13 @@
       "description": "Per-event startup recovery ledger with ownership actions, or null.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/StartupRecoveryLedger" }]
     },
+    "lifecycle_convergence_report": {
+      "description": "Per-event lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans), or null.",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/LifecycleConvergenceReport" }
+      ]
+    },
     "status": {
       "type": "string",
       "enum": ["passed", "partial", "error"],
@@ -373,7 +380,13 @@
         },
         "severity_counts": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "properties": {
+            "safe": { "type": "integer", "minimum": 0 },
+            "degraded": { "type": "integer", "minimum": 0 },
+            "inconsistent": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["safe", "degraded", "inconsistent"],
+          "additionalProperties": false,
           "description": "Count of targets per severity level (safe, degraded, inconsistent)."
         },
         "targets": {
@@ -542,7 +555,13 @@
         },
         "severity_counts": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "properties": {
+            "safe": { "type": "integer", "minimum": 0 },
+            "degraded": { "type": "integer", "minimum": 0 },
+            "inconsistent": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["safe", "degraded", "inconsistent"],
+          "additionalProperties": false,
           "description": "Count of findings per severity level."
         },
         "worst_severity": {
@@ -673,6 +692,100 @@
         "startup_timestamp",
         "timestamp",
         "worker_identity"
+      ],
+      "additionalProperties": false
+    },
+    "LifecycleConvergenceReport": {
+      "title": "LifecycleConvergenceReport",
+      "description": "Aggregate lifecycle delivery convergence report with receipt/outbox state checks.",
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LifecycleConvergenceFinding" },
+          "description": "Individual lifecycle findings, deterministically sorted by (kind, record_id)."
+        },
+        "total_findings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of lifecycle findings."
+        },
+        "severity_counts": {
+          "type": "object",
+          "properties": {
+            "safe": { "type": "integer", "minimum": 0 },
+            "degraded": { "type": "integer", "minimum": 0 },
+            "inconsistent": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["safe", "degraded", "inconsistent"],
+          "additionalProperties": false,
+          "description": "Count of findings per severity level."
+        },
+        "worst_severity": {
+          "type": ["string", "null"],
+          "enum": ["safe", "degraded", "inconsistent", null],
+          "description": "Worst severity among findings, or null if empty."
+        }
+      },
+      "required": [
+        "findings",
+        "total_findings",
+        "severity_counts",
+        "worst_severity"
+      ],
+      "additionalProperties": false
+    },
+    "LifecycleConvergenceFinding": {
+      "title": "LifecycleConvergenceFinding",
+      "description": "A single lifecycle delivery convergence finding (receipt/outbox mismatch, retry anomaly, etc.).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "receipt_outbox_mismatch",
+            "terminal_receipt_nonterminal_outbox",
+            "terminal_outbox_nonterminal_receipt",
+            "retry_wait_missing_next_retry",
+            "next_retry_in_past",
+            "retryable_without_retry_metadata",
+            "stalled_delivery_plan",
+            "attempt_count_regression",
+            "receipt_sequence_gap"
+          ],
+          "description": "Category of lifecycle finding."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["inconsistent", "degraded"],
+          "description": "Convergence severity string."
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Identifier of the affected record (outbox_id or receipt_id)."
+        },
+        "record_type": {
+          "type": "string",
+          "enum": ["outbox", "receipt"],
+          "description": "Type of the affected record."
+        },
+        "details": {
+          "type": "string",
+          "description": "Human-readable diagnostic message."
+        },
+        "extra": {
+          "type": "object",
+          "description": "Additional JSON-safe context (event IDs, plan IDs, statuses).",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "kind",
+        "severity",
+        "record_id",
+        "record_type",
+        "details",
+        "extra"
       ],
       "additionalProperties": false
     }

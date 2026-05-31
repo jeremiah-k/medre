@@ -355,12 +355,14 @@ class _SQLiteStorageBase:
                 db.close()
         self._db = None
         self._closed = True
-        # Shut down the private executor so Python 3.14's ThreadPoolExecutor
-        # releases its internal references to the connection object.
-        # All work was awaited before close(), so the executor is idle.
+        # Shut down the private executor and join worker threads so that
+        # no stale references to the connection object remain (prevents
+        # ResourceWarning on gc.collect()).
+        # All work was awaited before close(), so the executor is idle;
+        # wait=True merely ensures the thread stack frames are unwound.
         executor = self._executor
         if executor is not None:
-            executor.shutdown(wait=False)
+            executor.shutdown(wait=True)
             self._executor = None
 
     # -- Read / write primitives --------------------------------------------

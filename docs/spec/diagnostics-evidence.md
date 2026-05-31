@@ -613,22 +613,26 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.2 Contents
 
-| Field                     | Type                       | Semantics                                                                                               |
-| ------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `schema_version`          | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
-| `event_id`                | `str`                      | The canonical event ID this bundle covers.                                                              |
-| `event_summary`           | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
-| `delivery_receipts`       | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
-| `native_refs`             | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
-| `outbox_items`            | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
-| `replay_run_ids`          | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
-| `sources_seen`            | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
-| `warnings`                | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
-| `generated_at`            | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
-| `evidence_tier`           | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
-| `delivery_outcome_ledger` | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
-| `retry_outbox_summary`    | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
-| `convergence_summary`     | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).            |
+| Field                          | Type                       | Semantics                                                                                               |
+| ------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `schema_version`               | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
+| `event_id`                     | `str`                      | The canonical event ID this bundle covers.                                                              |
+| `event_summary`                | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
+| `delivery_receipts`            | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
+| `native_refs`                  | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
+| `outbox_items`                 | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| `replay_run_ids`               | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `sources_seen`                 | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
+| `warnings`                     | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
+| `generated_at`                 | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+| `evidence_tier`                | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
+| `delivery_outcome_ledger`      | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
+| `retry_outbox_summary`         | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
+| `convergence_summary`          | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).            |
+| `orphan_report`                | `dict or None`             | Per-event orphan/invalid-lineage report merged with recovery convergence findings (see § 21.8).         |
+| `recovery_summary`             | `dict or None`             | Per-event recovery ownership summary derived from outbox state (see § 22).                              |
+| `recovery_ledger`              | `dict or None`             | Per-event startup recovery ledger with ownership actions (see § 22).                                    |
+| `lifecycle_convergence_report` | `dict or None`             | Per-event lifecycle delivery convergence findings (see § 23).                                           |
 
 ### 16.3 ReceiptSummary
 
@@ -1165,3 +1169,136 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 2. **Per-event collector has no BootSummary access**: The per-event `EvidenceCollector` cannot access `BootSummary.recovery_run_id` or `startup_timestamp`. Recovery evidence from the per-event collector is limited to classification without full startup context. Full startup-scoped recovery evidence is available through the runtime evidence bundle's `recovery` section.
 3. **Recovery source inference defaults to snapshot_diagnostics**: Without an explicit `recovery_source` or `startup_timestamp`, the builder infers `snapshot_diagnostics`. Callers that need `retry_worker_recovery` must provide it explicitly via the `recovery_source` parameter. This is correct for diagnostic purposes but requires callers to be aware of the default.
 4. **Replay recovery tracking requires receipt evidence**: Outbox items with replay-sourced receipts (`source="replay"`) are detectable through receipt evidence. `recovery_source="replay_execution"` is reserved and not currently produced (see § 22.3).
+
+## 23. Lifecycle Delivery Convergence Diagnostics
+
+### 23.1 Purpose
+
+Lifecycle delivery convergence diagnostics detect inconsistencies between outbox item states and delivery receipt states for the same delivery target, retry metadata anomalies, stalled delivery plans, attempt count regressions, and receipt sequence gaps. These checks are finer-grained than the convergence summary (§21), which classifies overall target state. Lifecycle convergence findings pinpoint specific contradictions within and across the two persisted state machines (outbox and receipts).
+
+The lifecycle convergence diagnostics model is **pure** and **read-only**: no storage I/O, no state mutation, no side effects. It does not repair corrupted state, does not block startup, does not change retry scheduling, and does not write corrective state to storage. It does not change worker behavior. Diagnostics observe and report; operators act.
+
+### 23.2 Relationship to Other Convergence Reports
+
+The `EvidenceBundle` carries three distinct convergence/diagnostic surfaces for each event:
+
+| Field                          | Section | Scope                                                                                                   |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------------- |
+| `convergence_summary`          | §21     | Per-target overall state classification (safe/degraded/inconsistent).                                   |
+| `orphan_report`                | §21.8   | Orphaned records, invalid lineage, and recovery convergence findings.                                   |
+| `lifecycle_convergence_report` | §23     | Per-target lifecycle detail findings: status mismatches, retry anomalies, sequence gaps, stalled plans. |
+
+The convergence summary answers "is this target healthy?" The orphan report answers "are there broken lineages or recovery anomalies?" The lifecycle convergence report answers "what specific lifecycle contradictions exist within or between the outbox and receipt state machines?"
+
+### 23.3 Deterministic and Read-Only Guarantees
+
+The `build_lifecycle_convergence_findings()` function is deterministic and read-only. It:
+
+1. MUST NOT perform storage I/O or state mutation.
+2. MUST NOT change retry scheduling, worker behavior, or delivery state.
+3. MUST NOT write to storage under any circumstances.
+4. Produces identical output for identical inputs (including the `now_fn` clock).
+5. Sorts findings deterministically by `(kind, record_id)`.
+
+### 23.4 Finding Kinds
+
+A conforming implementation detects exactly nine lifecycle finding kinds. No other finding kinds are valid for lifecycle convergence.
+
+| Kind                                  | Severity       | Record type | Condition                                                                                                                                        |
+| ------------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `receipt_outbox_mismatch`             | `degraded`     | outbox      | Both receipt and outbox present for a target but their statuses contradict normal flow without being a terminal/non-terminal mismatch (§23.5.C). |
+| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
+| `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the latest receipt for the same target is still non-terminal.                                           |
+| `retry_wait_missing_next_retry`       | `inconsistent` | outbox      | Outbox is in `retry_wait` state with missing, empty, or unparsable `next_attempt_at` timestamp.                                                  |
+| `next_retry_in_past`                  | `degraded`     | outbox      | Outbox is in `retry_wait` state but `next_attempt_at` is in the past relative to the current time.                                               |
+| `retryable_without_retry_metadata`    | `degraded`     | receipt     | Receipt is `failed` and appears retryable (transient failure or matching non-terminal outbox) but is missing retry scheduling metadata.          |
+| `stalled_delivery_plan`               | `degraded`     | outbox      | Non-terminal outbox item whose `updated_at` is older than the stall threshold (default 3600 seconds).                                            |
+| `attempt_count_regression`            | `inconsistent` | receipt     | Within the same target, a later receipt has a lower `attempt_number` than an earlier receipt.                                                    |
+| `receipt_sequence_gap`                | `degraded`     | receipt     | Within the same target, receipt sequences skip by more than 1 when sequences are positive integers.                                              |
+
+### 23.5 Severity Rationale
+
+**`inconsistent`** findings indicate impossible or data-integrity contradictions: a terminal outbox paired with a non-terminal receipt, a `retry_wait` outbox without a valid next retry timestamp, or an attempt count that decreases over time. These cannot arise from normal operation and suggest a bug, crash, or data corruption.
+
+**`degraded`** findings indicate stale, timing-artifact, or progress anomalies: a terminal receipt paired with a non-terminal outbox (the outbox may simply not have caught up), status combinations that contradict normal flow but do not represent impossible states, retry timestamps in the past, missing retry metadata on retryable receipts, stalled delivery plans, or sequence gaps. These may resolve with time or indicate transient issues.
+
+### 23.6 Per-Target Status Mismatch Checks
+
+For each delivery target that has both an outbox item and at least one receipt, the diagnostics perform three ordered checks:
+
+**A. Terminal receipt, non-terminal outbox** (`terminal_receipt_nonterminal_outbox`): The latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox status is non-terminal. Severity: `degraded`.
+
+**B. Terminal outbox, non-terminal receipt** (`terminal_outbox_nonterminal_receipt`): The outbox has reached a terminal status but the latest receipt is non-terminal. Severity: `inconsistent`. This check is skipped if check A already fired for the same target.
+
+**C. Receipt/outbox status mismatch** (`receipt_outbox_mismatch`): Both receipt and outbox are present, their statuses contradict normal delivery flow, and the contradiction is not covered by checks A or B. Examples: both terminal but with different statuses, or both non-terminal in an abnormal combination. Severity: `degraded`. This check is skipped if either A or B fired for the same target.
+
+Normal non-terminal combos that do not trigger finding C include: `(retry_wait, failed)`, `(retry_wait, queued)`, `(queued, queued)`, `(pending, queued)`, `(in_progress, queued)`, `(in_progress, failed)`.
+
+### 23.7 Retry Wait Checks
+
+For every outbox item in `retry_wait` status:
+
+**D. Missing next retry** (`retry_wait_missing_next_retry`): `next_attempt_at` is missing, empty, or unparsable. Severity: `inconsistent`.
+
+**E. Next retry in past** (`next_retry_in_past`): `next_attempt_at` parses successfully but is in the past relative to the provided clock. Severity: `degraded`. This check is skipped when D fires.
+
+### 23.8 Retry Metadata Check
+
+For every receipt with `status == "failed"` that appears retryable (transient failure kind or matching non-terminal outbox):
+
+**F. Retryable without retry metadata** (`retryable_without_retry_metadata`): The receipt is missing `next_retry_at` or retry policy fields (`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, `retry_jitter`). Severity: `degraded`.
+
+### 23.9 Stalled Delivery Plan Check
+
+For every non-terminal outbox item with a parseable `updated_at`:
+
+**G. Stalled delivery plan** (`stalled_delivery_plan`): The `updated_at` timestamp is older than `stall_threshold_seconds` (default 3600 seconds, configurable via parameter). Severity: `degraded`.
+
+### 23.10 Attempt Count Regression Check
+
+For each target with two or more receipts, sorted by `(sequence, created_at, receipt_id)`:
+
+**H. Attempt count regression** (`attempt_count_regression`): A later receipt has a lower `attempt_number` than an earlier receipt. Severity: `inconsistent`.
+
+### 23.11 Receipt Sequence Gap Check
+
+For each target with two or more receipts with positive integer sequences, sorted by sequence value:
+
+**I. Receipt sequence gap** (`receipt_sequence_gap`): The sequence value jumps by more than 1 between consecutive receipts. Severity: `degraded`.
+
+### 23.12 Evidence Surfaces
+
+**Core evidence surface**: `EvidenceBundle.lifecycle_convergence_report` (see §16.2). This field is populated by the `EvidenceCollector` during per-event bundle assembly. It is `None` when no lifecycle convergence data is available.
+
+**Runtime storage section**: The storage section of the runtime evidence bundle (collected via `medre evidence` or `medre inspect event --evidence`) includes `lifecycle_convergence_report` within its data payload. This is populated by `_collect_storage_data_from_backend()` from the same `build_lifecycle_convergence_findings()` function.
+
+**JSON schema**: The `lifecycle_convergence_report` field is defined in `evidence-bundle.schema.json` as `LifecycleConvergenceReport`, containing `findings`, `total_findings`, `severity_counts`, and `worst_severity`. Each finding follows the `LifecycleConvergenceFinding` schema with `kind`, `severity`, `record_id`, `record_type`, `details`, and `extra`.
+
+### 23.13 Report Structure
+
+The `lifecycle_convergence_report` dict has the following shape:
+
+| Field             | Type             | Semantics                                                                                                 |
+| ----------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `findings`        | `list[dict]`     | Individual findings, sorted by `(kind, record_id)`.                                                       |
+| `total_findings`  | `int`            | Total number of findings.                                                                                 |
+| `severity_counts` | `dict[str, int]` | Count per severity (`safe`, `degraded`, `inconsistent`). Always includes `safe: 0` for structural parity. |
+| `worst_severity`  | `str or None`    | Worst severity among findings, or `None` if empty.                                                        |
+
+### 23.14 Normative Requirements
+
+1. The `build_lifecycle_convergence_findings()` function MUST be pure: no I/O, no state mutation, no storage access, no side effects.
+2. Lifecycle convergence finding kinds MUST be exactly the nine kinds listed in §23.4.
+3. The diagnostics system MUST NOT repair, mutate, or block startup based on lifecycle convergence findings.
+4. The diagnostics system MUST NOT change retry scheduling, worker behavior, or delivery state.
+5. The `lifecycle_convergence_report` field on `EvidenceBundle` MUST be populated from the event's receipts and outbox items during collection.
+6. Lifecycle convergence results MUST be JSON-safe and deterministic for identical inputs and clock values.
+7. Findings MUST be sorted deterministically by `(kind, record_id)`.
+8. The `severity_counts` dict MUST always include `safe`, `degraded`, and `inconsistent` keys for structural parity with `ConvergenceSummary.severity_counts`.
+
+### 23.15 Known Gaps
+
+1. **No live_service or hardware tier validation**: All lifecycle convergence diagnostics are synthetic/conformance tier. No real restart cycles or real adapter state have been validated.
+2. **Stall threshold is fixed at collection time**: The `stall_threshold_seconds` parameter defaults to 3600 seconds. Per-adapter or per-route stall thresholds are not supported.
+3. **No cross-event correlation**: Lifecycle convergence findings are per-event. Cross-event patterns (e.g., systematic attempt count regression across many events) are not detected.
+4. **Sequence gap detection limited to positive integers**: Receipts with `sequence == 0` or negative sequence values are excluded from sequence gap detection.

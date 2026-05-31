@@ -1037,7 +1037,9 @@ class TestStorageSectionOutboxItems:
         summary = build_retry_outbox_summary(receipts=[receipt])
 
         assert len(ledger.entries) >= 1
-        assert summary.counts["sent"] == 0  # sent is terminal, not counted in outbox counts
+        assert (
+            summary.counts["sent"] == 0
+        )  # sent is terminal, not counted in outbox counts
 
 
 # ---------------------------------------------------------------------------
@@ -1063,7 +1065,10 @@ class TestShutdownEvidenceFromSnapshot:
     def test_adapter_start_failed_event(self) -> None:
         """adapter_start_failed event produces adapter_failure shutdown status."""
         events = [
-            {"event_type": "adapter_start_failed", "detail": {"adapter_id": "radio_out"}},
+            {
+                "event_type": "adapter_start_failed",
+                "detail": {"adapter_id": "radio_out"},
+            },
         ]
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -1077,7 +1082,10 @@ class TestShutdownEvidenceFromSnapshot:
     def test_drain_timeout_event(self) -> None:
         """Event with drain timeout detail produces drain_timeout status."""
         events = [
-            {"event_type": "delivery_rejected", "detail": {"error": "shutdown_drain_timeout"}},
+            {
+                "event_type": "delivery_rejected",
+                "detail": {"error": "shutdown_drain_timeout"},
+            },
         ]
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -1105,7 +1113,10 @@ class TestShutdownEvidenceFromSnapshot:
     def test_tasks_cancelled_extracted_from_event_detail(self) -> None:
         """tasks_cancelled is extracted from event details when present."""
         events = [
-            {"event_type": "shutdown_signal", "detail": {"cancellation": True, "tasks_cancelled": 7}},
+            {
+                "event_type": "shutdown_signal",
+                "detail": {"cancellation": True, "tasks_cancelled": 7},
+            },
         ]
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -1130,10 +1141,113 @@ class TestShutdownEvidenceFromSnapshot:
             "diagnostics": {
                 "runtime_events": {
                     "events": [
-                        {"event_type": "adapter_start_failed", "detail": {"adapter_id": "a"}},
+                        {
+                            "event_type": "adapter_start_failed",
+                            "detail": {"adapter_id": "a"},
+                        },
                     ],
                 },
             },
         }
         result = _derive_shutdown_evidence_from_snapshot(snapshot)
         assert result["shutdown_status"] == "adapter_failure"
+
+
+# ---------------------------------------------------------------------------
+# 16. Lifecycle convergence report in storage section
+# ---------------------------------------------------------------------------
+
+
+class TestStorageSectionLifecycleConvergence:
+    """Storage section includes lifecycle_convergence_report when event data available."""
+
+    @pytest.mark.asyncio
+    async def test_storage_section_with_event_has_lifecycle_report(
+        self, tmp_path
+    ) -> None:
+        from medre.core.storage.sqlite.storage import SQLiteStorage
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+
+        event = make_storage_event(event_id="ev-lc-001")
+        await storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-lc-001",
+            event_id="ev-lc-001",
+            delivery_plan_id="dp-lc-001",
+            target_adapter="radio",
+            status="sent",
+            source="live",
+            created_at=_FIXED_NOW,
+        )
+        await storage.append_receipt(receipt)
+        await storage.close()
+
+        report = await collect_evidence_bundle(
+            storage_path=db_path,
+            event_id="ev-lc-001",
+        )
+
+        storage_data = report["sections"]["storage"]["data"]
+        assert storage_data["lifecycle_convergence_report"] is not None
+        lc = storage_data["lifecycle_convergence_report"]
+        assert "findings" in lc
+        assert "total_findings" in lc
+        assert "severity_counts" in lc
+        assert "worst_severity" in lc
+
+    @pytest.mark.asyncio
+    async def test_storage_section_lifecycle_report_empty_when_clean(
+        self, tmp_path
+    ) -> None:
+        """Clean delivery state produces empty lifecycle findings."""
+        from medre.core.storage.sqlite.storage import SQLiteStorage
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+
+        event = make_storage_event(event_id="ev-lc-clean")
+        await storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-lc-clean",
+            event_id="ev-lc-clean",
+            delivery_plan_id="dp-lc-clean",
+            target_adapter="radio",
+            status="sent",
+            source="live",
+            created_at=_FIXED_NOW,
+        )
+        await storage.append_receipt(receipt)
+        await storage.close()
+
+        report = await collect_evidence_bundle(
+            storage_path=db_path,
+            event_id="ev-lc-clean",
+        )
+
+        storage_data = report["sections"]["storage"]["data"]
+        lc = storage_data["lifecycle_convergence_report"]
+        assert lc is not None
+        assert lc["total_findings"] == 0
+
+    @pytest.mark.asyncio
+    async def test_storage_section_no_event_lifecycle_report_null(
+        self, tmp_path
+    ) -> None:
+        """Without event_id, lifecycle_convergence_report stays None."""
+        from medre.core.storage.sqlite.storage import SQLiteStorage
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+        await storage.close()
+
+        report = await collect_evidence_bundle(storage_path=db_path)
+
+        storage_data = report["sections"]["storage"]["data"]
+        assert storage_data["lifecycle_convergence_report"] is None

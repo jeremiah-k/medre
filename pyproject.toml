@@ -69,3 +69,4 @@ markers = [
   "hardware: tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) — implies live (skipped by default)",
 ]
 addopts = "-m 'not live and not docker and not hardware'"
+filterwarnings = ["error::DeprecationWarning", "error::ResourceWarning"]

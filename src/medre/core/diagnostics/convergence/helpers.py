@@ -1,4 +1,4 @@
-"""Internal helper utilities for recovery convergence diagnostics.
+"""Internal helper utilities for convergence diagnostics.
 
 Duck-typed field access, datetime normalization, target key construction,
 receipt ranking, and severity helpers.  These are package-internal; they
@@ -7,7 +7,7 @@ are used by sibling submodules (summary.py, orphans.py).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .types import ConvergenceSeverity
@@ -27,6 +27,10 @@ __all__ = [
     "_NON_TERMINAL_OUTBOX",
     "_latest_receipt_for_target",
     "_build_outbox_by_key",
+    "_parse_iso_timestamp",
+    "_ensure_aware",
+    "_safe_record_id",
+    "_pick_latest_receipt_safe",
 ]
 
 
@@ -232,3 +236,64 @@ def _build_outbox_by_key(
                 if new_id > existing_id:
                     outbox_by_key[key] = obx
     return outbox_by_key
+
+
+# ---------------------------------------------------------------------------
+# Timestamp parsing helper
+# ---------------------------------------------------------------------------
+
+
+def _parse_iso_timestamp(value: Any) -> datetime | tuple[None, str]:
+    """Parse a value to a timezone-aware ``datetime``.
+
+    Returns ``datetime`` on success or ``(None, error_message)`` on failure.
+
+    NOTE: The storage layer has a separate datetime→ISO path
+    (_ensure_iso in serde.py). These serve different contexts
+    (storage vs diagnostics) and should not be unified.
+    """
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return (None, "timestamp is None")
+    s = _to_iso(value)
+    if not s:
+        return (None, "timestamp is empty")
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt
+    except (ValueError, TypeError) as exc:
+        return (None, str(exc))
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    """Assume UTC when a datetime is naive (no tzinfo)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+# ---------------------------------------------------------------------------
+# record_id helper
+# ---------------------------------------------------------------------------
+
+
+def _safe_record_id(*candidates: Any) -> str:
+    """Return the first non-empty string candidate, never ``"None"``."""
+    for c in candidates:
+        s = str(c) if c is not None else ""
+        if s and s != "None":
+            return s
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Safe latest-receipt selection
+# ---------------------------------------------------------------------------
+
+
+def _pick_latest_receipt_safe(receipts: list[Any]) -> Any | None:
+    """Select the latest receipt from a list, handling empty lists."""
+    if not receipts:
+        return None
+    return _pick_latest_receipt(receipts)

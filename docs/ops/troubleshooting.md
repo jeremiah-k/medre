@@ -537,6 +537,73 @@ WHERE delivery_plan_id = '<plan_id>';
 
 **Fix:** Verify that the callback is from the replay run, not a live delivery. If a live delivery also occurred, the live receipt chain remains intact. The replay queued receipt stays uncorrelated. If this is a live callback that should have a matching live queued receipt, investigate whether the live delivery produced a queued receipt. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
 
+## Lifecycle Convergence Finding Troubleshooting
+
+Lifecycle convergence findings appear in the `lifecycle_convergence_report` section of the evidence bundle. They detect specific contradictions between outbox item states and delivery receipt states.
+
+### "Terminal receipt but non-terminal outbox"
+
+**Symptom:** The lifecycle convergence report shows `terminal_receipt_nonterminal_outbox` findings.
+
+**Cause:** A delivery receipt with terminal status (sent, suppressed, dead_lettered) exists, but the corresponding outbox item is still in a non-terminal state.
+
+**Investigation:**
+
+```sql
+SELECT outbox_id, status, updated_at FROM delivery_outbox
+WHERE delivery_plan_id = '<plan_id>';
+SELECT receipt_id, status, attempt_number FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number;
+```
+
+**Resolution:** Determine which record is stale. If the receipt is correct, the outbox was not transitioned. This may resolve on its own if the outbox is reclaimed. If persistent, the outbox row may need operator attention.
+
+### "Terminal outbox but non-terminal receipt"
+
+**Symptom:** The lifecycle convergence report shows `terminal_outbox_nonterminal_receipt` findings.
+
+**Cause:** The outbox item has reached a terminal status, but the latest receipt is still non-terminal (queued or failed).
+
+**Investigation:** Same SQL as above.
+
+**Resolution:** The delivery likely completed but the receipt chain may be incomplete. Check whether the adapter callback was received and whether a supplemental sent receipt should have been created.
+
+### "Retry wait without next retry timestamp"
+
+**Symptom:** The lifecycle convergence report shows `retry_wait_missing_next_retry` findings.
+
+**Cause:** An outbox item is in `retry_wait` state but has no valid `next_attempt_at` timestamp.
+
+**Fix:** The retry scheduler cannot determine when to retry. Check whether the retry was set up correctly. Consider replaying the event or investigating why the timestamp was not populated.
+
+### "Stalled delivery plan"
+
+**Symptom:** The lifecycle convergence report shows `stalled_delivery_plan` findings.
+
+**Cause:** A non-terminal outbox item has not been updated for longer than the stall threshold (default 1 hour).
+
+**Fix:** Check whether the worker that claimed this item is still running. Expired leases should be reclaimed by `claim_due_outbox_items()`. If the item remains stalled, check the RetryWorker status and adapter health.
+
+### "Attempt count regression"
+
+**Symptom:** The lifecycle convergence report shows `attempt_count_regression` findings.
+
+**Cause:** Within the same delivery target, a later receipt has a lower attempt number than an earlier receipt.
+
+**Fix:** This is a data integrity issue. Audit the receipt chain for the affected `delivery_plan_id`. Attempt numbers should monotonically increase within a retry chain. If the data is incorrect, consider replaying the event.
+
+### "Receipt sequence gap"
+
+**Symptom:** The lifecycle convergence report shows `receipt_sequence_gap` findings.
+
+**Cause:** Receipts for the same target have sequence numbers that skip by more than 1.
+
+**Fix:** Gaps may indicate lost receipts or concurrent delivery attempts. Check whether receipts were created but not persisted, or whether multiple concurrent deliveries to the same target produced interleaved sequences.
+
+### Important
+
+Lifecycle convergence diagnostics are deterministic and read-only. They never change retry scheduling, worker behavior, or storage state. No automatic repair occurs based on these findings.
+
 ## Explicit Non-Guarantees
 
 1. **Distributed loop prevention.** Loop detection is local to a single MEDRE process.

@@ -80,6 +80,7 @@ def _to_iso(value: Any) -> str | None:
 # Retry-state label derivation
 # ---------------------------------------------------------------------------
 
+# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers
 _TERMINAL_OUTBOX = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
 _NON_TERMINAL_OUTBOX = frozenset({"pending", "in_progress", "queued", "retry_wait"})
 _RECEIPT_ONLY_STATUSES = frozenset({"suppressed", "failed"})

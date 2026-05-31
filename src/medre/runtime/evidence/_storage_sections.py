@@ -53,6 +53,7 @@ async def _collect_storage_data_from_backend(
         "replay_timeline": None,
         "delivery_outcome_ledger": None,
         "retry_outbox_summary": None,
+        "lifecycle_convergence_report": None,
     }
 
     try:
@@ -322,6 +323,22 @@ async def _collect_storage_data_from_backend(
                     ],
                     "retry_worker": _retry_summary.retry_worker,
                 }
+
+                # --- Lifecycle convergence report (pure, from receipts + outbox) ---
+                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                    build_lifecycle_convergence_findings as _build_lifecycle_findings,
+                )
+                from medre.core.diagnostics.convergence.lifecycle_report import (
+                    build_lifecycle_convergence_report_dict as _build_lifecycle_report,
+                )
+
+                _lifecycle_findings = _build_lifecycle_findings(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
+                data["lifecycle_convergence_report"] = _build_lifecycle_report(
+                    _lifecycle_findings,
+                )
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.
@@ -401,6 +418,7 @@ async def _collect_storage_section(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Database file does not exist: {db_path}",
         )
@@ -423,6 +441,7 @@ async def _collect_storage_section(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Cannot open database read-only: {exc}",
         )
@@ -522,6 +541,7 @@ async def _collect_storage_path_bundle(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Database file does not exist: {storage_path}",
         )
@@ -545,6 +565,7 @@ async def _collect_storage_path_bundle(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Cannot open database read-only: {exc}",
         )

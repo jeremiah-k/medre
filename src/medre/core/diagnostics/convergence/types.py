@@ -1,4 +1,4 @@
-"""Public data types for recovery convergence diagnostics.
+"""Public data types for convergence diagnostics.
 
 Canonical enums, dataclasses, and finding-kind constants shared across
 the convergence package.  Every field is JSON-safe (``str | int | float |
@@ -28,6 +28,15 @@ __all__ = [
     "KIND_REPEATEDLY_RECLAIMED",
     "KIND_RECLAIMED_THEN_TERMINAL",
     "KIND_RECLAIMED_THEN_ORPHANED",
+    "KIND_RECEIPT_OUTBOX_MISMATCH",
+    "KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX",
+    "KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT",
+    "KIND_RETRY_WAIT_MISSING_NEXT_RETRY",
+    "KIND_NEXT_RETRY_IN_PAST",
+    "KIND_RETRYABLE_WITHOUT_RETRY_METADATA",
+    "KIND_STALLED_DELIVERY_PLAN",
+    "KIND_ATTEMPT_COUNT_REGRESSION",
+    "KIND_RECEIPT_SEQUENCE_GAP",
 ]
 
 
@@ -172,19 +181,28 @@ class ConvergenceSummary:
 
 @dataclass(frozen=True)
 class OrphanFinding:
-    """A single orphan or invalid-lineage finding.
+    """Internal convergence finding record reused by orphan, recovery, and
+    lifecycle diagnostics.  Public JSON schemas (``OrphanFinding``,
+    ``LifecycleConvergenceFinding``) expose narrower finding shapes with
+    distinct closed ``kind`` enums.
 
     All fields are JSON-safe.
 
     Attributes
     ----------
     kind:
-        Category of finding.  One of: ``orphaned_outbox``,
-        ``orphaned_parent_receipt``, ``cross_plan_parent``,
-        ``cross_event_parent``, ``missing_delivery_plan_id``,
+        Category of finding.  One of the ``KIND_*`` constants defined
+        in this module: ``orphaned_outbox``, ``orphaned_parent_receipt``,
+        ``cross_plan_parent``, ``cross_event_parent``,
+        ``missing_delivery_plan_id``,
         ``dead_lettered_retryable_mismatch``, ``recovered_not_progressed``,
         ``repeatedly_reclaimed``, ``reclaimed_then_terminal``,
-        ``reclaimed_then_orphaned``.
+        ``reclaimed_then_orphaned``, ``receipt_outbox_mismatch``,
+        ``terminal_receipt_nonterminal_outbox``,
+        ``terminal_outbox_nonterminal_receipt``,
+        ``retry_wait_missing_next_retry``, ``next_retry_in_past``,
+        ``retryable_without_retry_metadata``, ``stalled_delivery_plan``,
+        ``attempt_count_regression``, ``receipt_sequence_gap``.
     severity:
         Convergence severity string (``inconsistent`` or ``degraded``).
     record_id:
@@ -298,3 +316,44 @@ KIND_RECLAIMED_THEN_TERMINAL = "reclaimed_then_terminal"
 #: Outbox item reclaimed at startup but its ``event_id`` is absent
 #: from the known event catalogue (also flagged as ``orphaned_outbox``).
 KIND_RECLAIMED_THEN_ORPHANED = "reclaimed_then_orphaned"
+
+# ---------------------------------------------------------------------------
+# Lifecycle delivery convergence finding-kind constants
+# ---------------------------------------------------------------------------
+
+#: Both receipt and outbox present for a target but statuses contradict
+#: normal delivery flow without being a terminal/non-terminal mismatch.
+KIND_RECEIPT_OUTBOX_MISMATCH = "receipt_outbox_mismatch"
+
+#: Latest receipt is terminal (``sent``, ``suppressed``, ``dead_lettered``)
+#: but the outbox for the same target is still in a non-terminal state.
+KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX = "terminal_receipt_nonterminal_outbox"
+
+#: Outbox has reached a terminal status but the latest receipt for the
+#: same target is still non-terminal.
+KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT = "terminal_outbox_nonterminal_receipt"
+
+#: Outbox is in ``retry_wait`` state with missing, empty, or unparsable
+#: ``next_attempt_at`` timestamp.
+KIND_RETRY_WAIT_MISSING_NEXT_RETRY = "retry_wait_missing_next_retry"
+
+#: Outbox is in ``retry_wait`` state but ``next_attempt_at`` is in the
+#: past relative to the current time.
+KIND_NEXT_RETRY_IN_PAST = "next_retry_in_past"
+
+#: Receipt is ``failed`` and appears retryable (transient failure or
+#: matching non-terminal outbox) but is missing retry scheduling
+#: metadata.
+KIND_RETRYABLE_WITHOUT_RETRY_METADATA = "retryable_without_retry_metadata"
+
+#: Non-terminal outbox item whose ``updated_at`` is older than the
+#: stall threshold, suggesting delivery has stalled.
+KIND_STALLED_DELIVERY_PLAN = "stalled_delivery_plan"
+
+#: Within the same target, a later receipt has a lower ``attempt_number``
+#: than an earlier receipt, indicating an attempt count regression.
+KIND_ATTEMPT_COUNT_REGRESSION = "attempt_count_regression"
+
+#: Within the same target, receipt sequences skip by more than 1 when
+#: sequences are positive integers.
+KIND_RECEIPT_SEQUENCE_GAP = "receipt_sequence_gap"
