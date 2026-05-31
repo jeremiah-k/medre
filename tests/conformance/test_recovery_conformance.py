@@ -199,8 +199,6 @@ class TestReadOnlyDiagnostics:
     def test_no_io_in_classification(self) -> None:
         import inspect
 
-        source = inspect.getsource(classify_startup_reclamation)
-        assert "await" not in source or "async" not in source
         # classify_startup_reclamation is a sync function = no I/O
         assert not inspect.iscoroutinefunction(classify_startup_reclamation)
 

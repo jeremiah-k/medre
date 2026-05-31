@@ -66,7 +66,66 @@
   "shutdown_evidence": null,
   "convergence_summary": null,
   "orphan_report": null,
-  "recovery_summary": null,
-  "recovery_ledger": null,
+  "recovery_summary": {
+    "abandoned_items": 0,
+    "by_source": {"startup_recovery": 2, "retry_worker_recovery": 1},
+    "claimed_items": 0,
+    "consistency_valid": true,
+    "reclaimed_items": 0,
+    "recoverable_items": 1,
+    "recovery_run_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+    "skipped_items": 1,
+    "total_items": 3,
+    "unrecoverable_items": 1
+  },
+  "recovery_ledger": {
+    "actions": [
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-1",
+        "outbox_id": "ob-1",
+        "ownership_action": "recoverable",
+        "prior_status": "pending",
+        "reason": "Item is pending and claimable",
+        "recovered_status": "pending",
+        "recovery_run_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+        "recovery_source": "startup_recovery",
+        "startup_timestamp": "2026-05-27T12:00:00+00:00",
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      },
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-2",
+        "outbox_id": "ob-2",
+        "ownership_action": "skipped",
+        "prior_status": "retry_wait",
+        "reason": "Retry-eligible with future next_attempt_at",
+        "recovered_status": "retry_wait",
+        "recovery_run_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+        "recovery_source": "startup_recovery",
+        "startup_timestamp": "2026-05-27T12:00:00+00:00",
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      },
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-3",
+        "outbox_id": "ob-3",
+        "ownership_action": "unrecoverable",
+        "prior_status": "sent",
+        "reason": "Terminal status: no recovery needed",
+        "recovered_status": "sent",
+        "recovery_run_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+        "recovery_source": "retry_worker_recovery",
+        "startup_timestamp": "2026-05-27T12:00:00+00:00",
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      }
+    ],
+    "generated_at": "2026-05-27T12:00:02+00:00",
+    "recovery_run_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+    "startup_timestamp": "2026-05-27T12:00:00+00:00"
+  },
   "status": "passed"
 }
