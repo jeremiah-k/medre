@@ -937,7 +937,7 @@ class TestFailureKindClassification:
         assert failure_category("unknown") == "unknown"
         assert failure_category("something_else") == "unknown"
 
-    def test_backward_compat_import_from_recover_commands(self) -> None:
+    def test_classification_helpers_importable_from_recover_commands(self) -> None:
         """Classification helpers are imported from the canonical observability module."""
         from medre.cli.recover_commands import _failure_category, _infer_failure_kind
 

@@ -686,7 +686,7 @@ class TestBuildRouteAdapterBoundaryReport:
             == "violation: non-builder runtime assembly point"
         )
 
-    def test_backward_compatible_runtime_to_adapter_alias(self) -> None:
+    def test_runtime_to_adapter_alias_available(self) -> None:
         """runtime_to_adapter is a short report alias for the forbidden section."""
         graph = self._make_graph(
             ModuleInfo(

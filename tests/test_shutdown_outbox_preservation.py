@@ -42,6 +42,8 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # Helpers
 # ---------------------------------------------------------------------------
 
+# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers.
+# These tuples are a subset used for shutdown-test parametrization.
 _NON_TERMINAL_STATUSES = ("pending", "retry_wait", "in_progress", "queued")
 _TERMINAL_STATUSES = ("sent", "dead_lettered")
 

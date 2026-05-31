@@ -173,6 +173,8 @@ def _derive_capability_fields(
 # Retry-state derivation
 # ---------------------------------------------------------------------------
 
+# NOTE: Intentionally broader than convergence helpers — covers both outbox
+# and receipt terminal statuses for retry-state derivation (includes "suppressed").
 _TERMINAL_STATUSES = frozenset(
     {"sent", "dead_lettered", "suppressed", "cancelled", "abandoned"}
 )

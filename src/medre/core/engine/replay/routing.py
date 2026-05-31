@@ -98,8 +98,7 @@ def _filter_replay_loops(
         The routing metadata from *before* route_event enriched the
         event.  When provided (including ``None`` for a fresh event),
         loop detection uses this value.  When left as the default
-        sentinel, falls back to ``event.metadata.routing`` for backward
-        compatibility with callers that do not track pre-enrichment state.
+        sentinel, falls back to ``event.metadata.routing`` when callers do not track pre-enrichment state.
 
     Returns a tuple of ``(loop_warnings, filtered_routes)``.  Loop-causing
     routes are removed from the filtered list and a warning string is

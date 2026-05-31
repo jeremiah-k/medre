@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .helpers import _get, _latest_receipt_for_target, _target_key
+from .helpers import (
+    _TERMINAL_OUTBOX,
+    _TERMINAL_RECEIPT,
+    _get,
+    _latest_receipt_for_target,
+    _target_key,
+)
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,
     KIND_RECLAIMED_THEN_TERMINAL,
@@ -23,14 +29,8 @@ from .types import (
 __all__ = ["build_recovery_convergence_findings"]
 
 # ---------------------------------------------------------------------------
-# Status sets
+# Status sets (imported from helpers — canonical definitions)
 # ---------------------------------------------------------------------------
-
-_TERMINAL_OUTBOX: frozenset[str] = frozenset(
-    {"sent", "dead_lettered", "cancelled", "abandoned"}
-)
-
-_TERMINAL_RECEIPT: frozenset[str] = frozenset({"sent", "dead_lettered", "suppressed"})
 
 # Outbox statuses that have a direct receipt-vocabulary equivalent.
 # Only these mappings allow a valid cross-state-machine comparison.

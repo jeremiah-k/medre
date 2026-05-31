@@ -122,7 +122,7 @@ class TestCanonicalImports:
 
     def test_kind_constants_have_expected_values(self) -> None:
         """Each lifecycle kind constant must be a lowercase snake_case string."""
-        from medre.core.diagnostics.convergence import types as types_mod
+        import medre.core.diagnostics.convergence.types as types_mod
 
         for name in _LIFECYCLE_KINDS:
             value = getattr(types_mod, name)

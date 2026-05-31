@@ -1207,7 +1207,7 @@ A conforming implementation detects exactly nine lifecycle finding kinds. No oth
 | Kind                                  | Severity       | Record type | Condition                                                                                                                                        |
 | ------------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `receipt_outbox_mismatch`             | `degraded`     | outbox      | Both receipt and outbox present for a target but their statuses contradict normal flow without being a terminal/non-terminal mismatch (§23.5.C). |
-| `terminal_receipt_nonterminal_outbox` | `inconsistent` | outbox      | Latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
+| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
 | `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the latest receipt for the same target is still non-terminal.                                           |
 | `retry_wait_missing_next_retry`       | `inconsistent` | outbox      | Outbox is in `retry_wait` state with missing, empty, or unparsable `next_attempt_at` timestamp.                                                  |
 | `next_retry_in_past`                  | `degraded`     | outbox      | Outbox is in `retry_wait` state but `next_attempt_at` is in the past relative to the current time.                                               |
@@ -1218,15 +1218,15 @@ A conforming implementation detects exactly nine lifecycle finding kinds. No oth
 
 ### 23.5 Severity Rationale
 
-**`inconsistent`** findings indicate impossible or data-integrity contradictions: a terminal receipt paired with a non-terminal outbox (or vice versa), a `retry_wait` outbox without a valid next retry timestamp, or an attempt count that decreases over time. These cannot arise from normal operation and suggest a bug, crash, or data corruption.
+**`inconsistent`** findings indicate impossible or data-integrity contradictions: a terminal outbox paired with a non-terminal receipt, a `retry_wait` outbox without a valid next retry timestamp, or an attempt count that decreases over time. These cannot arise from normal operation and suggest a bug, crash, or data corruption.
 
-**`degraded`** findings indicate stale, retry-metadata, or progress anomalies: status combinations that contradict normal flow but do not represent impossible states, retry timestamps in the past, missing retry metadata on retryable receipts, stalled delivery plans, or sequence gaps. These may resolve with time or indicate transient issues.
+**`degraded`** findings indicate stale, timing-artifact, or progress anomalies: a terminal receipt paired with a non-terminal outbox (the outbox may simply not have caught up), status combinations that contradict normal flow but do not represent impossible states, retry timestamps in the past, missing retry metadata on retryable receipts, stalled delivery plans, or sequence gaps. These may resolve with time or indicate transient issues.
 
 ### 23.6 Per-Target Status Mismatch Checks
 
 For each delivery target that has both an outbox item and at least one receipt, the diagnostics perform three ordered checks:
 
-**A. Terminal receipt, non-terminal outbox** (`terminal_receipt_nonterminal_outbox`): The latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox status is non-terminal. Severity: `inconsistent`.
+**A. Terminal receipt, non-terminal outbox** (`terminal_receipt_nonterminal_outbox`): The latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox status is non-terminal. Severity: `degraded`.
 
 **B. Terminal outbox, non-terminal receipt** (`terminal_outbox_nonterminal_receipt`): The outbox has reached a terminal status but the latest receipt is non-terminal. Severity: `inconsistent`. This check is skipped if check A already fired for the same target.
 

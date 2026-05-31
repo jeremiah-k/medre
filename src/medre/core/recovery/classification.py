@@ -18,6 +18,7 @@ __all__ = ["classify_startup_reclamation"]
 # Status classification sets
 # ---------------------------------------------------------------------------
 
+# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers
 _TERMINAL_STATUSES: frozenset[str] = frozenset(
     {"sent", "dead_lettered", "cancelled", "abandoned"}
 )

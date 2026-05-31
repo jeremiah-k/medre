@@ -35,7 +35,7 @@ from medre.core.rendering.renderer import (
 if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
-#: Evidence schema version.  Bumped on backward-incompatible field changes.
+#: Evidence schema version.  Bumped on schema-breaking field changes.
 EVIDENCE_SCHEMA_VERSION: str = "1"
 
 

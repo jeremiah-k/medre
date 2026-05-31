@@ -502,7 +502,7 @@ A conforming implementation satisfies:
 
 3. **Closed severity vocabulary**: Lifecycle convergence severity values are exactly `degraded` and `inconsistent`. The `safe` value is included in `severity_counts` for structural parity but no finding is produced with `safe` severity.
 
-4. **Severity assignment correctness**: Finding kinds classified as `inconsistent` MUST be: `terminal_receipt_nonterminal_outbox`, `terminal_outbox_nonterminal_receipt`, `retry_wait_missing_next_retry`, `attempt_count_regression`. Finding kinds classified as `degraded` MUST be: `receipt_outbox_mismatch`, `next_retry_in_past`, `retryable_without_retry_metadata`, `stalled_delivery_plan`, `receipt_sequence_gap`.
+4. **Severity assignment correctness**: Finding kinds classified as `inconsistent` MUST be: `terminal_outbox_nonterminal_receipt`, `retry_wait_missing_next_retry`, `attempt_count_regression`. Finding kinds classified as `degraded` MUST be: `terminal_receipt_nonterminal_outbox`, `receipt_outbox_mismatch`, `next_retry_in_past`, `retryable_without_retry_metadata`, `stalled_delivery_plan`, `receipt_sequence_gap`.
 
 5. **Deterministic target grouping and finding selection**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` using the same deterministic tie-breaking as convergence summary (§9.1). Findings are sorted deterministically by `(kind, record_id)`.
 

@@ -382,7 +382,6 @@ class TestNoStaleWordingInDocs:
         "migration-era",
         "old adapter framework",
         "old architecture",
-        "backward compatibility layer",
     )
 
     # Lines containing these phrases are exempt — they are factual

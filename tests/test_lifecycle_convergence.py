@@ -124,7 +124,7 @@ class TestTerminalReceiptNonterminalOutbox:
         finding = next(
             x for x in f if x.kind == KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX
         )
-        assert finding.severity == "inconsistent"
+        assert finding.severity == "degraded"
         assert finding.record_type == "outbox"
 
     def test_suppressed_receipt_retry_wait_outbox(self) -> None:

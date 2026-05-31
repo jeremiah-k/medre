@@ -508,9 +508,9 @@ class TestLifecycleConvergenceReportWithFindings:
         # Find the specific finding.
         kinds = [f["kind"] for f in report["findings"]]
         assert "terminal_receipt_nonterminal_outbox" in kinds
-        # Severity should be inconsistent.
-        assert report["severity_counts"]["inconsistent"] >= 1
-        assert report["worst_severity"] == "inconsistent"
+        # Severity should be degraded.
+        assert report["severity_counts"]["degraded"] >= 1
+        assert report["worst_severity"] == "degraded"
 
     @pytest.mark.asyncio
     async def test_lifecycle_findings_json_safe(self) -> None:

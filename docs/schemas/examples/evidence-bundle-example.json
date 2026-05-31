@@ -198,7 +198,7 @@
     "findings": [
       {
         "kind": "terminal_receipt_nonterminal_outbox",
-        "severity": "inconsistent",
+        "severity": "degraded",
         "record_id": "obx_abc123",
         "record_type": "outbox",
         "details": "Terminal receipt (sent) but outbox is non-terminal (pending) for target ('chan_a', 'user_1', 'dm')",
@@ -230,10 +230,10 @@
     "total_findings": 2,
     "severity_counts": {
       "safe": 0,
-      "degraded": 1,
-      "inconsistent": 1
+      "degraded": 2,
+      "inconsistent": 0
     },
-    "worst_severity": "inconsistent"
+    "worst_severity": "degraded"
   },
   "status": "passed"
 }

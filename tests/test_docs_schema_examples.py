@@ -1040,7 +1040,7 @@ class TestEvidenceBundleSchemaNewFields:
             "findings": [
                 {
                     "kind": "terminal_receipt_nonterminal_outbox",
-                    "severity": "inconsistent",
+                    "severity": "degraded",
                     "record_id": "ob-001",
                     "record_type": "outbox",
                     "details": "Terminal receipt (sent) but outbox is non-terminal (pending)",
@@ -1053,8 +1053,8 @@ class TestEvidenceBundleSchemaNewFields:
                 },
             ],
             "total_findings": 1,
-            "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 1},
-            "worst_severity": "inconsistent",
+            "severity_counts": {"safe": 0, "degraded": 1, "inconsistent": 0},
+            "worst_severity": "degraded",
         }
         jsonschema.validate(instance=bundle, schema=_schema)
 

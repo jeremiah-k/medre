@@ -732,11 +732,11 @@ The lifecycle convergence report has three fields to check first:
 
 ### Finding Kinds and Operator Actions
 
-#### `terminal_receipt_nonterminal_outbox` (inconsistent)
+#### `terminal_receipt_nonterminal_outbox` (degraded)
 
 The latest receipt says the delivery finished (sent, suppressed, or dead_lettered) but the outbox item is still non-terminal (pending, retry_wait, in_progress, queued).
 
-This is a data-integrity contradiction. The outbox should have been transitioned to terminal when the receipt was written.
+This is typically a timing artifact — the outbox may not have caught up with the receipt yet. If the condition persists, it may indicate a stale outbox entry.
 
 ```sql
 SELECT outbox_id, status, updated_at FROM delivery_outbox
@@ -845,7 +845,7 @@ Gaps may indicate lost receipts or concurrent delivery attempts. Check whether r
 
 - Lifecycle convergence diagnostics are **deterministic and read-only**. They never change retry scheduling, worker behavior, or storage state.
 - No automatic repair occurs. All findings are for operator inspection only.
-- Findings follow the `LifecycleConvergenceFinding` JSON Schema type (distinct closed `kind` enum from `OrphanFinding`). The Python runtime reuses the `OrphanFinding` dataclass for structural compatibility.
+- Findings follow the `LifecycleConvergenceFinding` JSON Schema type with a closed `kind` enum. Each finding includes `kind`, `severity`, `record_id`, `record_type`, `details`, and `extra` fields.
 
 ## See Also
 

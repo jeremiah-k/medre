@@ -810,7 +810,7 @@ Convergence diagnostics are read-only. They do not repair state or block startup
 
 The evidence bundle also includes a `lifecycle_convergence_report` with finer-grained findings about specific contradictions between outbox and receipt state. After recovery, check this report for:
 
-- `terminal_receipt_nonterminal_outbox` or `terminal_outbox_nonterminal_receipt`: Data-integrity contradictions between the two state machines. These need manual investigation.
+- `terminal_receipt_nonterminal_outbox` or `terminal_outbox_nonterminal_receipt`: Status mismatches between the two state machines. These may be timing artifacts or need manual investigation.
 - `retry_wait_missing_next_retry`: Outbox items stuck in `retry_wait` without valid retry timestamps.
 - `stalled_delivery_plan`: Non-terminal outbox items that have not been updated within the stall threshold (default 1 hour).
 - `attempt_count_regression` or `receipt_sequence_gap`: Receipt chain integrity issues.
