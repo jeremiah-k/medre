@@ -86,6 +86,9 @@
         },
         "storage": {
           "$ref": "#/$defs/EvidenceSection"
+        },
+        "recovery": {
+          "$ref": "#/$defs/EvidenceSection"
         }
       },
       "additionalProperties": false

@@ -68,9 +68,7 @@ def _parse_as_utc(ts: str) -> datetime:
 
 
 def _infer_recovery_source(
-    outbox_item: Any,
     *,
-    worker_id: str | None,
     startup_timestamp: str | None = None,
 ) -> str:
     """Infer the recovery source for a claimable outbox item.
@@ -170,7 +168,6 @@ def build_startup_recovery_ledger(
         delivery_plan_id = _to_str(_get(item, "delivery_plan_id"))
         worker_id = _to_str(_get(item, "worker_id")) or None
         updated_at = _to_str(_get(item, "updated_at"))
-        _to_str(_get(item, "failure_kind"))
 
         classification, reason = classify_startup_reclamation(
             item,
@@ -185,8 +182,6 @@ def build_startup_recovery_ledger(
         )
 
         recovery_source = _infer_recovery_source(
-            item,
-            worker_id=worker_id,
             startup_timestamp=startup_timestamp,
         )
 

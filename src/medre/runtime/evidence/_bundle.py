@@ -194,6 +194,14 @@ async def collect_evidence_bundle(
         _shutdown_evidence = diag_snapshot_data.get("shutdown_evidence")
         _adapter_status = diag_snapshot_data.get("adapter_status")
 
+    # -- Extract recovery summary / ledger into top-level fields ------------
+    _recovery_summary: dict[str, Any] | None = None
+    _recovery_ledger: dict[str, Any] | None = None
+    recovery_data = sections.get("recovery", {}).get("data")
+    if recovery_data is not None:
+        _recovery_summary = recovery_data.get("recovery_summary")
+        _recovery_ledger = recovery_data.get("recovery_ledger")
+
     return {
         "adapter_status": _adapter_status,
         "collected_at": _now().isoformat(),
@@ -204,6 +212,8 @@ async def collect_evidence_bundle(
         "generated_at": _now().isoformat(),
         "limitations": _LIMITATIONS,
         "medre_version": _get_version(),
+        "recovery_ledger": _recovery_ledger,
+        "recovery_summary": _recovery_summary,
         "runtime_started": runtime_started,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,

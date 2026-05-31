@@ -1,16 +1,21 @@
 """Recovery evidence section for the runtime evidence bundle.
 
-Builds a startup recovery section with full startup context (recovery
-run ID, startup timestamp) — richer than the per-event evidence
-bundle which has no access to BootSummary.
+Builds a snapshot-diagnostics recovery section from offline storage —
+no live runtime required.  Uses :func:`build_startup_recovery_ledger`
+and :func:`build_recovery_summary` as pure functions over the current
+outbox snapshot, labelled as snapshot diagnostics rather than actual
+startup recovery.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
-from medre.config.paths import MedrePaths
+from medre.config.paths import MedrePaths, MedrePathsError
 
 from ._helpers import (
     _section_error,
@@ -25,12 +30,11 @@ async def _collect_recovery_section(
     config: Any,
     paths: MedrePaths,
 ) -> dict[str, Any]:
-    """Build the recovery section with startup context.
+    """Build the recovery section from offline storage snapshots.
 
-    Builds the runtime (no start), accesses ``app._boot_summary`` for
-    recovery run ID and startup timestamp, queries storage for all
-    non-terminal outbox items, and builds the recovery ledger and
-    summary.
+    Queries storage for all outbox items and builds recovery evidence
+    as snapshot diagnostics.  Does **not** start a runtime or claim
+    actual startup recovery.
 
     Parameters
     ----------
@@ -49,6 +53,7 @@ async def _collect_recovery_section(
         build_recovery_summary,
         build_startup_recovery_ledger,
     )
+    from medre.core.storage.sqlite.storage import SQLiteStorage
 
     enabled_adapters = config.adapters.all_enabled()
     if not enabled_adapters:
@@ -56,66 +61,79 @@ async def _collect_recovery_section(
             "No adapters enabled — recovery evidence requires an active configuration"
         )
 
-    from medre.runtime.builder import RuntimeBuilder
+    storage_config = config.storage
 
+    # Memory backend — nothing persistent to inspect.
+    if storage_config.backend == "memory":
+        return _section_skipped(
+            "Storage backend is 'memory' — no persistent outbox data for recovery evidence"
+        )
+
+    # Resolve DB path.
+    if storage_config.path:
+        try:
+            db_path = str(paths.expand_placeholder(storage_config.path))
+        except MedrePathsError as exc:
+            return _section_error(f"Invalid storage path: {exc}")
+    else:
+        db_path = str(paths.database_path)
+
+    if not os.path.exists(db_path):
+        return _section_skipped(
+            "Database file does not exist — no recovery evidence available"
+        )
+
+    # Open read-only.
+    storage: Any | None = None
     try:
-        builder = RuntimeBuilder(config, paths)
-        app = builder.build()
+        storage = await SQLiteStorage.open_readonly(db_path)
     except Exception as exc:
-        return _section_error(f"Runtime build error: {exc}")
+        return _section_error(f"Cannot open database read-only: {exc}")
 
-    if not app.adapters:
-        return _section_skipped(
-            f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
-        )
-
-    # Access startup context from BootSummary.
-    boot_summary = getattr(app, "_boot_summary", None)
-    if boot_summary is None:
-        return _section_skipped(
-            "BootSummary unavailable — startup recovery evidence requires a started runtime"
-        )
-
-    recovery_run_id = getattr(boot_summary, "recovery_run_id", "") or None
-    startup_timestamp = getattr(boot_summary, "startup_timestamp", None)
-
-    if not recovery_run_id:
-        return _section_skipped(
-            "Recovery run ID not set — recovery evidence requires a started runtime"
-        )
-
-    # Query all non-terminal outbox items from storage.
-    if app.storage is None:
-        return _section_skipped("No storage backend available for recovery evidence")
-
-    outbox_items: list[Any] = []
     try:
-        # Collect outbox items across all events.
-        # Use list_all_outbox_items if available, otherwise build from
-        # known event IDs.
-        list_all = getattr(app.storage, "list_all_outbox_items", None)
-        if callable(list_all):
-            outbox_items = await list_all()
-        else:
-            # Fallback: list events and aggregate outbox items.
-            outbox_items = []
-            _logger.debug(
-                "list_all_outbox_items not available — recovery section limited"
+        # Query all outbox items via pagination.
+        all_items: list[Any] = []
+        offset = 0
+        batch_size = 500
+        while True:
+            batch = await storage.list_outbox_items(
+                limit=batch_size,
+                offset=offset,
             )
+            all_items.extend(batch)
+            if len(batch) < batch_size:
+                break
+            offset += batch_size
+
+        # Generate collection-scoped recovery_run_id.
+        collection_ts = datetime.now(timezone.utc)
+        recovery_run_id = (
+            f"snapshot-{collection_ts.strftime('%Y%m%dT%H%M%SZ')}"
+            f"-{uuid.uuid4().hex[:8]}"
+        )
+
+        # Build recovery ledger with snapshot context (no startup_timestamp).
+        # Without startup_timestamp the builder classifies items using
+        # retry_worker_recovery source — appropriate for a snapshot.
+        recovery_ledger = build_startup_recovery_ledger(
+            outbox_items=all_items,
+            startup_timestamp=None,
+            recovery_run_id=recovery_run_id,
+        )
+        recovery_summary = build_recovery_summary(recovery_ledger)
+
+        return _section_ok(
+            {
+                "recovery_summary": recovery_summary.to_dict(),
+                "recovery_ledger": recovery_ledger.to_dict(),
+                "snapshot_context": {
+                    "source": "storage_snapshot",
+                    "collection_timestamp": collection_ts.isoformat(),
+                },
+            }
+        )
     except Exception as exc:
-        return _section_error(f"Storage query error: {exc}")
-
-    # Build recovery ledger and summary with startup context.
-    recovery_ledger = build_startup_recovery_ledger(
-        outbox_items=outbox_items,
-        startup_timestamp=startup_timestamp,
-        recovery_run_id=recovery_run_id,
-    )
-    recovery_summary = build_recovery_summary(recovery_ledger)
-
-    return _section_ok(
-        {
-            "recovery_summary": recovery_summary.to_dict(),
-            "recovery_ledger": recovery_ledger.to_dict(),
-        }
-    )
+        return _section_error(f"Recovery evidence collection error: {exc}")
+    finally:
+        if storage is not None:
+            await storage.close()

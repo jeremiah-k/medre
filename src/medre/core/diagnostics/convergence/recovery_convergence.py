@@ -99,7 +99,9 @@ def build_recovery_convergence_findings(
     # hasn't actually progressed.
     if recovery_ledger is not None:
         # Extract actions from ledger (duck-typed).
-        actions = _get(recovery_ledger, "actions", ())
+        # Defensive: ``actions`` may be ``None`` on dict-based ledgers where
+        # the key exists but holds a null value.
+        actions = _get(recovery_ledger, "actions", ()) or ()
         if isinstance(actions, tuple):
             actions_list: list[Any] = list(actions)
         elif isinstance(actions, list):
@@ -238,7 +240,7 @@ def build_recovery_convergence_findings(
     # AFTER appearing in a recovery ledger (meaning it was recovered but
     # the event has been deleted or never existed).
     if known_event_ids is not None and recovery_ledger is not None:
-        actions = _get(recovery_ledger, "actions", ())
+        actions = _get(recovery_ledger, "actions", ()) or ()
         if isinstance(actions, tuple):
             actions_l = list(actions)
         elif isinstance(actions, list):

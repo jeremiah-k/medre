@@ -109,11 +109,17 @@ def classify_startup_reclamation(
     Parameters
     ----------
     outbox_item:
-        Duck-typed record with at minimum ``status``, ``event_id``,
-        ``outbox_id``, and timestamps (``next_attempt_at``,
-        ``lease_until``, ``updated_at``).  Accepts both
-        :class:`~medre.core.storage.backend.DeliveryOutboxItem` and
-        plain ``dict`` values.
+         Duck-typed record with at minimum ``status``, ``event_id``,
+         ``outbox_id``, and timestamps (``next_attempt_at``,
+         ``lease_until``, ``updated_at``).  Accepts both
+         :class:`~medre.core.storage.backend.DeliveryOutboxItem` and
+         plain ``dict`` values.
+
+         **Timestamp field note:** Outbox items use ``next_attempt_at``
+         for scheduled retry timing (set when status is ``retry_wait``).
+         This is distinct from receipt-level ``next_retry_at``, which
+         drives receipt-based retry scheduling.  Classification only
+         reads the outbox field.
     startup_timestamp:
         ISO-8601 startup timestamp for source inference.  ``None``
         means the startup context is unavailable.

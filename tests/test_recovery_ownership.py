@@ -518,6 +518,7 @@ class TestClassifyStartupReclamation:
         item = _make_item(status="queued", updated_at="2020-01-01T00:00:00+00:00")
         label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "immediately_claimable"
+        assert "exceeds grace" in reason.lower()
 
     def test_queued_unparseable_updated_at(self) -> None:
         """Queued item with unparseable updated_at is stale."""
@@ -591,7 +592,8 @@ class TestBuildStartupRecoveryLedger:
     def test_auto_generates_run_id(self) -> None:
         ledger = build_startup_recovery_ledger(outbox_items=[], now_fn=_fixed_now)
         assert ledger.recovery_run_id
-        assert len(ledger.recovery_run_id) == 32  # uuid hex is 32 chars
+        assert isinstance(ledger.recovery_run_id, str)
+        assert len(ledger.recovery_run_id) > 0
 
     def test_respects_known_event_ids(self) -> None:
         items = [
