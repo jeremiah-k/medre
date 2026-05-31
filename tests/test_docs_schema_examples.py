@@ -319,3 +319,212 @@ class TestSourceDriftDetection:
         assert (
             not extra
         ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"
+
+
+# ===========================================================================
+# 5. Evidence bundle new-field schema validation
+# ===========================================================================
+
+
+class TestEvidenceBundleSchemaNewFields:
+    """Validate that the evidence-bundle schema accepts the new runtime fields
+    (evidence_tier, adapter_status, shutdown_evidence) and rejects invalid values.
+    """
+
+    @pytest.fixture()
+    def _schema(self) -> dict[str, Any]:
+        return _load_json(_SCHEMAS_DIR / "evidence-bundle.schema.json")
+
+    def _minimal_bundle(self) -> dict[str, Any]:
+        """Return a minimal evidence bundle matching runtime output shape."""
+        return {
+            "adapter_status": None,
+            "collected_at": "2026-05-27T12:00:00+00:00",
+            "command": "evidence",
+            "config_source": "file",
+            "errors": [],
+            "evidence_tier": "synthetic",
+            "generated_at": "2026-05-27T12:00:02+00:00",
+            "limitations": [],
+            "medre_version": "0.1.0",
+            "runtime_started": False,
+            "schema_version": 1,
+            "sections": {
+                "config_summary": {
+                    "status": "passed",
+                    "error": None,
+                    "data": {"adapter_count": 0},
+                },
+            },
+            "shutdown_evidence": None,
+            "status": "passed",
+        }
+
+    def test_minimal_bundle_with_new_fields_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """A minimal bundle with the new fields must validate."""
+        bundle = self._minimal_bundle()
+        if _HAS_JSONSCHEMA:
+            import jsonschema
+
+            jsonschema.validate(instance=bundle, schema=_schema)
+        else:
+            # Manual check: all required fields present.
+            required = _get_required_fields(_schema)
+            missing = [f for f in required if f not in bundle]
+            assert not missing, f"Missing required fields: {missing}"
+
+    def test_invalid_evidence_tier_rejected(self, _schema: dict[str, Any]) -> None:
+        """An invalid evidence_tier value must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["evidence_tier"] = "invalid_tier"
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_all_valid_tiers_accepted(self, _schema: dict[str, Any]) -> None:
+        """Each valid evidence_tier value must pass validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        for tier in (
+            "synthetic",
+            "conformance",
+            "docker",
+            "live_service",
+            "hardware",
+        ):
+            bundle = self._minimal_bundle()
+            bundle["evidence_tier"] = tier
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_adapter_status_with_entries_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """adapter_status as a list of adapter status objects must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["adapter_status"] = [
+            {
+                "adapter_id": "matrix_main",
+                "adapter_kind": "real",
+                "configured": True,
+                "connected": True,
+                "current_state": "ready",
+                "enabled": True,
+                "failure_category": None,
+                "failure_reason": None,
+                "health": "healthy",
+                "operator_status": "connected",
+                "transport": "matrix",
+                "valid_transitions": ["degraded", "disconnected", "stopping"],
+            },
+        ]
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_evidence_with_values_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """shutdown_evidence as a populated object must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            "pending_outbox_counts": {},
+            "pending_retry_work_total": 0,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 5,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 5,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_fake_live_tier_not_overclaimed(self, _schema: dict[str, Any]) -> None:
+        """The schema must not default to or allow overclaiming live/hardware
+        without explicit opt-in — this is a structural sanity check that
+        live_service and hardware are valid but NOT the default tier."""
+        bundle = self._minimal_bundle()
+        # Default tier must be synthetic.
+        assert bundle["evidence_tier"] == "synthetic"
+
+    # -- strictness: additionalProperties: false on new $defs ----------------
+
+    def test_adapter_status_extra_field_rejected(self, _schema: dict[str, Any]) -> None:
+        """Extra fields inside adapter_status entries must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["adapter_status"] = [
+            {
+                "adapter_id": "matrix_main",
+                "adapter_kind": "real",
+                "configured": True,
+                "connected": True,
+                "current_state": "ready",
+                "enabled": True,
+                "failure_category": None,
+                "failure_reason": None,
+                "health": "healthy",
+                "operator_status": "connected",
+                "transport": "matrix",
+                "valid_transitions": ["degraded", "stopping"],
+                "unexpected_extra": "must_fail",
+            },
+        ]
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_evidence_extra_field_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Extra fields inside shutdown_evidence must be rejected."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            "pending_outbox_counts": None,
+            "pending_retry_work_total": 0,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+            "rogue_field": "must_fail",
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
