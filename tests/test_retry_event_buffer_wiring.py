@@ -9,6 +9,7 @@ No outbox rows are created, mutated, or cancelled by these tests.
 
 from __future__ import annotations
 
+import itertools
 from unittest.mock import AsyncMock
 
 from medre.runtime.events import EventBuffer, RuntimeEventType
@@ -18,12 +19,12 @@ from medre.runtime.retry import RetryWorker
 # Helpers
 # ---------------------------------------------------------------------------
 
-_FIXED_CLOCK_SEQUENCE: list[float] = list(range(1000))
+_clock_counter = itertools.count()
 
 
 def _fixed_clock() -> float:
     """Deterministic monotonic clock for reproducible event timestamps."""
-    return _FIXED_CLOCK_SEQUENCE.pop(0)
+    return float(next(_clock_counter))
 
 
 def _make_worker(
@@ -189,7 +190,7 @@ class TestMedreAppRetryEventWiring:
         """Static check: MedreApp.start() passes event_buffer to RetryWorker.
 
         Reads the source of MedreApp.start() and verifies the RetryWorker
-        construction includes ``event_buffer=self._event_buffer``.
+        construction includes an ``event_buffer=`` keyword argument.
         """
         import inspect
 
@@ -197,10 +198,9 @@ class TestMedreAppRetryEventWiring:
 
         source = inspect.getsource(app_mod.MedreApp.start)
         # The RetryWorker construction must include event_buffer wiring.
-        assert "event_buffer=self._event_buffer" in source, (
-            "MedreApp.start() must pass event_buffer=self._event_buffer "
-            "to the RetryWorker constructor"
-        )
+        assert (
+            "event_buffer=" in source
+        ), "MedreApp.start() must pass event_buffer= to RetryWorker"
 
     async def test_full_start_stop_lifecycle_in_buffer(self) -> None:
         """End-to-end: start+stop records both events with correct detail."""

@@ -117,16 +117,16 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 
 ### What Gets Drained vs Preserved
 
-| Category                                                               | Behaviour                                                                          |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| In-flight adapter deliveries                                           | Drained up to `shutdown_drain_timeout_seconds`, then abandoned                     |
-| Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with `failure_kind=shutdown_rejection` |
-| Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                          |
-| Replay events                                                          | Cancelled; completed receipts preserved                                            |
-| Route statistics, diagnostic counters                                  | Lost — in-memory only                                                              |
-| Pending retry receipts                                                 | Preserved — remain in storage, processed on next startup                           |
-| Pending outbox items                                                   | Preserved — remain in storage, reclaimable on next startup                         |
-| Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present. |
+| Category                                                               | Behaviour                                                                                  |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| In-flight adapter deliveries                                           | Drained up to `shutdown_drain_timeout_seconds`, then abandoned                             |
+| Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with `failure_kind=delivery_rejected_shutdown` |
+| Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                                  |
+| Replay events                                                          | Cancelled; completed receipts preserved                                                    |
+| Route statistics, diagnostic counters                                  | Lost — in-memory only                                                                      |
+| Pending retry receipts                                                 | Preserved — remain in storage, processed on next startup                                   |
+| Pending outbox items                                                   | Preserved — remain in storage, reclaimable on next startup                                 |
+| Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present.         |
 
 Pending retry receipts and outbox items survive shutdown in SQLite. On next startup, the RetryWorker discovers and processes due retry receipts (if retry is enabled). This means retries may be re-attempted for deliveries that were pending when the runtime stopped. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
 

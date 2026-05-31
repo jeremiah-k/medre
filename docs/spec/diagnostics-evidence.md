@@ -864,17 +864,23 @@ instances and plain dict values for all inputs.
 
 Key fields:
 
-| Field                      | Type           | Semantics                                                                                                                                                           |
-| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shutdown_status`          | `str`          | Canonical shutdown classification. One of: `running`, `graceful_stop`, `cancellation`, `adapter_failure`, `drain_timeout`, `shutdown_pending`, `stopped`, `failed`. |
-| `resume_expected`          | `bool`         | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
-| `outbox_shutdown_policy`   | `str or None`  | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
-| `pending_outbox_counts`    | `dict or None` | Per-status counts of non-terminal outbox items at shutdown time. `None` when no outbox data was provided.                                                           |
-| `pending_retry_work_total` | `int or None`  | Total count of non-terminal outbox items across all statuses. `None` when no outbox data was provided.                                                              |
-| `drain_timeout_detected`   | `bool`         | Whether drain timeout was detected from runtime events or shutdown reason.                                                                                          |
-| `in_flight_count`          | `int or None`  | In-flight delivery count from capacity controller at shutdown time.                                                                                                 |
-| `tasks_cancelled`          | `int or None`  | Count of tasks cancelled during shutdown, extracted from runtime events.                                                                                            |
-| `evidence_flush_status`    | `str or None`  | Caller-supplied status of evidence persistence at shutdown.                                                                                                         |
+| Field                    | Type          | Semantics                                                                                                                                                           |
+| ------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shutdown_status`        | `str`         | Canonical shutdown classification. One of: `running`, `graceful_stop`, `cancellation`, `adapter_failure`, `drain_timeout`, `shutdown_pending`, `stopped`, `failed`. |
+| `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
+| `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
+
+Pending outbox rows (not tied to retry receipts) are discovered by
+`claim_due_outbox_items()` on next startup. These rows are moved into dispatch
+according to normal outbox logic, independent of RetryWorker retry receipt
+processing.
+
+| `pending_outbox_counts` | `dict or None` | Per-status counts of non-terminal outbox items at shutdown time. `None` when no outbox data was provided. |
+| `pending_retry_work_total` | `int or None` | Total count of non-terminal outbox items across all statuses. `None` when no outbox data was provided. |
+| `drain_timeout_detected` | `bool` | Whether drain timeout was detected from runtime events or shutdown reason. |
+| `in_flight_count` | `int or None` | In-flight delivery count from capacity controller at shutdown time. |
+| `tasks_cancelled` | `int or None` | Count of tasks cancelled during shutdown, extracted from runtime events. |
+| `evidence_flush_status` | `str or None` | Caller-supplied status of evidence persistence at shutdown. |
 
 ### 20.5 OutboxShutdownClassification
 

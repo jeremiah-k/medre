@@ -923,3 +923,33 @@ class TestResumablePolicyFields:
         )
         assert ev.resume_expected is False
         assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_pending_with_cancellation_resume_false(self) -> None:
+        """cancellation status overrides pending work → resume_expected False."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 5},
+            reason="cancellation",
+        )
+        assert ev.shutdown_status == "cancellation"
+        assert ev.resume_expected is False
+
+    def test_pending_with_drain_timeout_resume_false(self) -> None:
+        """drain_timeout status overrides pending work → resume_expected False."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 5},
+            reason="drain_timeout",
+        )
+        assert ev.shutdown_status == "drain_timeout"
+        assert ev.resume_expected is False
+
+    def test_pending_with_adapter_failure_event_resume_false(self) -> None:
+        """adapter_failure status overrides pending work → resume_expected False."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 5},
+            events=[{"event_type": "adapter_start_failed", "detail": {}}],
+        )
+        assert ev.shutdown_status == "adapter_failure"
+        assert ev.resume_expected is False

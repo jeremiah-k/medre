@@ -473,10 +473,12 @@ def build_shutdown_evidence(
         shutdown_status = ShutdownStatus.STOPPED.value
 
     # -- Compute resumable policy fields ------------------------------------
-    # resume_expected: True only when non-terminal outbox work exists and the
-    # runtime is in a state (stopped/stopping) where work was left pending
-    # rather than explicitly cancelled or failed.
-    resume_expected: bool = has_pending_work and rs in ("stopped", "stopping")
+    # resume_expected: True only when non-terminal outbox work exists AND the
+    # resolved shutdown_status is one of the resumable cases. Cancellation,
+    # drain_timeout, adapter_failure, and failed override even if pending work
+    # exists.
+    _resumable_statuses = frozenset(("graceful_stop", "shutdown_pending"))
+    resume_expected: bool = has_pending_work and shutdown_status in _resumable_statuses
 
     # outbox_shutdown_policy: "resumable" when outbox_counts were supplied
     # (the operator can expect pending items to resume on next start); None
