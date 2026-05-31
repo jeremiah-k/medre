@@ -51,6 +51,8 @@ async def _collect_storage_data_from_backend(
         "replay_run_receipts": None,
         "timeline": None,
         "replay_timeline": None,
+        "delivery_outcome_ledger": None,
+        "retry_outbox_summary": None,
     }
 
     try:
@@ -83,6 +85,21 @@ async def _collect_storage_data_from_backend(
                 ]
 
                 data["timeline"] = tl_result["timeline_entries"]
+
+                # --- Load outbox items for this event (if backend supports) ---
+                outbox_items: list[Any] = []
+                _list_outbox = getattr(storage, "list_outbox_items_for_event", None)
+                if callable(_list_outbox):
+                    try:
+                        from collections.abc import Coroutine as _Coroutine
+                        from typing import cast as _cast
+
+                        outbox_items = await _cast(
+                            _Coroutine[Any, Any, list[Any]],
+                            _list_outbox(event_id),
+                        )
+                    except Exception:
+                        outbox_items = []
 
                 # Compact incident summary using shared classification.
                 from medre.core.observability.classification import (
@@ -258,6 +275,53 @@ async def _collect_storage_data_from_backend(
                     "sent_unconfirmed_count": sent_unconfirmed_count,
                     "delivery_state_by_target": delivery_state_by_target,
                 }
+
+                # --- Delivery outcome ledger (pure, from receipts) ---
+                from medre.core.evidence.delivery_ledger import (
+                    build_delivery_outcome_ledger as _build_ledger,
+                )
+
+                data["delivery_outcome_ledger"] = _build_ledger(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                ).to_dict()
+
+                # --- Retry/outbox accountability summary (pure, from receipts) ---
+                from medre.core.evidence.retry_outbox import (
+                    build_retry_outbox_summary as _build_retry_summary,
+                )
+
+                _retry_summary = _build_retry_summary(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
+                data["retry_outbox_summary"] = {
+                    "counts": dict(sorted(_retry_summary.counts.items())),
+                    "items": [
+                        {
+                            "outbox_id": it.outbox_id,
+                            "delivery_plan_id": it.delivery_plan_id,
+                            "event_id": it.event_id,
+                            "route_id": it.route_id,
+                            "target_adapter": it.target_adapter,
+                            "target_channel": it.target_channel,
+                            "status": it.status,
+                            "retry_state": it.retry_state,
+                            "attempt_number": it.attempt_number,
+                            "next_attempt_at": it.next_attempt_at,
+                            "next_retry_at": it.next_retry_at,
+                            "failure_kind": it.failure_kind,
+                            "failure_taxon": it.failure_taxon,
+                            "failure_category": it.failure_category,
+                            "failure_kind_detail": it.failure_kind_detail,
+                            "parent_receipt_id": it.parent_receipt_id,
+                            "receipt_id": it.receipt_id,
+                            "reason_pending": it.reason_pending,
+                        }
+                        for it in _retry_summary.items
+                    ],
+                    "retry_worker": _retry_summary.retry_worker,
+                }
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.
@@ -335,6 +399,8 @@ async def _collect_storage_section(
                 "replay_run_receipts": None,
                 "timeline": None,
                 "replay_timeline": None,
+                "delivery_outcome_ledger": None,
+                "retry_outbox_summary": None,
             },
             f"Database file does not exist: {db_path}",
         )
@@ -355,6 +421,8 @@ async def _collect_storage_section(
                 "replay_run_receipts": None,
                 "timeline": None,
                 "replay_timeline": None,
+                "delivery_outcome_ledger": None,
+                "retry_outbox_summary": None,
             },
             f"Cannot open database read-only: {exc}",
         )
@@ -384,6 +452,7 @@ def _build_storage_path_bundle(
     """Assemble the top-level bundle dict for ``--storage-path`` mode."""
     overall = _compute_overall_status(sections)
     return {
+        "adapter_status": None,
         "collected_at": now_fn().isoformat(),
         "command": "evidence",
         "config_source": "storage_path",
@@ -395,6 +464,7 @@ def _build_storage_path_bundle(
         "runtime_started": False,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,
+        "shutdown_evidence": None,
         "status": overall,
     }
 
@@ -450,6 +520,8 @@ async def _collect_storage_path_bundle(
                 "replay_run_receipts": None,
                 "timeline": None,
                 "replay_timeline": None,
+                "delivery_outcome_ledger": None,
+                "retry_outbox_summary": None,
             },
             f"Database file does not exist: {storage_path}",
         )
@@ -471,6 +543,8 @@ async def _collect_storage_path_bundle(
                 "replay_run_receipts": None,
                 "timeline": None,
                 "replay_timeline": None,
+                "delivery_outcome_ledger": None,
+                "retry_outbox_summary": None,
             },
             f"Cannot open database read-only: {exc}",
         )

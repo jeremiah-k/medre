@@ -210,19 +210,22 @@ When a collection exceeds its cap, entries beyond the cap (sorted for adapters/r
 
 The `collect_evidence_bundle()` function assembles a comprehensive evidence bundle with the following top-level shape:
 
-| Key               | Type          | Semantics                                                   |
-| ----------------- | ------------- | ----------------------------------------------------------- |
-| `schema_version`  | `int`         | Currently `1`. Frozen during pre-release.                   |
-| `status`          | `str`         | Overall status: `"passed"`, `"partial"`, or `"error"`.      |
-| `sections`        | `dict`        | Per-section evidence data (see § 7.1).                      |
-| `errors`          | `list[str]`   | Accumulated error strings from section collection.          |
-| `limitations`     | `list[str]`   | Fixed list of evidence limitations (see § 7.2).             |
-| `collected_at`    | `str`         | ISO 8601 timestamp of collection.                           |
-| `generated_at`    | `str`         | ISO 8601 timestamp of bundle generation.                    |
-| `command`         | `str`         | Always `"evidence"`.                                        |
-| `config_source`   | `str or None` | Config discovery source. `None` when config loading fails.  |
-| `medre_version`   | `str`         | MEDRE package version string.                               |
-| `runtime_started` | `bool`        | Whether the runtime was started during evidence collection. |
+| Key                 | Type           | Semantics                                                                                                                               |
+| ------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`    | `int`          | Currently `1`. Frozen during pre-release.                                                                                               |
+| `status`            | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                  |
+| `sections`          | `dict`         | Per-section evidence data (see § 7.1).                                                                                                  |
+| `errors`            | `list[str]`    | Accumulated error strings from section collection.                                                                                      |
+| `limitations`       | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                         |
+| `collected_at`      | `str`          | ISO 8601 timestamp of collection.                                                                                                       |
+| `generated_at`      | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                |
+| `command`           | `str`          | Always `"evidence"`.                                                                                                                    |
+| `config_source`     | `str or None`  | Config discovery source. `None` when config loading fails.                                                                              |
+| `medre_version`     | `str`          | MEDRE package version string.                                                                                                           |
+| `runtime_started`   | `bool`         | Whether the runtime was started during evidence collection.                                                                             |
+| `evidence_tier`     | `str`          | Machine-readable evidence provenance tier (see § 8). One of `"synthetic"`, `"conformance"`, `"docker"`, `"live_service"`, `"hardware"`. |
+| `adapter_status`    | `list or None` | Per-adapter status evidence derived from runtime snapshot (see § 18). `None` when storage-only mode.                                    |
+| `shutdown_evidence` | `dict or None` | Shutdown state evidence derived from runtime snapshot. `None` when storage-only mode.                                                   |
 
 ### 7.1 Sections
 
@@ -609,18 +612,21 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.2 Contents
 
-| Field               | Type                       | Semantics                                                                                               |
-| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `schema_version`    | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
-| `event_id`          | `str`                      | The canonical event ID this bundle covers.                                                              |
-| `event_summary`     | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
-| `delivery_receipts` | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
-| `native_refs`       | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
-| `outbox_items`      | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
-| `replay_run_ids`    | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
-| `sources_seen`      | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
-| `warnings`          | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
-| `generated_at`      | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+| Field                     | Type                       | Semantics                                                                                               |
+| ------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `schema_version`          | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
+| `event_id`                | `str`                      | The canonical event ID this bundle covers.                                                              |
+| `event_summary`           | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
+| `delivery_receipts`       | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
+| `native_refs`             | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
+| `outbox_items`            | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| `replay_run_ids`          | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `sources_seen`            | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
+| `warnings`                | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
+| `generated_at`            | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+| `evidence_tier`           | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
+| `delivery_outcome_ledger` | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
+| `retry_outbox_summary`    | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
 
 ### 16.3 ReceiptSummary
 
@@ -742,17 +748,18 @@ When both live and replay receipts exist for the same event, the bundle contains
 
 Adapters present one of the following operator-facing evidence statuses, derived from configuration, runtime state, and health check results. These statuses are not a state machine enforced in code. They are evidence labels that operators can observe through diagnostics and snapshot output.
 
-| Status           | Derivation                                         | Meaning                                                                   |
-| ---------------- | -------------------------------------------------- | ------------------------------------------------------------------------- |
-| `disabled`       | Config: `enabled = false`                          | Adapter is present in config but intentionally excluded from the runtime. |
-| `not_configured` | Config: no adapter entry for this transport/id     | No adapter configuration exists. No adapter object is constructed.        |
-| `configured`     | Config: valid entry, not yet started               | Adapter has a valid config entry. Build has not been attempted.           |
-| `starting`       | Runtime: `start()` in progress                     | Adapter is between `build()` and `start()` completion. Transient.         |
-| `connected`      | Health: `connected == True`, `health == "healthy"` | Adapter is connected to its transport and operating normally.             |
-| `unavailable`    | Health: `connected == False`, no active error      | Adapter exists but the transport endpoint is not reachable.               |
-| `failed`         | Health: `health == "failed"` or build/start error  | Adapter encountered a non-recoverable failure. Not connected.             |
-| `stopped`        | Runtime: `stop()` completed                        | Adapter was running and has been stopped. Clean termination.              |
-| `degraded`       | Health: `health == "degraded"`                     | Adapter is connected but experiencing transient errors.                   |
+| Status           | Derivation                                             | Meaning                                                                   |
+| ---------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `disabled`       | Config: `enabled = false`                              | Adapter is present in config but intentionally excluded from the runtime. |
+| `not_configured` | Config: no adapter entry for this transport/id         | No adapter configuration exists. No adapter object is constructed.        |
+| `configured`     | Config: valid entry, not yet started                   | Adapter has a valid config entry. Build has not been attempted.           |
+| `starting`       | Runtime: `start()` in progress                         | Adapter is between `build()` and `start()` completion. Transient.         |
+| `connected`      | Runtime: lifecycle state `READY`                       | Adapter is connected to its transport and operating normally.             |
+| `degraded`       | Runtime: lifecycle state `DEGRADED` or `BACKPRESSURED` | Adapter is connected but experiencing transient errors or backpressure.   |
+| `unavailable`    | Runtime: lifecycle state `DISCONNECTED`                | Adapter exists but the transport endpoint is not reachable.               |
+| `stopping`       | Runtime: lifecycle state `STOPPING`                    | Adapter is shutting down gracefully. Transient.                           |
+| `failed`         | Runtime: lifecycle state `FAILED`                      | Adapter encountered a non-recoverable failure. Not connected.             |
+| `stopped`        | Runtime: lifecycle state `STOPPED`                     | Adapter was running and has been stopped. Clean termination.              |
 
 ### 18.2 Derivation Rules
 
@@ -782,7 +789,7 @@ The ledger is not a new storage schema. It is derived at query/report time from 
 - Outbox rows for in-progress or pending deliveries.
 - Event rows in `canonical_events`.
 
-The derivation logic groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. This is the same grouping used by `delivery_state_by_target` (see §17.3).
+The derivation logic groups receipts and outbox items by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source)`. When `delivery_plan_id` is absent, `event_id` is used as the primary grouping dimension instead. Replay run ID (`replay_run_id`) is **not** part of the grouping key — it is populated on the resulting entry only when `source == "replay"`. The highest `attempt_number` per group wins, with last-seen breaking ties.
 
 ### 19.3 Ledger Fields
 

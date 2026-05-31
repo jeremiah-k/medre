@@ -93,6 +93,7 @@ async def collect_evidence_bundle(
         config, source, paths = load_config(config_path)
     except Exception as exc:
         return {
+            "adapter_status": None,
             "collected_at": _now().isoformat(),
             "command": "evidence",
             "config_source": None,
@@ -104,6 +105,7 @@ async def collect_evidence_bundle(
             "runtime_started": False,
             "schema_version": SCHEMA_VERSION,
             "sections": {},
+            "shutdown_evidence": None,
             "status": "error",
         }
 
@@ -158,39 +160,31 @@ async def collect_evidence_bundle(
     overall = _compute_overall_status(sections)
 
     # -- Tier inference (conservative) --------------------------------------
-    # Determine if any adapter uses fake kind to label synthetic.
+    # Walk adapter configs to find adapter_kind; never infer live/hardware.
     _adapter_kind: str | None = None
     try:
         adapters_cfg = getattr(config, "adapters", None)
         if adapters_cfg is not None:
-            # Walk transport adapter groups looking for adapter_kind.
-            for _transport_type, adapter_map in (
-                (adapters_cfg if isinstance(adapters_cfg, dict) else {}).items()
-                if isinstance(adapters_cfg, dict)
-                else []
-            ):
-                if isinstance(adapter_map, dict):
-                    for _name, adapter_conf in adapter_map.items():
-                        kind = (
-                            adapter_conf.get("adapter_kind")
-                            if isinstance(adapter_conf, dict)
-                            else getattr(adapter_conf, "adapter_kind", None)
-                        )
-                        if kind == "fake":
-                            _adapter_kind = "fake"
-                            break
-                if _adapter_kind == "fake":
+            for _transport, _aid, _rtc in adapters_cfg.all_configs():
+                kind = getattr(_rtc, "adapter_kind", None)
+                if kind == "fake":
+                    _adapter_kind = "fake"
                     break
     except Exception:
         pass
 
-    _is_docker = bool(storage_path) if storage_path else False
-    evidence_tier = infer_evidence_tier(
-        adapter_kind=_adapter_kind,
-        is_docker_artifact=_is_docker,
-    )
+    evidence_tier = infer_evidence_tier(adapter_kind=_adapter_kind)
+
+    # -- Extract derived evidence from snapshot for top-level access --------
+    _shutdown_evidence: dict[str, Any] | None = None
+    _adapter_status: list[dict[str, Any]] | None = None
+    diag_snapshot_data = sections.get("diagnostics_snapshot", {}).get("data")
+    if diag_snapshot_data is not None:
+        _shutdown_evidence = diag_snapshot_data.get("shutdown_evidence")
+        _adapter_status = diag_snapshot_data.get("adapter_status")
 
     return {
+        "adapter_status": _adapter_status,
         "collected_at": _now().isoformat(),
         "command": "evidence",
         "config_source": source.value,
@@ -202,5 +196,6 @@ async def collect_evidence_bundle(
         "runtime_started": runtime_started,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,
+        "shutdown_evidence": _shutdown_evidence,
         "status": overall,
     }

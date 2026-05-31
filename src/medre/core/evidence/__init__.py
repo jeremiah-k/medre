@@ -1,15 +1,15 @@
-"""First-class read-only evidence bundle model and collector.
+"""First-class read-only evidence bundle model, collector, and helpers.
 
 This package provides a deterministic, JSON-safe evidence bundle for a single
 event, aggregating event summary, delivery receipts, parsed rendering evidence,
 native refs, outbox state, replay/source context, warnings, and a generated
-timestamp - without mutating runtime state.
+timestamp — without mutating runtime state.
 
-Public API
-----------
-* :class:`EvidenceBundle` - frozen, JSON-safe evidence bundle.
-* :class:`EvidenceCollector` - read-only collector backed by
-  :class:`~medre.core.storage.backend.StorageBackend`.
+It also exposes pure helper models for delivery outcome ledgers, retry/outbox
+accountability, adapter status evidence, shutdown evidence, and evidence tier
+classification.
+
+Internal package — no stable public API guarantees (MEDRE pre-release).
 """
 
 from medre.core.evidence.adapter_status import (
@@ -20,6 +20,11 @@ from medre.core.evidence.adapter_status import (
 )
 from medre.core.evidence.bundle import EvidenceBundle, ReceiptSummary
 from medre.core.evidence.collector import EvidenceCollector
+from medre.core.evidence.delivery_ledger import (
+    DeliveryOutcomeEntry,
+    DeliveryOutcomeLedger,
+    build_delivery_outcome_ledger,
+)
 from medre.core.evidence.failure_taxonomy import (
     FAILURE_KIND_TO_TAXON,
     FailureTaxon,
@@ -27,6 +32,16 @@ from medre.core.evidence.failure_taxonomy import (
     derive_failure_kind_detail,
     resolve_taxon,
     taxon_category,
+)
+from medre.core.evidence.retry_outbox import (
+    RetryOutboxItemSummary,
+    RetryOutboxSummary,
+    build_retry_outbox_summary,
+)
+from medre.core.evidence.shutdown import (
+    ShutdownEvidence,
+    ShutdownStatus,
+    build_shutdown_evidence,
 )
 from medre.core.evidence.tiers import (
     EVIDENCE_TIER_UNKNOWN,
@@ -45,7 +60,14 @@ __all__ = [
     "FailureTaxon",
     "OPERATOR_STATUSES",
     "ReceiptSummary",
+    "RetryOutboxItemSummary",
+    "RetryOutboxSummary",
+    "ShutdownEvidence",
+    "ShutdownStatus",
     "build_adapter_status_evidence",
+    "build_delivery_outcome_ledger",
+    "build_retry_outbox_summary",
+    "build_shutdown_evidence",
     "compute_retryable",
     "derive_failure_kind_detail",
     "derive_operator_status",
@@ -53,4 +75,6 @@ __all__ = [
     "resolve_taxon",
     "taxon_category",
     "tier_is_live",
+    "DeliveryOutcomeEntry",
+    "DeliveryOutcomeLedger",
 ]
