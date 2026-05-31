@@ -188,12 +188,18 @@ class OrphanFinding:
     Attributes
     ----------
     kind:
-        Category of finding.  One of: ``orphaned_outbox``,
-        ``orphaned_parent_receipt``, ``cross_plan_parent``,
-        ``cross_event_parent``, ``missing_delivery_plan_id``,
+        Category of finding.  One of the ``KIND_*`` constants defined
+        in this module: ``orphaned_outbox``, ``orphaned_parent_receipt``,
+        ``cross_plan_parent``, ``cross_event_parent``,
+        ``missing_delivery_plan_id``,
         ``dead_lettered_retryable_mismatch``, ``recovered_not_progressed``,
         ``repeatedly_reclaimed``, ``reclaimed_then_terminal``,
-        ``reclaimed_then_orphaned``.
+        ``reclaimed_then_orphaned``, ``receipt_outbox_mismatch``,
+        ``terminal_receipt_nonterminal_outbox``,
+        ``terminal_outbox_nonterminal_receipt``,
+        ``retry_wait_missing_next_retry``, ``next_retry_in_past``,
+        ``retryable_without_retry_metadata``, ``stalled_delivery_plan``,
+        ``attempt_count_regression``, ``receipt_sequence_gap``.
     severity:
         Convergence severity string (``inconsistent`` or ``degraded``).
     record_id:

@@ -16,7 +16,9 @@ from typing import Any, Callable, Iterable
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
+    _pick_latest_receipt,
     _TERMINAL_OUTBOX,
+    _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH,
     _build_outbox_by_key,
     _get,
     _target_key,
@@ -42,11 +44,6 @@ __all__ = ["build_lifecycle_convergence_findings"]
 # Internal constants
 # ---------------------------------------------------------------------------
 
-#: Terminal receipt statuses used for the terminal-receipt / non-terminal-outbox
-#: check.  ``dead_lettered`` is included because a dead-lettered receipt is
-#: terminal from the receipt state-machine's perspective.
-_TERMINAL_RECEIPT_FOR_MISMATCH = frozenset({"sent", "suppressed", "dead_lettered"})
-
 #: Retry policy metadata fields that should be present on a retryable receipt.
 _RETRY_POLICY_FIELDS = (
     "retry_max_attempts",
@@ -54,6 +51,17 @@ _RETRY_POLICY_FIELDS = (
     "retry_max_delay",
     "retry_jitter",
 )
+
+#: Normal non-terminal (outbox, receipt) status combinations — these are
+#: not flagged as degraded mismatches.
+_NORMAL_NON_TERMINAL_COMBOS = frozenset({
+    ("retry_wait", "failed"),
+    ("retry_wait", "queued"),
+    ("queued", "queued"),
+    ("pending", "queued"),
+    ("in_progress", "queued"),
+    ("in_progress", "failed"),
+})
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +192,10 @@ def build_lifecycle_convergence_findings(
 
         fired = False
 
+        # A, B, and C are mutually exclusive per target: only the first
+        # matching category emits a finding so that a single target is never
+        # reported under more than one mismatch kind.
+
         # A. Terminal receipt, non-terminal outbox
         if receipt_is_terminal and outbox_is_non_terminal:
             rid = _safe_record_id(outbox_id, receipt_id)
@@ -244,15 +256,6 @@ def build_lifecycle_convergence_findings(
                 is_degraded_combo = True
             # Both non-terminal but the specific combo is contradictory
             if outbox_is_non_terminal and receipt_is_non_terminal:
-                # Normal combos that are fine
-                _NORMAL_NON_TERMINAL_COMBOS = {
-                    ("retry_wait", "failed"),
-                    ("retry_wait", "queued"),
-                    ("queued", "queued"),
-                    ("pending", "queued"),
-                    ("in_progress", "queued"),
-                    ("in_progress", "failed"),
-                }
                 if (outbox_status, receipt_status) not in _NORMAL_NON_TERMINAL_COMBOS:
                     is_degraded_combo = True
 
@@ -559,6 +562,4 @@ def _pick_latest_receipt_safe(receipts: list[Any]) -> Any | None:
     """Select the latest receipt from a list, handling empty lists."""
     if not receipts:
         return None
-    from .helpers import _pick_latest_receipt
-
     return _pick_latest_receipt(receipts)
