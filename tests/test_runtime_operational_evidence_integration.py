@@ -1037,6 +1037,103 @@ class TestStorageSectionOutboxItems:
         summary = build_retry_outbox_summary(receipts=[receipt])
 
         assert len(ledger.entries) >= 1
-        assert (
-            summary.counts.get("sent", 0) == 0
-        )  # sent is terminal, not counted in outbox counts
+        assert summary.counts["sent"] == 0  # sent is terminal, not counted in outbox counts
+
+
+# ---------------------------------------------------------------------------
+# 15. Shutdown evidence from runtime events
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownEvidenceFromSnapshot:
+    """Prove build_shutdown_evidence detects signals from runtime events."""
+
+    def test_empty_events_no_false_signals(self) -> None:
+        """Empty events list preserves existing shutdown classification."""
+        evidence = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 5},
+            events=[],
+        )
+        d = evidence.to_dict()
+        assert d["shutdown_status"] == "graceful_stop"
+        assert d["drain_timeout_detected"] is False
+        assert d["tasks_cancelled"] is None
+
+    def test_adapter_start_failed_event(self) -> None:
+        """adapter_start_failed event produces adapter_failure shutdown status."""
+        events = [
+            {"event_type": "adapter_start_failed", "detail": {"adapter_id": "radio_out"}},
+        ]
+        evidence = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 3},
+            events=events,
+        )
+        d = evidence.to_dict()
+        assert d["shutdown_status"] == "adapter_failure"
+        assert d["shutdown_reason"] == "adapter_failure"
+
+    def test_drain_timeout_event(self) -> None:
+        """Event with drain timeout detail produces drain_timeout status."""
+        events = [
+            {"event_type": "delivery_rejected", "detail": {"error": "shutdown_drain_timeout"}},
+        ]
+        evidence = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 2, "pending": 1},
+            events=events,
+        )
+        d = evidence.to_dict()
+        assert d["shutdown_status"] == "drain_timeout"
+        assert d["drain_timeout_detected"] is True
+
+    def test_cancellation_event(self) -> None:
+        """Event with cancellation detail produces cancellation status."""
+        events = [
+            {"event_type": "shutdown_signal", "detail": {"cancellation": True}},
+        ]
+        evidence = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 4},
+            events=events,
+        )
+        d = evidence.to_dict()
+        assert d["shutdown_status"] == "cancellation"
+        assert d["shutdown_reason"] == "cancellation"
+
+    def test_tasks_cancelled_extracted_from_event_detail(self) -> None:
+        """tasks_cancelled is extracted from event details when present."""
+        events = [
+            {"event_type": "shutdown_signal", "detail": {"cancellation": True, "tasks_cancelled": 7}},
+        ]
+        evidence = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 2},
+            events=events,
+        )
+        d = evidence.to_dict()
+        assert d["shutdown_status"] == "cancellation"
+        assert d["tasks_cancelled"] == 7
+
+    def test_derive_shutdown_from_snapshot_with_events(self) -> None:
+        """_derive_shutdown_evidence_from_snapshot extracts events from diagnostics."""
+        from medre.runtime.evidence._diagnostics_sections import (
+            _derive_shutdown_evidence_from_snapshot,
+        )
+
+        snapshot = {
+            "lifecycle": {"runtime_state": "stopped"},
+            "outbox": {"counts": {"sent": 3}},
+            "retry": {},
+            "capacity": {},
+            "diagnostics": {
+                "runtime_events": {
+                    "events": [
+                        {"event_type": "adapter_start_failed", "detail": {"adapter_id": "a"}},
+                    ],
+                },
+            },
+        }
+        result = _derive_shutdown_evidence_from_snapshot(snapshot)
+        assert result["shutdown_status"] == "adapter_failure"

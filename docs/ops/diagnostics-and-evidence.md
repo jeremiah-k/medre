@@ -21,14 +21,14 @@ Storage-only evidence (receipts and outbox rows in SQLite) records what the runt
 
 ## Transport Evidence Matrix
 
-| Adapter    | Synthetic | Adapter-wrapper |  Docker  |       Live service       |  Hardware   |
-| ---------- | :-------: | :-------------: | :------: | :----------------------: | :---------: |
-| Matrix     |  proven   |     proven      |  proven  |       not claimed        | not claimed |
-| Meshtastic |  proven   |     proven      |  proven  | unconfirmed (2nd client) | not claimed |
-| MeshCore   |  proven   |     proven      | no setup |       not claimed        | not claimed |
-| LXMF       |  proven   |     proven      | no setup |       not claimed        | not claimed |
+| Adapter    | Synthetic | Conformance | Adapter-wrapper |  Docker  |       Live service       |  Hardware   |
+| ---------- | :-------: | :---------: | :-------------: | :------: | :----------------------: | :---------: |
+| Matrix     |  proven   |   proven    |     proven      |  proven  |       not claimed        | not claimed |
+| Meshtastic |  proven   |   proven    |     proven      |  proven  | unconfirmed (2nd client) | not claimed |
+| MeshCore   |  proven   |   proven    |     proven      | no setup |       not claimed        | not claimed |
+| LXMF       |  proven   |   proven    |     proven      | no setup |       not claimed        | not claimed |
 
-The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. Docker validation demonstrates SDK/container integration. Docker validation is not live_service evidence. Docker validation is not hardware evidence.
+The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. Docker validation demonstrates SDK/container integration. Docker validation is not live_service evidence. Docker validation is not hardware evidence. Conformance tests validate pipeline behavioral contracts using deterministic fixtures and real codec implementations. Conformance evidence applies to all transports equally.
 
 ## Quick Bundle Collection
 
