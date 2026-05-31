@@ -1,4 +1,4 @@
-"""Internal helper utilities for recovery convergence diagnostics.
+"""Internal helper utilities for convergence diagnostics.
 
 Duck-typed field access, datetime normalization, target key construction,
 receipt ranking, and severity helpers.  These are package-internal; they

@@ -222,7 +222,8 @@
             "next_retry_at",
             "retry_max_attempts",
             "retry_backoff_base",
-            "retry_max_delay"
+            "retry_max_delay",
+            "retry_jitter"
           ]
         }
       }

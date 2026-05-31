@@ -1,4 +1,4 @@
-"""Pure recovery convergence diagnostics for persisted outbox+receipt snapshots.
+"""Pure convergence diagnostics for persisted outbox+receipt snapshots.
 
 Classifies the convergence state of every delivery target by cross-referencing
 outbox item statuses against delivery receipt statuses.  The model is **pure**
