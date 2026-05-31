@@ -461,7 +461,7 @@ A conforming implementation detects exactly the six finding kinds: `orphaned_out
 
 A conforming implementation satisfies:
 
-1. **Observable startup ownership**: Every recovery action carries a `RecoveryOwnershipAction` in a `StartupRecoveryLedger`. The `RecoverySummary` provides deterministic totals with consistency validation (`total_items == sum` of all categories). Ownership statuses MUST be exactly five: `recoverable`, `claimed_for_recovery`, `reclaimed`, `abandoned`, `unrecoverable`.
+1. **Observable startup ownership**: Every recovery action carries a `RecoveryOwnershipAction` in a `StartupRecoveryLedger`. The `RecoverySummary` provides deterministic totals with consistency validation (`total_items == sum` of all categories). Ownership statuses MUST be exactly six: `recoverable`, `claimed_for_recovery`, `reclaimed`, `abandoned`, `unrecoverable`, `skipped`.
 
 2. **Attributable recovery actions**: Every recovery action MUST carry a `recovery_source` field identifying which subsystem reclaimed ownership (`startup_recovery`, `retry_worker_recovery`, or `replay_execution`). Every action MUST carry `recovery_run_id`, `outbox_id`, `prior_status`, `recovered_status`, `ownership_action`, `reason`, and `worker_identity` (when available).
 
