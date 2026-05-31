@@ -7,7 +7,6 @@ access, no state mutation.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
@@ -108,8 +107,8 @@ def build_startup_recovery_ledger(
         ISO-8601 timestamp of the runtime startup for source inference.
         ``None`` when unavailable.
     recovery_run_id:
-        UUID identifying this recovery cycle.  Auto-generated when
-        ``None``.
+        UUID identifying this recovery cycle.  ``None`` when no
+        runtime context exists (per-event snapshot diagnostics).
     now_fn:
         Injectable clock for deterministic testing.  Returns an
         ISO-8601 string.
@@ -127,7 +126,7 @@ def build_startup_recovery_ledger(
         ordered actions by ``(outbox_id, timestamp)``.
     """
     _now_iso_fn = now_fn or _now_iso
-    _run_id = recovery_run_id if recovery_run_id is not None else uuid.uuid4().hex
+    _run_id = recovery_run_id  # None is valid for per-event snapshot diagnostics
     _grace = (
         stale_queued_grace
         if stale_queued_grace is not None
@@ -150,7 +149,6 @@ def build_startup_recovery_ledger(
 
         classification, reason = classify_startup_reclamation(
             item,
-            startup_timestamp=startup_timestamp,
             known_event_ids=known_event_ids,
             now=_now_dt,
             stale_queued_grace=_grace,
@@ -172,6 +170,9 @@ def build_startup_recovery_ledger(
                 startup_timestamp=startup_timestamp,
                 outbox_id=outbox_id,
                 prior_status=status,
+                # recovered_status reflects the pre-recovery state —
+                # recovery classification is diagnostic and does not
+                # mutate outbox status.
                 recovered_status=status,
                 ownership_action=ownership_action,
                 reason=reason,

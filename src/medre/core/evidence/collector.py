@@ -287,12 +287,6 @@ class EvidenceCollector:
     ) -> None:
         self._storage = storage
         self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
-        # Stable per-collector recovery run ID for deterministic evidence bundles.
-        # Generated once at construction so repeated collect_for_event calls
-        # produce identical JSON when given the same clock and storage.
-        import uuid as _uuid
-
-        self._recovery_run_id: str = _uuid.uuid4().hex
 
     async def collect_for_event(self, event_id: str) -> EvidenceBundle:
         """Collect a deterministic evidence bundle for one event.
@@ -415,13 +409,13 @@ class EvidenceCollector:
         # Build per-event recovery ledger and summary from outbox items
         # already loaded.  Without BootSummary the startup_timestamp is
         # unavailable; recovery source defaults to RETRY_WORKER_RECOVERY.
-        # Per-event snapshot — uses stable per-collector recovery run ID
-        # generated once at construction for deterministic bundles.
+        # Per-event snapshots pass recovery_run_id=None per spec §22.3.1
+        # — determinism comes from stable now_fn, not a synthetic UUID.
         _recovery_now = self._now_fn
         recovery_ledger_obj = build_startup_recovery_ledger(
             outbox_items=outbox_items,
             startup_timestamp=None,
-            recovery_run_id=self._recovery_run_id,
+            recovery_run_id=None,
             now_fn=lambda: _recovery_now().isoformat(),
         )
         recovery_summary_obj = build_recovery_summary(recovery_ledger_obj)

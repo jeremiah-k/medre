@@ -255,6 +255,111 @@ class TestRepeatedlyReclaimed:
         kinds = {f.kind for f in findings}
         assert KIND_REPEATEDLY_RECLAIMED not in kinds
 
+    def test_not_flagged_when_skipped_actions_only(self) -> None:
+        """Skipped actions must NOT trigger repeated_reclaimed."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = []
+        action1 = _make_action(
+            ownership_action="skipped",
+            recovery_run_id="run-1",
+        )
+        action2 = _make_action(
+            ownership_action="skipped",
+            recovery_run_id="run-2",
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-2",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_REPEATEDLY_RECLAIMED not in kinds
+
+    def test_not_flagged_when_unrecoverable_actions_only(self) -> None:
+        """Unrecoverable actions must NOT trigger repeated_reclaimed."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = []
+        action1 = _make_action(
+            ownership_action="unrecoverable",
+            recovery_run_id="run-1",
+        )
+        action2 = _make_action(
+            ownership_action="unrecoverable",
+            recovery_run_id="run-2",
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-2",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_REPEATEDLY_RECLAIMED not in kinds
+
+    def test_flagged_when_mixed_actions_include_recovery(self) -> None:
+        """Only recovery actions count — a skipped + recoverable from
+        different runs should still fire (the recoverable actions span
+        two runs)."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = []
+        action1 = _make_action(
+            ownership_action="recoverable",
+            recovery_run_id="run-1",
+        )
+        action2 = _make_action(
+            ownership_action="skipped",
+            recovery_run_id="run-2",
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-2",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        # Only run-1 is tracked (recoverable), run-2 is skipped → single run
+        assert KIND_REPEATEDLY_RECLAIMED not in {f.kind for f in findings}
+
+    def test_flagged_when_two_recovery_actions_different_runs(self) -> None:
+        """Two recoverable actions from different runs → fires."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = []
+        action1 = _make_action(
+            ownership_action="recoverable",
+            recovery_run_id="run-1",
+        )
+        action2 = _make_action(
+            ownership_action="reclaimed",
+            recovery_run_id="run-2",
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-2",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        assert KIND_REPEATEDLY_RECLAIMED in {f.kind for f in findings}
+
 
 # ---------------------------------------------------------------------------
 # reclaimed_then_terminal
@@ -412,6 +517,192 @@ class TestReclaimedThenOrphaned:
         )
         kinds = {f.kind for f in findings}
         assert KIND_RECLAIMED_THEN_ORPHANED not in kinds
+
+
+# ---------------------------------------------------------------------------
+# record_id never uses status strings
+# ---------------------------------------------------------------------------
+
+
+class TestRecordIdNeverStatusString:
+    """record_id must be outbox_id or receipt_id — never a status string
+    like 'queued', 'sent', 'failed', etc."""
+
+    _KNOWN_STATUS_STRINGS: frozenset[str] = frozenset(
+        {
+            "queued",
+            "sent",
+            "pending",
+            "failed",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+            "suppressed",
+            "retry_wait",
+            "in_progress",
+        }
+    )
+
+    def test_recovered_not_progressed_uses_outbox_id(self) -> None:
+        outbox = [_make_outbox(outbox_id="ob-123", status="queued")]
+        receipts = [_make_receipt(status="queued")]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="ob-123",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        for f in findings:
+            if f.kind == KIND_RECOVERED_NOT_PROGRESSED:
+                assert (
+                    f.record_id not in self._KNOWN_STATUS_STRINGS
+                ), f"record_id {f.record_id!r} is a status string"
+
+    def test_recovered_not_progressed_falls_back_to_receipt_id(
+        self,
+    ) -> None:
+        """When outbox_id is empty, record_id should use receipt_id, not a status."""
+        outbox = [_make_outbox(outbox_id="", status="queued")]
+        receipts = [_make_receipt(receipt_id="rec-999", status="queued")]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        for f in findings:
+            if f.kind == KIND_RECOVERED_NOT_PROGRESSED:
+                assert (
+                    f.record_id not in self._KNOWN_STATUS_STRINGS
+                ), f"record_id {f.record_id!r} is a status string"
+
+    def test_recovered_not_progressed_skipped_when_no_ids(self) -> None:
+        """When both outbox_id and receipt_id are empty, no finding emitted."""
+        outbox = [{"status": "queued"}]  # type: ignore[list-item]
+        receipts = [{"status": "queued"}]  # type: ignore[list-item]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_RECOVERED_NOT_PROGRESSED not in kinds
+
+    def test_reclaimed_then_terminal_uses_outbox_id(self) -> None:
+        outbox = [_make_outbox(outbox_id="ob-456", status="dead_lettered")]
+        receipts = [_make_receipt(status="failed")]
+        action = _make_action(outbox_id="ob-456", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        for f in findings:
+            if f.kind == KIND_RECLAIMED_THEN_TERMINAL:
+                assert (
+                    f.record_id not in self._KNOWN_STATUS_STRINGS
+                ), f"record_id {f.record_id!r} is a status string"
+
+    def test_reclaimed_then_terminal_falls_back_to_receipt_id(
+        self,
+    ) -> None:
+        """When outbox_id is empty, record_id should use receipt_id."""
+        outbox = [{"status": "dead_lettered"}]  # type: ignore[list-item]
+        receipts = [{"status": "failed", "receipt_id": "rec-456"}]  # type: ignore[list-item]
+        action = _make_action(outbox_id="", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        for f in findings:
+            if f.kind == KIND_RECLAIMED_THEN_TERMINAL:
+                assert (
+                    f.record_id not in self._KNOWN_STATUS_STRINGS
+                ), f"record_id {f.record_id!r} is a status string"
+
+    def test_no_status_string_as_record_id_anywhere(self) -> None:
+        """Comprehensive: no finding ever uses a known status string as record_id."""
+        outbox = [
+            _make_outbox(outbox_id="ob-1", status="queued"),
+            _make_outbox(outbox_id="ob-2", status="dead_lettered"),
+        ]
+        receipts = [
+            _make_receipt(status="queued"),
+            _make_receipt(status="failed"),
+        ]
+        action1 = _make_action(
+            outbox_id="ob-1",
+            ownership_action="recoverable",
+            prior_status="queued",
+        )
+        action2 = _make_action(
+            outbox_id="ob-2",
+            ownership_action="reclaimed",
+            prior_status="pending",
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+            known_event_ids=set(),
+        )
+        for f in findings:
+            assert (
+                f.record_id not in self._KNOWN_STATUS_STRINGS
+            ), f"Finding {f.kind!r} has status string as record_id: {f.record_id!r}"
 
 
 # ---------------------------------------------------------------------------

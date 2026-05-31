@@ -523,7 +523,7 @@ class TestClassifyStartupReclamation:
     def test_queued_unparseable_updated_at(self) -> None:
         """Queued item with unparseable updated_at is stale."""
         item = _make_item(status="queued", updated_at="not-a-date")
-        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
+        label, _ = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "stale"
 
 
@@ -589,11 +589,9 @@ class TestBuildStartupRecoveryLedger:
         for action in ledger.actions:
             assert action.ownership_action == "unrecoverable"
 
-    def test_auto_generates_run_id(self) -> None:
+    def test_none_run_id_when_not_provided(self) -> None:
         ledger = build_startup_recovery_ledger(outbox_items=[], now_fn=_fixed_now)
-        assert ledger.recovery_run_id
-        assert isinstance(ledger.recovery_run_id, str)
-        assert len(ledger.recovery_run_id) > 0
+        assert ledger.recovery_run_id is None
 
     def test_respects_known_event_ids(self) -> None:
         items = [

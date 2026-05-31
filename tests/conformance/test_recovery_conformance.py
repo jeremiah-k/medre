@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+from typing import Any
 
 from medre.core.evidence.bundle import EvidenceBundle
 from medre.core.recovery.builder import (
@@ -30,7 +31,7 @@ from medre.core.recovery.recovery_source import RecoverySource
 # ---------------------------------------------------------------------------
 
 
-def _make_item(**overrides) -> dict:
+def _make_item(**overrides: Any) -> dict[str, Any]:
     item = {
         "outbox_id": "ob-1",
         "status": "pending",

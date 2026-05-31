@@ -63,7 +63,6 @@ _DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(minutes=5)
 def classify_startup_reclamation(
     outbox_item: Any,
     *,
-    startup_timestamp: str | None = None,
     known_event_ids: set[str] | frozenset[str] | None = None,
     now: datetime | None = None,
     stale_queued_grace: timedelta | None = None,
@@ -86,11 +85,8 @@ def classify_startup_reclamation(
          for scheduled retry timing (set when status is ``retry_wait``).
          This is distinct from receipt-level ``next_retry_at``, which
          drives receipt-based retry scheduling.  Classification only
-         reads the outbox field.
-    startup_timestamp:
-        ISO-8601 startup timestamp for source inference.  ``None``
-        means the startup context is unavailable.
-    known_event_ids:
+          reads the outbox field.
+     known_event_ids:
         Known event IDs for orphan detection.  ``None`` skips the
         orphan check.  An empty set flags all non-terminal items as
         orphaned (consistent with

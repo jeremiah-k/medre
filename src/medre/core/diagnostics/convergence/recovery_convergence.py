@@ -118,7 +118,11 @@ def build_recovery_convergence_findings(
             ownership_action = str(_get(action, "ownership_action", ""))
             prior_status = str(_get(action, "prior_status", ""))
 
-            if run_id:
+            if run_id and ownership_action in (
+                "recoverable",
+                "claimed_for_recovery",
+                "reclaimed",
+            ):
                 action_run_ids.setdefault(outbox_id, []).append(run_id)
 
             # recovered_not_progressed: item was reclaimed/recoverable
@@ -141,11 +145,18 @@ def build_recovery_convergence_findings(
                                 latest_status == receipt_equiv
                                 and latest_status not in _TERMINAL_RECEIPT
                             ):
+                                rec_id = (
+                                    outbox_id
+                                    or str(_get(latest, "receipt_id", ""))
+                                    or None
+                                )
+                                if rec_id is None:
+                                    continue
                                 findings.append(
                                     OrphanFinding(
                                         kind=KIND_RECOVERED_NOT_PROGRESSED,
                                         severity="degraded",
-                                        record_id=outbox_id or latest_status,
+                                        record_id=rec_id,
                                         record_type="outbox",
                                         details=(
                                             f"Outbox item {outbox_id!r} ({prior_status}) "
@@ -213,11 +224,14 @@ def build_recovery_convergence_findings(
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:
+                        rec_id = oid or str(_get(latest, "receipt_id", "")) or None
+                        if rec_id is None:
+                            continue
                         findings.append(
                             OrphanFinding(
                                 kind=KIND_RECLAIMED_THEN_TERMINAL,
                                 severity="inconsistent",
-                                record_id=oid or latest_status,
+                                record_id=rec_id,
                                 record_type="outbox",
                                 details=(
                                     f"Outbox item {oid!r} is terminal ({status}) but "
