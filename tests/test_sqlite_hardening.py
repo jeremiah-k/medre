@@ -102,6 +102,96 @@ class TestExecutorLifecycle:
         assert s._executor is None
         assert s._closed is True
 
+    async def test_close_is_idempotent_repeated(self, tmp_path: Path) -> None:
+        """Calling close() many times is safe — no errors, no state drift."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        for _ in range(5):
+            await s.close()
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
+
+    async def test_executor_shutdown_uses_wait_false(self, tmp_path: Path) -> None:
+        """close() must call executor.shutdown(wait=False), not wait=True."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        executor = s._executor
+        if executor is None:
+            # aiosqlite path — nothing to verify for executor
+            await s.close()
+            return
+        import unittest.mock
+
+        with unittest.mock.patch.object(executor, "shutdown") as mock_shutdown:
+            await s.close()
+            mock_shutdown.assert_called_once_with(wait=False)
+        assert s._executor is None
+
+    async def test_closed_flag_set_before_db_operations(self, tmp_path: Path) -> None:
+        """_closed must be True *before* the DB close() runs."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        closed_during_close = False
+        original_close = s._db.close
+
+        def _inspect_closed():
+            nonlocal closed_during_close
+            closed_during_close = s._closed
+            return original_close()
+
+        if not s._use_aiosqlite:
+            s._db.close = _inspect_closed
+            await s.close()
+            assert closed_during_close is True, (
+                "_closed should be True when db.close() is called"
+            )
+        else:
+            await s.close()
+
+    async def test_executor_cleared_even_if_db_close_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """If db.close() raises, executor must still be shut down and cleared."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        assert s._executor is not None or s._use_aiosqlite
+
+        if s._use_aiosqlite:
+            # For aiosqlite path, mock the connection close to raise.
+            import unittest.mock
+
+            async def _failing_close():
+                raise RuntimeError("simulated db.close failure")
+
+            with unittest.mock.patch.object(s._db, "close", _failing_close):
+                with pytest.raises(RuntimeError, match="simulated db.close failure"):
+                    await s.close()
+            assert s._executor is None
+        else:
+            # Sync path — mock db.close() to raise via the lock context.
+            import unittest.mock
+
+            real_close = s._db.close
+
+            def _failing_sync_close():
+                real_close()
+                raise RuntimeError("simulated sync db.close failure")
+
+            with unittest.mock.patch.object(s._db, "close", _failing_sync_close):
+                with pytest.raises(RuntimeError, match="simulated sync db.close failure"):
+                    await s.close()
+            assert s._executor is None
+
+    async def test_close_safe_when_db_is_none(self) -> None:
+        """close() on a never-initialized storage clears executor if present."""
+        s = SQLiteStorage(":memory:")
+        assert s._db is None
+        await s.close()
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
+
 
 # ===================================================================
 # 3. Serde NativeRef construction guard

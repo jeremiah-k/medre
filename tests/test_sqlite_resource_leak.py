@@ -253,3 +253,66 @@ class TestSyncOpenReadonlyRowFactoryFailure:
         )
 
         gc.collect()
+
+
+# ---------------------------------------------------------------------------
+# Tests: close() executor cleanup on sync-fallback path
+# ---------------------------------------------------------------------------
+
+
+class TestSyncFallbackExecutorCleanup:
+    """Sync fallback — executor is always cleaned up by close()."""
+
+    async def test_close_clears_executor_sync_path(self, tmp_path: Path) -> None:
+        """close() sets _executor to None on the sync fallback path."""
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        assert storage._executor is not None  # sync path creates executor
+        await storage.close()
+        assert storage._executor is None
+        assert storage._closed is True
+
+    async def test_executor_cleared_even_if_db_close_raises_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """If an exception occurs during DB close, executor is still shut down.
+
+        We simulate a failure in the close path by replacing _db with a mock
+        whose close() raises after the real connection is cleaned up.
+        """
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        assert storage._executor is not None
+
+        # Close the real connection ourselves, then install a mock that raises.
+        real_db = storage._db
+        real_db.close()
+
+        class _MockConn:
+            def close(self):
+                raise RuntimeError("simulated db close error")
+
+        storage._db = _MockConn()
+
+        with pytest.raises(RuntimeError, match="simulated db close error"):
+            await storage.close()
+
+        # Executor must still be cleared.
+        assert storage._executor is None
+        assert storage._closed is True
+
+    async def test_close_with_none_db_clears_executor_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """close() cleans up executor even when _db is already None."""
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        # Manually nil the db to simulate partial cleanup.
+        storage._db = None
+        assert storage._executor is not None
+        await storage.close()
+        assert storage._executor is None
+        assert storage._closed is True

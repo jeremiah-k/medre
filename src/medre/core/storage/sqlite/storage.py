@@ -344,26 +344,34 @@ class _SQLiteStorageBase:
             )
 
     async def close(self) -> None:
-        """Close the underlying database connection and release resources."""
-        db = self._db
-        if db is None:
+        """Close the underlying database connection and release resources.
+
+        Idempotent — safe to call multiple times.  Sets ``_closed`` early
+        to prevent concurrent-close races.  The private executor is always
+        shut down with ``wait=False`` to avoid blocking the event loop.
+        """
+        # Mark closed defensively *before* any I/O so that concurrent
+        # callers see the closed flag immediately and do not race.
+        if self._closed and self._db is None and self._executor is None:
             return
-        if self._use_aiosqlite:
-            await db.close()
-        else:
-            with self._lock:
-                db.close()
-        self._db = None
         self._closed = True
-        # Shut down the private executor and join worker threads so that
-        # no stale references to the connection object remain (prevents
-        # ResourceWarning on gc.collect()).
-        # All work was awaited before close(), so the executor is idle;
-        # wait=True merely ensures the thread stack frames are unwound.
-        executor = self._executor
-        if executor is not None:
-            executor.shutdown(wait=True)
-            self._executor = None
+
+        try:
+            db = self._db
+            if db is not None:
+                if self._use_aiosqlite:
+                    await db.close()
+                else:
+                    with self._lock:
+                        db.close()
+                self._db = None
+        finally:
+            # Always shut down and clear the executor, even if DB close
+            # raised an exception.
+            executor = self._executor
+            if executor is not None:
+                executor.shutdown(wait=False)
+                self._executor = None
 
     # -- Read / write primitives --------------------------------------------
 

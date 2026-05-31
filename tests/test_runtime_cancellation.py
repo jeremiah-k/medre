@@ -1287,3 +1287,365 @@ class TestCancelledDuringDrain:
         ), f"replay_current is {snap['replay_current']}, expected 0"
         # accepting_work should be False (stop_accepting was called).
         assert snap["accepting_work"] is False
+
+
+# =====================================================================
+# 12. Adapter stop timeout supervision
+# =====================================================================
+
+
+class _SlowStopAdapter:
+    """Inline double: adapter whose stop() sleeps longer than any reasonable timeout.
+
+    Simulates an adapter that ignores the timeout parameter — the runtime-level
+    wait_for must cut it short so later cleanup proceeds.
+    """
+
+    def __init__(self, real_adapter: Any, sleep_seconds: float = 300.0) -> None:
+        self._real = real_adapter
+        self._sleep_seconds = sleep_seconds
+        self.stop_called = False
+
+    # Delegate attribute access to the real adapter (adapter_id, platform, etc.)
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        await asyncio.sleep(self._sleep_seconds)
+
+
+class _CancelledStopAdapter:
+    """Inline double: adapter whose stop() raises CancelledError."""
+
+    def __init__(self, real_adapter: Any) -> None:
+        self._real = real_adapter
+        self.stop_called = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        raise asyncio.CancelledError("simulated cancel during stop")
+
+
+class _OrderTrackingAdapter:
+    """Inline double: adapter that records the order its stop() was called."""
+
+    _stop_order: list[str] = []  # reset per-test
+
+    def __init__(self, real_adapter: Any, order_list: list[str]) -> None:
+        self._real = real_adapter
+        self._order_list = order_list
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self._order_list.append(self._real.adapter_id)
+        # Also call the real stop so the adapter lifecycle is clean
+        await self._real.stop(timeout=timeout)
+
+
+class TestAdapterStopTimeoutSupervision:
+    """Runtime-enforced timeout on adapter.stop() prevents hung adapters
+    from blocking later adapters, pipeline runner stop, or storage close."""
+
+    @pytest.mark.asyncio
+    async def test_slow_adapter_does_not_block_other_adapter_stop(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A slow-stopping adapter times out; the other adapter still stops."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = sorted(app.adapters.keys())
+        slow_id = adapter_ids[0]
+        clean_id = adapter_ids[1]
+
+        # Wrap the first adapter in a slow-stop double.
+        app.adapters[slow_id] = _SlowStopAdapter(
+            app.adapters[slow_id], sleep_seconds=300.0
+        )
+
+        # Use a very short shutdown timeout so the test completes quickly.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError):
+                await app.stop()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # The slow adapter should have been called but timed out → FAILED.
+        assert app.adapters[slow_id].stop_called
+        assert (
+            app.adapter_states[slow_id] is AdapterState.FAILED
+        ), f"Slow adapter {slow_id} should be FAILED"
+
+        # The clean adapter should be STOPPED (not blocked by slow one).
+        assert (
+            app.adapter_states[clean_id] is AdapterState.STOPPED
+        ), f"Clean adapter {clean_id} should be STOPPED"
+
+        # Runtime should be FAILED (shutdown had errors).
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_slow_adapter_does_not_block_storage_close(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Storage close still happens even when an adapter stop times out."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = list(app.adapters.keys())
+        slow_id = adapter_ids[0]
+
+        # Wrap adapter in slow-stop double.
+        app.adapters[slow_id] = _SlowStopAdapter(
+            app.adapters[slow_id], sleep_seconds=300.0
+        )
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # Short shutdown timeout.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError):
+                await app.stop()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # Storage close MUST have been called.
+        assert storage_close_called, "storage.close() was not called"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_on_stop_recorded_and_others_continue(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """CancelledError from adapter stop is caught; other adapters still stop."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = sorted(app.adapters.keys())
+        cancel_id = adapter_ids[0]
+        clean_id = adapter_ids[1]
+
+        # Wrap first adapter to raise CancelledError.
+        app.adapters[cancel_id] = _CancelledStopAdapter(app.adapters[cancel_id])
+
+        from medre.runtime.errors import RuntimeShutdownError
+
+        with pytest.raises(RuntimeShutdownError):
+            await app.stop()
+
+        # Cancelled adapter should be FAILED.
+        assert app.adapters[cancel_id].stop_called
+        assert (
+            app.adapter_states[cancel_id] is AdapterState.FAILED
+        ), f"Cancelled adapter {cancel_id} should be FAILED"
+
+        # Other adapter should be STOPPED.
+        assert (
+            app.adapter_states[clean_id] is AdapterState.STOPPED
+        ), f"Clean adapter {clean_id} should be STOPPED"
+
+    @pytest.mark.asyncio
+    async def test_reverse_stop_order_preserved_with_timeouts(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Reverse stop order is preserved even when some adapters time out."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = sorted(app.adapters.keys())
+        assert len(adapter_ids) == 2
+
+        stop_order: list[str] = []
+
+        # Wrap both adapters to track stop order.
+        for aid in adapter_ids:
+            real = app.adapters[aid]
+            app.adapters[aid] = _OrderTrackingAdapter(real, stop_order)
+
+        # Make the first-in-reverse-order adapter slow so it times out.
+        # Reverse order is: adapter_ids[1] first, then adapter_ids[0].
+        first_to_stop = adapter_ids[1]
+        real_first = app.adapters[first_to_stop]._real  # type: ignore[attr-defined]
+        app.adapters[first_to_stop] = _SlowStopAdapter(real_first, sleep_seconds=300.0)
+
+        # Short timeout.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError):
+                await app.stop()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # The second adapter (last in reverse order) should also have been
+        # attempted — the slow first adapter must not prevent it.
+        second_id = adapter_ids[0]
+        assert (
+            app.adapter_states[second_id] is AdapterState.STOPPED
+        ), f"Second adapter {second_id} should be STOPPED"
+
+    @pytest.mark.asyncio
+    async def test_all_adapters_timeout_storage_still_closes(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When all adapters time out on stop, storage close still happens."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        # Make all adapters slow.
+        for aid in list(app.adapters.keys()):
+            real = app.adapters[aid]
+            app.adapters[aid] = _SlowStopAdapter(real, sleep_seconds=300.0)
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # Short timeout.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError):
+                await app.stop()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # All adapters should be FAILED.
+        for aid in app.adapters:
+            assert (
+                app.adapter_states[aid] is AdapterState.FAILED
+            ), f"Adapter {aid} should be FAILED"
+
+        # Storage close MUST have been called.
+        assert storage_close_called, "storage.close() was not called"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_runner_stopped_after_adapter_timeouts(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Pipeline runner is stopped even when adapter stops time out."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        # Make adapter slow.
+        adapter_ids = list(app.adapters.keys())
+        app.adapters[adapter_ids[0]] = _SlowStopAdapter(
+            app.adapters[adapter_ids[0]], sleep_seconds=300.0
+        )
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            pipeline_stop_called = True
+            await original_pipeline_stop()
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Short timeout.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError):
+                await app.stop()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+
+    @pytest.mark.asyncio
+    async def test_shutdown_error_includes_timeout_adapter_id(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """RuntimeShutdownError message contains the adapter ID that timed out."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = list(app.adapters.keys())
+        slow_id = adapter_ids[0]
+        app.adapters[slow_id] = _SlowStopAdapter(
+            app.adapters[slow_id], sleep_seconds=300.0
+        )
+
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            from medre.runtime.errors import RuntimeShutdownError
+
+            with pytest.raises(RuntimeShutdownError, match=slow_id) as exc_info:
+                await app.stop()
+
+            # Error should mention the adapter.
+            assert slow_id in str(exc_info.value)
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )

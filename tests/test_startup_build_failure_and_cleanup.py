@@ -28,6 +28,7 @@ Uses fake adapters only, memory storage only, no live dependencies.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -1250,3 +1251,297 @@ class TestIntegratedBuildStartRouteDegradation:
         assert boot.failed_adapter_ids == ("fake_matrix",)
         assert boot.adapters_total == 2
         assert boot.adapters_started == 0
+
+
+# ===================================================================
+# Adapter stop timeout supervision during startup cleanup
+# ===================================================================
+
+
+class _SlowStopOnStartFailure(AdapterContract):
+    """Inline double: fails on start(), and stop() sleeps longer than timeout.
+
+    Tests that _cleanup_started_adapters uses wait_for so a slow adapter.stop()
+    during startup failure cleanup doesn't block pipeline runner stop or
+    storage close.
+    """
+
+    adapter_id: str = "slow_stop"
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str = "slow_stop") -> None:
+        self.adapter_id = adapter_id
+        self.stop_called = False
+
+    async def start(self, ctx: AdapterContext) -> None:
+        raise RuntimeError(f"Start failure: {self.adapter_id}")
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        self.stop_called = True
+        # Ignore the timeout — sleep forever (runtime wait_for will cut short)
+        await asyncio.sleep(300.0)
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="failed",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+class _CancelledStopOnStartFailure(AdapterContract):
+    """Inline double: fails on start(), stop() raises CancelledError.
+
+    Tests that CancelledError during startup cleanup stop is caught and
+    doesn't prevent pipeline/storage cleanup.
+    """
+
+    adapter_id: str = "cancelled_stop"
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str = "cancelled_stop") -> None:
+        self.adapter_id = adapter_id
+        self.stop_called = False
+
+    async def start(self, ctx: AdapterContext) -> None:
+        raise RuntimeError(f"Start failure: {self.adapter_id}")
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        self.stop_called = True
+        raise asyncio.CancelledError("simulated cancel during startup cleanup stop")
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="failed",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+class TestStartupCleanupStopTimeout:
+    """Startup failure cleanup uses wait_for so slow/hung adapter stops
+    don't block pipeline runner stop or storage close."""
+
+    @pytest.mark.asyncio
+    async def test_slow_adapter_stop_during_startup_cleanup_does_not_block_storage(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A slow-stopping adapter during startup failure cleanup doesn't
+        prevent storage close."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Replace adapter with one that fails start and sleeps forever on stop.
+        app.adapters["fake_matrix"] = _SlowStopOnStartFailure(adapter_id="fake_matrix")
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # Short timeout so the slow stop gets cut short quickly.
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+                await app.start()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # Adapter stop should have been called.
+        assert app.adapters["fake_matrix"].stop_called
+
+        # Storage MUST have been closed despite the slow adapter.
+        assert storage_close_called, "storage.close() was not called"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_slow_adapter_stop_during_startup_cleanup_does_not_block_pipeline(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Pipeline runner is stopped even when adapter stop times out during
+        startup failure cleanup."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        app.adapters["fake_matrix"] = _SlowStopOnStartFailure(adapter_id="fake_matrix")
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            pipeline_stop_called = True
+            await original_pipeline_stop()
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+                await app.start()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_during_startup_cleanup_stop(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """CancelledError from adapter stop during startup cleanup is caught;
+        pipeline and storage cleanup proceed."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        app.adapters["fake_matrix"] = _CancelledStopOnStartFailure(
+            adapter_id="fake_matrix"
+        )
+
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            pipeline_stop_called = True
+            await original_pipeline_stop()
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        assert app.adapters["fake_matrix"].stop_called
+        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+        assert storage_close_called, "storage.close() was not called"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_multiple_slow_adapters_all_attempted(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Multiple slow adapters during startup cleanup: all are attempted,
+        pipeline/storage cleanup still happens."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Both adapters fail to start and have slow stops.
+        alpha = _SlowStopOnStartFailure(adapter_id="alpha")
+        beta = _SlowStopOnStartFailure(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta
+
+        storage_close_called = False
+        assert app.storage is not None
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+                await app.start()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        # Both adapters should have had stop called.
+        assert alpha.stop_called, "alpha stop() not called"
+        assert beta.stop_called, "beta stop() not called"
+
+        # Storage close must still happen.
+        assert storage_close_called, "storage.close() was not called"
+
+    @pytest.mark.asyncio
+    async def test_mixed_slow_and_fast_adapters_during_startup_cleanup(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """One slow + one fast adapter during startup cleanup: both attempted,
+        pipeline/storage still cleaned up."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Alpha: slow stop, start fails.
+        alpha = _SlowStopOnStartFailure(adapter_id="alpha")
+        # Beta: fast stop (RecordingAdapter), start fails.
+        beta = _FailingAdapter(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta
+
+        storage_close_called = False
+        assert app.storage is not None
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_close()
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        object.__setattr__(
+            app.config.runtime, "shutdown_timeout_seconds", 0.2
+        )
+
+        try:
+            with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+                await app.start()
+        finally:
+            object.__setattr__(
+                app.config.runtime, "shutdown_timeout_seconds", 10
+            )
+
+        assert alpha.stop_called
+        assert storage_close_called, "storage.close() was not called"
+        assert app.state == RuntimeState.FAILED

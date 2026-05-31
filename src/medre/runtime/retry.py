@@ -146,14 +146,25 @@ class RetryWorker:
         )
 
     async def stop(self) -> None:
-        """Signal shutdown and wait for worker to finish."""
+        """Signal shutdown and wait for worker to finish.
+
+        If the background task does not complete within the grace
+        period it is cancelled and awaited so that no orphan task
+        remains after this method returns.
+        """
         if self._task is None:
             return
         self._shutdown_event.set()
         try:
             await asyncio.wait_for(self._task, timeout=5.0)
         except asyncio.TimeoutError:
-            _logger.warning("RetryWorker did not stop within 5s")
+            _logger.warning("RetryWorker did not stop within 5s, cancelling")
+            task = self._task
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         self._task = None
         self.state.running = False
         self._emit(
