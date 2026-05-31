@@ -970,15 +970,15 @@ Operators use convergence diagnostics output to identify and manually address st
 
 **`ConvergenceSummary`**: Aggregate summary across all delivery targets for one event.
 
-| Field                 | Type              | Semantics                                                           |
-| --------------------- | ----------------- | ------------------------------------------------------------------- |
-| `severity_counts`     | `dict[str, int]`  | Count of targets per severity (`safe`, `degraded`, `inconsistent`). |
-| `targets`             | `tuple[DTConv,…]` | Per-target convergence results, sorted by group key.                |
-| `total_targets`       | `int`             | Total unique delivery targets examined.                             |
-| `worst_severity`      | `str or None`     | Worst severity across all targets, or `None` if no targets.         |
-| `warnings`            | `tuple[str, …]`   | Aggregate diagnostic messages.                                      |
-| `orphan_count`        | `int or None`     | Reserved. `None` until orphan SQL integration.                      |
-| `evidence_bundle_ref` | `str or None`     | Reserved. `None` until cross-reference integration.                 |
+| Field                 | Type              | Semantics                                                                                                                                  |
+| --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `severity_counts`     | `dict[str, int]`  | Count of targets per severity (`safe`, `degraded`, `inconsistent`).                                                                        |
+| `targets`             | `tuple[DTConv,…]` | Per-target convergence results, sorted by group key.                                                                                       |
+| `total_targets`       | `int`             | Total unique delivery targets examined.                                                                                                    |
+| `worst_severity`      | `str or None`     | Worst severity across all targets, or `None` if no targets.                                                                                |
+| `warnings`            | `tuple[str, …]`   | Aggregate diagnostic messages.                                                                                                             |
+| `orphan_count`        | `int or None`     | Count of orphan/invalid-lineage findings. `None` until populated by EvidenceCollector; populated value equals OrphanReport.total_findings. |
+| `evidence_bundle_ref` | `str or None`     | Reserved. `None` until cross-reference integration.                                                                                        |
 
 **`DeliveryTargetConvergence`**: Per-target convergence result.
 

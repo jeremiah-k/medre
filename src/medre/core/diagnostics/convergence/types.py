@@ -32,7 +32,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-class ConvergenceSeverity(str, enum.Enum):
+class ConvergenceSeverity(enum.StrEnum):
     """Canonical convergence severity levels.
 
     Members are plain lowercase strings that serialise directly via

@@ -9,7 +9,8 @@ Pure and read-only: no storage I/O, no state mutation, no side effects.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .helpers import (
     _NON_TERMINAL_OUTBOX,

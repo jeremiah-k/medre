@@ -7,7 +7,8 @@ target's convergence state, and aggregates results into a
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .helpers import (
     _NON_TERMINAL_OUTBOX,

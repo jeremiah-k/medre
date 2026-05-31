@@ -376,6 +376,8 @@ class EvidenceCollector:
         retry_outbox_dict = _retry_outbox_summary_to_dict(retry_outbox_summary_obj)
 
         # -- Convergence diagnostics (pure, from receipts + outbox) -----------
+        # Convergence diagnostics are pure functions over already-loaded snapshots.
+        # Failures surface during pre-release intentionally — no silent degradation.
         convergence_summary_obj = build_convergence_summary(
             receipts=receipts,
             outbox_items=outbox_items,

@@ -128,63 +128,55 @@ class TestConvergenceCanonicalImports:
 
 
 class TestOrphanCountCrossPopulated:
-    """EvidenceCollector must cross-populate orphan_count from OrphanReport."""
+    """Structural guarantees for orphan_count cross-population.
 
-    def test_orphan_count_populated_from_orphan_report(self) -> None:
-        """Build both reports from the same data and verify orphan_count."""
-        from medre.core.diagnostics.convergence.orphans import build_orphan_report
+    The real EvidenceCollector integration path (collector →
+    build_convergence_summary → build_orphan_report → cross-populate
+    orphan_count) is covered by the collector's own test suite.  These
+    structural tests verify the contract the collector relies on.
+    """
+
+    def test_orphan_count_key_exists_in_to_dict(self) -> None:
+        """``orphan_count`` key must be present in ConvergenceSummary.to_dict()."""
         from medre.core.diagnostics.convergence.summary import (
             build_convergence_summary,
         )
 
-        # Minimal stub objects with duck-typed fields.
-        class _StubOutbox:
-            outbox_id = "ob-1"
-            delivery_plan_id = ""
-            target_adapter = "a"
-            target_channel = "ch"
-            attempt_number = 1
-            status = "pending"
-            event_id = "ev-1"
-            failure_kind = None
-            error_summary = None
-            created_at = None
-            updated_at = None
+        summary = build_convergence_summary()
+        result = summary.to_dict()
+        assert "orphan_count" in result, (
+            "ConvergenceSummary.to_dict() must include 'orphan_count' key; "
+            f"found keys: {sorted(result.keys())}"
+        )
 
-        class _StubReceipt:
-            receipt_id = "rc-1"
-            sequence = 1
-            delivery_plan_id = ""
-            target_adapter = "a"
-            target_channel = "ch"
-            attempt_number = 1
-            status = "sent"
-            source = "src"
-            replay_run_id = None
-            failure_kind = None
-            error = None
-            rendering_evidence = None
-            created_at = None
-            event_id = "ev-1"
-            parent_receipt_id = "nonexistent-parent"
-            route_id = "r-1"
+    def test_orphan_count_initial_value_is_none(self) -> None:
+        """Standalone convergence summary must have orphan_count=None before cross-population."""
+        from medre.core.diagnostics.convergence.summary import (
+            build_convergence_summary,
+        )
 
-        receipts = [_StubReceipt()]
-        outbox_items = [_StubOutbox()]
-
-        conv = build_convergence_summary(receipts=receipts, outbox_items=outbox_items)
-        orphan = build_orphan_report(receipts=receipts, outbox_items=outbox_items)
-
-        # The collector would set: convergence_dict["orphan_count"] = orphan.total_findings
-        # Verify the mechanism works: orphan report has findings, conv dict can be patched.
-        conv_dict = conv.to_dict()
-        assert conv_dict["orphan_count"] is None, (
-            "Standalone convergence_summary.orphan_count should be None "
+        summary = build_convergence_summary()
+        assert summary.orphan_count is None, (
+            "Standalone ConvergenceSummary.orphan_count must be None "
             "before EvidenceCollector cross-populates it"
         )
-        # Simulate what EvidenceCollector does:
-        conv_dict["orphan_count"] = orphan.total_findings
-        assert (
-            conv_dict["orphan_count"] == orphan.total_findings
-        ), f"orphan_count mismatch: {conv_dict['orphan_count']} != {orphan.total_findings}"
-        assert orphan.total_findings >= 0
+
+    def test_to_dict_returns_mutable_regular_dict(self) -> None:
+        """to_dict() must return a regular mutable dict (not a frozen/MappingProxy)."""
+        from medre.core.diagnostics.convergence.summary import (
+            build_convergence_summary,
+        )
+
+        summary = build_convergence_summary()
+        result = summary.to_dict()
+        assert isinstance(
+            result, dict
+        ), f"to_dict() must return dict, got {type(result).__name__}"
+        # Verify mutability — the collector patches orphan_count in-place.
+        original = result["orphan_count"]
+        result["orphan_count"] = 42
+        assert result["orphan_count"] == 42, (
+            "to_dict() result must be a mutable dict so the collector can "
+            "cross-populate orphan_count"
+        )
+        result["orphan_count"] = original  # restore for hygiene
