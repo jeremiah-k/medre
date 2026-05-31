@@ -128,10 +128,11 @@ class ConvergenceSummary:
     warnings:
         Aggregate diagnostic messages.
     orphan_count:
-        Count of orphan/invalid-lineage findings.  ``None`` in the
-        convergence summary because orphan data is reported separately
-        via :class:`OrphanReport` on the evidence bundle.  The orphan
-        report is the authoritative source for orphan counts.
+        Count of orphan/invalid-lineage findings.  Populated by
+        :class:`~medre.core.evidence.collector.EvidenceCollector` from
+        the authoritative :class:`OrphanReport` after both reports are
+        built from the same data.  Remains ``None`` when the summary
+        is produced standalone (outside the evidence collector).
     evidence_bundle_ref:
         Reference to the EvidenceBundle for cross-referencing.
         ``None`` until the convergence summary is attached to an

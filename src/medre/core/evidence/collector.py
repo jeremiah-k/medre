@@ -387,13 +387,14 @@ class EvidenceCollector:
         # -- Orphan / invalid-lineage report (pure, from receipts + outbox) ----
         # Collector does not have an event catalogue, so known_event_ids
         # is not passed — the orphaned_outbox check is silently skipped.
-        # The orphan_report is the authoritative source for orphan counts;
-        # convergence_summary.orphan_count remains None.
         orphan_report_obj = build_orphan_report(
             receipts=receipts,
             outbox_items=outbox_items,
         )
         orphan_report_dict = orphan_report_obj.to_dict()
+
+        # Cross-populate orphan count from the authoritative orphan_report.
+        convergence_dict["orphan_count"] = orphan_report_obj.total_findings
 
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
