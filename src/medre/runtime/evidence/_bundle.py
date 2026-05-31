@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Callable
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
+from medre.core.evidence.tiers import infer_evidence_tier
 from medre.core.observability.sanitization import sanitize_error
 
 from ._config_sections import (
@@ -29,6 +31,8 @@ from ._storage_sections import (
     _collect_storage_path_bundle,
     _collect_storage_section,
 )
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -92,16 +96,19 @@ async def collect_evidence_bundle(
         config, source, paths = load_config(config_path)
     except Exception as exc:
         return {
+            "adapter_status": None,
             "collected_at": _now().isoformat(),
             "command": "evidence",
             "config_source": None,
             "errors": [sanitize_error(str(exc))],
+            "evidence_tier": "synthetic",
             "generated_at": _now().isoformat(),
             "limitations": _LIMITATIONS,
             "medre_version": _get_version(),
             "runtime_started": False,
             "schema_version": SCHEMA_VERSION,
             "sections": {},
+            "shutdown_evidence": None,
             "status": "error",
         }
 
@@ -155,16 +162,45 @@ async def collect_evidence_bundle(
     # -- Compute overall status ---------------------------------------------
     overall = _compute_overall_status(sections)
 
+    # -- Tier inference (conservative) --------------------------------------
+    # Walk adapter configs to find adapter_kind; never infer live/hardware.
+    _adapter_kind: str | None = None
+    try:
+        adapters_cfg = getattr(config, "adapters", None)
+        if adapters_cfg is not None:
+            for _transport, _aid, _rtc in adapters_cfg.all_configs():
+                kind = getattr(_rtc, "adapter_kind", None)
+                if kind == "fake":
+                    _adapter_kind = "fake"
+                    break
+    except Exception:
+        _logger.debug(
+            "Failed to scan adapter configs for tier inference", exc_info=True
+        )
+
+    evidence_tier = infer_evidence_tier(adapter_kind=_adapter_kind)
+
+    # -- Extract derived evidence from snapshot for top-level access --------
+    _shutdown_evidence: dict[str, Any] | None = None
+    _adapter_status: list[dict[str, Any]] | None = None
+    diag_snapshot_data = sections.get("diagnostics_snapshot", {}).get("data")
+    if diag_snapshot_data is not None:
+        _shutdown_evidence = diag_snapshot_data.get("shutdown_evidence")
+        _adapter_status = diag_snapshot_data.get("adapter_status")
+
     return {
+        "adapter_status": _adapter_status,
         "collected_at": _now().isoformat(),
         "command": "evidence",
         "config_source": source.value,
         "errors": errors,
+        "evidence_tier": evidence_tier,
         "generated_at": _now().isoformat(),
         "limitations": _LIMITATIONS,
         "medre_version": _get_version(),
         "runtime_started": runtime_started,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,
+        "shutdown_evidence": _shutdown_evidence,
         "status": overall,
     }

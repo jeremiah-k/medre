@@ -100,7 +100,7 @@ class RetryPolicy:
         thundering-herd effects.
     """
 
-    max_attempts: int = 5
+    max_attempts: int = 3
     backoff_base: float = 2.0
     max_delay_seconds: float = 60.0
     jitter: bool = True
@@ -181,9 +181,7 @@ def _canonical_json_value(value: object) -> object:
         return value
     if isinstance(value, float):
         if math.isnan(value) or math.isinf(value):
-            raise TypeError(
-                f"Unsupported float value in target identity: {value}"
-            )
+            raise TypeError(f"Unsupported float value in target identity: {value}")
         return value
     if isinstance(value, (list, tuple)):
         return [_canonical_json_value(item) for item in value]

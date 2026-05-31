@@ -20,6 +20,13 @@ from medre.core.evidence.bundle import (
     EvidenceBundle,
     ReceiptSummary,
 )
+from medre.core.evidence.delivery_ledger import build_delivery_outcome_ledger
+from medre.core.evidence.retry_outbox import (
+    RetryOutboxItemSummary,
+    RetryOutboxSummary,
+    build_retry_outbox_summary,
+)
+from medre.core.evidence.tiers import infer_evidence_tier
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
@@ -212,6 +219,39 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
     }
 
 
+def _retry_outbox_item_to_dict(item: RetryOutboxItemSummary) -> dict[str, Any]:
+    """Convert a :class:`RetryOutboxItemSummary` to a JSON-safe dict."""
+    return {
+        "outbox_id": item.outbox_id,
+        "delivery_plan_id": item.delivery_plan_id,
+        "event_id": item.event_id,
+        "route_id": item.route_id,
+        "target_adapter": item.target_adapter,
+        "target_channel": item.target_channel,
+        "status": item.status,
+        "retry_state": item.retry_state,
+        "attempt_number": item.attempt_number,
+        "next_attempt_at": item.next_attempt_at,
+        "next_retry_at": item.next_retry_at,
+        "failure_kind": item.failure_kind,
+        "failure_taxon": item.failure_taxon,
+        "failure_category": item.failure_category,
+        "failure_kind_detail": item.failure_kind_detail,
+        "parent_receipt_id": item.parent_receipt_id,
+        "receipt_id": item.receipt_id,
+        "reason_pending": item.reason_pending,
+    }
+
+
+def _retry_outbox_summary_to_dict(summary: RetryOutboxSummary) -> dict[str, Any]:
+    """Convert a :class:`RetryOutboxSummary` to a JSON-safe dict."""
+    return {
+        "counts": dict(sorted(summary.counts.items())),
+        "items": [_retry_outbox_item_to_dict(item) for item in summary.items],
+        "retry_worker": summary.retry_worker,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Collector
 # ---------------------------------------------------------------------------
@@ -310,6 +350,29 @@ class EvidenceCollector:
                 f"event {event_id!r}"
             )
 
+        # -- Tier inference (conservative) ----------------------------------
+        source_adapter_name: str | None = None
+        if event_summary is not None:
+            source_adapter_name = event_summary.get("source_adapter")
+
+        evidence_tier = infer_evidence_tier(
+            sources_seen=tuple(sources_seen),
+            source_adapter=source_adapter_name,
+        )
+
+        # -- Delivery outcome ledger (pure, from receipts + outbox) ----------
+        delivery_outcome_ledger = build_delivery_outcome_ledger(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        ).to_dict()
+
+        # -- Retry/outbox accountability summary (pure) ----------------------
+        retry_outbox_summary_obj = build_retry_outbox_summary(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        retry_outbox_dict = _retry_outbox_summary_to_dict(retry_outbox_summary_obj)
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -321,4 +384,7 @@ class EvidenceCollector:
             sources_seen=tuple(sources_seen),
             warnings=tuple(warnings),
             generated_at=self._now_fn().isoformat(),
+            evidence_tier=evidence_tier,
+            delivery_outcome_ledger=delivery_outcome_ledger,
+            retry_outbox_summary=retry_outbox_dict,
         )

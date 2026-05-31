@@ -210,19 +210,22 @@ When a collection exceeds its cap, entries beyond the cap (sorted for adapters/r
 
 The `collect_evidence_bundle()` function assembles a comprehensive evidence bundle with the following top-level shape:
 
-| Key               | Type          | Semantics                                                   |
-| ----------------- | ------------- | ----------------------------------------------------------- |
-| `schema_version`  | `int`         | Currently `1`. Frozen during pre-release.                   |
-| `status`          | `str`         | Overall status: `"passed"`, `"partial"`, or `"error"`.      |
-| `sections`        | `dict`        | Per-section evidence data (see § 7.1).                      |
-| `errors`          | `list[str]`   | Accumulated error strings from section collection.          |
-| `limitations`     | `list[str]`   | Fixed list of evidence limitations (see § 7.2).             |
-| `collected_at`    | `str`         | ISO 8601 timestamp of collection.                           |
-| `generated_at`    | `str`         | ISO 8601 timestamp of bundle generation.                    |
-| `command`         | `str`         | Always `"evidence"`.                                        |
-| `config_source`   | `str or None` | Config discovery source. `None` when config loading fails.  |
-| `medre_version`   | `str`         | MEDRE package version string.                               |
-| `runtime_started` | `bool`        | Whether the runtime was started during evidence collection. |
+| Key                 | Type           | Semantics                                                                                                                               |
+| ------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`    | `int`          | Currently `1`. Frozen during pre-release.                                                                                               |
+| `status`            | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                  |
+| `sections`          | `dict`         | Per-section evidence data (see § 7.1).                                                                                                  |
+| `errors`            | `list[str]`    | Accumulated error strings from section collection.                                                                                      |
+| `limitations`       | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                         |
+| `collected_at`      | `str`          | ISO 8601 timestamp of collection.                                                                                                       |
+| `generated_at`      | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                |
+| `command`           | `str`          | Always `"evidence"`.                                                                                                                    |
+| `config_source`     | `str or None`  | Config discovery source. `None` when config loading fails.                                                                              |
+| `medre_version`     | `str`          | MEDRE package version string.                                                                                                           |
+| `runtime_started`   | `bool`         | Whether the runtime was started during evidence collection.                                                                             |
+| `evidence_tier`     | `str`          | Machine-readable evidence provenance tier (see § 8). One of `"synthetic"`, `"conformance"`, `"docker"`, `"live_service"`, `"hardware"`. |
+| `adapter_status`    | `list or None` | Per-adapter status evidence derived from runtime snapshot (see § 18). `None` when storage-only mode.                                    |
+| `shutdown_evidence` | `dict or None` | Shutdown state evidence derived from runtime snapshot. `None` when storage-only mode.                                                   |
 
 ### 7.1 Sections
 
@@ -253,30 +256,38 @@ The evidence bundle always includes these limitation statements:
 
 ## 8. Evidence Classification and Provenance Levels
 
-All operational evidence MUST be classified into exactly one of four tiers. The tier determines what claims MAY be derived from the evidence.
+All operational evidence MUST be classified into exactly one of six tiers. The tier determines what claims MAY be derived from the evidence.
 
 ### 8.1 Tier Definitions
 
-| Tier  | Label                    | Semantics                                                                                                                      | Allowed Claims                                                                                       |
-| ----- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| **H** | Historical               | Recorded during a prior development phase. Not re-confirmed against the current codebase.                                      | "On date D, behavior X was observed." No claim about current behavior.                               |
-| **C** | Current                  | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                         | "At commit H, behavior X is confirmed."                                                              |
-| **S** | Simulated / Fake-runtime | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                      | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
-| **R** | Real-live-runtime        | Recorded against a real transport endpoint with real network or hardware. Requires env vars, SDK, and physical/network access. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
+| Tier             | Label        | Semantics                                                                                                                   | Allowed Claims                                                                                       |
+| ---------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **historical**   | Historical   | Recorded during a prior development phase. Not re-confirmed against the current codebase.                                   | "On date D, behavior X was observed." No claim about current behavior.                               |
+| **conformance**  | Conformance  | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                      | "At commit H, behavior X is confirmed."                                                              |
+| **synthetic**    | Synthetic    | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                   | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
+| **docker**       | Docker       | Recorded against a local Docker container with real SDK dependencies. No external network, federation, or hardware.         | "SDK integration and adapter wiring work in a containerized environment."                            |
+| **live_service** | Live Service | Recorded against a real external transport service with real network connectivity. Requires real credentials and endpoints. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
+| **hardware**     | Hardware     | Recorded against a physical radio device connected via serial, TCP, or BLE. Requires physical hardware and firmware.        | "Against physical device D, behavior X was observed under conditions Y."                             |
+
+The legacy codes H, C, S, R remain in existing test outputs and evidence tables as accepted shorthand for historic / conformance / synthetic / runtime contexts. New evidence entries and machine-readable tier labels SHOULD use the full tier names.
 
 ### 8.2 Classification Rules
 
-1. Every evidence table entry MUST include a `tier` field with value `H`, `C`, `S`, or `R`.
+1. Every evidence table entry MUST include a `tier` field with one of the six tier labels (or corresponding legacy code: H, C, S, or R with appropriate sub-classification).
 2. Historical evidence MUST include the original recording date. It MUST NOT be presented as current.
-3. Simulated evidence MUST NOT be used to support claims about real transport behavior.
-4. Real-live-runtime evidence is the ONLY tier that supports claims about production-adjacent behavior.
-5. `NOT EXECUTED` is not a tier. It is an explicit statement that no evidence of any tier exists. Every `NOT EXECUTED` entry MUST include a `reason` field.
+3. Synthetic evidence MUST NOT be used to support claims about real transport behavior.
+4. Docker evidence validates SDK integration and adapter wiring. It MUST NOT be used to support claims about external network behavior, federation, hardware operation, or real-world rate limits. Docker is not hardware.
+5. Only `live_service` and `hardware` tiers support claims about production-adjacent behavior. Both require actual execution against real endpoints or devices.
+6. `NOT EXECUTED` (or `not_executed`) is not a tier. It is an explicit statement that no evidence of any tier exists. Every `NOT EXECUTED` entry MUST include a `reason` field.
+7. Storage-only evidence (receipts and outbox rows persisted in SQLite) proves what was recorded, not what was validated against a real endpoint. Storage contents alone do not constitute `live_service` or `hardware` tier evidence.
 
 ### 8.3 Tier Transitions
 
-Historical evidence (H) MAY be upgraded to current (C) or real-live-runtime (R) by re-running the corresponding test at the current commit. The upgrade MUST include the new date, commit, and full evidence fields.
+Historical evidence (`historical`) MAY be upgraded to `conformance`, `live_service`, or `hardware` by re-running the corresponding test at the current commit. The upgrade MUST include the new date, commit, and full evidence fields.
 
-Simulated evidence (S) SHALL NOT be upgraded to R without a real endpoint run.
+Synthetic evidence (`synthetic`) SHALL NOT be upgraded to `docker`, `live_service`, or `hardware` without a real endpoint or device run.
+
+Docker evidence (`docker`) SHALL NOT be upgraded to `live_service` or `hardware` without testing against an external service or physical device respectively.
 
 ### 8.4 Provenance Metadata
 
@@ -321,19 +332,20 @@ Error strings in the snapshot are passed through `_sanitize_error()` which trunc
 
 ## 10. Evidence Boundaries
 
-### 10.1 Live Boundary
+### 10.1 Live Service Boundary
 
-Live evidence (R-tier) is collected against real transport endpoints with real network connectivity. This boundary requires:
+Live service evidence (`live_service` tier) is collected against real external transport endpoints with real network connectivity. This boundary requires:
 
-- Running transport infrastructure (Matrix homeserver, Meshtastic node, MeshCore node, or Reticulum network).
+- Running transport infrastructure (Matrix homeserver on the network, Reticulum LXMF router).
 - Valid authentication credentials (not recorded in evidence).
 - SDK dependencies installed and functional.
+- Network connectivity to the external service.
 
-Live evidence is the ONLY boundary that supports claims about production-adjacent behavior. It is process-scoped and reflects observations made by the local MEDRE process against real endpoints.
+Live service evidence supports claims about protocol compliance and connectivity to real endpoints. It does not require physical radio hardware. It is process-scoped and reflects observations made by the local MEDRE process.
 
 ### 10.2 Docker/Container Boundary
 
-Container boundary evidence validates deployment isolation. It confirms that:
+Container boundary evidence (`docker` tier) validates deployment isolation and SDK integration. It confirms that:
 
 - Deployment helpers have no SDK imports or instantiation.
 - CLI modules have no top-level SDK imports and use dynamic probing only.
@@ -342,25 +354,29 @@ Container boundary evidence validates deployment isolation. It confirms that:
 - Fake-only test files have no SDK imports; live test files carry appropriate markers.
 - Live tests are excluded from default test execution.
 
-Container evidence is S-tier (deterministic test pass/fail). It does not require live endpoints.
+Docker evidence uses real SDK dependencies in a containerized environment. It validates SDK integration and adapter wiring. Docker evidence does not require external network connectivity, real hardware, or federation. Docker is not hardware.
 
 ### 10.3 Hardware Boundary
 
-Hardware evidence is collected when a physical radio device is connected (Meshtastic node, MeshCore node). It requires:
+Hardware evidence (`hardware` tier) is collected when a physical radio device is connected (Meshtastic node, MeshCore node). It requires:
 
 - Physical device connected via serial, TCP, or BLE.
 - Appropriate firmware version on the device.
 - Device-specific configuration (channel index, channel name, etc.).
 
-Hardware evidence is R-tier when the device is present and responding. It captures hardware/firmware snapshots, connection establishment times, and send/receive behavior against the physical radio. No hardware evidence exists when no physical device is available.
+Hardware evidence captures hardware/firmware snapshots, connection establishment times, and send/receive behavior against the physical radio. No hardware evidence exists when no physical device is available. Hardware evidence is the highest-fidelity tier for radio transports.
 
-### 10.4 Fake-Only Boundary
+### 10.4 Synthetic Boundary
 
-Fake-adapter evidence (S-tier) uses `FakeAdapter` and simulated transport. It validates internal logic without any network or hardware dependency. S-tier evidence MUST NOT be used to support claims about real transport behavior.
+Synthetic evidence (`synthetic` tier) uses `FakeAdapter` and simulated transport. It validates internal logic without any network or hardware dependency. Synthetic evidence MUST NOT be used to support claims about real transport behavior, SDK integration, or hardware operation.
+
+### 10.5 Conformance Boundary
+
+Conformance evidence (`conformance` tier) is recorded against the current codebase using deterministic fixtures and real codecs/renderers/services. It validates behavioral contracts (ingress, rendering, capability decisions, delivery lifecycle, replay) using fixed JSON inputs. Conformance evidence proves that the current code satisfies the specification contracts, not that it works against real endpoints.
 
 ## 11. What Evidence Cannot Prove
 
-The following claims are prohibited without explicit R-tier evidence:
+The following claims are prohibited without explicit `live_service` or `hardware` tier evidence:
 
 1. **Reliability:** "Transport X reliably delivers messages." Requires R-tier sustained operation evidence.
 2. **Failure recovery:** "Transport X recovers from network failures." Requires R-tier reconnect evidence.
@@ -596,18 +612,21 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.2 Contents
 
-| Field               | Type                       | Semantics                                                                                               |
-| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `schema_version`    | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
-| `event_id`          | `str`                      | The canonical event ID this bundle covers.                                                              |
-| `event_summary`     | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
-| `delivery_receipts` | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
-| `native_refs`       | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
-| `outbox_items`      | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
-| `replay_run_ids`    | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
-| `sources_seen`      | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
-| `warnings`          | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
-| `generated_at`      | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+| Field                     | Type                       | Semantics                                                                                               |
+| ------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `schema_version`          | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
+| `event_id`                | `str`                      | The canonical event ID this bundle covers.                                                              |
+| `event_summary`           | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
+| `delivery_receipts`       | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
+| `native_refs`             | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
+| `outbox_items`            | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| `replay_run_ids`          | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `sources_seen`            | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
+| `warnings`                | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
+| `generated_at`            | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
+| `evidence_tier`           | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
+| `delivery_outcome_ledger` | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
+| `retry_outbox_summary`    | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
 
 ### 16.3 ReceiptSummary
 
@@ -722,3 +741,107 @@ The incident summary's `delivery_state_by_target` dict groups receipts by compos
 | `attempt_number`      | Highest `attempt_number` in the group |
 
 When both live and replay receipts exist for the same event, the bundle contains separate `delivery_state_by_target` entries with distinct `source` values (`"live"` and `"replay"`), allowing the operator to distinguish live from replay delivery for the same target.
+
+## 18. Adapter Status Lifecycle
+
+### 18.1 Operator Evidence Statuses
+
+Adapters present one of the following operator-facing evidence statuses, derived from configuration, runtime state, and health check results. These statuses are not a state machine enforced in code. They are evidence labels that operators can observe through diagnostics and snapshot output.
+
+| Status           | Derivation                                             | Meaning                                                                   |
+| ---------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `disabled`       | Config: `enabled = false`                              | Adapter is present in config but intentionally excluded from the runtime. |
+| `not_configured` | Config: no adapter entry for this transport/id         | No adapter configuration exists. No adapter object is constructed.        |
+| `configured`     | Config: valid entry, not yet started                   | Adapter has a valid config entry. Build has not been attempted.           |
+| `starting`       | Runtime: `start()` in progress                         | Adapter is between `build()` and `start()` completion. Transient.         |
+| `connected`      | Runtime: lifecycle state `READY`                       | Adapter is connected to its transport and operating normally.             |
+| `degraded`       | Runtime: lifecycle state `DEGRADED` or `BACKPRESSURED` | Adapter is connected but experiencing transient errors or backpressure.   |
+| `unavailable`    | Runtime: lifecycle state `DISCONNECTED`                | Adapter exists but the transport endpoint is not reachable.               |
+| `stopping`       | Runtime: lifecycle state `STOPPING`                    | Adapter is shutting down gracefully. Transient.                           |
+| `failed`         | Runtime: lifecycle state `FAILED`                      | Adapter encountered a non-recoverable failure. Not connected.             |
+| `stopped`        | Runtime: lifecycle state `STOPPED`                     | Adapter was running and has been stopped. Clean termination.              |
+
+### 18.2 Derivation Rules
+
+1. `disabled` and `not_configured` are determined purely from config analysis, before any runtime interaction.
+2. `starting` is transient: it exists only between `build()` and `start()` calls.
+3. `connected`, `unavailable`, `failed`, and `degraded` are derived from the adapter's `health_check()` output and `diagnostics()` keys.
+4. `stopped` is terminal for a runtime session: it means the adapter was explicitly stopped via `stop()`.
+5. An adapter MAY transition from `failed` to `connected` across runtime restarts (if the underlying cause is resolved).
+
+### 18.3 Status Evidence in Snapshots
+
+The `normalize_adapter_health()` function projects adapter state into a normalized dict (see §5). The `health` field in that dict carries the health vocabulary value. Operators mapping to evidence statuses should use the derivations above.
+
+The runtime snapshot's `startup.boot_summary` section carries the startup classification (`full`, `partial`, `total_failure`) and lists of started, failed, and skipped adapter IDs.
+
+## 19. Delivery Outcome Ledger
+
+### 19.1 Purpose
+
+The delivery outcome ledger provides a per-event, per-target accounting of delivery status. It answers the question: for this event, what happened at each delivery target?
+
+### 19.2 Derived from Existing Storage
+
+The ledger is not a new storage schema. It is derived at query/report time from existing receipt and outbox data:
+
+- Receipt rows in `delivery_receipts` table (append-only).
+- Outbox rows for in-progress or pending deliveries.
+- Event rows in `canonical_events`.
+
+The derivation logic groups receipts and outbox items by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source)`. When `delivery_plan_id` is absent, `event_id` is used as the primary grouping dimension instead. Replay run ID (`replay_run_id`) is **not** part of the grouping key — it is populated on the resulting entry only when `source == "replay"`. The highest `attempt_number` per group wins, with last-seen breaking ties.
+
+### 19.3 Ledger Fields
+
+Each ledger entry contains:
+
+| Field                | Source                                      | Semantics                                         |
+| -------------------- | ------------------------------------------- | ------------------------------------------------- |
+| `event_id`           | Receipt                                     | The canonical event being delivered.              |
+| `delivery_plan_id`   | Receipt                                     | Deterministic plan ID for this delivery target.   |
+| `route_id`           | Receipt                                     | Which route configuration triggered delivery.     |
+| `target_adapter`     | Receipt                                     | Target adapter for delivery.                      |
+| `target_channel`     | Receipt                                     | Target channel on the adapter.                    |
+| `source`             | Receipt                                     | `"live"`, `"retry"`, or `"replay"`.               |
+| `replay_run_id`      | Receipt                                     | Replay run identifier, or `None` for live.        |
+| `status`             | Receipt (highest `attempt_number`)          | Current delivery status.                          |
+| `failure_kind`       | Receipt                                     | Failure classification, if applicable.            |
+| `attempt_number`     | Receipt                                     | Number of delivery attempts for this target.      |
+| `next_retry_at`      | Receipt                                     | Scheduled retry time, or `None`.                  |
+| `capability_level`   | Derived from `rendering_evidence` / `error` | Capability decision for this delivery.            |
+| `delivery_strategy`  | Derived from `rendering_evidence` / `error` | Strategy used (direct, fallback_text, skip).      |
+| `suppression_reason` | Derived from `error`                        | Human-readable suppression reason, if applicable. |
+
+### 19.4 No Additional Storage Required
+
+The ledger is a read-only projection. It does not create tables, modify schema, or write additional data. Operators can reconstruct the ledger at any time by querying `delivery_receipts` and `canonical_events`.
+
+## 20. Retry and Outbox Accountability
+
+### 20.1 Retry Accountability
+
+When retry is enabled (via `[retry] enabled = true` and per-route retry configuration), the delivery pipeline produces an auditable retry chain:
+
+1. Initial delivery failure creates a receipt with `status="failed"`, `failure_kind="adapter_transient"`, and `next_retry_at` set to the scheduled retry time.
+2. The `RetryWorker` discovers due receipts via `list_due_retry_receipts()` and re-attempts delivery.
+3. Each retry attempt appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
+4. When retries are exhausted, the final receipt has `status="dead_lettered"` with `next_retry_at=NULL`.
+
+The retry chain is fully durable in SQLite. Operators can trace the complete retry history for any delivery by following `parent_receipt_id` links.
+
+### 20.2 Outbox Accountability
+
+The outbox tracks in-progress deliveries:
+
+- When a delivery starts, an outbox row is created with status `in_progress` and an expiration lease.
+- When the delivery completes (success or failure), the outbox row is finalized.
+- On crash recovery, expired `in_progress` outbox rows are reclaimable by the `RetryWorker`.
+
+### 20.3 Known Gap: Pending Shutdown Cancellation
+
+When the runtime shuts down, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not explicitly cancelled. They remain in storage as-is. On next startup:
+
+- Pending retry receipts are discovered and processed by the `RetryWorker` (if enabled).
+- Expired outbox rows are reclaimed.
+
+This means a retry MAY be re-attempted after shutdown for a delivery that the operator expected to be cancelled. This is a known gap. A future implementation MAY add explicit cancellation of pending retries and outbox items during graceful shutdown, producing `cancelled` receipts. Until then, operators should be aware that pending retries survive shutdown and are re-processed on restart.
