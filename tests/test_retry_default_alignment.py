@@ -71,14 +71,6 @@ class TestRetryWorkerDefault:
         max_attempts_param = sig.parameters["max_attempts"]
         assert max_attempts_param.default == _EXPECTED_MAX_ATTEMPTS
 
-    def test_instance_default_max_attempts(self) -> None:
-        """Instantiate with minimum required args and verify _max_attempts."""
-        RetryWorker.__new__(RetryWorker)
-        # Bypass __init__ (which requires real storage/pipeline).
-        # Instead, read the signature default directly.
-        sig = inspect.signature(RetryWorker.__init__)
-        assert sig.parameters["max_attempts"].default == _EXPECTED_MAX_ATTEMPTS
-
 
 class TestCrossSourceAlignment:
     """All sources must share the same default value."""

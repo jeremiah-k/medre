@@ -233,7 +233,6 @@ def derive_operator_status(
     enabled: bool | None,
     configured: bool | None,
     current_state: str | None,
-    health: str | None,
 ) -> OperatorStatus:
     """Pure derivation of operator status from resolved inputs.
 
@@ -255,10 +254,6 @@ def derive_operator_status(
         ``None`` if unknown.
     current_state:
         Lifecycle state value string (e.g. ``"ready"``), or ``None``.
-    health:
-        Normalised health string, or ``None``.  Currently used as
-        tiebreaker for ambiguous states; primary signal is lifecycle
-        state.
 
     Returns
     -------
@@ -423,7 +418,6 @@ def build_adapter_status_evidence(
         enabled=enabled,
         configured=configured,
         current_state=current_state,
-        health=health_str,
     )
 
     connected = _resolve_connected(operator_status)

@@ -247,7 +247,6 @@ def resolve_taxon(
     failure_kind: str | None,
     error: str | None,
     status: str | None = None,
-    next_retry_at: datetime | None = None,
 ) -> FailureTaxon | None:
     """Classify receipt data into a canonical :class:`FailureTaxon`.
 

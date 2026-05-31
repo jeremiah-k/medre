@@ -428,7 +428,6 @@ def build_delivery_outcome_ledger(
             failure_kind=failure_kind,
             error=error,
             status=status,
-            next_retry_at=next_retry_at_raw,
         )
         taxon_str = taxon.value if taxon else None
         taxon_cat = taxon_category(taxon) if taxon else None

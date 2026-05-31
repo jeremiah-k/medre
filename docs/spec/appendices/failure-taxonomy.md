@@ -200,8 +200,8 @@ diagnostics.
 | ----------------------- | ------------------------------ | ----------- | ----------------------------------------------------------------------------------------- |
 | `not_configured`        | Derived (config analysis)      | Pre-runtime | No adapter configuration exists for the referenced transport. No code path exercised.     |
 | `unavailable`           | Derived (adapter state)        | Runtime     | Adapter exists in config but is not reachable. Health reports `unavailable` or `failed`.  |
-| `auth_failed`           | DeliveryFailureKind            | Runtime     | Authentication with the transport endpoint failed. Permanent for Matrix (401/403).        |
-| `connection_failed`     | DeliveryFailureKind            | Runtime     | Transport connection could not be established. Transient (network) or permanent (config). |
+| `auth_failed`           | Derived (error text analysis)  | Runtime     | Authentication with the transport endpoint failed. Permanent for Matrix (401/403).        |
+| `connection_failed`     | Derived (error text analysis)  | Runtime     | Transport connection could not be established. Transient (network) or permanent (config). |
 | `capability_suppressed` | DeliveryFailureKind            | Runtime     | Target adapter lacks capability for the event's kind or relation type. See §9.            |
 | `route_disabled`        | Derived (config analysis)      | Pre-runtime | Route configuration has `enabled = false`. Events matching this route are not delivered.  |
 | `route_listen_only`     | Derived (config analysis)      | Pre-runtime | Route is configured for inbound-only or listen-only semantics. Outbound delivery skipped. |
@@ -214,16 +214,20 @@ diagnostics.
 
 **Implementation status:**
 
-- First-class `DeliveryFailureKind` values (`auth_failed`, `connection_failed`,
-  `capability_suppressed`, `loop_suppressed`, `delivery_failed`) are emitted by
-  the runtime and stored on receipt rows.
+- First-class `DeliveryFailureKind` values (`capability_suppressed`,
+  `loop_suppressed`, `delivery_failed`) are emitted by the runtime and stored
+  on receipt rows.
+- `auth_failed` and `connection_failed` are derived taxon labels computed from
+  error text analysis at report time. They are not first-class enum values
+  emitted by transport code.
 - `cancelled` is a planned `DeliveryFailureKind` value for shutdown-time
   delivery cancellation. The current runtime uses `shutdown_rejection` as an
   error string but does not yet emit a distinct `cancelled` failure kind. See
   §12.
-- Derived taxons (`not_configured`, `unavailable`, `route_disabled`,
-  `route_listen_only`, `retry_exhausted`, `shutdown_pending`) are computed at
-  report time from receipt fields, config state, or adapter health. They are
+- Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
+  `connection_failed`, `route_disabled`, `route_listen_only`,
+  `retry_exhausted`, `shutdown_pending`) are computed at report time from
+  receipt fields, error text parsing, config state, or adapter health. They are
   not stored as enum values on receipt rows.
 - `not_executed` is a meta-classification indicating absence of evidence, not
   a failure kind. It is used in evidence tables and operator reports to

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Callable
 
@@ -30,6 +31,8 @@ from ._storage_sections import (
     _collect_storage_path_bundle,
     _collect_storage_section,
 )
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -171,7 +174,9 @@ async def collect_evidence_bundle(
                     _adapter_kind = "fake"
                     break
     except Exception:
-        pass
+        _logger.debug(
+            "Failed to scan adapter configs for tier inference", exc_info=True
+        )
 
     evidence_tier = infer_evidence_tier(adapter_kind=_adapter_kind)
 

@@ -65,7 +65,6 @@ class TestDeriveOperatorStatus:
                 enabled=False,
                 configured=True,
                 current_state=None,
-                health=None,
             )
             == "disabled"
         )
@@ -77,7 +76,6 @@ class TestDeriveOperatorStatus:
                 enabled=False,
                 configured=True,
                 current_state="ready",
-                health="healthy",
             )
             == "disabled"
         )
@@ -88,7 +86,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=False,
                 current_state=None,
-                health=None,
             )
             == "not_configured"
         )
@@ -100,7 +97,6 @@ class TestDeriveOperatorStatus:
                 enabled=None,
                 configured=False,
                 current_state=None,
-                health=None,
             )
             == "not_configured"
         )
@@ -111,7 +107,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state=None,
-                health=None,
             )
             == "configured"
         )
@@ -122,7 +117,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="initializing",
-                health="starting",
             )
             == "starting"
         )
@@ -133,7 +127,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="ready",
-                health="healthy",
             )
             == "connected"
         )
@@ -144,7 +137,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="degraded",
-                health="degraded",
             )
             == "degraded"
         )
@@ -155,7 +147,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="backpressured",
-                health="degraded",
             )
             == "degraded"
         )
@@ -166,7 +157,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="disconnected",
-                health="degraded",
             )
             == "unavailable"
         )
@@ -177,7 +167,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="stopping",
-                health="stopping",
             )
             == "stopping"
         )
@@ -188,7 +177,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="failed",
-                health="failed",
             )
             == "failed"
         )
@@ -199,7 +187,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="stopped",
-                health="unknown",
             )
             == "stopped"
         )
@@ -210,7 +197,6 @@ class TestDeriveOperatorStatus:
                 enabled=True,
                 configured=True,
                 current_state="mystery",
-                health=None,
             )
             == "configured"
         )
@@ -221,7 +207,6 @@ class TestDeriveOperatorStatus:
                 enabled=None,
                 configured=None,
                 current_state=None,
-                health=None,
             )
             == "configured"
         )

@@ -50,19 +50,19 @@ Evidence stored in the SQLite database (receipts, outbox items, native refs) is 
 
 ### Universal Fields (all transports, all evidence types)
 
-| Field                           | Required | Description                                       |
-| ------------------------------- | -------- | ------------------------------------------------- |
-| `tier`                          | Yes      | Evidence tier: H, C, S, or R                      |
-| `test_file`                     | Yes      | Path to the test file that produced this evidence |
-| `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`          |
-| `executor`                      | Yes      | Who/what ran the test                             |
-| `medre_commit`                  | Yes      | Git commit hash of the MEDRE codebase under test  |
-| `python_version`                | Yes      | Python version used                               |
-| `environment`                   | Yes      | Description of execution environment              |
-| `total_tests`                   | Yes      | Number of tests run                               |
-| `passed` / `failed` / `skipped` | Yes      | Test result counts                                |
-| `duration`                      | Yes      | Wall-clock duration of the test run               |
-| `caveats_observed`              | Yes      | Any unexpected behavior observed                  |
+| Field                           | Required | Description                                                                                                                                      |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tier`                          | Yes      | Evidence tier: `historical`, `conformance`, `synthetic`, `docker`, `live_service`, or `hardware` (legacy codes H, C, S, R accepted as shorthand) |
+| `test_file`                     | Yes      | Path to the test file that produced this evidence                                                                                                |
+| `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`                                                                                                         |
+| `executor`                      | Yes      | Who/what ran the test                                                                                                                            |
+| `medre_commit`                  | Yes      | Git commit hash of the MEDRE codebase under test                                                                                                 |
+| `python_version`                | Yes      | Python version used                                                                                                                              |
+| `environment`                   | Yes      | Description of execution environment                                                                                                             |
+| `total_tests`                   | Yes      | Number of tests run                                                                                                                              |
+| `passed` / `failed` / `skipped` | Yes      | Test result counts                                                                                                                               |
+| `duration`                      | Yes      | Wall-clock duration of the test run                                                                                                              |
+| `caveats_observed`              | Yes      | Any unexpected behavior observed                                                                                                                 |
 
 ## 6. Capability Status Definitions
 

@@ -23,12 +23,12 @@ Storage-only evidence (receipts and outbox rows in SQLite) records what the runt
 
 | Adapter    | Synthetic | Adapter-wrapper |  Docker  |       Live service       |  Hardware   |
 | ---------- | :-------: | :-------------: | :------: | :----------------------: | :---------: |
-| Matrix     |  proven   |     proven      |  proven  | proven (Docker Synapse)  | not claimed |
+| Matrix     |  proven   |     proven      |  proven  |       not claimed        | not claimed |
 | Meshtastic |  proven   |     proven      |  proven  | unconfirmed (2nd client) | not claimed |
 | MeshCore   |  proven   |     proven      | no setup |       not claimed        | not claimed |
 | LXMF       |  proven   |     proven      | no setup |       not claimed        | not claimed |
 
-The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. "proven (Docker Synapse)" means Matrix live service evidence uses a Docker container, not an external server. Docker evidence validates SDK integration; it does not prove external network behavior.
+The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. Docker validation demonstrates SDK/container integration. Docker validation is not live_service evidence. Docker validation is not hardware evidence.
 
 ## Quick Bundle Collection
 

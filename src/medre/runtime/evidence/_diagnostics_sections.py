@@ -105,7 +105,7 @@ def _derive_shutdown_evidence_from_snapshot(
     outbox = snapshot.get("outbox", {})
     retry = snapshot.get("retry", {})
     capacity = snapshot.get("capacity", {})
-    diagnostics = snapshot.get("diagnostics", {})
+    snapshot.get("diagnostics", {})
 
     # Runtime state.
     runtime_state = lifecycle.get("runtime_state")
@@ -129,7 +129,6 @@ def _derive_shutdown_evidence_from_snapshot(
     capacity_state = capacity.get("state")
 
     # Runtime events.
-    diagnostics.get("runtime_events")
 
     evidence = build_shutdown_evidence(
         runtime_state=runtime_state,
