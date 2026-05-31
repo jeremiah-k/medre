@@ -1,4 +1,4 @@
-"""Public data types for recovery convergence diagnostics.
+"""Public data types for convergence diagnostics.
 
 Canonical enums, dataclasses, and finding-kind constants shared across
 the convergence package.  Every field is JSON-safe (``str | int | float |

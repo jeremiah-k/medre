@@ -214,7 +214,7 @@
         "severity": "degraded",
         "record_id": "rec_def456",
         "record_type": "receipt",
-        "details": "Failed receipt 'rec_def456' appears retryable but is missing retry metadata: next_retry_at, retry_max_attempts, retry_backoff_base, retry_max_delay",
+        "details": "Failed receipt 'rec_def456' appears retryable but is missing retry metadata: next_retry_at, retry_max_attempts, retry_backoff_base, retry_max_delay, retry_jitter",
         "extra": {
           "receipt_id": "rec_def456",
           "failure_kind": "adapter_transient",
