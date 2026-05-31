@@ -182,7 +182,9 @@ class OrphanFinding:
         Category of finding.  One of: ``orphaned_outbox``,
         ``orphaned_parent_receipt``, ``cross_plan_parent``,
         ``cross_event_parent``, ``missing_delivery_plan_id``,
-        ``dead_lettered_retryable_mismatch``.
+        ``dead_lettered_retryable_mismatch``, ``recovered_not_progressed``,
+        ``repeatedly_reclaimed``, ``reclaimed_then_terminal``,
+        ``reclaimed_then_orphaned``.
     severity:
         Convergence severity string (``inconsistent`` or ``degraded``).
     record_id:

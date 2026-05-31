@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
+from ._helpers import _get, _parse_as_utc, _to_str
 from .classification import (
     CLASS_IMMEDIATELY_CLAIMABLE,
     CLASS_INCONSISTENT,
@@ -35,31 +36,9 @@ __all__ = ["build_startup_recovery_ledger", "build_recovery_summary"]
 # ---------------------------------------------------------------------------
 
 
-def _get(obj: Any, name: str, default: Any = None) -> Any:
-    """Duck-typed field access."""
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
-
-
-def _to_str(val: Any) -> str:
-    """Coerce to string safely."""
-    if val is None:
-        return ""
-    return str(val)
-
-
 def _now_iso() -> str:
     """Clock for deterministic ledger timestamps."""
     return datetime.now(timezone.utc).isoformat()
-
-
-def _parse_as_utc(ts: str) -> datetime:
-    """Parse an ISO-8601 string and normalise to UTC."""
-    dt = datetime.fromisoformat(ts)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 # ---------------------------------------------------------------------------

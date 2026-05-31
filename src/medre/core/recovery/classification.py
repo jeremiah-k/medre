@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ._helpers import _get, _parse_as_utc, _to_str
+
 __all__ = ["classify_startup_reclamation"]
 
 # ---------------------------------------------------------------------------
@@ -50,41 +52,6 @@ _ALL_LABELS: frozenset[str] = frozenset(
         CLASS_INCONSISTENT,
     }
 )
-
-# ---------------------------------------------------------------------------
-# Duck-typed field access (parallel to convergence helpers)
-# ---------------------------------------------------------------------------
-
-
-def _get(obj: Any, name: str, default: Any = None) -> Any:
-    """Duck-typed field access — ``dict.get`` or ``getattr``."""
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
-
-
-def _to_str(val: Any) -> str:
-    """Coerce to string safely."""
-    if val is None:
-        return ""
-    return str(val)
-
-
-# ---------------------------------------------------------------------------
-# Timestamp helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_as_utc(ts: str) -> datetime:
-    """Parse an ISO-8601 string and normalise to UTC.
-
-    Naive timestamps (no ``tzinfo``) are treated as UTC.
-    """
-    dt = datetime.fromisoformat(ts)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
 
 # ---------------------------------------------------------------------------
 # Public API

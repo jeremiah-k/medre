@@ -68,7 +68,7 @@
   "orphan_report": null,
   "recovery_summary": {
     "abandoned_items": 0,
-    "by_source": { "startup_recovery": 2, "retry_worker_recovery": 1 },
+    "by_source": { "startup_recovery": 3 },
     "claimed_items": 0,
     "consistency_valid": true,
     "reclaimed_items": 0,

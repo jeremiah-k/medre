@@ -611,8 +611,7 @@
         "startup_timestamp": {
           "type": ["string", "null"],
           "format": "date-time"
-        },
-        "worker_identity": { "type": ["string", "null"] }
+        }
       },
       "required": [
         "actions",
