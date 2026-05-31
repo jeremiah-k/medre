@@ -666,6 +666,8 @@ class DeliveryLifecycleService:
                     channel_matches,
                     record,
                 )
+                if queued_receipt is None:
+                    return
             elif len(plan_matches) == 1:
                 # Route single-candidate path through source-aware selector
                 # so replay-only candidates are skipped with warning rather
@@ -674,6 +676,8 @@ class DeliveryLifecycleService:
                     plan_matches,
                     record,
                 )
+                if queued_receipt is None:
+                    return
             else:
                 # Multiple candidates under same plan_id, no channel.
                 # Check target_channel uniformity for retry lineage.
@@ -685,6 +689,8 @@ class DeliveryLifecycleService:
                         plan_matches,
                         record,
                     )
+                    if queued_receipt is None:
+                        return
                 else:
                     self._log.warning(
                         "Ambiguous queued receipt correlation: %d "

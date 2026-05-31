@@ -228,8 +228,9 @@ example because the worker crashed or the adapter lost the queued message.
 ### 2.5 Graceful Shutdown Behavior
 
 When the runtime shuts down gracefully, the outbox is not mutated. Non-terminal
-outbox rows survive in SQLite and are processed on next startup by the
-RetryWorker and outbox reclaim logic. The shutdown evidence model
+outbox rows survive in SQLite and are processed on next startup through the
+normal reclaim and dispatch paths: due retry receipts by the RetryWorker,
+outbox items by `claim_due_outbox_items()` and stale queued reclaim. The shutdown evidence model
 (`ShutdownEvidence`) records `resume_expected=True` when pending non-terminal
 work exists, and `outbox_shutdown_policy="resumable"` to signal the resumable
 policy is active.
@@ -237,16 +238,16 @@ policy is active.
 The table below describes what happens to each outbox status during graceful
 shutdown:
 
-| Outbox status at shutdown | Classification       | Shutdown action                                                  | Restart recovery                                       |
-| ------------------------- | -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
-| `pending`                 | Resumable            | No mutation. Row preserved.                                      | Claimed by `claim_due_outbox_items()` on next startup. |
-| `retry_wait`              | Resumable            | No mutation. Row preserved.                                      | Due retry receipts discovered by RetryWorker.          |
-| `in_progress`             | Resumable            | No mutation. Row preserved. Lease may expire during shutdown.    | Expired lease reclaimed by `claim_due_outbox_items()`. |
-| `queued`                  | Resumable            | No mutation. Row preserved.                                      | Stale queued reclaim after grace period.               |
-| `sent`                    | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                   |
-| `dead_lettered`           | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                   |
-| `cancelled`               | Terminal (no action) | Already final. Set by explicit operator action, not by shutdown. | N/A.                                                   |
-| `abandoned`               | Terminal (no action) | Already final. Set during drain timeout for in-flight items.     | N/A.                                                   |
+| Outbox status at shutdown | Classification       | Shutdown action                                                  | Restart recovery                                                      |
+| ------------------------- | -------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `pending`                 | Resumable            | No mutation. Row preserved.                                      | Claimed by `claim_due_outbox_items()` on next startup.                |
+| `retry_wait`              | Resumable            | No mutation. Row preserved.                                      | Due retry_wait outbox items reclaimed via `claim_due_outbox_items()`. |
+| `in_progress`             | Resumable            | No mutation. Row preserved. Lease may expire during shutdown.    | Expired lease reclaimed by `claim_due_outbox_items()`.                |
+| `queued`                  | Resumable            | No mutation. Row preserved.                                      | Stale queued reclaim after grace period.                              |
+| `sent`                    | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                                  |
+| `dead_lettered`           | Terminal (no action) | Already final. No shutdown interaction.                          | N/A.                                                                  |
+| `cancelled`               | Terminal (no action) | Already final. Set by explicit operator action, not by shutdown. | N/A.                                                                  |
+| `abandoned`               | Terminal (no action) | Already final. Set during drain timeout for in-flight items.     | N/A.                                                                  |
 
 Cancellation (`cancelled`) and abandonment (`abandoned`) are distinct terminal
 states. They are not automatically applied to non-terminal outbox work during
@@ -388,16 +389,16 @@ Receipts are never updated or deleted. Outbox items transition through the statu
 
 When the runtime starts, it reclaims ownership of non-terminal outbox items according to their status:
 
-| Outbox status at startup | Startup ownership action                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                     |
-| `retry_wait`             | Due retry receipts discovered by `RetryWorker` when `next_retry_at` has passed. Otherwise waits.          |
-| `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry. |
-| `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.         |
-| `sent`                   | Terminal. No startup action.                                                                              |
-| `dead_lettered`          | Terminal. No startup action.                                                                              |
-| `cancelled`              | Terminal. No startup action.                                                                              |
-| `abandoned`              | Terminal. No startup action.                                                                              |
+| Outbox status at startup | Startup ownership action                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                                   |
+| `retry_wait`             | Due retry_wait outbox items reclaimed by `claim_due_outbox_items()` when `next_attempt_at` has passed. Otherwise waits. |
+| `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry.               |
+| `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.                       |
+| `sent`                   | Terminal. No startup action.                                                                                            |
+| `dead_lettered`          | Terminal. No startup action.                                                                                            |
+| `cancelled`              | Terminal. No startup action.                                                                                            |
+| `abandoned`              | Terminal. No startup action.                                                                                            |
 
 Startup does not block on convergence diagnostics. Non-terminal items are reclaimed lazily through the normal `claim_due_outbox_items()` path, not by a startup-time state sweep.
 

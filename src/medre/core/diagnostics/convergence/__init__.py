@@ -38,10 +38,11 @@ target_channel``):
    non-terminal outbox but latest receipt is terminal ``sent``/``suppressed``;
    status mismatch that cannot be explained by normal flow.
 
-Integration hooks
------------------
-* ``orphan_count`` field on :class:`ConvergenceSummary` — populated when
-  linked to an orphan report.
+Cross-populated fields
+----------------------
+* ``orphan_count`` field on :class:`ConvergenceSummary` — populated by
+  :class:`~medre.core.evidence.collector.EvidenceCollector` from the
+  orphan report.
 * ``evidence_bundle_ref`` field — populated when attached to an
   EvidenceBundle.
 * ``warnings`` list — extensible for future diagnostics messages.
@@ -49,33 +50,17 @@ Integration hooks
 Public symbols
 --------------
 * :class:`ConvergenceSeverity` — enum with values ``safe``, ``degraded``,
-  ``inconsistent``.
+  ``inconsistent``.  Import from :mod:`.types`.
 * :class:`DeliveryTargetConvergence` — per-target convergence result.
+  Import from :mod:`.types`.
 * :class:`ConvergenceSummary` — aggregate summary across all targets.
+  Import from :mod:`.types`.
 * :func:`build_convergence_summary` — main entry point.
+  Import from :mod:`.summary`.
 * :class:`OrphanFinding` — single orphan/invalid-lineage finding.
+  Import from :mod:`.types`.
 * :class:`OrphanReport` — aggregate orphan/invalid-lineage report.
+  Import from :mod:`.types`.
 * :func:`build_orphan_report` — orphan/invalid-lineage detection entry point.
+  Import from :mod:`.orphans`.
 """
-
-from __future__ import annotations
-
-from .orphans import build_orphan_report
-from .summary import build_convergence_summary
-from .types import (
-    ConvergenceSeverity,
-    ConvergenceSummary,
-    DeliveryTargetConvergence,
-    OrphanFinding,
-    OrphanReport,
-)
-
-__all__ = [
-    "ConvergenceSeverity",
-    "DeliveryTargetConvergence",
-    "ConvergenceSummary",
-    "build_convergence_summary",
-    "OrphanFinding",
-    "OrphanReport",
-    "build_orphan_report",
-]

@@ -1,13 +1,16 @@
 """Architecture guard tests for the convergence diagnostics package.
 
 Ensures the decomposed convergence package structure is intact, the former
-monolith is gone, star re-exports are absent, and cross-populated fields
-(orphan_count) are correctly wired.
+monolith is gone, __init__.py is documentation-only (no re-exports, no
+__all__), and cross-populated fields (orphan_count) are correctly wired.
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
+
+import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src" / "medre"
@@ -27,19 +30,42 @@ class TestConvergenceMonolithRemoved:
 
 
 class TestConvergencePackageStructure:
-    """The convergence package directory must exist with no star re-exports."""
+    """The convergence package directory must exist with no re-exports."""
 
     def test_package_directory_exists(self) -> None:
         assert (
             _CONVERGENCE_PKG.is_dir()
         ), f"Convergence package directory missing: {_CONVERGENCE_PKG}"
 
-    def test_init_no_star_re_exports(self) -> None:
+    def test_init_exists(self) -> None:
         assert _CONVERGENCE_INIT.is_file(), f"__init__.py missing: {_CONVERGENCE_INIT}"
+
+    def test_init_no_star_re_exports(self) -> None:
         source = _CONVERGENCE_INIT.read_text(encoding="utf-8")
         assert (
             "import *" not in source
         ), "__init__.py must not contain blanket star imports (import *)"
+
+    def test_init_no_import_statements(self) -> None:
+        """__init__.py must be documentation-only: no 'from .xxx import' lines."""
+        source = _CONVERGENCE_INIT.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                pytest.fail(
+                    f"__init__.py must not contain import statements; "
+                    f"found import at line {node.lineno}"
+                )
+
+    def test_init_no_dunder_all(self) -> None:
+        """__init__.py must not define __all__."""
+        source = _CONVERGENCE_INIT.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__all__":
+                        pytest.fail("__init__.py must not define __all__")
 
 
 class TestConvergenceCanonicalImports:
@@ -49,12 +75,14 @@ class TestConvergenceCanonicalImports:
         from medre.core.diagnostics.convergence.types import (
             ConvergenceSeverity,
             ConvergenceSummary,
+            DeliveryTargetConvergence,
             OrphanFinding,
             OrphanReport,
         )
 
         assert ConvergenceSeverity is not None
         assert ConvergenceSummary is not None
+        assert DeliveryTargetConvergence is not None
         assert OrphanFinding is not None
         assert OrphanReport is not None
 
@@ -67,11 +95,23 @@ class TestConvergenceCanonicalImports:
         assert callable(build_convergence_summary)
         assert callable(build_orphan_report)
 
-    def test_package_level_re_exports(self) -> None:
-        """Package-level names in __all__ must be importable."""
-        from medre.core.diagnostics import convergence as pkg
+    def test_kind_constants_importable(self) -> None:
+        from medre.core.diagnostics.convergence.types import (
+            KIND_ORPHANED_OUTBOX,
+        )
 
-        expected = [
+        assert KIND_ORPHANED_OUTBOX == "orphaned_outbox"
+
+    def test_facade_re_exports_do_not_work(self) -> None:
+        """Importing re-exported symbols from the package root raises AttributeError.
+
+        The package itself is always importable (that's just a Python package),
+        but accessing re-exported symbols on it must fail since __init__.py
+        no longer defines them.
+        """
+        import medre.core.diagnostics.convergence as pkg
+
+        facade_names = [
             "ConvergenceSeverity",
             "DeliveryTargetConvergence",
             "ConvergenceSummary",
@@ -80,8 +120,11 @@ class TestConvergenceCanonicalImports:
             "OrphanReport",
             "build_orphan_report",
         ]
-        for name in expected:
-            assert hasattr(pkg, name), f"convergence package missing {name}"
+        for name in facade_names:
+            assert not hasattr(pkg, name), (
+                f"convergence package must not re-export {name!r}; "
+                f"use canonical submodule imports instead"
+            )
 
 
 class TestOrphanCountCrossPopulated:

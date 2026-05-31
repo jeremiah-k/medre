@@ -14,10 +14,8 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
-from medre.core.diagnostics.convergence import (
-    build_convergence_summary,
-    build_orphan_report,
-)
+from medre.core.diagnostics.convergence.orphans import build_orphan_report
+from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
     BUNDLE_SCHEMA_VERSION,

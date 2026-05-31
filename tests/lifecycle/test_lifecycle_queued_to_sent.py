@@ -342,6 +342,8 @@ class TestSourceAwareCandidateSelection:
         assert queued[0].receipt_id == "rcpt-replay-only"
         assert "only replay-sourced queued receipt" in caplog.text
         assert "skipping replay candidate" in caplog.text
+        # Must NOT log the spurious "Logic error" warning.
+        assert "Logic error" not in caplog.text
 
     async def test_normal_live_only_unchanged(
         self,
@@ -548,6 +550,8 @@ class TestSourceAwareCandidateSelection:
         assert len(queued) == 2
         assert "only replay-sourced queued receipts" in caplog.text
         assert "skipping all replay candidates" in caplog.text
+        # Must NOT log the spurious "Logic error" warning.
+        assert "Logic error" not in caplog.text
 
     async def test_single_candidate_no_channel_succeeds(
         self,

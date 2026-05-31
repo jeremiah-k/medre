@@ -55,19 +55,19 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State                                            | Survived? | Notes                                                                                                                                                  |
-| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                      |
-| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                    |
-| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                 |
-| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                           |
-| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                       |
-| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                       |
-| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                      |
-| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. |
-| Active replay runs                               | No        | Lost — must re-initiate manually                                                                                                                       |
-| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                             |
-| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                        |
+| State                                            | Survived? | Notes                                                                                                                                                                 |
+| ------------------------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                     |
+| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                   |
+| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                |
+| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                          |
+| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                      |
+| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                      |
+| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                     |
+| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost. |
+| Active replay runs                               | No        | Lost — must re-initiate manually                                                                                                                                      |
+| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                            |
+| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                       |
 
 ### Crash Recovery Steps
 
@@ -651,7 +651,7 @@ The outbox tracks in-progress deliveries:
 
 - A delivery starting creates an `in_progress` outbox row with an expiration lease.
 - Delivery completion (success or failure) finalizes the outbox row.
-- On crash recovery, expired `in_progress` rows are reclaimable by the RetryWorker.
+- On crash recovery, expired `in_progress` rows are reclaimed by `claim_due_outbox_items()`.
 - Outbox rows without corresponding receipts indicate deliveries that were lost before a receipt could be written.
 
 ### Resumable Shutdown Policy

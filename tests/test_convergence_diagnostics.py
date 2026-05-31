@@ -2,7 +2,7 @@
 
 Covers: safe/degraded/inconsistent classification, deterministic repeated
 build, missing plan_id, source separation, JSON safety, all outbox statuses,
-receipt-only terminal evidence, reserved fields, and orphan/
+receipt-only terminal evidence, cross-populated fields, and orphan/
 invalid-lineage detection.
 
 Test groups
@@ -18,7 +18,7 @@ Test groups
    source is visible in the data.
 7. JSON safety — full summary survives json.dumps round-trip.
 8. All outbox statuses covered.
-9. Reserved fields — orphan_count and evidence_bundle_ref are None.
+9. Cross-populated fields — orphan_count and evidence_bundle_ref are None.
 10. Empty input — produces safe empty summary.
 11. Receipt latest selection — deterministic tiebreaking.
 12. Aggregate severity counts and worst severity.
@@ -41,10 +41,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from medre.core.diagnostics.convergence import (
-    build_convergence_summary,
-    build_orphan_report,
-)
+from medre.core.diagnostics.convergence.orphans import build_orphan_report
+from medre.core.diagnostics.convergence.summary import build_convergence_summary
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -572,12 +570,12 @@ class TestAllOutboxStatuses:
 
 
 # ===================================================================
-# 9. Reserved fields
+# 9. Cross-populated fields
 # ===================================================================
 
 
-class TestReservedFields:
-    """Reserved fields are None until linked to orphan/evidence reports."""
+class TestCrossPopulatedFields:
+    """Cross-populated fields are None until linked to orphan/evidence reports."""
 
     def test_orphan_count_is_none(self) -> None:
         summary = build_convergence_summary()
@@ -587,7 +585,7 @@ class TestReservedFields:
         summary = build_convergence_summary()
         assert summary.evidence_bundle_ref is None
 
-    def test_reserved_in_to_dict(self) -> None:
+    def test_optional_fields_in_to_dict(self) -> None:
         summary = build_convergence_summary(
             receipts=[_receipt(status="sent")],
         )

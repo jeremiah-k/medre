@@ -17,7 +17,7 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 | Adapter transient     | 0         | `sent` (after retry) or `failed`                   | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
 | Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)              | No                         | `capacity_rejections` counter, logs              |
 | Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                       | No                         | delivery plan timestamps                         |
-| Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)              | No                         | `outbound_failed` counter                        |
+| Shutdown rejection    | 0         | `suppressed` (delivery_rejected_shutdown)          | No                         | `outbound_failed` counter                        |
 | Replay capacity       | 0         | `error` (replay_capacity_exceeded)                 | No                         | `capacity_rejections` counter                    |
 | Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)          | N/A (by design)            | receipt `replay_run_id`                          |
 | Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events | No                         | receipt `failure_kind`, `error` field            |
@@ -247,11 +247,11 @@ Fix: check the delivery plan's deadline configuration, adapter latency, and tran
 
 ### Delivery Rejected During Shutdown
 
-In-flight deliveries when shutdown begins are rejected, not drained.
+In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `delivery_rejected_shutdown`.
 
-Expected: `DeliveryOutcome`: `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
+Expected: `DeliveryReceipt`: `status == "suppressed"`, `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
 
-Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits.
+Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits. Non-terminal outbox rows survive shutdown as resumable work and are reclaimed on next startup.
 
 ### Replay Rejected During Shutdown
 
@@ -546,7 +546,7 @@ WHERE delivery_plan_id = '<plan_id>';
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
 7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
-8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries abandoned after drain timeout produce suppressed receipts; non-terminal outbox items survive shutdown as resumable work.
+8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `delivery_rejected_shutdown`; non-terminal outbox items survive shutdown as resumable work.
 
 ## See Also
 
