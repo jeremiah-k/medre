@@ -629,12 +629,30 @@
         "delivery_plan_id": { "type": "string" },
         "event_id": { "type": "string" },
         "outbox_id": { "type": "string" },
-        "ownership_action": { "type": "string" },
+        "ownership_action": {
+          "type": "string",
+          "enum": [
+            "recoverable",
+            "claimed_for_recovery",
+            "reclaimed",
+            "abandoned",
+            "unrecoverable",
+            "skipped"
+          ]
+        },
         "prior_status": { "type": "string" },
         "reason": { "type": "string" },
         "recovered_status": { "type": "string" },
         "recovery_run_id": { "type": ["string", "null"] },
-        "recovery_source": { "type": "string" },
+        "recovery_source": {
+          "type": "string",
+          "enum": [
+            "startup_recovery",
+            "retry_worker_recovery",
+            "snapshot_diagnostics",
+            "replay_execution"
+          ]
+        },
         "startup_timestamp": {
           "type": ["string", "null"],
           "format": "date-time"

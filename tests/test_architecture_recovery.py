@@ -137,3 +137,32 @@ class TestNoFacade:
         import medre.core.recovery as pkg
 
         assert not hasattr(pkg, "__all__")
+
+
+# ---------------------------------------------------------------------------
+# Status vocabulary consistency (item 8)
+# ---------------------------------------------------------------------------
+
+
+class TestStatusVocabularyConsistency:
+    """Assert terminal status sets match across classification and convergence modules.
+
+    Decision: centralization into a shared ``statuses.py`` module was evaluated.
+    It would create a dependency from ``diagnostics.convergence`` → ``recovery``
+    just for status constants, which is unnecessary coupling for two identical
+    frozensets.  Instead, we keep local constants and assert they match via test.
+    """
+
+    def test_terminal_outbox_statuses_match(self) -> None:
+        """recovery/classification._TERMINAL_STATUSES must match
+        convergence/recovery_convergence._TERMINAL_OUTBOX."""
+        from medre.core.diagnostics.convergence.recovery_convergence import (
+            _TERMINAL_OUTBOX,
+        )
+        from medre.core.recovery.classification import _TERMINAL_STATUSES
+
+        assert _TERMINAL_STATUSES == _TERMINAL_OUTBOX, (
+            f"Terminal status sets diverged: "
+            f"classification={sorted(_TERMINAL_STATUSES)}, "
+            f"convergence={sorted(_TERMINAL_OUTBOX)}"
+        )

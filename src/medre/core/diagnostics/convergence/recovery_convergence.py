@@ -76,10 +76,16 @@ def build_recovery_convergence_findings(
     """
     findings: list[OrphanFinding] = []
 
+    # Materialize generators once — outbox_items may be a one-shot generator.
+    outbox_list = list(outbox_items)
+
+    # Normalized recovery actions — populated when recovery_ledger is present.
+    actions_list: list[Any] = []
+
     # Index outbox items by target key and by outbox_id.
     outbox_by_target: dict[tuple[str, str, str | None], list[Any]] = {}
     outbox_by_id: dict[str, Any] = {}
-    for item in outbox_items:
+    for item in outbox_list:
         key = _target_key(item)
         outbox_by_target.setdefault(key, []).append(item)
         oid = _get(item, "outbox_id", "")
@@ -98,16 +104,14 @@ def build_recovery_convergence_findings(
     # shutdown.  This means recovery claimed ownership but the item
     # hasn't actually progressed.
     if recovery_ledger is not None:
-        # Extract actions from ledger (duck-typed).
+        # Extract actions from ledger (duck-typed), normalize once.
         # Defensive: ``actions`` may be ``None`` on dict-based ledgers where
         # the key exists but holds a null value.
-        actions = _get(recovery_ledger, "actions", ()) or ()
-        if isinstance(actions, tuple):
-            actions_list: list[Any] = list(actions)
-        elif isinstance(actions, list):
-            actions_list = actions
+        _raw_actions = _get(recovery_ledger, "actions", ()) or ()
+        if isinstance(_raw_actions, (tuple, list)):
+            actions_list: list[Any] = list(_raw_actions)
         else:
-            actions_list = list(actions)
+            actions_list = list(_raw_actions)
 
         # Track recovery_run_ids to detect repeatedly reclaimed.
         action_run_ids: dict[str, list[str]] = {}  # outbox_id → list[recovery_run_id]
@@ -216,7 +220,7 @@ def build_recovery_convergence_findings(
                 if oid_t:
                     recovered_outbox_ids_terminal.add(oid_t)
 
-        for item in outbox_items:
+        for item in outbox_list:
             status = str(_get(item, "status", "")).lower()
             if status in _TERMINAL_OUTBOX:
                 oid = str(_get(item, "outbox_id", ""))
@@ -257,13 +261,8 @@ def build_recovery_convergence_findings(
     # AFTER appearing in a recovery ledger (meaning it was recovered but
     # the event has been deleted or never existed).
     if known_event_ids is not None and recovery_ledger is not None:
-        actions = _get(recovery_ledger, "actions", ()) or ()
-        if isinstance(actions, tuple):
-            actions_l = list(actions)
-        elif isinstance(actions, list):
-            actions_l = actions
-        else:
-            actions_l = list(actions)
+        # Reuse actions_list normalized in the recovery_ledger block above.
+        actions_l = actions_list
 
         recovered_outbox_ids: set[str] = set()
         for action in actions_l:
@@ -273,7 +272,7 @@ def build_recovery_convergence_findings(
                 if oid:
                     recovered_outbox_ids.add(oid)
 
-        for item in outbox_items:
+        for item in outbox_list:
             oid = str(_get(item, "outbox_id", ""))
             if oid in recovered_outbox_ids:
                 event_id = str(_get(item, "event_id", ""))

@@ -38,5 +38,5 @@ class RecoverySource(enum.StrEnum):
 
     Not currently produced by any code path.  Current replay separation
     is represented by replay receipts with ``source='replay'`` /
-    ``replay_run_id``, not by recovery ownership actions.  Kept in the
-    enum for forward compatibility."""
+    ``replay_run_id``, not by recovery ownership actions.  Reserved until replay recovery
+    ownership actions are implemented."""

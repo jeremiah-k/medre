@@ -785,6 +785,152 @@ class TestRecoverySourceInference:
 
 
 # ---------------------------------------------------------------------------
+# Recovery source validation (item 4)
+# ---------------------------------------------------------------------------
+
+
+class TestRecoverySourceValidation:
+    """Explicit recovery_source is validated against RecoverySource enum values."""
+
+    def test_valid_source_accepted(self) -> None:
+        """All known RecoverySource values must be accepted."""
+        for src in RecoverySource:
+            items = [_make_item(status="pending")]
+            ledger = build_startup_recovery_ledger(
+                outbox_items=items,
+                startup_timestamp=None,
+                now_fn=_fixed_now,
+                recovery_run_id="run-1",
+                recovery_source=str(src),
+            )
+            assert ledger.actions[0].recovery_source == str(src)
+
+    def test_invalid_source_raises_value_error(self) -> None:
+        """Unknown recovery_source must raise ValueError."""
+        with pytest.raises(ValueError, match="Unknown recovery source: 'bogus_source'"):
+            build_startup_recovery_ledger(
+                outbox_items=[_make_item(status="pending")],
+                startup_timestamp=None,
+                now_fn=_fixed_now,
+                recovery_run_id="run-1",
+                recovery_source="bogus_source",
+            )
+
+    def test_by_source_never_has_unknown_keys(self) -> None:
+        """by_source keys must all be known RecoverySource values."""
+        valid = {str(s) for s in RecoverySource}
+        items = [
+            _make_item(outbox_id="ob-1", status="pending"),
+            _make_item(outbox_id="ob-2", status="sent"),
+        ]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            startup_timestamp="2026-05-31T12:00:00+00:00",
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        summary = build_recovery_summary(ledger)
+        for key in summary.by_source:
+            assert key in valid, f"Unknown by_source key: {key!r}"
+
+
+# ---------------------------------------------------------------------------
+# Consistency validation (item 7)
+# ---------------------------------------------------------------------------
+
+
+class TestConsistencyValidMeaningful:
+    """consistency_valid is False when unknown ownership_action values exist."""
+
+    def test_all_valid_actions_consistency_true(self) -> None:
+        """All recognized actions → consistency_valid is True."""
+        items = [
+            _make_item(outbox_id="ob-1", status="pending"),
+            _make_item(outbox_id="ob-2", status="sent"),
+            _make_item(outbox_id="ob-3", status="dead_lettered"),
+        ]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        summary = build_recovery_summary(ledger)
+        assert summary.consistency_valid is True
+
+    def test_unknown_action_consistency_false(self) -> None:
+        """An unknown ownership_action makes consistency_valid False."""
+        # Build a ledger with a valid action, then inject an unknown one.
+        items = [_make_item(outbox_id="ob-1", status="pending")]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        # Inject unknown action directly into the ledger
+        from medre.core.recovery.models import RecoveryOwnershipAction as _ROA
+
+        unknown_action = _ROA(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            outbox_id="ob-999",
+            prior_status="pending",
+            recovered_status="pending",
+            ownership_action="totally_unknown_action",
+            reason="Injected unknown",
+            worker_identity=None,
+            recovery_source="startup_recovery",
+            timestamp="2026-05-31T12:00:00+00:00",
+            delivery_plan_id="plan-1",
+            event_id="ev-1",
+        )
+        modified_ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(*ledger.actions, unknown_action),
+            generated_at=ledger.generated_at,
+        )
+        summary = build_recovery_summary(modified_ledger)
+        assert summary.consistency_valid is False
+
+    def test_unknown_not_counted_as_unrecoverable(self) -> None:
+        """Unknown ownership_action must NOT be counted as unrecoverable."""
+        items = [_make_item(outbox_id="ob-1", status="pending")]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        from medre.core.recovery.models import RecoveryOwnershipAction as _ROA
+
+        unknown_action = _ROA(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            outbox_id="ob-999",
+            prior_status="pending",
+            recovered_status="pending",
+            ownership_action="mystery_status",
+            reason="Injected unknown",
+            worker_identity=None,
+            recovery_source="startup_recovery",
+            timestamp="2026-05-31T12:00:00+00:00",
+            delivery_plan_id="plan-1",
+            event_id="ev-1",
+        )
+        modified_ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(*ledger.actions, unknown_action),
+            generated_at=ledger.generated_at,
+        )
+        summary = build_recovery_summary(modified_ledger)
+        # ob-1 is pending → recoverable (1), ob-999 is unknown → skips buckets
+        assert summary.recoverable_items == 1
+        assert summary.unrecoverable_items == 0
+        assert summary.total_items == 2
+        assert summary.consistency_valid is False
+
+
+# ---------------------------------------------------------------------------
 # JSON safety / Determinism
 # ---------------------------------------------------------------------------
 

@@ -66,6 +66,9 @@ def _infer_recovery_source(
     not currently produced by any code path.
     """
     if recovery_source is not None:
+        valid_sources = {str(s) for s in RecoverySource}
+        if recovery_source not in valid_sources:
+            raise ValueError(f"Unknown recovery source: {recovery_source!r}")
         return recovery_source
 
     if startup_timestamp is not None:
@@ -257,8 +260,8 @@ def build_recovery_summary(
             abandoned += 1
         elif oa == str(RecoveryOwnershipStatus.UNRECOVERABLE):
             unrecoverable += 1
-        else:
-            unrecoverable += 1
+        # Unknown ownership_action values skip all buckets so that
+        # consistency_valid becomes False when unknown actions exist.
 
     total = len(ledger.actions)
     computed_sum = (

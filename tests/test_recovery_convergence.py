@@ -841,3 +841,43 @@ class TestNoneRunIdNeverStringifies:
             assert (
                 "None" not in f.record_id
             ), f"record_id contains the literal string 'None': {f.record_id!r}"
+
+
+# ---------------------------------------------------------------------------
+# One-shot generator safety (item 5)
+# ---------------------------------------------------------------------------
+
+
+class TestOneShotGenerator:
+    """Materializing outbox_items once must work with one-shot generators."""
+
+    def test_outbox_generator_exhausted_once(self) -> None:
+        """A one-shot generator for outbox_items must produce all findings."""
+        call_count = 0
+
+        def _outbox_gen():
+            nonlocal call_count
+            for item in [
+                _make_outbox(outbox_id="ob-1", status="dead_lettered"),
+                _make_outbox(outbox_id="ob-2", status="dead_lettered"),
+            ]:
+                call_count += 1
+                yield item
+
+        receipts = [_make_receipt(status="failed")]
+        action1 = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        action2 = _make_action(outbox_id="ob-2", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action1, action2),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=_outbox_gen(),
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_RECLAIMED_THEN_TERMINAL in kinds
+        assert call_count == 2  # Generator yielded exactly 2 items
