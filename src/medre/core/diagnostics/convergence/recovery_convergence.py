@@ -109,7 +109,7 @@ def build_recovery_convergence_findings(
         # the key exists but holds a null value.
         _raw_actions = _get(recovery_ledger, "actions", ()) or ()
         if isinstance(_raw_actions, (tuple, list)):
-            actions_list: list[Any] = list(_raw_actions)
+            actions_list = list(_raw_actions)
         else:
             actions_list = list(_raw_actions)
 
