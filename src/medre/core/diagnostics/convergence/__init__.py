@@ -24,8 +24,9 @@ Outbox statuses:
 
 Classification rules
 --------------------
-For each delivery target (grouped by ``delivery_plan_id + target_adapter +
-target_channel``):
+
+**Convergence summary** (``build_convergence_summary`` — per-target aggregate
+classification):
 
 1. **safe** — outbox terminal ``sent`` and latest receipt terminal ``sent``;
    or both terminal and matching (e.g. ``dead_lettered``/``dead_lettered``);
@@ -35,9 +36,17 @@ target_channel``):
    outbox without any receipt (mid-flight, receipt not yet written);
    missing ``delivery_plan_id`` (degraded with warning).
 3. **inconsistent** — terminal outbox but latest receipt is non-terminal;
-   status mismatch that cannot be explained by normal flow.  Non-terminal
-   outbox with a terminal receipt is classified as **degraded** (receipt
-   persistence may occur before the outbox update).
+   non-terminal outbox with a terminal ``sent``/``suppressed`` receipt;
+   status mismatch that cannot be explained by normal flow.
+
+**Lifecycle convergence** (``build_lifecycle_convergence_findings`` —
+fine-grained per-finding diagnostics, see ``lifecycle_checks.py``):
+
+- ``terminal_receipt_nonterminal_outbox`` is classified as **degraded**
+  (receipt writes and outbox updates are separate SQLite transactions;
+  a snapshot may legitimately observe a terminal receipt before the
+  outbox state reflects it).
+- ``terminal_outbox_nonterminal_receipt`` remains **inconsistent**.
 
 Cross-populated fields
 ----------------------

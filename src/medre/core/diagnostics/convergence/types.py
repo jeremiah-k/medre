@@ -181,7 +181,10 @@ class ConvergenceSummary:
 
 @dataclass(frozen=True)
 class OrphanFinding:
-    """A single orphan or invalid-lineage finding.
+    """Internal convergence finding record reused by orphan, recovery, and
+    lifecycle diagnostics.  Public JSON schemas (``OrphanFinding``,
+    ``LifecycleConvergenceFinding``) expose narrower finding shapes with
+    distinct closed ``kind`` enums.
 
     All fields are JSON-safe.
 

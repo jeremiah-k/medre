@@ -1156,3 +1156,57 @@ class TestEvidenceBundleSchemaNewFields:
         }
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_empty_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts={} must be rejected (requires safe/degraded/inconsistent)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_bad_key_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts={'foo': 1} must be rejected (additionalProperties: false)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {"foo": 1},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_lifecycle_report_severity_counts_missing_key_rejected(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """severity_counts missing 'inconsistent' must be rejected (required)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["lifecycle_convergence_report"] = {
+            "findings": [],
+            "total_findings": 0,
+            "severity_counts": {"safe": 0, "degraded": 0},
+            "worst_severity": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)

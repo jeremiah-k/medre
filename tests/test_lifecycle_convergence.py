@@ -239,8 +239,8 @@ class TestReceiptOutboxMismatch:
         assert KIND_RECEIPT_OUTBOX_MISMATCH in kinds
 
     def test_non_terminal_abnormal_combo(self) -> None:
-        """pending outbox + failed receipt is a 'normal' degraded combo — should
-        NOT fire C (it's in the normal non-terminal combos)."""
+        """pending outbox + failed receipt is NOT a normal combination —
+        fires as a degraded mismatch (check C)."""
         f = _build(
             outbox_items=[_outbox(status="pending")],
             receipts=[_receipt(status="failed")],
