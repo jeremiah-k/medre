@@ -716,6 +716,137 @@ The convergence system also detects orphaned and invalid-lineage records when su
 
 All findings are detection-only. No automatic repair occurs.
 
+## Lifecycle Convergence Findings
+
+The evidence bundle also includes a `lifecycle_convergence_report` for each event. This report contains specific findings about contradictions between outbox and receipt state machines, retry metadata problems, stalled plans, and sequence anomalies. It is separate from the `convergence_summary` (which gives overall target health) and the `orphan_report` (which detects broken lineage).
+
+### Reading Lifecycle Convergence Output
+
+The lifecycle convergence report has three fields to check first:
+
+| Field             | What to look for                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `worst_severity`  | If `"inconsistent"`, there are data-integrity contradictions that need investigation. |
+| `severity_counts` | How many findings at each level. Any non-zero `inconsistent` count needs attention.   |
+| `findings`        | Individual findings with `kind`, `record_id`, `details`, and `extra` context.         |
+
+### Finding Kinds and Operator Actions
+
+#### `terminal_receipt_nonterminal_outbox` (inconsistent)
+
+The latest receipt says the delivery finished (sent, suppressed, or dead_lettered) but the outbox item is still non-terminal (pending, retry_wait, in_progress, queued).
+
+This is a data-integrity contradiction. The outbox should have been transitioned to terminal when the receipt was written.
+
+```sql
+SELECT outbox_id, status, updated_at FROM delivery_outbox
+WHERE delivery_plan_id = '<plan_id>';
+SELECT receipt_id, status, attempt_number FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number;
+```
+
+Determine which record is stale. If the receipt is correct (delivery did complete), the outbox is stale. If the outbox is correct, the receipt may be from a stale correlation.
+
+#### `terminal_outbox_nonterminal_receipt` (inconsistent)
+
+The outbox has reached a terminal status but the latest receipt is still non-terminal (queued or failed).
+
+This is also a data-integrity contradiction. The receipt should reflect the terminal outcome.
+
+```sql
+SELECT outbox_id, status FROM delivery_outbox
+WHERE delivery_plan_id = '<plan_id>';
+SELECT receipt_id, status FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number DESC LIMIT 1;
+```
+
+The delivery likely completed but the receipt chain may be incomplete. Check if the adapter callback was received and if a supplemental receipt was created.
+
+#### `retry_wait_missing_next_retry` (inconsistent)
+
+An outbox item is in `retry_wait` state but has no valid `next_attempt_at` timestamp. The retry scheduler cannot determine when to retry.
+
+```sql
+SELECT outbox_id, status, next_attempt_at FROM delivery_outbox
+WHERE outbox_id = '<outbox_id>';
+```
+
+The retry metadata is corrupted or was never set. Consider replaying the event or manually correcting the `next_attempt_at` value.
+
+#### `receipt_outbox_mismatch` (degraded)
+
+Both receipt and outbox exist for a target but their statuses contradict normal flow in a way that does not indicate a terminal/non-terminal mismatch. For example, both are terminal but with different statuses, or both are non-terminal in an abnormal combination.
+
+```sql
+SELECT o.outbox_id, o.status AS outbox_status, r.receipt_id, r.status AS receipt_status
+FROM delivery_outbox o JOIN delivery_receipts r
+ON o.delivery_plan_id = r.delivery_plan_id
+WHERE o.delivery_plan_id = '<plan_id>';
+```
+
+Check whether the statuses reflect a recent transition in progress or a persistent inconsistency.
+
+#### `next_retry_in_past` (degraded)
+
+An outbox item is in `retry_wait` but `next_attempt_at` is in the past. The retry should have already been attempted.
+
+```sql
+SELECT outbox_id, status, next_attempt_at, updated_at FROM delivery_outbox
+WHERE outbox_id = '<outbox_id>';
+```
+
+The RetryWorker may be behind, or the retry scheduling logic produced an incorrect timestamp. Check that the RetryWorker is running and processing due items.
+
+#### `retryable_without_retry_metadata` (degraded)
+
+A failed receipt appears retryable (transient failure or matching non-terminal outbox) but is missing retry scheduling fields.
+
+```sql
+SELECT receipt_id, status, failure_kind, next_retry_at FROM delivery_receipts
+WHERE receipt_id = '<receipt_id>';
+```
+
+The retry metadata was not populated when the receipt was created. If retry is enabled, the receipt may not be picked up by the RetryWorker. Consider replaying the event.
+
+#### `stalled_delivery_plan` (degraded)
+
+A non-terminal outbox item has not been updated for longer than the stall threshold (default 1 hour). The delivery appears stuck.
+
+```sql
+SELECT outbox_id, status, updated_at FROM delivery_outbox
+WHERE outbox_id = '<outbox_id>';
+```
+
+Check whether the worker that claimed this item is still alive. Expired leases should be reclaimed by `claim_due_outbox_items()`. If the item remains stalled, the worker may have crashed without releasing the claim.
+
+#### `attempt_count_regression` (inconsistent)
+
+Within the same delivery target, a later receipt has a lower attempt number than an earlier receipt. Attempt numbers should monotonically increase within a retry chain.
+
+```sql
+SELECT receipt_id, attempt_number, created_at FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>' ORDER BY created_at;
+```
+
+This suggests a data integrity issue in the retry chain. The receipt chain should be audited for correctness.
+
+#### `receipt_sequence_gap` (degraded)
+
+Receipts for the same target have sequence numbers that skip by more than 1. Some intermediate receipts may be missing.
+
+```sql
+SELECT receipt_id, sequence, status, created_at FROM delivery_receipts
+WHERE delivery_plan_id = '<plan_id>' ORDER BY sequence;
+```
+
+Gaps may indicate lost receipts or concurrent delivery attempts. Check whether receipts were created but not persisted.
+
+### Important Constraints
+
+- Lifecycle convergence diagnostics are **deterministic and read-only**. They never change retry scheduling, worker behavior, or storage state.
+- No automatic repair occurs. All findings are for operator inspection only.
+- Findings use the same `OrphanFinding` structure as orphan report findings for schema consistency.
+
 ## See Also
 
 - [recovery-and-replay.md](recovery-and-replay.md) — crash recovery, orphan detection, replay modes

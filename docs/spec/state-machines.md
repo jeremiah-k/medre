@@ -421,3 +421,5 @@ Startup does not block on convergence diagnostics. Non-terminal items are reclai
 ### 6.3 Recovery Convergence and Startup
 
 Convergence diagnostics (see Diagnostics and Evidence Specification §21) are read-only projections derived from outbox and receipt state. They do not drive startup behavior. The runtime does not block, delay, or modify startup sequencing based on convergence severity. Operators inspect convergence diagnostics output after startup to identify and manually address state discrepancies.
+
+Lifecycle delivery convergence diagnostics (see Diagnostics and Evidence Specification §23) provide finer-grained detection of specific contradictions between the two state machines: receipt/outbox status mismatches (§23.6), retry metadata anomalies in `retry_wait` outbox items (§23.7), stalled non-terminal outbox items (§23.9), attempt count regressions in receipt chains (§23.10), and receipt sequence gaps (§23.11). Like convergence summary diagnostics, lifecycle convergence findings are detection-only and do not drive startup or worker behavior.
