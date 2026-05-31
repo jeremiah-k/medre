@@ -797,3 +797,129 @@ class TestEdgeCases:
                 evidence_flush_status=status,
             )
             assert ev.evidence_flush_status == status
+
+
+# ===================================================================
+# 14. Resumable policy fields: resume_expected, outbox_shutdown_policy
+# ===================================================================
+
+
+class TestResumablePolicyFields:
+    """resume_expected and outbox_shutdown_policy expose whether pending
+    outbox work is expected to resume and the policy name."""
+
+    def test_stopped_with_pending_resume_true(self) -> None:
+        """stopped + pending outbox work → shutdown_pending, resume_expected True."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 5, "sent": 100},
+        )
+        assert ev.shutdown_status == "shutdown_pending"
+        assert ev.resume_expected is True
+        assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_stopped_no_pending_resume_false_policy_resumable(self) -> None:
+        """stopped + no pending work → graceful_stop, resume False, policy resumable."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"sent": 100},
+        )
+        assert ev.shutdown_status == "graceful_stop"
+        assert ev.resume_expected is False
+        assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_failed_with_pending_resume_false(self) -> None:
+        """failed + pending → resume_expected False (failed is not resumable)."""
+        ev = build_shutdown_evidence(
+            runtime_state="failed",
+            outbox_counts={"pending": 3},
+        )
+        assert ev.shutdown_status == "failed"
+        assert ev.resume_expected is False
+        assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_running_with_pending_resume_false(self) -> None:
+        """running + pending → resume_expected False (still active)."""
+        ev = build_shutdown_evidence(
+            runtime_state="running",
+            outbox_counts={"pending": 2},
+        )
+        assert ev.shutdown_status == "running"
+        assert ev.resume_expected is False
+        assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_stopping_with_pending_resume_true(self) -> None:
+        """stopping + pending → resume_expected True (stopping is resumable)."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopping",
+            outbox_counts={"pending": 4},
+        )
+        assert ev.shutdown_status == "shutdown_pending"
+        assert ev.resume_expected is True
+        assert ev.outbox_shutdown_policy == "resumable"
+
+    def test_no_outbox_data_policy_none(self) -> None:
+        """No outbox_counts supplied → policy None, resume False."""
+        ev = build_shutdown_evidence(runtime_state="stopped")
+        assert ev.outbox_shutdown_policy is None
+        assert ev.resume_expected is False
+
+    def test_initialized_no_resume(self) -> None:
+        """initialized state treated as running → no resume."""
+        ev = build_shutdown_evidence(
+            runtime_state="initialized",
+            outbox_counts={"pending": 1},
+        )
+        assert ev.resume_expected is False
+
+    def test_starting_no_resume(self) -> None:
+        """starting state treated as running → no resume."""
+        ev = build_shutdown_evidence(
+            runtime_state="starting",
+            outbox_counts={"pending": 1},
+        )
+        assert ev.resume_expected is False
+
+    def test_to_dict_includes_resume_expected(self) -> None:
+        """to_dict output contains resume_expected field."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 1},
+        )
+        data = ev.to_dict()
+        assert "resume_expected" in data
+        assert data["resume_expected"] is True
+
+    def test_to_dict_includes_outbox_shutdown_policy(self) -> None:
+        """to_dict output contains outbox_shutdown_policy field."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 1},
+        )
+        data = ev.to_dict()
+        assert "outbox_shutdown_policy" in data
+        assert data["outbox_shutdown_policy"] == "resumable"
+
+    def test_to_dict_policy_none_when_no_outbox(self) -> None:
+        """to_dict has outbox_shutdown_policy as None when no outbox data."""
+        ev = build_shutdown_evidence(runtime_state="stopped")
+        data = ev.to_dict()
+        assert data["outbox_shutdown_policy"] is None
+
+    def test_to_dict_keys_still_sorted(self) -> None:
+        """Keys remain alphabetically sorted after adding new fields."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopped",
+            outbox_counts={"pending": 1},
+        )
+        data = ev.to_dict()
+        assert list(data.keys()) == sorted(data.keys())
+
+    def test_stopping_no_pending_resume_false(self) -> None:
+        """stopping with no pending work → resume False, policy resumable."""
+        ev = build_shutdown_evidence(
+            runtime_state="stopping",
+            outbox_counts={"sent": 10},
+        )
+        assert ev.resume_expected is False
+        assert ev.outbox_shutdown_policy == "resumable"

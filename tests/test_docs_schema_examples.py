@@ -447,8 +447,10 @@ class TestEvidenceBundleSchemaNewFields:
             "drain_timeout_detected": False,
             "evidence_flush_status": "flushed",
             "in_flight_count": 0,
+            "outbox_shutdown_policy": "resumable",
             "pending_outbox_counts": {},
             "pending_retry_work_total": 0,
+            "resume_expected": False,
             "retry_worker_dead_lettered": 0,
             "retry_worker_failed": 0,
             "retry_worker_processed": 5,
@@ -522,7 +524,9 @@ class TestEvidenceBundleSchemaNewFields:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
 
-    def test_adapter_status_item_missing_required_field_fails(self, _schema: dict[str, Any]) -> None:
+    def test_adapter_status_item_missing_required_field_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
         """A list item missing a required field must fail validation."""
         if not _HAS_JSONSCHEMA:
             pytest.skip("jsonschema not installed")
@@ -549,8 +553,10 @@ class TestEvidenceBundleSchemaNewFields:
             "drain_timeout_detected": False,
             "evidence_flush_status": "flushed",
             "in_flight_count": -1,
+            "outbox_shutdown_policy": "resumable",
             "pending_outbox_counts": None,
             "pending_retry_work_total": 0,
+            "resume_expected": False,
             "retry_worker_dead_lettered": 0,
             "retry_worker_failed": 0,
             "retry_worker_processed": 0,
@@ -564,7 +570,9 @@ class TestEvidenceBundleSchemaNewFields:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
 
-    def test_shutdown_negative_pending_outbox_count_fails(self, _schema: dict[str, Any]) -> None:
+    def test_shutdown_negative_pending_outbox_count_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
         """Negative pending_outbox_counts value must fail validation."""
         if not _HAS_JSONSCHEMA:
             pytest.skip("jsonschema not installed")
@@ -575,8 +583,10 @@ class TestEvidenceBundleSchemaNewFields:
             "drain_timeout_detected": False,
             "evidence_flush_status": "flushed",
             "in_flight_count": 0,
+            "outbox_shutdown_policy": "resumable",
             "pending_outbox_counts": {"pending": -3},
             "pending_retry_work_total": 0,
+            "resume_expected": False,
             "retry_worker_dead_lettered": 0,
             "retry_worker_failed": 0,
             "retry_worker_processed": 0,
@@ -634,8 +644,10 @@ class TestEvidenceBundleSchemaNewFields:
             "drain_timeout_detected": False,
             "evidence_flush_status": "flushed",
             "in_flight_count": 0,
+            "outbox_shutdown_policy": None,
             "pending_outbox_counts": None,
             "pending_retry_work_total": 0,
+            "resume_expected": False,
             "retry_worker_dead_lettered": 0,
             "retry_worker_failed": 0,
             "retry_worker_processed": 0,
@@ -649,3 +661,123 @@ class TestEvidenceBundleSchemaNewFields:
         }
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
+
+    # -- new resumable policy fields validation ---------------------------------
+
+    def test_shutdown_evidence_resume_expected_true_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """resume_expected=True with pending work must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            "outbox_shutdown_policy": "resumable",
+            "pending_outbox_counts": {"pending": 5},
+            "pending_retry_work_total": 5,
+            "resume_expected": True,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": "shutdown_pending",
+            "shutdown_status": "shutdown_pending",
+            "tasks_cancelled": None,
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_evidence_missing_resume_expected_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Missing resume_expected must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            "outbox_shutdown_policy": "resumable",
+            "pending_outbox_counts": {},
+            "pending_retry_work_total": 0,
+            # resume_expected deliberately omitted
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_evidence_missing_outbox_shutdown_policy_fails(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Missing outbox_shutdown_policy must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            # outbox_shutdown_policy deliberately omitted
+            "pending_outbox_counts": {},
+            "pending_retry_work_total": 0,
+            "resume_expected": False,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_evidence_null_policy_validates(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """outbox_shutdown_policy=null (no outbox data) must validate."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": None,
+            "in_flight_count": None,
+            "outbox_shutdown_policy": None,
+            "pending_outbox_counts": None,
+            "pending_retry_work_total": None,
+            "resume_expected": False,
+            "retry_worker_dead_lettered": None,
+            "retry_worker_failed": None,
+            "retry_worker_processed": None,
+            "retry_worker_running": None,
+            "retry_worker_succeeded": None,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        jsonschema.validate(instance=bundle, schema=_schema)
