@@ -219,6 +219,7 @@ __marimo__/
 
 #AI Agents
 .omo/
+.commandcode/
 
 # Docker integration test artifacts
 .ci-artifacts/

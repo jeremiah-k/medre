@@ -437,7 +437,7 @@ A conforming implementation satisfies:
 
 ### 9.2 Orphan Finding Kinds Conformance
 
-A conforming implementation detects exactly the six finding kinds: `orphaned_outbox`, `orphaned_parent_receipt`, `cross_plan_parent`, `cross_event_parent`, `missing_delivery_plan_id`, `dead_lettered_retryable_mismatch`. No other finding kinds are valid.
+A conforming implementation detects exactly ten finding kinds: `orphaned_outbox`, `orphaned_parent_receipt`, `cross_plan_parent`, `cross_event_parent`, `missing_delivery_plan_id`, `dead_lettered_retryable_mismatch`, `recovered_not_progressed`, `repeatedly_reclaimed`, `reclaimed_then_terminal`, `reclaimed_then_orphaned`. No other finding kinds are valid.
 
 ### 9.3 Evidence Bundle Integration Conformance
 
@@ -457,11 +457,35 @@ A conforming implementation detects exactly the six finding kinds: `orphaned_out
 2. Startup does not block on convergence diagnostics.
 3. Terminal outbox statuses require no startup action.
 
-### 9.6 Known Gaps
+### 9.6 Recovery Ownership Conformance
 
-All convergence diagnostics tests use synthetic-tier evidence (fake adapters and mock data). No `live_service` or `hardware` tier validation exists for:
+A conforming implementation satisfies:
 
-1. Convergence classification against real transport data.
-2. Orphan detection against a real event catalogue with real deletions.
-3. Replay/live callback correlation with real queue-based adapters.
-4. Startup reclaim timing with real adapters and real lease durations.
+1. **Observable startup ownership**: Every recovery or diagnostic ownership classification carries a `RecoveryOwnershipAction` in a `StartupRecoveryLedger`. The `RecoverySummary` provides deterministic totals with consistency validation (`total_items == sum` of all categories). Ownership statuses MUST be exactly six: `recoverable`, `claimed_for_recovery`, `reclaimed`, `abandoned`, `unrecoverable`, `skipped`.
+
+2. **Attributable recovery actions**: Every recovery or diagnostic ownership classification MUST carry a `recovery_source` field identifying which subsystem reclaimed ownership (`startup_recovery`, `retry_worker_recovery`, `snapshot_diagnostics`, or `replay_execution`). The value `replay_execution` is reserved for future replay recovery ownership actions and MUST NOT be produced by current implementations. The value `snapshot_diagnostics` is used for diagnostic classification from stored outbox/receipt snapshots where no runtime startup or retry worker performed actual recovery. Every action MUST carry `recovery_run_id`, `outbox_id`, `prior_status`, `recovered_status`, `ownership_action`, `reason`, and `worker_identity` (when available).
+
+3. **Append-only evidence**: The `StartupRecoveryLedger` is append-only. Recovery actions are deterministically ordered by `(outbox_id, timestamp)`. Once recorded, actions SHALL NOT be removed or modified.
+
+4. **Recovery diagnostics are read-only**: Classification and builder functions SHALL NOT mutate outbox items or receipts. They SHALL NOT perform I/O or access storage.
+
+5. **Replay is not recovery**: `recovery_source="replay_execution"` is reserved for future replay recovery ownership actions. Replay-origin recovery SHALL NOT be conflated with startup or retry-worker recovery. Current replay separation is represented by replay receipts (source/replay_run_id), not by recovery ownership actions. Startup recovery diagnostics MUST NOT classify replay-sourced activity as startup or retry-worker recovery.
+
+6. **Recovery is not proof of delivery**: Recovery actions document outbox transitions, not delivery confirmations. The `ownership_action` values reference claim statuses, not delivery statuses. Terminal outbox statuses (`sent`, `dead_lettered`) are classified as `unrecoverable` and SHALL NOT be presented as requiring recovery.
+
+7. **Recovery convergence visibility**: The convergence diagnostics system SHALL detect four recovery-accountability patterns: `recovered_not_progressed`, `repeatedly_reclaimed`, `reclaimed_then_terminal`, `reclaimed_then_orphaned`. These findings SHALL be merged into the existing `OrphanReport` and follow the same detection-only policy.
+
+8. **Deterministic startup reporting**: The evidence bundle SHALL include a `recovery` section when collected with a runtime configuration. The section SHALL contain a `recovery_summary` and `recovery_ledger` with deterministic JSON output for identical inputs. The per-event `EvidenceBundle` SHALL carry `recovery_summary` and `recovery_ledger` as optional fields.
+
+9. **Schema coverage**: Recovery evidence SHALL be accepted by the `evidence-bundle.schema.json` JSON Schema. JSON examples SHALL exist for `recovery-summary` and `recovery-ledger`.
+
+10. **Recovery evidence is diagnostic, not transactional**: Recovery evidence is generated as bundle snapshots from stored state at collection time. It is not an append-only log of live recovery transactions. Evidence collection does not perform actual startup recovery. Three distinct semantic tiers exist (see diagnostics-evidence.md § 22.3.1): actual startup recovery (real `recovery_run_id` from boot), runtime snapshot diagnostics (snapshot-scoped `recovery_run_id`), and per-event diagnostics (`recovery_run_id=None`). These tiers MUST NOT be conflated.
+
+### 9.7 Known Gaps
+
+All convergence diagnostics and recovery ownership tests use synthetic-tier evidence (fake adapters and mock data). No `live_service` or `hardware` tier validation exists for:
+
+1. Recovery ownership classification against real restart cycles with real adapters.
+2. Recovery convergence findings against real outbox/receipt state with real transport data.
+3. Startup recovery ledger across actual process restart cycles.
+4. Recovery source disambiguation with concurrent retry workers and replay sessions.

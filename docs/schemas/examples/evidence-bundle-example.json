@@ -61,10 +61,138 @@
         "event_count": 0,
         "receipt_count": 0
       }
+    },
+    "recovery": {
+      "status": "passed",
+      "error": null,
+      "data": {
+        "recovery_summary": {
+          "abandoned_items": 0,
+          "by_source": { "snapshot_diagnostics": 3 },
+          "claimed_items": 0,
+          "consistency_valid": true,
+          "reclaimed_items": 0,
+          "recoverable_items": 1,
+          "recovery_run_id": null,
+          "skipped_items": 1,
+          "total_items": 3,
+          "unrecoverable_items": 1
+        },
+        "recovery_ledger": {
+          "actions": [
+            {
+              "delivery_plan_id": "plan-1",
+              "event_id": "ev-1",
+              "outbox_id": "ob-1",
+              "ownership_action": "recoverable",
+              "prior_status": "pending",
+              "reason": "Item is pending and claimable",
+              "recovered_status": "pending",
+              "recovery_run_id": null,
+              "recovery_source": "snapshot_diagnostics",
+              "startup_timestamp": null,
+              "timestamp": "2026-05-27T12:00:00+00:00",
+              "worker_identity": null
+            },
+            {
+              "delivery_plan_id": "plan-1",
+              "event_id": "ev-2",
+              "outbox_id": "ob-2",
+              "ownership_action": "skipped",
+              "prior_status": "retry_wait",
+              "reason": "Retry-eligible with future next_attempt_at",
+              "recovered_status": "retry_wait",
+              "recovery_run_id": null,
+              "recovery_source": "snapshot_diagnostics",
+              "startup_timestamp": null,
+              "timestamp": "2026-05-27T12:00:00+00:00",
+              "worker_identity": null
+            },
+            {
+              "delivery_plan_id": "plan-1",
+              "event_id": "ev-3",
+              "outbox_id": "ob-3",
+              "ownership_action": "unrecoverable",
+              "prior_status": "sent",
+              "reason": "Terminal status: no recovery needed",
+              "recovered_status": "sent",
+              "recovery_run_id": null,
+              "recovery_source": "snapshot_diagnostics",
+              "startup_timestamp": null,
+              "timestamp": "2026-05-27T12:00:00+00:00",
+              "worker_identity": null
+            }
+          ],
+          "generated_at": "2026-05-27T12:00:02+00:00",
+          "recovery_run_id": null,
+          "startup_timestamp": null
+        }
+      }
     }
   },
   "shutdown_evidence": null,
   "convergence_summary": null,
   "orphan_report": null,
+  "recovery_summary": {
+    "abandoned_items": 0,
+    "by_source": { "snapshot_diagnostics": 3 },
+    "claimed_items": 0,
+    "consistency_valid": true,
+    "reclaimed_items": 0,
+    "recoverable_items": 1,
+    "recovery_run_id": null,
+    "skipped_items": 1,
+    "total_items": 3,
+    "unrecoverable_items": 1
+  },
+  "recovery_ledger": {
+    "actions": [
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-1",
+        "outbox_id": "ob-1",
+        "ownership_action": "recoverable",
+        "prior_status": "pending",
+        "reason": "Item is pending and claimable",
+        "recovered_status": "pending",
+        "recovery_run_id": null,
+        "recovery_source": "snapshot_diagnostics",
+        "startup_timestamp": null,
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      },
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-2",
+        "outbox_id": "ob-2",
+        "ownership_action": "skipped",
+        "prior_status": "retry_wait",
+        "reason": "Retry-eligible with future next_attempt_at",
+        "recovered_status": "retry_wait",
+        "recovery_run_id": null,
+        "recovery_source": "snapshot_diagnostics",
+        "startup_timestamp": null,
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      },
+      {
+        "delivery_plan_id": "plan-1",
+        "event_id": "ev-3",
+        "outbox_id": "ob-3",
+        "ownership_action": "unrecoverable",
+        "prior_status": "sent",
+        "reason": "Terminal status: no recovery needed",
+        "recovered_status": "sent",
+        "recovery_run_id": null,
+        "recovery_source": "snapshot_diagnostics",
+        "startup_timestamp": null,
+        "timestamp": "2026-05-27T12:00:00+00:00",
+        "worker_identity": null
+      }
+    ],
+    "generated_at": "2026-05-27T12:00:02+00:00",
+    "recovery_run_id": null,
+    "startup_timestamp": null
+  },
   "status": "passed"
 }

@@ -335,6 +335,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.rendering",
         "medre.core.policies",
         "medre.core.planning",
+        "medre.core.recovery",
         "medre.core.supervision",
         "medre.interop",
         "medre.runtime",

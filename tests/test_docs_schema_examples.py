@@ -662,7 +662,73 @@ class TestEvidenceBundleSchemaNewFields:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
 
-    # -- new resumable policy fields validation ---------------------------------
+    # -- recovery ownership action / source enum validation -------------------
+
+    def test_invalid_ownership_action_rejected_by_schema(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Invalid ownership_action value must be rejected by schema."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["recovery_ledger"] = {
+            "actions": [
+                {
+                    "delivery_plan_id": "plan-1",
+                    "event_id": "ev-1",
+                    "outbox_id": "ob-1",
+                    "ownership_action": "INVALID_ACTION",
+                    "prior_status": "pending",
+                    "reason": "test",
+                    "recovered_status": "pending",
+                    "recovery_run_id": None,
+                    "recovery_source": "startup_recovery",
+                    "startup_timestamp": None,
+                    "timestamp": "2026-05-31T12:00:00+00:00",
+                    "worker_identity": None,
+                },
+            ],
+            "generated_at": "2026-05-31T12:00:00+00:00",
+            "recovery_run_id": None,
+            "startup_timestamp": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_invalid_recovery_source_rejected_by_schema(
+        self, _schema: dict[str, Any]
+    ) -> None:
+        """Invalid recovery_source value must be rejected by schema."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["recovery_ledger"] = {
+            "actions": [
+                {
+                    "delivery_plan_id": "plan-1",
+                    "event_id": "ev-1",
+                    "outbox_id": "ob-1",
+                    "ownership_action": "recoverable",
+                    "prior_status": "pending",
+                    "reason": "test",
+                    "recovered_status": "pending",
+                    "recovery_run_id": None,
+                    "recovery_source": "INVALID_SOURCE",
+                    "startup_timestamp": None,
+                    "timestamp": "2026-05-31T12:00:00+00:00",
+                    "worker_identity": None,
+                },
+            ],
+            "generated_at": "2026-05-31T12:00:00+00:00",
+            "recovery_run_id": None,
+            "startup_timestamp": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
 
     def test_shutdown_evidence_resume_expected_true_validates(
         self, _schema: dict[str, Any]

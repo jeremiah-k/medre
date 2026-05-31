@@ -86,6 +86,9 @@
         },
         "storage": {
           "$ref": "#/$defs/EvidenceSection"
+        },
+        "recovery": {
+          "$ref": "#/$defs/EvidenceSection"
         }
       },
       "additionalProperties": false
@@ -101,6 +104,14 @@
     "orphan_report": {
       "description": "Per-event orphan/invalid-lineage report derived from delivery receipts and outbox items, or null.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/OrphanReport" }]
+    },
+    "recovery_summary": {
+      "description": "Per-event recovery ownership summary derived from outbox state, or null.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/RecoverySummary" }]
+    },
+    "recovery_ledger": {
+      "description": "Per-event startup recovery ledger with ownership actions, or null.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/StartupRecoveryLedger" }]
     },
     "status": {
       "type": "string",
@@ -472,7 +483,11 @@
             "cross_plan_parent",
             "cross_event_parent",
             "missing_delivery_plan_id",
-            "dead_lettered_retryable_mismatch"
+            "dead_lettered_retryable_mismatch",
+            "recovered_not_progressed",
+            "repeatedly_reclaimed",
+            "reclaimed_then_terminal",
+            "reclaimed_then_orphaned"
           ],
           "description": "Category of finding."
         },
@@ -546,6 +561,118 @@
         "severity_counts",
         "worst_severity",
         "summary"
+      ],
+      "additionalProperties": false
+    },
+    "RecoverySummary": {
+      "title": "RecoverySummary",
+      "description": "Deterministic recovery ownership summary with consistency validation.",
+      "type": "object",
+      "properties": {
+        "recoverable_items": { "type": "integer", "minimum": 0 },
+        "claimed_items": { "type": "integer", "minimum": 0 },
+        "reclaimed_items": { "type": "integer", "minimum": 0 },
+        "skipped_items": { "type": "integer", "minimum": 0 },
+        "abandoned_items": { "type": "integer", "minimum": 0 },
+        "unrecoverable_items": { "type": "integer", "minimum": 0 },
+        "total_items": { "type": "integer", "minimum": 0 },
+        "consistency_valid": { "type": "boolean" },
+        "by_source": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "recovery_run_id": { "type": ["string", "null"] }
+      },
+      "required": [
+        "recoverable_items",
+        "claimed_items",
+        "reclaimed_items",
+        "skipped_items",
+        "abandoned_items",
+        "unrecoverable_items",
+        "total_items",
+        "consistency_valid",
+        "by_source",
+        "recovery_run_id"
+      ],
+      "additionalProperties": false
+    },
+    "StartupRecoveryLedger": {
+      "title": "StartupRecoveryLedger",
+      "description": "Append-only startup recovery ownership ledger.",
+      "type": "object",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RecoveryOwnershipAction" }
+        },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "recovery_run_id": { "type": ["string", "null"] },
+        "startup_timestamp": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "actions",
+        "generated_at",
+        "recovery_run_id",
+        "startup_timestamp"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryOwnershipAction": {
+      "title": "RecoveryOwnershipAction",
+      "description": "A single recovery ownership action recorded in the ledger.",
+      "type": "object",
+      "properties": {
+        "delivery_plan_id": { "type": "string" },
+        "event_id": { "type": "string" },
+        "outbox_id": { "type": "string" },
+        "ownership_action": {
+          "type": "string",
+          "enum": [
+            "recoverable",
+            "claimed_for_recovery",
+            "reclaimed",
+            "abandoned",
+            "unrecoverable",
+            "skipped"
+          ]
+        },
+        "prior_status": { "type": "string" },
+        "reason": { "type": "string" },
+        "recovered_status": { "type": "string" },
+        "recovery_run_id": { "type": ["string", "null"] },
+        "recovery_source": {
+          "type": "string",
+          "enum": [
+            "startup_recovery",
+            "retry_worker_recovery",
+            "snapshot_diagnostics",
+            "replay_execution"
+          ]
+        },
+        "startup_timestamp": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "worker_identity": { "type": ["string", "null"] }
+      },
+      "required": [
+        "delivery_plan_id",
+        "event_id",
+        "outbox_id",
+        "ownership_action",
+        "prior_status",
+        "reason",
+        "recovered_status",
+        "recovery_run_id",
+        "recovery_source",
+        "startup_timestamp",
+        "timestamp",
+        "worker_identity"
       ],
       "additionalProperties": false
     }

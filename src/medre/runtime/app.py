@@ -183,6 +183,7 @@ class MedreApp:
     _startup_monotonic: float | None = field(default=None, init=False)
     _health_state: dict[str, Any] | None = field(default=None, init=False)
     _boot_summary: BootSummary | None = field(default=None, init=False)
+    _recovery_run_id: str | None = field(default=None, init=False)
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
     _route_eligibility: RouteEligibility | None = field(default=None, init=False)
     _route_provenance: dict[str, str] = field(default_factory=dict, init=False)
@@ -565,6 +566,9 @@ class MedreApp:
         self._startup_wall = _utc_now().isoformat()
         self._startup_monotonic = _time.monotonic()
 
+        # Generate recovery run ID for this startup cycle.
+        self._recovery_run_id = uuid.uuid4().hex
+
         # 0. Create required directories.
         self._ensure_dirs()
 
@@ -769,6 +773,7 @@ class MedreApp:
             storage_backend=storage_backend,
             replay_available=self._replay_engine is not None,
             persisted_events_count=persisted_count,
+            recovery_run_id=self._recovery_run_id or "",
         )
 
         # -- Compute startup-derived route readiness ----------------------------

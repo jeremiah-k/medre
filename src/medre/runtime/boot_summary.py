@@ -67,6 +67,9 @@ class BootSummary:
         Whether the replay engine was wired.
     persisted_events_count:
         Number of events in storage at startup, or ``None`` if unavailable.
+    recovery_run_id:
+        UUID generated at startup for correlating recovery evidence across
+        this runtime session.  Empty string when unavailable.
     """
 
     startup_timestamp: str | None
@@ -84,6 +87,7 @@ class BootSummary:
     storage_backend: str = "none"
     replay_available: bool = False
     persisted_events_count: int | None = None
+    recovery_run_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Return a deterministic, JSON-safe dict of the boot summary.
@@ -136,6 +140,7 @@ def build_boot_summary(
     storage_backend: str,
     replay_available: bool,
     persisted_events_count: int | None,
+    recovery_run_id: str = "",
 ) -> BootSummary:
     """Construct a :class:`BootSummary` with deterministic field ordering.
 
@@ -158,4 +163,5 @@ def build_boot_summary(
         storage_backend=storage_backend,
         replay_available=replay_available,
         persisted_events_count=persisted_events_count,
+        recovery_run_id=recovery_run_id,
     )
