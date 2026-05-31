@@ -216,6 +216,7 @@
         },
         "in_flight_count": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Number of in-flight deliveries from capacity controller."
         },
         "pending_outbox_counts": {
@@ -223,25 +224,29 @@
             { "type": "null" },
             {
               "type": "object",
-              "additionalProperties": { "type": "integer" }
+              "additionalProperties": { "type": "integer", "minimum": 0 }
             }
           ],
           "description": "Outbox counts filtered to pending statuses, or null."
         },
         "pending_retry_work_total": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Total count of pending retry work items."
         },
         "retry_worker_dead_lettered": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Number of retry items that were dead-lettered."
         },
         "retry_worker_failed": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Number of retry items that failed."
         },
         "retry_worker_processed": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Total retry items processed."
         },
         "retry_worker_running": {
@@ -250,6 +255,7 @@
         },
         "retry_worker_succeeded": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Number of retry items that succeeded."
         },
         "runtime_state": {
@@ -276,6 +282,7 @@
         },
         "tasks_cancelled": {
           "type": ["integer", "null"],
+          "minimum": 0,
           "description": "Number of tasks cancelled during shutdown, or null."
         }
       },

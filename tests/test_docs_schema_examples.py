@@ -462,12 +462,133 @@ class TestEvidenceBundleSchemaNewFields:
         jsonschema.validate(instance=bundle, schema=_schema)
 
     def test_fake_live_tier_not_overclaimed(self, _schema: dict[str, Any]) -> None:
-        """The schema must not default to or allow overclaiming live/hardware
-        without explicit opt-in — this is a structural sanity check that
-        live_service and hardware are valid but NOT the default tier."""
+        """Schema validation: default tier is synthetic, live_service/hardware require explicit opt-in."""
         bundle = self._minimal_bundle()
-        # Default tier must be synthetic.
         assert bundle["evidence_tier"] == "synthetic"
+        # Explicit live_service validates when set
+        bundle["evidence_tier"] = "live_service"
+        if _HAS_JSONSCHEMA:
+            import jsonschema
+
+            jsonschema.validate(instance=bundle, schema=_schema)
+        # Explicit hardware validates when set
+        bundle["evidence_tier"] = "hardware"
+        if _HAS_JSONSCHEMA:
+            import jsonschema
+
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_missing_evidence_tier_fails(self, _schema: dict[str, Any]) -> None:
+        """Missing evidence_tier must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        del bundle["evidence_tier"]
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_null_evidence_tier_fails(self, _schema: dict[str, Any]) -> None:
+        """Null evidence_tier must fail validation (string type required)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["evidence_tier"] = None
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_adapter_status_as_dict_fails(self, _schema: dict[str, Any]) -> None:
+        """adapter_status as a plain dict must fail validation (expects null or array)."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["adapter_status"] = {"adapter_id": "bad"}
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_adapter_status_as_string_fails(self, _schema: dict[str, Any]) -> None:
+        """adapter_status as a string must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["adapter_status"] = "connected"
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_adapter_status_item_missing_required_field_fails(self, _schema: dict[str, Any]) -> None:
+        """A list item missing a required field must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["adapter_status"] = [
+            {
+                "adapter_id": "matrix_main",
+                # missing operator_status, adapter_kind, configured, etc.
+            },
+        ]
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_negative_in_flight_fails(self, _schema: dict[str, Any]) -> None:
+        """Negative in_flight_count must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": -1,
+            "pending_outbox_counts": None,
+            "pending_retry_work_total": 0,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
+
+    def test_shutdown_negative_pending_outbox_count_fails(self, _schema: dict[str, Any]) -> None:
+        """Negative pending_outbox_counts value must fail validation."""
+        if not _HAS_JSONSCHEMA:
+            pytest.skip("jsonschema not installed")
+        import jsonschema
+
+        bundle = self._minimal_bundle()
+        bundle["shutdown_evidence"] = {
+            "drain_timeout_detected": False,
+            "evidence_flush_status": "flushed",
+            "in_flight_count": 0,
+            "pending_outbox_counts": {"pending": -3},
+            "pending_retry_work_total": 0,
+            "retry_worker_dead_lettered": 0,
+            "retry_worker_failed": 0,
+            "retry_worker_processed": 0,
+            "retry_worker_running": False,
+            "retry_worker_succeeded": 0,
+            "runtime_state": "stopped",
+            "shutdown_reason": None,
+            "shutdown_status": "graceful_stop",
+            "tasks_cancelled": None,
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=bundle, schema=_schema)
 
     # -- strictness: additionalProperties: false on new $defs ----------------
 
