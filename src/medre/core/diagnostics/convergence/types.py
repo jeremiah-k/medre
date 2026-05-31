@@ -148,16 +148,17 @@ class ConvergenceSummary:
     evidence_bundle_ref: str | None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-safe dict with alphabetically sorted keys."""
-        return {
-            "evidence_bundle_ref": self.evidence_bundle_ref,
-            "orphan_count": self.orphan_count,
-            "severity_counts": self.severity_counts,
-            "targets": [t.to_dict() for t in self.targets],
-            "total_targets": self.total_targets,
-            "warnings": list(self.warnings),
-            "worst_severity": self.worst_severity,
+        """Return a JSON-safe dict with alphabetically sorted keys.
+
+        Tuples are converted to lists so that ``json.loads(json.dumps(d))``
+        round-trips correctly.
+        """
+        result: dict[str, Any] = {
+            name: getattr(self, name) for name in sorted(f.name for f in fields(self))
         }
+        result["targets"] = [t.to_dict() for t in result["targets"]]
+        result["warnings"] = list(result["warnings"])
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,9 @@ class OrphanFinding:
         Human-readable diagnostic message.
     extra:
         Additional JSON-safe context (event IDs, plan IDs, statuses).
+
+        Note: ``frozen=True`` prevents reassignment of ``extra`` but
+        does not enforce deep immutability of the dict contents.
     """
 
     kind: str
@@ -236,14 +240,16 @@ class OrphanReport:
     summary: str
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-safe dict with alphabetically sorted keys."""
-        return {
-            "findings": [f.to_dict() for f in self.findings],
-            "severity_counts": self.severity_counts,
-            "summary": self.summary,
-            "total_findings": self.total_findings,
-            "worst_severity": self.worst_severity,
+        """Return a JSON-safe dict with alphabetically sorted keys.
+
+        Tuples are converted to lists so that ``json.loads(json.dumps(d))``
+        round-trips correctly.
+        """
+        result: dict[str, Any] = {
+            name: getattr(self, name) for name in sorted(f.name for f in fields(self))
         }
+        result["findings"] = [f.to_dict() for f in result["findings"]]
+        return result
 
 
 # ---------------------------------------------------------------------------

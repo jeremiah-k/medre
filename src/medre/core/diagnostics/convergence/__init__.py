@@ -14,7 +14,7 @@ Design constraints
 * **Deterministic ordering.**  Targets are sorted by group key; receipts
   are ranked by ``(attempt_number, sequence, created_at, receipt_id)``.
 
-Status vocabularies (source: :mod:`medre.core.engine.pipeline.delivery_state`)
+Status vocabularies (source: ``medre.core.engine.pipeline.delivery_state``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Receipt statuses:
     ``queued``, ``sent``, ``failed``, ``dead_lettered``, ``suppressed``.
@@ -50,17 +50,17 @@ Cross-populated fields
 Public symbols
 --------------
 * :class:`ConvergenceSeverity` — enum with values ``safe``, ``degraded``,
-  ``inconsistent``.  Import from :mod:`.types`.
+  ``inconsistent``.  Import from ``.types``.
 * :class:`DeliveryTargetConvergence` — per-target convergence result.
-  Import from :mod:`.types`.
+  Import from ``.types``.
 * :class:`ConvergenceSummary` — aggregate summary across all targets.
-  Import from :mod:`.types`.
+  Import from ``.types``.
 * :func:`build_convergence_summary` — main entry point.
-  Import from :mod:`.summary`.
+  Import from ``.summary``.
 * :class:`OrphanFinding` — single orphan/invalid-lineage finding.
-  Import from :mod:`.types`.
+  Import from ``.types``.
 * :class:`OrphanReport` — aggregate orphan/invalid-lineage report.
-  Import from :mod:`.types`.
+  Import from ``.types``.
 * :func:`build_orphan_report` — orphan/invalid-lineage detection entry point.
-  Import from :mod:`.orphans`.
+  Import from ``.orphans``.
 """

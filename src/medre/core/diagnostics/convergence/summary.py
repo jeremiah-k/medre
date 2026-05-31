@@ -29,7 +29,6 @@ from .types import (
 
 __all__ = [
     "build_convergence_summary",
-    "_classify_target",
 ]
 
 
@@ -140,12 +139,7 @@ def _classify_target(
             return ConvergenceSeverity.DEGRADED, warnings
 
         # Unrecognised outbox status with both outbox and receipt present
-        if (
-            has_outbox
-            and has_receipt
-            and not outbox_terminal
-            and not outbox_non_terminal
-        ):
+        if not outbox_terminal and not outbox_non_terminal:
             warnings.append(f"Unrecognised outbox status: {outbox_status!r}")
             return ConvergenceSeverity.DEGRADED, warnings
 

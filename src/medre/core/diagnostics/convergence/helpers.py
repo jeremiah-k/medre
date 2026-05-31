@@ -14,7 +14,6 @@ from .types import ConvergenceSeverity
 
 __all__ = [
     "_get",
-    "_to_iso",
     "_target_key",
     "_TargetKey",
     "_ReverseStr",
