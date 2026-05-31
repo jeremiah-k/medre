@@ -601,6 +601,7 @@ class TestStartupSummaryUsefulness:
             "storage_backend",
             "replay_available",
             "persisted_events_count",
+            "recovery_run_id",
         }
         assert set(d.keys()) == expected_fields
 

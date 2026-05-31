@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -124,7 +125,7 @@ class TestRecoveryOwnershipAction:
             delivery_plan_id="plan-1",
             event_id="ev-1",
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             action.outbox_id = "modified"  # type: ignore[misc]
 
     def test_to_dict(self) -> None:
@@ -185,7 +186,7 @@ class TestStartupRecoveryLedger:
             actions=(),
             generated_at="2026-05-31T12:00:01+00:00",
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             ledger.actions = ()  # type: ignore[misc]
 
     def test_to_dict_empty(self) -> None:
