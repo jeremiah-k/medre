@@ -26,7 +26,6 @@ _NON_TERMINAL_STATUSES: frozenset[str] = frozenset(
     {"pending", "retry_wait", "in_progress", "queued"}
 )
 
-_RECLAIMABLE_STATUSES: frozenset[str] = frozenset({"pending", "retry_wait"})
 
 _ALL_KNOWN_STATUSES: frozenset[str] = _TERMINAL_STATUSES | _NON_TERMINAL_STATUSES
 

@@ -806,3 +806,38 @@ class TestEmptyInputs:
         )
         findings = build_recovery_convergence_findings(recovery_ledger=ledger)
         assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# None-safety: str(None) must never leak as "None" string
+# ---------------------------------------------------------------------------
+
+
+class TestNoneRunIdNeverStringifies:
+    """When recovery_run_id is None, it must produce "" — never the literal
+    string ``"None"`` which would corrupt diagnostics and downstream queries."""
+
+    def test_none_run_id_not_stringified(self) -> None:
+        action = _make_action(
+            ownership_action="recoverable",
+            recovery_run_id=None,  # type: ignore[arg-type]
+        )
+        ledger = StartupRecoveryLedger(
+            recovery_run_id=None,
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=[_make_outbox(status="pending")],
+            receipts=[],
+            recovery_ledger=ledger,
+        )
+        # No finding should contain the literal string "None" in any field
+        for f in findings:
+            assert (
+                "None" not in f.details
+            ), f"Finding details contain the literal string 'None': {f.details!r}"
+            assert (
+                "None" not in f.record_id
+            ), f"record_id contains the literal string 'None': {f.record_id!r}"
