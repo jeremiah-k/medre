@@ -771,7 +771,7 @@ When only replay-sourced queued receipts are available, the pipeline skips corre
 
 When a queued outbox item has no `delivery_plan_id` and no receipt linkage, the reason-pending derivation flags it as uncorrelated. The evidence output includes:
 
-```
+```text
 Queued, uncorrelated (no delivery_plan_id, no receipt linkage)
 -- awaiting stale-grace reclaim or adapter callback correlation
 ```

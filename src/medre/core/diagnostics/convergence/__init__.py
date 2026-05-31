@@ -63,12 +63,6 @@ from __future__ import annotations
 from .orphans import build_orphan_report
 from .summary import build_convergence_summary
 from .types import (
-    KIND_CROSS_EVENT_PARENT,
-    KIND_CROSS_PLAN_PARENT,
-    KIND_DEAD_LETTERED_RETRYABLE_MISMATCH,
-    KIND_MISSING_DELIVERY_PLAN_ID,
-    KIND_ORPHANED_OUTBOX,
-    KIND_ORPHANED_PARENT_RECEIPT,
     ConvergenceSeverity,
     ConvergenceSummary,
     DeliveryTargetConvergence,

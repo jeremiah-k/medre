@@ -32,6 +32,8 @@ Test groups
 20. Orphan report — determinism and JSON safety.
 21. Orphan report — empty input and no-findings cases.
 22. Orphan report — combined findings.
+23. Unrecognised outbox status — DEGRADED with warning.
+24. target_channel empty-string vs None grouping.
 """
 
 from __future__ import annotations
@@ -1422,3 +1424,69 @@ class TestOrphanReportCombined:
         assert "orphaned_parent_receipt" in kinds
         assert "missing_delivery_plan_id" in kinds
         assert "dead_lettered_retryable_mismatch" in kinds
+
+
+# ===================================================================
+# 23. Unrecognised outbox status → DEGRADED with warning
+# ===================================================================
+
+
+class TestUnrecognisedOutboxStatus:
+    """Unknown outbox status strings are classified as DEGRADED with a warning."""
+
+    def test_garbage_outbox_status_with_receipt_is_degraded(self) -> None:
+        """An outbox item with status='garbage' and a matching receipt → DEGRADED."""
+        summary = build_convergence_summary(
+            receipts=[_receipt(status="sent")],
+            outbox_items=[_outbox(status="garbage")],
+        )
+        assert summary.total_targets == 1
+        target = summary.targets[0]
+        assert target.severity == "degraded"
+        assert any("Unrecognised outbox status" in w for w in target.warnings)
+        assert any("garbage" in w for w in target.warnings)
+
+    def test_unknown_status_outbox_only_degraded(self) -> None:
+        """An outbox-only item with an unrecognised status → degraded (non-terminal path)."""
+        summary = build_convergence_summary(
+            outbox_items=[_outbox(status="weird_status")],
+        )
+        target = summary.targets[0]
+        assert target.severity == "degraded"
+
+
+# ===================================================================
+# 24. target_channel empty-string vs None grouping
+# ===================================================================
+
+
+class TestTargetChannelGrouping:
+    """Empty-string and None target_channel values produce separate targets."""
+
+    def test_empty_string_channel_grouped_separately_from_none(self) -> None:
+        """An outbox item with target_channel="" and a receipt with target_channel=None
+        for the same plan_id and adapter are NOT grouped together."""
+        summary = build_convergence_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-empty",
+                    delivery_plan_id="dp-1",
+                    target_adapter="radio",
+                    target_channel="",
+                    status="sent",
+                ),
+            ],
+            receipts=[
+                _receipt(
+                    receipt_id="rcpt-none",
+                    delivery_plan_id="dp-1",
+                    target_adapter="radio",
+                    target_channel=None,
+                    status="sent",
+                ),
+            ],
+        )
+        assert summary.total_targets == 2
+        channels = {t.target_channel for t in summary.targets}
+        assert "" in channels
+        assert None in channels

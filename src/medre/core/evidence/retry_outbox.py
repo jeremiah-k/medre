@@ -47,14 +47,26 @@ __all__ = [
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:
-    """Retrieve *name* from an object or dict, falling back to *default*."""
+    """Retrieve *name* from an object or dict, falling back to *default*.
+
+    NOTE: This is a parallel implementation of
+    ``medre.core.diagnostics.convergence.helpers._get``.  The two
+    packages are architecturally separate — ``evidence`` must not
+    import from ``diagnostics.convergence`` — so the duplication is
+    intentional and must be kept in sync manually.
+    """
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
 
 
 def _to_iso(value: Any) -> str | None:
-    """Convert a value to an ISO-8601 string or ``None``."""
+    """Convert a value to an ISO-8601 string or ``None``.
+
+    NOTE: Parallel implementation of
+    ``medre.core.diagnostics.convergence.helpers._to_iso`` — see
+    ``_get`` docstring for rationale.
+    """
     if value is None:
         return None
     if isinstance(value, str):

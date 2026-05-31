@@ -14,6 +14,7 @@ from .helpers import (
     _NON_TERMINAL_RECEIPT,
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
+    _build_outbox_by_key,
     _get,
     _pick_latest_receipt,
     _target_key,
@@ -138,6 +139,16 @@ def _classify_target(
         if outbox_non_terminal and receipt_non_terminal:
             return ConvergenceSeverity.DEGRADED, warnings
 
+        # Unrecognised outbox status with both outbox and receipt present
+        if (
+            has_outbox
+            and has_receipt
+            and not outbox_terminal
+            and not outbox_non_terminal
+        ):
+            warnings.append(f"Unrecognised outbox status: {outbox_status!r}")
+            return ConvergenceSeverity.DEGRADED, warnings
+
     # --- Outbox only, no receipt ---
     if has_outbox and not has_receipt:
         if outbox_non_terminal:
@@ -147,6 +158,10 @@ def _classify_target(
                     f"Outbox {outbox_status} with no receipt; mid-flight or "
                     f"receipt not yet written"
                 )
+            return ConvergenceSeverity.DEGRADED, warnings
+        if not outbox_terminal:
+            # Unrecognised outbox status without receipt → degraded
+            warnings.append(f"Unrecognised outbox status: {outbox_status!r}")
             return ConvergenceSeverity.DEGRADED, warnings
         # Terminal outbox without receipt: safe (receipt may not exist yet or was
         # never created for cancelled/abandoned)
@@ -214,23 +229,7 @@ def build_convergence_summary(
 
     # --- Build target-keyed maps ------------------------------------------
     # Outbox items: at most one per target key (latest by attempt_number).
-    outbox_by_key: dict[_TargetKey, Any] = {}
-    for obx in outbox_list:
-        key = _target_key(obx)
-        existing = outbox_by_key.get(key)
-        if existing is None:
-            outbox_by_key[key] = obx
-        else:
-            # Keep higher attempt_number; break ties by outbox_id
-            existing_attempt = _get(existing, "attempt_number") or 0
-            new_attempt = _get(obx, "attempt_number") or 0
-            if new_attempt > existing_attempt:
-                outbox_by_key[key] = obx
-            elif new_attempt == existing_attempt:
-                existing_id = _get(existing, "outbox_id") or ""
-                new_id = _get(obx, "outbox_id") or ""
-                if new_id > existing_id:
-                    outbox_by_key[key] = obx
+    outbox_by_key = _build_outbox_by_key(outbox_list)
 
     # Receipts: group by target key.
     receipts_by_key: dict[_TargetKey, list[Any]] = {}
@@ -239,7 +238,14 @@ def build_convergence_summary(
         receipts_by_key.setdefault(key, []).append(rec)
 
     # --- Collect all target keys (union) ----------------------------------
-    all_keys = sorted(set(outbox_by_key.keys()) | set(receipts_by_key.keys()))
+    def _sort_key(key: _TargetKey) -> tuple:
+        plan_id, adapter, channel = key
+        return (plan_id, adapter, channel or "")
+
+    all_keys = sorted(
+        set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
+        key=_sort_key,
+    )
 
     # --- Classify each target ---------------------------------------------
     targets: list[DeliveryTargetConvergence] = []

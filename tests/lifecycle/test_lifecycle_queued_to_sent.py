@@ -2,7 +2,7 @@
 
 Exercises ``append_queued_to_sent_receipt`` including happy paths,
 outbox transitions, error handling, and deterministic plan_id
-correlation (Tranche 5 regression).
+correlation (Deterministic plan_id correlation regression).
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class TestAppendQueuedToSentReceipt:
 
 
 # ===================================================================
-# Same-channel retry lineage regression (Tranche 6)
+# Same-channel retry lineage regression
 # ===================================================================
 
 
@@ -812,7 +812,7 @@ class TestAppendQueuedToSentErrorPaths:
 
 
 # ===================================================================
-# Deterministic delivery_plan_id correlation (Tranche 5 regression)
+# Deterministic delivery_plan_id correlation regression
 # ===================================================================
 
 

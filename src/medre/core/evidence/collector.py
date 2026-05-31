@@ -394,6 +394,8 @@ class EvidenceCollector:
         orphan_report_dict = orphan_report_obj.to_dict()
 
         # Cross-populate orphan count from the authoritative orphan_report.
+        # Safe to mutate: convergence_dict is a fresh dict from to_dict(),
+        # not the frozen dataclass itself.
         convergence_dict["orphan_count"] = orphan_report_obj.total_findings
 
         return EvidenceBundle(

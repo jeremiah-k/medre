@@ -14,6 +14,7 @@ from typing import Any, Iterable
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
+    _build_outbox_by_key,
     _get,
     _latest_receipt_for_target,
     _target_key,
@@ -109,22 +110,7 @@ def build_orphan_report(
             receipt_by_id[rid] = rec
 
     # --- Index outbox items by target key ---------------------------------
-    outbox_by_key: dict[_TargetKey, Any] = {}
-    for obx in outbox_list:
-        key = _target_key(obx)
-        existing = outbox_by_key.get(key)
-        if existing is None:
-            outbox_by_key[key] = obx
-        else:
-            existing_attempt = _get(existing, "attempt_number") or 0
-            new_attempt = _get(obx, "attempt_number") or 0
-            if new_attempt > existing_attempt:
-                outbox_by_key[key] = obx
-            elif new_attempt == existing_attempt:
-                existing_id = _get(existing, "outbox_id") or ""
-                new_id = _get(obx, "outbox_id") or ""
-                if new_id > existing_id:
-                    outbox_by_key[key] = obx
+    outbox_by_key = _build_outbox_by_key(outbox_list)
 
     # --- Index receipts by target key -------------------------------------
     receipts_by_key: dict[_TargetKey, list[Any]] = {}

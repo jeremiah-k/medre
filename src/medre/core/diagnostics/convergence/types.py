@@ -219,7 +219,10 @@ class OrphanReport:
     total_findings:
         Total number of findings.
     severity_counts:
-        Count of findings per severity level.
+        Count of findings per severity level.  The ``safe`` key is
+        always present with value ``0`` for structural parity with
+        :class:`ConvergenceSummary.severity_counts` — consumers rely
+        on a consistent JSON schema shape across both report types.
     worst_severity:
         Worst severity among findings, or ``None`` if empty.
     summary:

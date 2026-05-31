@@ -2,7 +2,7 @@
 
 Duck-typed field access, datetime normalization, target key construction,
 receipt ranking, and severity helpers.  These are package-internal; they
-are re-exported via ``__init__.py`` only when needed by sibling submodules.
+are used by sibling submodules (summary.py, orphans.py).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ __all__ = [
     "_TERMINAL_OUTBOX",
     "_NON_TERMINAL_OUTBOX",
     "_latest_receipt_for_target",
+    "_build_outbox_by_key",
 ]
 
 
@@ -122,6 +123,9 @@ class _ReverseStr:
     def __hash__(self) -> int:
         return hash(self._value)
 
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"_ReverseStr({self._value!r})"
+
 
 def _receipt_sort_key(rec: Any) -> tuple:
     """Sort key for deterministic latest-receipt selection.
@@ -192,3 +196,40 @@ def _worst_severity(severities: list[ConvergenceSeverity]) -> str | None:
         return None
     worst = max(severities, key=lambda s: _SEVERITY_ORDER[s])
     return worst.value
+
+
+# ---------------------------------------------------------------------------
+# Outbox-by-key deduplication
+# ---------------------------------------------------------------------------
+
+
+def _build_outbox_by_key(
+    outbox_items: list[Any],
+) -> dict[_TargetKey, Any]:
+    """Index outbox items by target key, keeping the highest-authority item.
+
+    When multiple outbox items share the same ``(delivery_plan_id,
+    target_adapter, target_channel)`` key, the one with the higher
+    ``attempt_number`` wins.  Ties are broken by ``outbox_id``
+    (lexicographically largest wins).
+
+    Returns a ``dict[_TargetKey, item]`` mapping.
+    """
+    outbox_by_key: dict[_TargetKey, Any] = {}
+    for obx in outbox_items:
+        key = _target_key(obx)
+        existing = outbox_by_key.get(key)
+        if existing is None:
+            outbox_by_key[key] = obx
+        else:
+            # Keep higher attempt_number; break ties by outbox_id
+            existing_attempt = _get(existing, "attempt_number") or 0
+            new_attempt = _get(obx, "attempt_number") or 0
+            if new_attempt > existing_attempt:
+                outbox_by_key[key] = obx
+            elif new_attempt == existing_attempt:
+                existing_id = _get(existing, "outbox_id") or ""
+                new_id = _get(obx, "outbox_id") or ""
+                if new_id > existing_id:
+                    outbox_by_key[key] = obx
+    return outbox_by_key
