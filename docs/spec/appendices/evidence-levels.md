@@ -20,7 +20,7 @@ available.
 | **live_service** | (was R)     | Recorded against a real external transport service over the network (e.g., a real Matrix homeserver, a real Reticulum LXMF router).                                           | "Against real endpoint E, behavior X was observed under conditions Y."                                                        |
 | **hardware**     | (was R)     | Recorded against real physical hardware connected via serial, TCP, or BLE (e.g., a Meshtastic radio, a MeshCore node).                                                        | "Against physical device D, behavior X was observed under conditions Y."                                                      |
 
-The legacy codes H, C, S, R are retained for backward compatibility in existing evidence tables. New evidence entries should use the full tier labels.
+The legacy codes H, C, S, R are accepted as shorthand in existing evidence tables for historic / conformance / synthetic / runtime contexts. New evidence entries should use the full tier labels.
 
 ## 2. Classification Rules
 

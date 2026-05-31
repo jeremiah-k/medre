@@ -1,7 +1,7 @@
 """Evidence tier label tests.
 
 Proves that evidence outputs can label synthetic/conformance/docker/live_service/hardware
-without overclaiming, that existing bundle behavior remains backward-compatible,
+without overclaiming, that bundle default tier is conservative,
 and that tier inference is conservative.
 
 Covers:
@@ -367,12 +367,11 @@ class TestCollectorTierNotLive:
 
 
 # ===========================================================================
-# Bundle model backward-compatibility
-# ===========================================================================
+# Bundle model default tier
 
 
-class TestBundleBackwardCompat:
-    """Old EvidenceBundle construction still works (conservative synthetic default)."""
+class TestBundleDefaultTier:
+    """EvidenceBundle defaults to conservative synthetic tier when not specified."""
 
     def test_old_construction_no_tier_arg(self) -> None:
         """Constructing EvidenceBundle without evidence_tier defaults to synthetic."""

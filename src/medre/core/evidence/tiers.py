@@ -33,7 +33,7 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 
 EVIDENCE_TIER_UNKNOWN: str = ""
-"""Placeholder for bundles that have no tier set (backward-compatible default)."""
+"""Unset sentinel — '' represents unknown / not set."""
 
 
 # ---------------------------------------------------------------------------

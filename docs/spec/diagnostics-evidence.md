@@ -269,7 +269,7 @@ All operational evidence MUST be classified into exactly one of six tiers. The t
 | **live_service** | Live Service | Recorded against a real external transport service with real network connectivity. Requires real credentials and endpoints. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
 | **hardware**     | Hardware     | Recorded against a physical radio device connected via serial, TCP, or BLE. Requires physical hardware and firmware.        | "Against physical device D, behavior X was observed under conditions Y."                             |
 
-The legacy codes H, C, S, R are retained for backward compatibility in existing evidence tables and test outputs. New evidence entries and machine-readable tier labels SHOULD use the full tier names.
+The legacy codes H, C, S, R remain in existing test outputs and evidence tables as accepted shorthand for historic / conformance / synthetic / runtime contexts. New evidence entries and machine-readable tier labels SHOULD use the full tier names.
 
 ### 8.2 Classification Rules
 
