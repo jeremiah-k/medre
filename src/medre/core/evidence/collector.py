@@ -15,6 +15,9 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 import msgspec
 
 from medre.core.diagnostics.convergence.orphans import build_orphan_report
+from medre.core.diagnostics.convergence.recovery_convergence import (
+    build_recovery_convergence_findings,
+)
 from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.events import CanonicalEvent
 from medre.core.evidence.bundle import (
@@ -29,6 +32,10 @@ from medre.core.evidence.retry_outbox import (
     build_retry_outbox_summary,
 )
 from medre.core.evidence.tiers import infer_evidence_tier
+from medre.core.recovery._builder import (
+    build_recovery_summary,
+    build_startup_recovery_ledger,
+)
 
 # ---------------------------------------------------------------------------
 # Minimal storage protocol for the collector
@@ -398,6 +405,51 @@ class EvidenceCollector:
         # not the frozen dataclass itself.
         convergence_dict["orphan_count"] = orphan_report_obj.total_findings
 
+        # -- Recovery evidence (pure, from outbox snapshots) -----------------
+        # Build per-event recovery ledger and summary from outbox items
+        # already loaded.  Without BootSummary the startup_timestamp is
+        # unavailable; recovery source defaults to RETRY_WORKER_RECOVERY.
+        # Use empty recovery_run_id for per-event determinism (the runtime
+        # evidence section provides the startup-scoped run ID).
+        _recovery_now = self._now_fn
+        recovery_ledger_obj = build_startup_recovery_ledger(
+            outbox_items=outbox_items,
+            startup_timestamp=None,
+            recovery_run_id="",
+            now_fn=lambda: _recovery_now().isoformat(),
+        )
+        recovery_summary_obj = build_recovery_summary(recovery_ledger_obj)
+
+        # -- Merge recovery convergence findings into orphan report ----------
+        recovery_findings = build_recovery_convergence_findings(
+            outbox_items=outbox_items,
+            receipts=receipts,
+            recovery_ledger=recovery_ledger_obj,
+        )
+        # Merge recovery findings into the orphan report dict.
+        existing_findings = orphan_report_dict.get("findings", [])
+        if isinstance(existing_findings, list):
+            all_findings = list(existing_findings) + [
+                f.to_dict() for f in recovery_findings
+            ]
+            all_findings.sort(key=lambda f: (f.get("kind", ""), f.get("record_id", "")))
+            orphan_report_dict["findings"] = all_findings
+            orphan_report_dict["total_findings"] = len(all_findings)
+            # Recompute severity counts.
+            sev_counts: dict[str, int] = {}
+            for f in all_findings:
+                sev = f.get("severity", "degraded")
+                sev_counts[sev] = sev_counts.get(sev, 0) + 1
+            orphan_report_dict["severity_counts"] = sev_counts
+            if sev_counts:
+                orphan_report_dict["worst_severity"] = (
+                    "inconsistent"
+                    if sev_counts.get("inconsistent", 0) > 0
+                    else "degraded" if sev_counts.get("degraded", 0) > 0 else "safe"
+                )
+            # Update orphan count in convergence dict.
+            convergence_dict["orphan_count"] = len(all_findings)
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -414,4 +466,6 @@ class EvidenceCollector:
             retry_outbox_summary=retry_outbox_dict,
             convergence_summary=convergence_dict,
             orphan_report=orphan_report_dict,
+            recovery_summary=recovery_summary_obj.to_dict(),
+            recovery_ledger=recovery_ledger_obj.to_dict(),
         )

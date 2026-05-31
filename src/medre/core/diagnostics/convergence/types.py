@@ -24,6 +24,10 @@ __all__ = [
     "KIND_CROSS_EVENT_PARENT",
     "KIND_MISSING_DELIVERY_PLAN_ID",
     "KIND_DEAD_LETTERED_RETRYABLE_MISMATCH",
+    "KIND_RECOVERED_NOT_PROGRESSED",
+    "KIND_REPEATEDLY_RECLAIMED",
+    "KIND_RECLAIMED_THEN_TERMINAL",
+    "KIND_RECLAIMED_THEN_ORPHANED",
 ]
 
 
@@ -276,3 +280,19 @@ KIND_MISSING_DELIVERY_PLAN_ID = "missing_delivery_plan_id"
 #: Dead-lettered outbox item whose latest receipt is non-terminal,
 #: suggesting the item may still be retryable.
 KIND_DEAD_LETTERED_RETRYABLE_MISMATCH = "dead_lettered_retryable_mismatch"
+
+#: Outbox item reclaimed at startup but latest receipt hasn't
+#: progressed since the previous shutdown.
+KIND_RECOVERED_NOT_PROGRESSED = "recovered_not_progressed"
+
+#: Outbox item reclaimed multiple times across distinct recovery
+#: cycles (different ``recovery_run_id`` values).
+KIND_REPEATEDLY_RECLAIMED = "repeatedly_reclaimed"
+
+#: Outbox item reclaimed at startup but has reached a terminal
+#: outbox status while its latest receipt is non-terminal.
+KIND_RECLAIMED_THEN_TERMINAL = "reclaimed_then_terminal"
+
+#: Outbox item reclaimed at startup but its ``event_id`` is absent
+#: from the known event catalogue (also flagged as ``orphaned_outbox``).
+KIND_RECLAIMED_THEN_ORPHANED = "reclaimed_then_orphaned"

@@ -27,6 +27,7 @@ from ._helpers import (
     _now_utc,
     _section_skipped,
 )
+from ._recovery_sections import _collect_recovery_section
 from ._storage_sections import (
     _collect_storage_path_bundle,
     _collect_storage_section,
@@ -158,6 +159,11 @@ async def collect_evidence_bundle(
     )
     if sections["storage"]["error"]:
         errors.append(sections["storage"]["error"])
+
+    # -- Recovery section ---------------------------------------------------
+    sections["recovery"] = await _collect_recovery_section(config, paths)
+    if sections["recovery"].get("error"):
+        errors.append(sections["recovery"]["error"])
 
     # -- Compute overall status ---------------------------------------------
     overall = _compute_overall_status(sections)

@@ -1035,3 +1035,119 @@ Findings are sorted deterministically by `(kind, record_id)`.
 5. The diagnostics system MUST NOT repair, mutate, or block startup based on convergence findings.
 6. The `convergence_summary` field on `EvidenceBundle` MUST be populated from the event's receipts and outbox items during collection.
 7. Convergence results MUST be JSON-safe and deterministic for identical inputs.
+
+## 22. Recovery Ownership Evidence
+
+### 22.1 Purpose
+
+Recovery ownership evidence makes startup recovery behavior deterministic, observable, and provably race-safe. It answers: at startup, what work was recovered, who recovered it, and why.
+
+Recovery ownership is an accountability mechanism. It does not introduce fake execution guarantees. Recovery actions document outbox transitions, not delivery confirmations.
+
+### 22.2 Recovery Ownership Statuses
+
+Every outbox item is classified into exactly one recovery ownership status:
+
+| Status                 | Semantics                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| `recoverable`          | Outbox item is non-terminal and not yet claimed for recovery.                                         |
+| `claimed_for_recovery` | Outbox item was moved to `in_progress` with a recovery context (lease set, worker identity assigned). |
+| `reclaimed`            | Outbox item was previously in a resumable state (`pending` or `retry_wait`) and has been reclaimed.   |
+| `abandoned`            | Outbox item was previously `in_progress` but recovery was abandoned (e.g. drain timeout).             |
+| `unrecoverable`        | Outbox item is in a terminal status and does not require recovery.                                    |
+
+### 22.3 Recovery Sources
+
+Every recovery action carries a `recovery_source` identifying which subsystem reclaimed ownership:
+
+| Source                  | Semantics                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `startup_recovery`      | Outbox item reclaimed during runtime startup via the `RetryWorker` at boot.   |
+| `retry_worker_recovery` | Outbox item reclaimed during steady-state retry polling by the `RetryWorker`. |
+| `replay_execution`      | Outbox item reclaimed during replay execution by the `ReplayEngine`.          |
+
+### 22.4 Startup Reclamation Classification
+
+Outbox items discovered at startup are classified into one of six diagnostic labels:
+
+| Label                   | Condition                                                                  |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `immediately_claimable` | `status IN (pending, retry_wait)` AND `next_attempt_at IS NULL OR <= now`. |
+| `retry_eligible`        | `status == retry_wait` AND `next_attempt_at > now` (not yet due).          |
+| `stale`                 | `status == in_progress` with expired lease, or `queued` past grace period. |
+| `orphaned`              | Non-terminal AND `event_id` absent from known event catalogue.             |
+| `terminal`              | `status IN (sent, dead_lettered, cancelled, abandoned)`.                   |
+| `inconsistent`          | Unrecognised status or contradictory fields.                               |
+
+Classification is **read-only**. It does not mutate outbox items, write corrective state, or trigger recovery actions.
+
+### 22.5 Recovery Ownership Action
+
+A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery decision:
+
+| Field               | Type          | Semantics                                                             |
+| ------------------- | ------------- | --------------------------------------------------------------------- |
+| `recovery_run_id`   | `str`         | UUID binding all actions to a single runtime startup.                 |
+| `startup_timestamp` | `str or None` | ISO-8601 startup timestamp. `None` when unavailable.                  |
+| `outbox_id`         | `str`         | Affected outbox item ID.                                              |
+| `prior_status`      | `str`         | Outbox status at the time recovery analysis began.                    |
+| `recovered_status`  | `str`         | Outbox status after the recovery action (or observed current status). |
+| `ownership_action`  | `str`         | `RecoveryOwnershipStatus` value.                                      |
+| `reason`            | `str`         | Human-readable explanation.                                           |
+| `worker_identity`   | `str or None` | Worker identity, if known.                                            |
+| `recovery_source`   | `str`         | `RecoverySource` value.                                               |
+| `timestamp`         | `str`         | ISO-8601 when the action was recorded.                                |
+| `delivery_plan_id`  | `str`         | Delivery plan this outbox item targets.                               |
+| `event_id`          | `str`         | Canonical event this outbox item delivers.                            |
+
+### 22.6 Startup Recovery Ledger
+
+The `StartupRecoveryLedger` is a frozen dataclass containing all recovery actions for a startup cycle. Actions are append-only and deterministically ordered by `(outbox_id, timestamp)`. The ledger is JSON-safe and carries `recovery_run_id`, `startup_timestamp`, and `generated_at`.
+
+### 22.7 Recovery Summary
+
+The `RecoverySummary` aggregates counts from the ledger and validates the consistency invariant:
+
+| Field                 | Type            | Semantics                                                               |
+| --------------------- | --------------- | ----------------------------------------------------------------------- |
+| `recoverable_items`   | `int`           | Count classified as `recoverable`.                                      |
+| `claimed_items`       | `int`           | Count classified as `claimed_for_recovery`.                             |
+| `reclaimed_items`     | `int`           | Count classified as `reclaimed`.                                        |
+| `skipped_items`       | `int`           | Count intentionally deferred (retry_eligible with future next_attempt). |
+| `abandoned_items`     | `int`           | Count classified as `abandoned`.                                        |
+| `unrecoverable_items` | `int`           | Count classified as `unrecoverable`.                                    |
+| `total_items`         | `int`           | Total items examined. MUST equal sum of all categories.                 |
+| `consistency_valid`   | `bool`          | `True` when `total_items == sum(...)`.                                  |
+| `by_source`           | `dict[str,int]` | Count per `RecoverySource` value.                                       |
+| `recovery_run_id`     | `str or None`   | Recovery run ID scoping this summary.                                   |
+
+### 22.8 Recovery Convergence Findings
+
+Four recovery-specific finding kinds extend the convergence diagnostics system. They are produced by `build_recovery_convergence_findings()` and merged into the `OrphanReport`:
+
+| Finding Kind               | Severity       | Condition                                                                                      |
+| -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| `recovered_not_progressed` | `degraded`     | Outbox item was recovered but latest receipt hasn't progressed since the previous shutdown.    |
+| `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox item is terminal but latest receipt is non-terminal.                                    |
+| `reclaimed_then_orphaned`  | `inconsistent` | Outbox item was recovered but its `event_id` is absent from the known event catalogue.         |
+
+### 22.9 Normative Requirements
+
+1. The `classify_startup_reclamation()` function MUST be pure: no I/O, no state mutation, no storage access.
+2. The `build_startup_recovery_ledger()` function MUST be pure: no I/O, no state mutation, no storage access.
+3. The `build_recovery_summary()` function MUST be pure: no I/O, no state mutation, no storage access.
+4. Recovery ownership statuses MUST be exactly the five values listed in § 22.2.
+5. Recovery sources MUST be exactly the three values listed in § 22.3.
+6. Recovery diagnostic classifiers MUST NOT mutate outbox items or receipts.
+7. The `StartupRecoveryLedger` MUST be append-only: actions SHALL NOT be removed or modified after construction.
+8. Recovery evidence MUST be JSON-safe and deterministic for identical inputs.
+9. Startup recovery SHALL NOT block on recovery diagnostics.
+10. Recovery actions SHALL NOT be presented as proof of delivery.
+
+### 22.10 Known Gaps
+
+1. **No live_service or hardware tier validation**: All recovery evidence is synthetic/conformance tier. No real restart cycles with real adapters have been validated.
+2. **Per-event collector has no BootSummary access**: The per-event `EvidenceCollector` cannot access `BootSummary.recovery_run_id` or `startup_timestamp`. Recovery evidence from the per-event collector is limited to classification without full startup context. Full startup-scoped recovery evidence is available through the runtime evidence bundle's `recovery` section.
+3. **Recovery source inference is heuristic without direct worker hooks**: Without a direct hook into `RetryWorker` claiming, the builder infers `retry_worker_recovery` from worker identity and timestamps. This is correct for diagnostic purposes but may misclassify edge cases.
+4. **Replay recovery tracking requires receipt evidence**: Outbox items reclaimed during replay execution can only be detected if receipts with `source="replay"` exist for the same `delivery_plan_id`.

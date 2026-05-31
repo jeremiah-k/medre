@@ -66,5 +66,7 @@
   "shutdown_evidence": null,
   "convergence_summary": null,
   "orphan_report": null,
+  "recovery_summary": null,
+  "recovery_ledger": null,
   "status": "passed"
 }
