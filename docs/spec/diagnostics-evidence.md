@@ -1059,7 +1059,7 @@ Every outbox item is classified into exactly one recovery ownership status:
 
 ### 22.3 Recovery Sources
 
-Every recovery action carries a `recovery_source` identifying which subsystem reclaimed ownership:
+Every recovery or diagnostic ownership classification carries a `recovery_source` identifying which subsystem reclaimed ownership:
 
 | Source                  | Semantics                                                                                                                                |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1099,24 +1099,24 @@ Classification is **read-only**. It does not mutate outbox items, write correcti
 
 A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery decision:
 
-| Field               | Type          | Semantics                                                                               |
-| ------------------- | ------------- | --------------------------------------------------------------------------------------- |
-| `recovery_run_id`   | `str or None` | UUID binding all actions to a single runtime startup. `None` for per-event diagnostics. |
-| `startup_timestamp` | `str or None` | ISO-8601 startup timestamp. `None` when unavailable.                                    |
-| `outbox_id`         | `str`         | Affected outbox item ID.                                                                |
-| `prior_status`      | `str`         | Outbox status at the time recovery analysis began.                                      |
-| `recovered_status`  | `str`         | Outbox status after the recovery action (or observed current status).                   |
-| `ownership_action`  | `str`         | `RecoveryOwnershipStatus` value.                                                        |
-| `reason`            | `str`         | Human-readable explanation.                                                             |
-| `worker_identity`   | `str or None` | Worker identity, if known.                                                              |
-| `recovery_source`   | `str`         | `RecoverySource` value.                                                                 |
-| `timestamp`         | `str`         | ISO-8601 when the action was recorded.                                                  |
-| `delivery_plan_id`  | `str`         | Delivery plan this outbox item targets.                                                 |
-| `event_id`          | `str`         | Canonical event this outbox item delivers.                                              |
+| Field               | Type          | Semantics                                                                                                                |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `recovery_run_id`   | `str or None` | UUID binding all actions to a single runtime startup. `None` for per-event diagnostics.                                  |
+| `startup_timestamp` | `str or None` | ISO-8601 startup timestamp. `None` when unavailable.                                                                     |
+| `outbox_id`         | `str`         | Affected outbox item ID.                                                                                                 |
+| `prior_status`      | `str`         | Outbox status at the time recovery analysis began.                                                                       |
+| `recovered_status`  | `str`         | Observed outbox status at analysis time. In snapshot diagnostics this equals `prior_status`; no storage mutation occurs. |
+| `ownership_action`  | `str`         | `RecoveryOwnershipStatus` value.                                                                                         |
+| `reason`            | `str`         | Human-readable explanation.                                                                                              |
+| `worker_identity`   | `str or None` | Worker identity, if known.                                                                                               |
+| `recovery_source`   | `str`         | `RecoverySource` value.                                                                                                  |
+| `timestamp`         | `str`         | ISO-8601 when the action was recorded.                                                                                   |
+| `delivery_plan_id`  | `str`         | Delivery plan this outbox item targets.                                                                                  |
+| `event_id`          | `str`         | Canonical event this outbox item delivers.                                                                               |
 
 ### 22.6 Startup Recovery Ledger
 
-The `StartupRecoveryLedger` is a frozen dataclass containing all recovery actions for a startup cycle. Actions are deterministically ordered by `(outbox_id, timestamp)`. The ledger is JSON-safe and carries `recovery_run_id`, `startup_timestamp`, and `generated_at`. The ledger is built as a bundle snapshot from stored state at construction time, not as an append-only log of live recovery transactions.
+The `StartupRecoveryLedger` is a frozen dataclass containing all recovery/diagnostic ownership classifications for a startup cycle. Actions are deterministically ordered by `(outbox_id, timestamp)`. The ledger is JSON-safe and carries `recovery_run_id`, `startup_timestamp`, and `generated_at`. The ledger is built as a bundle snapshot from stored state at construction time, not as an append-only log of live recovery transactions.
 
 ### 22.7 Recovery Summary
 

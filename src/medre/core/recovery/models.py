@@ -67,7 +67,7 @@ class RecoveryOwnershipStatus(enum.StrEnum):
 class RecoveryOwnershipAction:
     """A single recovery ownership action recorded in the ledger.
 
-    Every startup recovery action is captured with full attribution:
+    Every recovery or diagnostic ownership classification is captured with full attribution:
     what was claimed, by whom, from what prior state, and why.
     """
 
@@ -87,8 +87,8 @@ class RecoveryOwnershipAction:
     """The outbox item's status at the time recovery analysis began."""
 
     recovered_status: str
-    """The outbox item's status after the recovery action completed
-    (or the observed current status)."""
+    """Observed outbox status at analysis time.  In snapshot diagnostics
+    this equals ``prior_status`` because no storage mutation occurs."""
 
     ownership_action: str
     """:class:`RecoveryOwnershipStatus` value describing the action."""
@@ -129,7 +129,7 @@ class RecoveryOwnershipAction:
 class StartupRecoveryLedger:
     """Append-only recovery ownership evidence for a startup cycle.
 
-    Contains every recovery action classified during startup analysis.
+    Contains every recovery/diagnostic ownership classification during startup analysis.
     Actions are deterministically ordered by ``(outbox_id, timestamp)``.
     """
 
@@ -164,7 +164,7 @@ class StartupRecoveryLedger:
 class RecoverySummary:
     """Deterministic recovery summary with consistency validation.
 
-    Aggregates counts across all recovery actions and validates that
+    Aggregates counts across all recovery/diagnostic ownership classifications and validates that
     ``total_items`` equals the sum of all status categories.  The
     ``consistency_valid`` field is ``True`` when the invariant holds.
     """
