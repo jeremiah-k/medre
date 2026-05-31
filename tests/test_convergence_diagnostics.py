@@ -14,7 +14,9 @@ Test groups
 2. Degraded convergence — pending/retry_wait+failed, in_progress/queued
    without receipt, missing plan_id.
 3. Inconsistent convergence — terminal outbox + non-terminal receipt.
-   Non-terminal outbox with terminal receipt is now classified as **degraded**.
+   Note: in lifecycle convergence (``test_lifecycle_convergence.py``),
+   ``terminal_receipt_nonterminal_outbox`` is classified as **degraded**
+   (receipt writes may precede outbox updates in separate transactions).
 4. Deterministic repeated build — same input → same output.
 5. Missing delivery_plan_id — degraded with warning.
 6. Source separation — replay vs live receipts are not conflated when
