@@ -93,7 +93,7 @@ class TestDeliveryPlan:
 
     def test_retry_policy_defaults(self) -> None:
         policy = RetryPolicy()
-        assert policy.max_attempts == 5
+        assert policy.max_attempts == 3
         assert policy.backoff_base == 2.0
         assert policy.max_delay_seconds == 60.0
         assert policy.jitter is True
