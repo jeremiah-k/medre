@@ -6,25 +6,26 @@ Evidence provenance tiers for classifying test and validation results.
 
 ## 1. Tier Definitions
 
-All operational evidence is classified into one of six tiers. The tier
-determines what claims can be derived from the evidence. The runtime emits
-these tier labels as machine-readable strings when tier-tagged evidence is
-available.
+Operational evidence is classified into one of five runtime tiers. An
+additional archival label, historical, is recognised for documentation of
+prior test runs. The tier determines what claims can be derived from the
+evidence. The runtime emits these tier labels as machine-readable strings
+when tier-tagged evidence is available.
 
 | Tier label       | Legacy code | Meaning                                                                                                                                                                       | Allowed Claims                                                                                                                |
 | ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **historical**   | H           | Recorded during a prior development phase. Not re-confirmed against the current codebase. May be stale.                                                                       | "On date D, behavior X was observed." No claim about current behavior.                                                        |
+| **historical**   | H           | *Archival documentation label.* Recorded during a prior development phase. Not a runtime evidence_tier value.                                                 | "On date D, behavior X was observed." No claim about current behavior. |
 | **conformance**  | C           | Recorded against the current codebase at the current commit. Reproducible by re-running the same command.                                                                     | "At commit H, behavior X is confirmed."                                                                                       |
 | **synthetic**    | S           | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                                                                     | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior.                          |
 | **docker**       | (was R)     | Tested against a local Docker container (e.g., Docker Synapse). Validates SDK integration and adapter wiring but not external network, federation, or real-world rate limits. | "SDK integration works in a containerized environment." Docker evidence does not prove external network or hardware behavior. |
 | **live_service** | (was R)     | Recorded against a real external transport service over the network (e.g., a real Matrix homeserver, a real Reticulum LXMF router).                                           | "Against real endpoint E, behavior X was observed under conditions Y."                                                        |
 | **hardware**     | (was R)     | Recorded against real physical hardware connected via serial, TCP, or BLE (e.g., a Meshtastic radio, a MeshCore node).                                                        | "Against physical device D, behavior X was observed under conditions Y."                                                      |
 
-The legacy codes H, C, S, R are accepted as shorthand in existing evidence tables for historic / conformance / synthetic / runtime contexts. New evidence entries should use the full tier labels.
+The legacy codes H, C, S, R are accepted as shorthand in existing evidence tables for historic / conformance / synthetic / runtime contexts. New evidence entries should use the five runtime tier labels.
 
 ## 2. Classification Rules
 
-1. Every evidence entry must include a `tier` field with one of the six tier labels (or the corresponding legacy code).
+1. Every evidence entry must include a `tier` field with one of the five runtime tier labels, or the archival historical label for prior-run documentation (or the corresponding legacy code).
 2. Historical evidence must include the original recording date. It must not be presented as current.
 3. Synthetic evidence must never be used to support claims about real transport behavior.
 4. Docker evidence validates SDK integration and adapter wiring. It does not prove external network behavior, federation, or hardware operation. Docker is not hardware.
@@ -34,7 +35,7 @@ The legacy codes H, C, S, R are accepted as shorthand in existing evidence table
 
 ## 3. Tier Transitions
 
-- Historical evidence (`historical`) may be upgraded to `conformance`, `live_service`, or `hardware` by re-running the corresponding test at the current commit. The upgrade must include the new date, commit, and full evidence fields.
+- Historical evidence (`historical`, archival documentation label, not a runtime evidence_tier value) may be upgraded to `conformance`, `live_service`, or `hardware` by re-running the corresponding test at the current commit. The upgrade must include the new date, commit, and full evidence fields.
 - Synthetic evidence (`synthetic`) may never be upgraded to `docker`, `live_service`, or `hardware` without a real endpoint or device run.
 - Docker evidence (`docker`) may not be upgraded to `live_service` or `hardware` without testing against an external service or physical device respectively.
 
@@ -52,7 +53,7 @@ Evidence stored in the SQLite database (receipts, outbox items, native refs) is 
 
 | Field                           | Required | Description                                                                                                                                      |
 | ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tier`                          | Yes      | Evidence tier: `historical`, `conformance`, `synthetic`, `docker`, `live_service`, or `hardware` (legacy codes H, C, S, R accepted as shorthand) |
+| `tier`                          | Yes      | Evidence tier: `conformance`, `synthetic`, `docker`, `live_service`, or `hardware`. `historical` is accepted as an archival documentation label for prior test runs, not a valid runtime evidence_tier value (legacy codes H, C, S, R accepted as shorthand) |
 | `test_file`                     | Yes      | Path to the test file that produced this evidence                                                                                                |
 | `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`                                                                                                         |
 | `executor`                      | Yes      | Who/what ran the test                                                                                                                            |

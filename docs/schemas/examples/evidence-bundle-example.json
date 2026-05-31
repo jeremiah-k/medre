@@ -1,8 +1,10 @@
 {
+  "adapter_status": null,
   "collected_at": "2026-05-27T12:00:00Z",
   "command": "evidence",
   "config_source": "file",
   "errors": [],
+  "evidence_tier": "synthetic",
   "generated_at": "2026-05-27T12:00:02Z",
   "limitations": [
     "Evidence is a point-in-time snapshot, not continuous monitoring",
@@ -61,5 +63,6 @@
       }
     }
   },
+  "shutdown_evidence": null,
   "status": "passed"
 }

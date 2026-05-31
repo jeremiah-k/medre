@@ -5,6 +5,16 @@
   "description": "JSON-safe evidence bundle returned by collect_evidence_bundle(). Contains schema_version, status, sections, errors, and limitations.",
   "type": "object",
   "properties": {
+    "adapter_status": {
+      "description": "Per-adapter runtime status evidence extracted from diagnostics, or null.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AdapterStatusEvidence" }
+        }
+      ]
+    },
     "collected_at": {
       "type": "string",
       "format": "date-time",
@@ -23,6 +33,17 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "List of error messages from sections that encountered errors."
+    },
+    "evidence_tier": {
+      "type": "string",
+      "enum": [
+        "synthetic",
+        "conformance",
+        "docker",
+        "live_service",
+        "hardware"
+      ],
+      "description": "Evidence provenance tier describing how the evidence was produced. 'live_service' and 'hardware' require explicit opt-in; they are never auto-inferred."
     },
     "generated_at": {
       "type": "string",
@@ -69,6 +90,10 @@
       },
       "additionalProperties": false
     },
+    "shutdown_evidence": {
+      "description": "Runtime shutdown/cancellation evidence extracted from diagnostics, or null.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ShutdownEvidence" }]
+    },
     "status": {
       "type": "string",
       "enum": ["passed", "partial", "error"],
@@ -76,20 +101,209 @@
     }
   },
   "required": [
+    "adapter_status",
     "collected_at",
     "command",
     "config_source",
     "errors",
+    "evidence_tier",
     "generated_at",
     "limitations",
     "medre_version",
     "runtime_started",
     "schema_version",
     "sections",
+    "shutdown_evidence",
     "status"
   ],
   "additionalProperties": false,
   "$defs": {
+    "AdapterStatusEvidence": {
+      "title": "AdapterStatusEvidence",
+      "description": "JSON-safe evidence for a single adapter's runtime status.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "description": "Unique adapter identifier."
+        },
+        "adapter_kind": {
+          "type": ["string", "null"],
+          "description": "Adapter kind: 'real', 'fake', or null."
+        },
+        "configured": {
+          "type": ["boolean", "null"],
+          "description": "Whether transport configuration is present."
+        },
+        "connected": {
+          "type": ["boolean", "null"],
+          "description": "True if connected, False if definitely not, null if indeterminate."
+        },
+        "current_state": {
+          "type": ["string", "null"],
+          "description": "Lifecycle state value string (e.g. 'ready'), or null."
+        },
+        "enabled": {
+          "type": ["boolean", "null"],
+          "description": "Whether the adapter is enabled in config."
+        },
+        "failure_category": {
+          "type": ["string", "null"],
+          "description": "Caller-supplied failure category, or null."
+        },
+        "failure_reason": {
+          "type": ["string", "null"],
+          "description": "Caller-supplied failure reason, or null."
+        },
+        "health": {
+          "type": ["string", "null"],
+          "description": "Normalised health string, or null."
+        },
+        "operator_status": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "not_configured",
+            "configured",
+            "starting",
+            "connected",
+            "degraded",
+            "unavailable",
+            "stopping",
+            "failed",
+            "stopped"
+          ],
+          "description": "Normalised operator-facing status string."
+        },
+        "transport": {
+          "type": ["string", "null"],
+          "description": "Transport type (e.g. 'matrix', 'meshtastic'), or null."
+        },
+        "valid_transitions": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Sorted list of valid target state strings, or null."
+        }
+      },
+      "required": [
+        "adapter_id",
+        "adapter_kind",
+        "configured",
+        "connected",
+        "current_state",
+        "enabled",
+        "failure_category",
+        "failure_reason",
+        "health",
+        "operator_status",
+        "transport",
+        "valid_transitions"
+      ],
+      "additionalProperties": false
+    },
+    "ShutdownEvidence": {
+      "title": "ShutdownEvidence",
+      "description": "Immutable shutdown evidence record with deterministic key ordering.",
+      "type": "object",
+      "properties": {
+        "drain_timeout_detected": {
+          "type": "boolean",
+          "description": "Whether drain timeout was detected from events or reason."
+        },
+        "evidence_flush_status": {
+          "type": ["string", "null"],
+          "description": "Status of evidence persistence at shutdown (e.g. 'flushed', 'partial')."
+        },
+        "in_flight_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of in-flight deliveries from capacity controller."
+        },
+        "pending_outbox_counts": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
+            }
+          ],
+          "description": "Outbox counts filtered to pending statuses, or null."
+        },
+        "pending_retry_work_total": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Total count of pending retry work items."
+        },
+        "retry_worker_dead_lettered": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of retry items that were dead-lettered."
+        },
+        "retry_worker_failed": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of retry items that failed."
+        },
+        "retry_worker_processed": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Total retry items processed."
+        },
+        "retry_worker_running": {
+          "type": ["boolean", "null"],
+          "description": "Whether the retry worker was running at shutdown."
+        },
+        "retry_worker_succeeded": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of retry items that succeeded."
+        },
+        "runtime_state": {
+          "type": ["string", "null"],
+          "description": "Runtime lifecycle state value string at shutdown."
+        },
+        "shutdown_reason": {
+          "type": ["string", "null"],
+          "description": "Deterministic shutdown reason string, or null."
+        },
+        "shutdown_status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "graceful_stop",
+            "cancellation",
+            "adapter_failure",
+            "drain_timeout",
+            "shutdown_pending",
+            "stopped",
+            "failed"
+          ],
+          "description": "Canonical shutdown status classification."
+        },
+        "tasks_cancelled": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of tasks cancelled during shutdown, or null."
+        }
+      },
+      "required": [
+        "drain_timeout_detected",
+        "evidence_flush_status",
+        "in_flight_count",
+        "pending_outbox_counts",
+        "pending_retry_work_total",
+        "retry_worker_dead_lettered",
+        "retry_worker_failed",
+        "retry_worker_processed",
+        "retry_worker_running",
+        "retry_worker_succeeded",
+        "runtime_state",
+        "shutdown_reason",
+        "shutdown_status",
+        "tasks_cancelled"
+      ],
+      "additionalProperties": false
+    },
     "EvidenceSection": {
       "title": "EvidenceSection",
       "description": "A single evidence section with status, optional error, and optional data.",

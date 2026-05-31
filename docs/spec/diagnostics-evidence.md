@@ -256,24 +256,24 @@ The evidence bundle always includes these limitation statements:
 
 ## 8. Evidence Classification and Provenance Levels
 
-All operational evidence MUST be classified into exactly one of six tiers. The tier determines what claims MAY be derived from the evidence.
+All operational evidence MUST be classified into exactly one of five runtime evidence tiers. An additional archival label, historical, is recognised for documentation of prior test runs. The tier determines what claims MAY be derived from the evidence.
 
 ### 8.1 Tier Definitions
 
 | Tier             | Label        | Semantics                                                                                                                   | Allowed Claims                                                                                       |
 | ---------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **historical**   | Historical   | Recorded during a prior development phase. Not re-confirmed against the current codebase.                                   | "On date D, behavior X was observed." No claim about current behavior.                               |
+| **historical**   | Historical   | *Archival documentation label.* Recorded during a prior development phase. Not a runtime evidence_tier value.                                               | "On date D, behavior X was observed." No claim about current behavior.                               |
 | **conformance**  | Conformance  | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                      | "At commit H, behavior X is confirmed."                                                              |
 | **synthetic**    | Synthetic    | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                   | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
 | **docker**       | Docker       | Recorded against a local Docker container with real SDK dependencies. No external network, federation, or hardware.         | "SDK integration and adapter wiring work in a containerized environment."                            |
 | **live_service** | Live Service | Recorded against a real external transport service with real network connectivity. Requires real credentials and endpoints. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
 | **hardware**     | Hardware     | Recorded against a physical radio device connected via serial, TCP, or BLE. Requires physical hardware and firmware.        | "Against physical device D, behavior X was observed under conditions Y."                             |
 
-The legacy codes H, C, S, R remain in existing test outputs and evidence tables as accepted shorthand for historic / conformance / synthetic / runtime contexts. New evidence entries and machine-readable tier labels SHOULD use the full tier names.
+The legacy codes H, C, S, R remain in existing test outputs and evidence tables as accepted shorthand for historic / conformance / synthetic / runtime contexts. New evidence entries and machine-readable tier labels SHOULD use the five runtime tier names.
 
 ### 8.2 Classification Rules
 
-1. Every evidence table entry MUST include a `tier` field with one of the six tier labels (or corresponding legacy code: H, C, S, or R with appropriate sub-classification).
+1. Every evidence table entry MUST include a `tier` field with one of the five runtime tier labels, or the archival historical label for prior-run documentation (or corresponding legacy code: H, C, S, or R with appropriate sub-classification).
 2. Historical evidence MUST include the original recording date. It MUST NOT be presented as current.
 3. Synthetic evidence MUST NOT be used to support claims about real transport behavior.
 4. Docker evidence validates SDK integration and adapter wiring. It MUST NOT be used to support claims about external network behavior, federation, hardware operation, or real-world rate limits. Docker is not hardware.
@@ -283,7 +283,7 @@ The legacy codes H, C, S, R remain in existing test outputs and evidence tables 
 
 ### 8.3 Tier Transitions
 
-Historical evidence (`historical`) MAY be upgraded to `conformance`, `live_service`, or `hardware` by re-running the corresponding test at the current commit. The upgrade MUST include the new date, commit, and full evidence fields.
+Historical evidence (`historical`, archival documentation label, not a runtime evidence_tier value) MAY be upgraded to `conformance`, `live_service`, or `hardware` by re-running the corresponding test at the current commit. The upgrade MUST include the new date, commit, and full evidence fields.
 
 Synthetic evidence (`synthetic`) SHALL NOT be upgraded to `docker`, `live_service`, or `hardware` without a real endpoint or device run.
 
