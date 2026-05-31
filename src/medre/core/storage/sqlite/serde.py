@@ -189,6 +189,19 @@ def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
     )
 
 
+def _ensure_iso(value: str | datetime | None) -> str | None:
+    """Coerce a value to an ISO-8601 string for SQLite storage.
+
+    Accepts ``None`` (pass-through), an existing ``str`` (pass-through),
+    or a ``datetime`` instance (converted via ``.isoformat()``).  This
+    avoids passing raw ``datetime`` objects to SQLite, which triggers
+    Python 3.12's ``DeprecationWarning`` for the default datetime adapter.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    return value.isoformat()
+
+
 def _add_seconds_iso(iso_str: str, seconds: int) -> str:
     """Add *seconds* to an ISO-8601 string and return the new ISO string."""
     try:
