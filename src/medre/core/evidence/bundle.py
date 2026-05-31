@@ -110,6 +110,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     orphan_report: dict[str, Any] | None = None
     recovery_summary: dict[str, Any] | None = None
     recovery_ledger: dict[str, Any] | None = None
+    lifecycle_convergence_report: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict representation.
@@ -168,4 +169,7 @@ def _bundle_to_dict(bundle: EvidenceBundle) -> dict[str, Any]:
         "orphan_report": copy.deepcopy(bundle.orphan_report),
         "recovery_summary": copy.deepcopy(bundle.recovery_summary),
         "recovery_ledger": copy.deepcopy(bundle.recovery_ledger),
+        "lifecycle_convergence_report": copy.deepcopy(
+            bundle.lifecycle_convergence_report
+        ),
     }

@@ -53,6 +53,7 @@ async def _collect_storage_data_from_backend(
         "replay_timeline": None,
         "delivery_outcome_ledger": None,
         "retry_outbox_summary": None,
+        "lifecycle_convergence_report": None,
     }
 
     try:
@@ -322,6 +323,38 @@ async def _collect_storage_data_from_backend(
                     ],
                     "retry_worker": _retry_summary.retry_worker,
                 }
+
+                # --- Lifecycle convergence report (pure, from receipts + outbox) ---
+                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                    build_lifecycle_convergence_findings as _build_lifecycle_findings,
+                )
+
+                _lifecycle_findings = _build_lifecycle_findings(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
+                _lifecycle_sev_counts: dict[str, int] = {
+                    "safe": 0,
+                    "degraded": 0,
+                    "inconsistent": 0,
+                }
+                for _lf in _lifecycle_findings:
+                    _lifecycle_sev_counts[_lf.severity] = (
+                        _lifecycle_sev_counts.get(_lf.severity, 0) + 1
+                    )
+                _lifecycle_worst: str | None = None
+                if _lifecycle_sev_counts.get("inconsistent", 0) > 0:
+                    _lifecycle_worst = "inconsistent"
+                elif _lifecycle_sev_counts.get("degraded", 0) > 0:
+                    _lifecycle_worst = "degraded"
+                elif _lifecycle_sev_counts.get("safe", 0) > 0:
+                    _lifecycle_worst = "safe"
+                data["lifecycle_convergence_report"] = {
+                    "findings": [f.to_dict() for f in _lifecycle_findings],
+                    "total_findings": len(_lifecycle_findings),
+                    "severity_counts": _lifecycle_sev_counts,
+                    "worst_severity": _lifecycle_worst,
+                }
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.
@@ -401,6 +434,7 @@ async def _collect_storage_section(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Database file does not exist: {db_path}",
         )
@@ -423,6 +457,7 @@ async def _collect_storage_section(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Cannot open database read-only: {exc}",
         )
@@ -522,6 +557,7 @@ async def _collect_storage_path_bundle(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Database file does not exist: {storage_path}",
         )
@@ -545,6 +581,7 @@ async def _collect_storage_path_bundle(
                 "replay_timeline": None,
                 "delivery_outcome_ledger": None,
                 "retry_outbox_summary": None,
+                "lifecycle_convergence_report": None,
             },
             f"Cannot open database read-only: {exc}",
         )

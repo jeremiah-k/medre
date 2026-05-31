@@ -28,6 +28,15 @@ __all__ = [
     "KIND_REPEATEDLY_RECLAIMED",
     "KIND_RECLAIMED_THEN_TERMINAL",
     "KIND_RECLAIMED_THEN_ORPHANED",
+    "KIND_RECEIPT_OUTBOX_MISMATCH",
+    "KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX",
+    "KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT",
+    "KIND_RETRY_WAIT_MISSING_NEXT_RETRY",
+    "KIND_NEXT_RETRY_IN_PAST",
+    "KIND_RETRYABLE_WITHOUT_RETRY_METADATA",
+    "KIND_STALLED_DELIVERY_PLAN",
+    "KIND_ATTEMPT_COUNT_REGRESSION",
+    "KIND_RECEIPT_SEQUENCE_GAP",
 ]
 
 
@@ -298,3 +307,44 @@ KIND_RECLAIMED_THEN_TERMINAL = "reclaimed_then_terminal"
 #: Outbox item reclaimed at startup but its ``event_id`` is absent
 #: from the known event catalogue (also flagged as ``orphaned_outbox``).
 KIND_RECLAIMED_THEN_ORPHANED = "reclaimed_then_orphaned"
+
+# ---------------------------------------------------------------------------
+# Lifecycle delivery convergence finding-kind constants
+# ---------------------------------------------------------------------------
+
+#: Both receipt and outbox present for a target but statuses contradict
+#: normal delivery flow without being a terminal/non-terminal mismatch.
+KIND_RECEIPT_OUTBOX_MISMATCH = "receipt_outbox_mismatch"
+
+#: Latest receipt is terminal (``sent``, ``suppressed``, ``dead_lettered``)
+#: but the outbox for the same target is still in a non-terminal state.
+KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX = "terminal_receipt_nonterminal_outbox"
+
+#: Outbox has reached a terminal status but the latest receipt for the
+#: same target is still non-terminal.
+KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT = "terminal_outbox_nonterminal_receipt"
+
+#: Outbox is in ``retry_wait`` state with missing, empty, or unparsable
+#: ``next_attempt_at`` timestamp.
+KIND_RETRY_WAIT_MISSING_NEXT_RETRY = "retry_wait_missing_next_retry"
+
+#: Outbox is in ``retry_wait`` state but ``next_attempt_at`` is in the
+#: past relative to the current time.
+KIND_NEXT_RETRY_IN_PAST = "next_retry_in_past"
+
+#: Receipt is ``failed`` and appears retryable (transient failure or
+#: matching non-terminal outbox) but is missing retry scheduling
+#: metadata.
+KIND_RETRYABLE_WITHOUT_RETRY_METADATA = "retryable_without_retry_metadata"
+
+#: Non-terminal outbox item whose ``updated_at`` is older than the
+#: stall threshold, suggesting delivery has stalled.
+KIND_STALLED_DELIVERY_PLAN = "stalled_delivery_plan"
+
+#: Within the same target, a later receipt has a lower ``attempt_number``
+#: than an earlier receipt, indicating an attempt count regression.
+KIND_ATTEMPT_COUNT_REGRESSION = "attempt_count_regression"
+
+#: Within the same target, receipt sequences skip by more than 1 when
+#: sequences are positive integers.
+KIND_RECEIPT_SEQUENCE_GAP = "receipt_sequence_gap"

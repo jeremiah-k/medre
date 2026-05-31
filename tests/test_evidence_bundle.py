@@ -1311,3 +1311,227 @@ class TestConvergenceSummaryMultipleTargets:
         assert cs["severity_counts"]["safe"] == 1
         assert cs["severity_counts"]["inconsistent"] == 1
         assert cs["worst_severity"] == "inconsistent"
+
+
+# ===========================================================================
+# Lifecycle convergence report in collected bundles
+# ===========================================================================
+
+
+class TestLifecycleConvergenceReportEmpty:
+    """collect_for_event produces lifecycle_convergence_report with no findings
+    when all delivery states are clean."""
+
+    @pytest.mark.asyncio
+    async def test_empty_lifecycle_report(self) -> None:
+        storage = _populated_fake(event_id="evt-lc-empty")
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-empty")
+
+        assert bundle.lifecycle_convergence_report is not None
+        report = bundle.lifecycle_convergence_report
+        assert report["total_findings"] == 0
+        assert report["findings"] == []
+        assert report["worst_severity"] is None
+        assert report["severity_counts"] == {
+            "safe": 0,
+            "degraded": 0,
+            "inconsistent": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_lifecycle_report_json_safe(self) -> None:
+        storage = _populated_fake(event_id="evt-lc-json")
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-json")
+
+        d = bundle.to_dict()
+        json_str = json.dumps(d, sort_keys=True)
+        parsed = json.loads(json_str)
+        assert parsed["lifecycle_convergence_report"]["total_findings"] == 0
+
+
+class TestLifecycleConvergenceReportWithFindings:
+    """collect_for_event produces lifecycle_convergence_report with findings
+    when receipt/outbox states contradict normal delivery flow."""
+
+    @pytest.mark.asyncio
+    async def test_terminal_receipt_nonterminal_outbox(self) -> None:
+        """Sent receipt + pending outbox → terminal_receipt_nonterminal_outbox finding."""
+        receipt = _make_receipt(
+            "rcpt-lc-1",
+            event_id="evt-lc-trno",
+            status="sent",
+            delivery_plan_id="plan-lc",
+        )
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-lc-1",
+            event_id="evt-lc-trno",
+            route_id="route-1",
+            delivery_plan_id="plan-lc",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-lc-trno",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-trno")
+
+        report = bundle.lifecycle_convergence_report
+        assert report is not None
+        assert report["total_findings"] >= 1
+        # Find the specific finding.
+        kinds = [f["kind"] for f in report["findings"]]
+        assert "terminal_receipt_nonterminal_outbox" in kinds
+        # Severity should be inconsistent.
+        assert report["severity_counts"]["inconsistent"] >= 1
+        assert report["worst_severity"] == "inconsistent"
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_findings_json_safe(self) -> None:
+        """Lifecycle convergence findings are JSON-safe within full bundle."""
+        receipt = _make_receipt(
+            "rcpt-lc-js",
+            event_id="evt-lc-js",
+            status="sent",
+            delivery_plan_id="plan-js",
+        )
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-lc-js",
+            event_id="evt-lc-js",
+            route_id="route-1",
+            delivery_plan_id="plan-js",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-lc-js",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-js")
+
+        d = bundle.to_dict()
+        json_str = json.dumps(d, sort_keys=True)
+        parsed = json.loads(json_str)
+        assert json.loads(json_str) == parsed
+        report = parsed["lifecycle_convergence_report"]
+        assert report["total_findings"] >= 1
+        # Finding dict keys must be sorted (from OrphanFinding.to_dict).
+        for finding in report["findings"]:
+            assert sorted(finding.keys()) == list(finding.keys())
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_findings_deterministic_ordering(self) -> None:
+        """Lifecycle findings are sorted by (kind, record_id)."""
+        # Create two mismatched targets to get multiple findings.
+        r1 = _make_receipt(
+            "rcpt-lc-det1",
+            event_id="evt-lc-det",
+            status="sent",
+            delivery_plan_id="plan-det1",
+            target_adapter="adapter_a",
+            sequence=1,
+        )
+        r2 = _make_receipt(
+            "rcpt-lc-det2",
+            event_id="evt-lc-det",
+            status="sent",
+            delivery_plan_id="plan-det2",
+            target_adapter="adapter_b",
+            sequence=2,
+        )
+        ob1 = DeliveryOutboxItem(
+            outbox_id="ob-det1",
+            event_id="evt-lc-det",
+            route_id="route-1",
+            delivery_plan_id="plan-det1",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        ob2 = DeliveryOutboxItem(
+            outbox_id="ob-det2",
+            event_id="evt-lc-det",
+            route_id="route-1",
+            delivery_plan_id="plan-det2",
+            target_adapter="adapter_b",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-lc-det",
+            receipts=[r1, r2],
+            outbox_items=[ob1, ob2],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-det")
+
+        report = bundle.lifecycle_convergence_report
+        assert report is not None
+        findings = report["findings"]
+        # Verify deterministic ordering: sorted by (kind, record_id).
+        keys = [(f["kind"], f["record_id"]) for f in findings]
+        assert keys == sorted(keys)
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_report_not_duplicated_in_orphan_report(self) -> None:
+        """Lifecycle findings use separate kinds from orphan findings."""
+        receipt = _make_receipt(
+            "rcpt-lc-sep",
+            event_id="evt-lc-sep",
+            status="sent",
+            delivery_plan_id="plan-sep",
+        )
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-lc-sep",
+            event_id="evt-lc-sep",
+            route_id="route-1",
+            delivery_plan_id="plan-sep",
+            target_adapter="adapter_a",
+            target_channel=None,
+            status="pending",
+            created_at="2026-01-15T12:00:00+00:00",
+            updated_at="2026-01-15T12:00:01+00:00",
+        )
+        storage = _populated_fake(
+            event_id="evt-lc-sep",
+            receipts=[receipt],
+            outbox_items=[outbox],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+        bundle = await collector.collect_for_event("evt-lc-sep")
+
+        # Lifecycle report has lifecycle-specific kinds.
+        lc_kinds = [f["kind"] for f in bundle.lifecycle_convergence_report["findings"]]
+        # Orphan report should NOT contain any lifecycle kinds.
+        lifecycle_kind_set = {
+            "receipt_outbox_mismatch",
+            "terminal_receipt_nonterminal_outbox",
+            "terminal_outbox_nonterminal_receipt",
+            "retry_wait_missing_next_retry",
+            "next_retry_in_past",
+            "retryable_without_retry_metadata",
+            "stalled_delivery_plan",
+            "attempt_count_regression",
+            "receipt_sequence_gap",
+        }
+        orphan_kinds = [f["kind"] for f in bundle.orphan_report["findings"]]
+        overlap = set(orphan_kinds) & lifecycle_kind_set
+        assert not overlap, f"Orphan report contains lifecycle kinds: {overlap}"
+        # At least one lifecycle finding should exist.
+        assert len(lc_kinds) >= 1

@@ -194,5 +194,6 @@
     "recovery_run_id": null,
     "startup_timestamp": null
   },
+  "lifecycle_convergence_report": null,
   "status": "passed"
 }

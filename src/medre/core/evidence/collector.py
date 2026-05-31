@@ -14,6 +14,9 @@ from typing import Any, Callable, Coroutine, Protocol, cast
 
 import msgspec
 
+from medre.core.diagnostics.convergence.lifecycle_convergence import (
+    build_lifecycle_convergence_findings,
+)
 from medre.core.diagnostics.convergence.orphans import build_orphan_report
 from medre.core.diagnostics.convergence.recovery_convergence import (
     build_recovery_convergence_findings,
@@ -262,6 +265,43 @@ def _retry_outbox_summary_to_dict(summary: RetryOutboxSummary) -> dict[str, Any]
     }
 
 
+def _build_lifecycle_convergence_report_dict(
+    findings: list[Any],
+) -> dict[str, Any]:
+    """Build a JSON-safe lifecycle convergence report dict from findings.
+
+    Parameters
+    ----------
+    findings:
+        List of :class:`~medre.core.diagnostics.convergence.types.OrphanFinding`
+        produced by :func:`build_lifecycle_convergence_findings`.
+
+    Returns
+    -------
+    dict[str, Any]
+        Report with ``findings``, ``total_findings``, ``severity_counts``,
+        and ``worst_severity`` keys.
+    """
+    findings_dicts = [f.to_dict() for f in findings]
+    severity_counts: dict[str, int] = {"safe": 0, "degraded": 0, "inconsistent": 0}
+    for f in findings:
+        sev = f.severity
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+    worst_severity: str | None = None
+    if severity_counts.get("inconsistent", 0) > 0:
+        worst_severity = "inconsistent"
+    elif severity_counts.get("degraded", 0) > 0:
+        worst_severity = "degraded"
+    elif severity_counts.get("safe", 0) > 0:
+        worst_severity = "safe"
+    return {
+        "findings": findings_dicts,
+        "total_findings": len(findings_dicts),
+        "severity_counts": severity_counts,
+        "worst_severity": worst_severity,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Collector
 # ---------------------------------------------------------------------------
@@ -452,6 +492,16 @@ class EvidenceCollector:
             else:
                 orphan_report_dict["worst_severity"] = "safe"
 
+        # -- Lifecycle convergence findings (pure, from receipts + outbox) -----
+        lifecycle_findings = build_lifecycle_convergence_findings(
+            receipts=receipts,
+            outbox_items=outbox_items,
+            now_fn=self._now_fn,
+        )
+        lifecycle_report_dict: dict[str, Any] = (
+            _build_lifecycle_convergence_report_dict(lifecycle_findings)
+        )
+
         return EvidenceBundle(
             schema_version=BUNDLE_SCHEMA_VERSION,
             event_id=event_id,
@@ -470,4 +520,5 @@ class EvidenceCollector:
             orphan_report=orphan_report_dict,
             recovery_summary=recovery_summary_obj.to_dict(),
             recovery_ledger=recovery_ledger_obj.to_dict(),
+            lifecycle_convergence_report=lifecycle_report_dict,
         )
