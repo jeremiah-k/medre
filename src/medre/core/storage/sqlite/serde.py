@@ -196,6 +196,11 @@ def _ensure_iso(value: str | datetime | None) -> str | None:
     or a ``datetime`` instance (converted via ``.isoformat()``).  This
     avoids passing raw ``datetime`` objects to SQLite, which triggers
     Python 3.12's ``DeprecationWarning`` for the default datetime adapter.
+
+    NOTE: The diagnostics layer has a separate datetime→ISO path
+    (_to_iso / _parse_iso_timestamp in lifecycle_convergence.py).
+    These serve different contexts (storage vs diagnostics) and
+    should not be unified — each has domain-specific edge cases.
     """
     if value is None or isinstance(value, str):
         return value

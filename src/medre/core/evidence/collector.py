@@ -266,17 +266,6 @@ def _retry_outbox_summary_to_dict(summary: RetryOutboxSummary) -> dict[str, Any]
     }
 
 
-def _build_lifecycle_convergence_report_dict(
-    findings: list[Any],
-) -> dict[str, Any]:
-    """Build a JSON-safe lifecycle convergence report dict from findings.
-
-    Delegates to the canonical serialization helper in
-    :mod:`medre.core.diagnostics.convergence.lifecycle_convergence`.
-    """
-    return build_lifecycle_convergence_report_dict(findings)
-
-
 # ---------------------------------------------------------------------------
 # Collector
 # ---------------------------------------------------------------------------
@@ -473,8 +462,8 @@ class EvidenceCollector:
             outbox_items=outbox_items,
             now_fn=self._now_fn,
         )
-        lifecycle_report_dict: dict[str, Any] = (
-            _build_lifecycle_convergence_report_dict(lifecycle_findings)
+        lifecycle_report_dict: dict[str, Any] = build_lifecycle_convergence_report_dict(
+            lifecycle_findings
         )
 
         return EvidenceBundle(

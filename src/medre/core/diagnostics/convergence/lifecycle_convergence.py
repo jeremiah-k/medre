@@ -80,6 +80,10 @@ def _parse_iso_timestamp(value: Any) -> datetime | tuple[None, str]:
     """Parse a value to a timezone-aware ``datetime``.
 
     Returns ``datetime`` on success or ``(None, error_message)`` on failure.
+
+    NOTE: The storage layer has a separate datetime→ISO path
+    (_ensure_iso in serde.py). These serve different contexts
+    (storage vs diagnostics) and should not be unified.
     """
     if isinstance(value, datetime):
         return value

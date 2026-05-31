@@ -206,9 +206,7 @@
           "outbox_id": "obx_abc123",
           "receipt_id": "rec_xyz789",
           "outbox_status": "pending",
-          "receipt_status": "sent",
-          "target_channel": "chan_a",
-          "target_user": "user_1"
+          "receipt_status": "sent"
         }
       },
       {
@@ -216,12 +214,16 @@
         "severity": "degraded",
         "record_id": "rec_def456",
         "record_type": "receipt",
-        "details": "Receipt is retryable (failure_kind=adapter_transient) but has no retry policy metadata for target ('chan_b', 'user_2', 'group')",
+        "details": "Failed receipt 'rec_def456' appears retryable but is missing retry metadata: next_retry_at, retry_max_attempts, retry_backoff_base, retry_max_delay",
         "extra": {
           "receipt_id": "rec_def456",
           "failure_kind": "adapter_transient",
-          "target_channel": "chan_b",
-          "target_user": "user_2"
+          "missing_fields": [
+            "next_retry_at",
+            "retry_max_attempts",
+            "retry_backoff_base",
+            "retry_max_delay"
+          ]
         }
       }
     ],
