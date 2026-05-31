@@ -32,6 +32,15 @@ _TERMINAL_OUTBOX: frozenset[str] = frozenset(
 
 _TERMINAL_RECEIPT: frozenset[str] = frozenset({"sent", "dead_lettered", "suppressed"})
 
+# Outbox statuses that have a direct receipt-vocabulary equivalent.
+# Only these mappings allow a valid cross-state-machine comparison.
+# Outbox statuses like "pending", "retry_wait", "in_progress" have NO
+# receipt equivalent — comparing them to a receipt status would be a
+# vocabulary mismatch, producing false positives.
+_OUTBOX_TO_RECEIPT_EQUIV: dict[str, str] = {
+    "queued": "queued",
+}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -99,7 +108,6 @@ def build_recovery_convergence_findings(
             actions_list = list(actions)
 
         # Track recovery_run_ids to detect repeatedly reclaimed.
-        seen_recovery_runs: set[str] = set()
         action_run_ids: dict[str, list[str]] = {}  # outbox_id → list[recovery_run_id]
 
         for action in actions_list:
@@ -109,48 +117,53 @@ def build_recovery_convergence_findings(
             prior_status = str(_get(action, "prior_status", ""))
 
             if run_id:
-                seen_recovery_runs.add(run_id)
-
-            if outbox_id and run_id:
                 action_run_ids.setdefault(outbox_id, []).append(run_id)
 
             # recovered_not_progressed: item was reclaimed/recoverable
             # but its latest receipt is still the same (non-terminal, non-progressed).
+            # Only compare when the outbox prior_status has a valid receipt
+            # equivalent — comparing outbox "pending" to receipt "pending"
+            # would be a vocabulary-mismatch false positive.
             if ownership_action in ("recoverable", "reclaimed", "claimed_for_recovery"):
-                item = outbox_by_id.get(outbox_id)
-                if item is not None:
-                    target_key = _target_key(item)
-                    latest = _latest_receipt_for_target(receipts_by_target, target_key)
-                    if latest is not None:
-                        latest_status = str(_get(latest, "status", ""))
-                        if (
-                            latest_status == prior_status
-                            and latest_status not in _TERMINAL_RECEIPT
-                        ):
-                            findings.append(
-                                OrphanFinding(
-                                    kind=KIND_RECOVERED_NOT_PROGRESSED,
-                                    severity="degraded",
-                                    record_id=outbox_id or latest_status,
-                                    record_type="outbox",
-                                    details=(
-                                        f"Outbox item {outbox_id!r} ({prior_status}) "
-                                        f"was recovered but latest receipt is still "
-                                        f"{latest_status!r} — no progress since shutdown"
-                                    ),
-                                    extra={
-                                        "outbox_id": outbox_id,
-                                        "prior_status": prior_status,
-                                        "latest_receipt_status": latest_status,
-                                        "recovery_run_id": run_id,
-                                    },
+                receipt_equiv = _OUTBOX_TO_RECEIPT_EQUIV.get(prior_status)
+                if receipt_equiv is not None:
+                    item = outbox_by_id.get(outbox_id)
+                    if item is not None:
+                        target_key = _target_key(item)
+                        latest = _latest_receipt_for_target(
+                            receipts_by_target, target_key
+                        )
+                        if latest is not None:
+                            latest_status = str(_get(latest, "status", ""))
+                            if (
+                                latest_status == receipt_equiv
+                                and latest_status not in _TERMINAL_RECEIPT
+                            ):
+                                findings.append(
+                                    OrphanFinding(
+                                        kind=KIND_RECOVERED_NOT_PROGRESSED,
+                                        severity="degraded",
+                                        record_id=outbox_id or latest_status,
+                                        record_type="outbox",
+                                        details=(
+                                            f"Outbox item {outbox_id!r} ({prior_status}) "
+                                            f"was recovered but latest receipt is still "
+                                            f"{latest_status!r} — no progress since shutdown"
+                                        ),
+                                        extra={
+                                            "outbox_id": outbox_id,
+                                            "prior_status": prior_status,
+                                            "latest_receipt_status": latest_status,
+                                            "recovery_run_id": run_id,
+                                        },
+                                    )
                                 )
-                            )
 
         # -- Repeatedly reclaimed ------------------------------------------
-        # Same outbox item appears in multiple recovery runs.
+        # Same outbox item appears in multiple DISTINCT recovery runs.
         for oid, run_ids in action_run_ids.items():
-            if len(run_ids) >= 2:
+            distinct_ids = sorted(set(run_ids))
+            if len(distinct_ids) >= 2:
                 item = outbox_by_id.get(oid)
                 status = str(_get(item, "status", "")) if item else "unknown"
                 findings.append(
@@ -160,51 +173,65 @@ def build_recovery_convergence_findings(
                         record_id=oid,
                         record_type="outbox",
                         details=(
-                            f"Outbox item {oid!r} was reclaimed {len(run_ids)} times "
-                            f"across recovery runs {sorted(run_ids)} — repeated "
-                            f"recovery without progress"
+                            f"Outbox item {oid!r} was reclaimed across "
+                            f"{len(distinct_ids)} distinct recovery runs "
+                            f"{distinct_ids} — repeated recovery without progress"
                         ),
                         extra={
                             "outbox_id": oid,
                             "status": status,
-                            "recovery_run_ids": sorted(run_ids),
-                            "recovery_count": len(run_ids),
+                            "recovery_run_ids": distinct_ids,
+                            "recovery_count": len(distinct_ids),
                         },
                     )
                 )
 
-    # -- Reclaimed then terminal ------------------------------------------
-    # Outbox item is terminal but latest receipt is non-terminal.
-    for item in outbox_items:
-        status = str(_get(item, "status", ""))
-        if status in _TERMINAL_OUTBOX:
-            target_key = _target_key(item)
-            latest = _latest_receipt_for_target(receipts_by_target, target_key)
-            if latest is not None:
-                latest_status = str(_get(latest, "status", ""))
-                if latest_status not in _TERMINAL_RECEIPT:
-                    oid = str(_get(item, "outbox_id", ""))
-                    findings.append(
-                        OrphanFinding(
-                            kind=KIND_RECLAIMED_THEN_TERMINAL,
-                            severity="inconsistent",
-                            record_id=oid or latest_status,
-                            record_type="outbox",
-                            details=(
-                                f"Outbox item {oid!r} is terminal ({status}) but "
-                                f"latest receipt is non-terminal ({latest_status}) — "
-                                f"terminal outbox with non-terminal receipt"
-                            ),
-                            extra={
-                                "outbox_id": oid,
-                                "outbox_status": status,
-                                "latest_receipt_status": latest_status,
-                                "delivery_plan_id": str(
-                                    _get(item, "delivery_plan_id", "")
+        # -- Reclaimed then terminal ------------------------------------------
+        # Outbox item is terminal but latest receipt is non-terminal, AND the
+        # item was actually present in the recovery ledger with a
+        # recovered/reclaimed action.  Without this gate, any terminal outbox
+        # item with a non-terminal receipt would fire regardless of recovery.
+        # Build set of outbox_ids that had recovery actions.
+        recovered_outbox_ids_terminal: set[str] = set()
+        for action in actions_list:
+            oa = str(_get(action, "ownership_action", ""))
+            if oa in ("recoverable", "reclaimed", "claimed_for_recovery"):
+                oid_t = str(_get(action, "outbox_id", ""))
+                if oid_t:
+                    recovered_outbox_ids_terminal.add(oid_t)
+
+        for item in outbox_items:
+            status = str(_get(item, "status", "")).lower()
+            if status in _TERMINAL_OUTBOX:
+                oid = str(_get(item, "outbox_id", ""))
+                if oid not in recovered_outbox_ids_terminal:
+                    continue
+                target_key = _target_key(item)
+                latest = _latest_receipt_for_target(receipts_by_target, target_key)
+                if latest is not None:
+                    latest_status = str(_get(latest, "status", "")).lower()
+                    if latest_status not in _TERMINAL_RECEIPT:
+                        findings.append(
+                            OrphanFinding(
+                                kind=KIND_RECLAIMED_THEN_TERMINAL,
+                                severity="inconsistent",
+                                record_id=oid or latest_status,
+                                record_type="outbox",
+                                details=(
+                                    f"Outbox item {oid!r} is terminal ({status}) but "
+                                    f"latest receipt is non-terminal ({latest_status}) — "
+                                    f"terminal outbox with non-terminal receipt"
                                 ),
-                            },
+                                extra={
+                                    "outbox_id": oid,
+                                    "outbox_status": status,
+                                    "latest_receipt_status": latest_status,
+                                    "delivery_plan_id": str(
+                                        _get(item, "delivery_plan_id", "")
+                                    ),
+                                },
+                            )
                         )
-                    )
 
     # -- Reclaimed then orphaned ------------------------------------------
     # Non-terminal outbox item whose event_id is absent from known_event_ids

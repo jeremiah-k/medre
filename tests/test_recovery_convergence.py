@@ -20,7 +20,7 @@ from medre.core.diagnostics.convergence.types import (
     KIND_RECOVERED_NOT_PROGRESSED,
     KIND_REPEATEDLY_RECLAIMED,
 )
-from medre.core.recovery import (
+from medre.core.recovery.models import (
     RecoveryOwnershipAction,
     StartupRecoveryLedger,
 )
@@ -104,13 +104,14 @@ def _make_action(
 
 class TestRecoveredNotProgressed:
     def test_flagged_when_no_progress(self) -> None:
-        outbox = [_make_outbox(status="pending")]
-        receipts = [_make_receipt(status="pending")]  # receipt still pending
+        """Genuine no-progress: outbox was queued, receipt still queued."""
+        outbox = [_make_outbox(status="queued")]
+        receipts = [_make_receipt(status="queued")]  # receipt still queued
         ledger = StartupRecoveryLedger(
             recovery_run_id="run-1",
             startup_timestamp=None,
             actions=(
-                _make_action(ownership_action="recoverable", prior_status="pending"),
+                _make_action(ownership_action="recoverable", prior_status="queued"),
             ),
             generated_at="2026-05-31T12:00:00+00:00",
         )
@@ -126,13 +127,14 @@ class TestRecoveredNotProgressed:
         assert "no progress" in f.details.lower()
 
     def test_not_flagged_when_progressed(self) -> None:
-        outbox = [_make_outbox(status="pending")]
+        """Receipt progressed to sent — should not fire."""
+        outbox = [_make_outbox(status="queued")]
         receipts = [_make_receipt(status="sent")]  # progressed to terminal
         ledger = StartupRecoveryLedger(
             recovery_run_id="run-1",
             startup_timestamp=None,
             actions=(
-                _make_action(ownership_action="recoverable", prior_status="pending"),
+                _make_action(ownership_action="recoverable", prior_status="queued"),
             ),
             generated_at="2026-05-31T12:00:00+00:00",
         )
@@ -145,12 +147,37 @@ class TestRecoveredNotProgressed:
         assert KIND_RECOVERED_NOT_PROGRESSED not in kinds
 
     def test_not_flagged_when_no_receipt(self) -> None:
-        outbox = [_make_outbox(status="pending")]
+        outbox = [_make_outbox(status="queued")]
         receipts = []
         ledger = StartupRecoveryLedger(
             recovery_run_id="run-1",
             startup_timestamp=None,
-            actions=(_make_action(ownership_action="recoverable"),),
+            actions=(
+                _make_action(ownership_action="recoverable", prior_status="queued"),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_RECOVERED_NOT_PROGRESSED not in kinds
+
+    def test_not_flagged_on_vocabulary_mismatch(self) -> None:
+        """Outbox 'pending' has no receipt equivalent — must not fire
+        even if a receipt happens to carry the same string value."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = [
+            _make_receipt(status="pending")
+        ]  # invalid receipt vocab, but defensive
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(ownership_action="recoverable", prior_status="pending"),
+            ),
             generated_at="2026-05-31T12:00:00+00:00",
         )
         findings = build_recovery_convergence_findings(
@@ -168,7 +195,7 @@ class TestRecoveredNotProgressed:
 
 
 class TestRepeatedlyReclaimed:
-    def test_flagged_when_multiple_runs(self) -> None:
+    def test_flagged_when_multiple_distinct_runs(self) -> None:
         outbox = [_make_outbox(status="pending")]
         receipts = []
         action1 = _make_action(recovery_run_id="run-1")
@@ -188,7 +215,7 @@ class TestRepeatedlyReclaimed:
         assert KIND_REPEATEDLY_RECLAIMED in kinds
         f = next(f for f in findings if f.kind == KIND_REPEATEDLY_RECLAIMED)
         assert f.severity == "degraded"
-        assert "reclaimed 2 times" in f.details.lower()
+        assert "2 distinct recovery runs" in f.details.lower()
 
     def test_not_flagged_when_single_run(self) -> None:
         outbox = [_make_outbox(status="pending")]
@@ -207,6 +234,27 @@ class TestRepeatedlyReclaimed:
         kinds = {f.kind for f in findings}
         assert KIND_REPEATEDLY_RECLAIMED not in kinds
 
+    def test_not_flagged_when_duplicate_same_run(self) -> None:
+        """Same run_id appearing multiple times is NOT repeatedly reclaimed."""
+        outbox = [_make_outbox(status="pending")]
+        receipts = []
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(recovery_run_id="run-1"),
+                _make_action(recovery_run_id="run-1"),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_REPEATEDLY_RECLAIMED not in kinds
+
 
 # ---------------------------------------------------------------------------
 # reclaimed_then_terminal
@@ -214,7 +262,31 @@ class TestRepeatedlyReclaimed:
 
 
 class TestReclaimedThenTerminal:
-    def test_flagged_when_terminal_outbox_non_terminal_receipt(self) -> None:
+    def test_flagged_when_terminal_outbox_non_terminal_receipt_with_ledger(
+        self,
+    ) -> None:
+        """Fires when outbox is terminal, receipt non-terminal, AND item is in recovery ledger."""
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
+        receipts = [_make_receipt(status="failed")]
+        action = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_RECLAIMED_THEN_TERMINAL in kinds
+        f = next(f for f in findings if f.kind == KIND_RECLAIMED_THEN_TERMINAL)
+        assert f.severity == "inconsistent"
+
+    def test_not_flagged_without_ledger(self) -> None:
+        """Without a recovery ledger, reclaimed_then_terminal must NOT fire."""
         outbox = [_make_outbox(status="dead_lettered")]
         receipts = [_make_receipt(status="failed")]
         findings = build_recovery_convergence_findings(
@@ -222,25 +294,59 @@ class TestReclaimedThenTerminal:
             receipts=receipts,
         )
         kinds = {f.kind for f in findings}
-        assert KIND_RECLAIMED_THEN_TERMINAL in kinds
-        f = next(f for f in findings if f.kind == KIND_RECLAIMED_THEN_TERMINAL)
-        assert f.severity == "inconsistent"
+        assert KIND_RECLAIMED_THEN_TERMINAL not in kinds
 
     def test_not_flagged_when_both_terminal(self) -> None:
-        outbox = [_make_outbox(status="dead_lettered")]
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
         receipts = [_make_receipt(status="dead_lettered")]
+        action = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
         findings = build_recovery_convergence_findings(
             outbox_items=outbox,
             receipts=receipts,
+            recovery_ledger=ledger,
         )
         kinds = {f.kind for f in findings}
         assert KIND_RECLAIMED_THEN_TERMINAL not in kinds
 
     def test_not_flagged_when_no_receipt(self) -> None:
-        outbox = [_make_outbox(status="dead_lettered")]
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
+        action = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
         findings = build_recovery_convergence_findings(
             outbox_items=outbox,
             receipts=[],
+            recovery_ledger=ledger,
+        )
+        kinds = {f.kind for f in findings}
+        assert KIND_RECLAIMED_THEN_TERMINAL not in kinds
+
+    def test_not_flagged_when_not_in_ledger(self) -> None:
+        """Terminal outbox + non-terminal receipt but item NOT in recovery ledger → skip."""
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
+        receipts = [_make_receipt(status="failed")]
+        # Ledger has a DIFFERENT outbox_id, so ob-1 is not in recovery ledger.
+        action = _make_action(outbox_id="ob-other", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
         )
         kinds = {f.kind for f in findings}
         assert KIND_RECLAIMED_THEN_TERMINAL not in kinds
@@ -315,18 +421,42 @@ class TestReclaimedThenOrphaned:
 
 class TestRecoveryConvergenceDeterminism:
     def test_deterministic_output(self) -> None:
-        outbox = [_make_outbox(status="dead_lettered")]
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
         receipts = [_make_receipt(status="failed")]
-        f1 = build_recovery_convergence_findings(outbox_items=outbox, receipts=receipts)
-        f2 = build_recovery_convergence_findings(outbox_items=outbox, receipts=receipts)
+        action = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        f1 = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+        f2 = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
         assert [x.kind for x in f1] == [x.kind for x in f2]
         assert [x.record_id for x in f1] == [x.record_id for x in f2]
 
     def test_json_safe(self) -> None:
-        outbox = [_make_outbox(status="dead_lettered")]
+        outbox = [_make_outbox(outbox_id="ob-1", status="dead_lettered")]
         receipts = [_make_receipt(status="failed")]
+        action = _make_action(outbox_id="ob-1", ownership_action="reclaimed")
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(action,),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
         findings = build_recovery_convergence_findings(
-            outbox_items=outbox, receipts=receipts
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
         )
         for f in findings:
             d = f.to_dict()
@@ -337,7 +467,7 @@ class TestRecoveryConvergenceDeterminism:
 
     def test_sorted_findings(self) -> None:
         outbox = [
-            _make_outbox(outbox_id="z", status="pending"),
+            _make_outbox(outbox_id="z", status="dead_lettered"),
             _make_outbox(outbox_id="a", status="dead_lettered"),
         ]
         receipts = [
@@ -348,8 +478,8 @@ class TestRecoveryConvergenceDeterminism:
                 delivery_plan_id="plan-a", target_adapter="adapter-a", status="failed"
             ),
         ]
-        action1 = _make_action(outbox_id="z", ownership_action="recoverable")
-        action2 = _make_action(outbox_id="a", ownership_action="recoverable")
+        action1 = _make_action(outbox_id="z", ownership_action="reclaimed")
+        action2 = _make_action(outbox_id="a", ownership_action="reclaimed")
         ledger = StartupRecoveryLedger(
             recovery_run_id="run-1",
             startup_timestamp=None,

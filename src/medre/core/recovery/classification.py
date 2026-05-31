@@ -7,6 +7,7 @@ designed for operator-facing evidence, not action.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 __all__ = ["classify_startup_reclamation"]
@@ -70,8 +71,26 @@ def _to_str(val: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Timestamp helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_as_utc(ts: str) -> datetime:
+    """Parse an ISO-8601 string and normalise to UTC.
+
+    Naive timestamps (no ``tzinfo``) are treated as UTC.
+    """
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(minutes=5)
 
 
 def classify_startup_reclamation(
@@ -79,6 +98,8 @@ def classify_startup_reclamation(
     *,
     startup_timestamp: str | None = None,
     known_event_ids: set[str] | frozenset[str] | None = None,
+    now: datetime | None = None,
+    stale_queued_grace: timedelta | None = None,
 ) -> tuple[str, str]:
     """Classify a single outbox item for startup reclamation.
 
@@ -101,6 +122,12 @@ def classify_startup_reclamation(
         orphan check.  An empty set flags all non-terminal items as
         orphaned (consistent with
         :func:`~medre.core.diagnostics.convergence.orphans.build_orphan_report`).
+    now:
+        Reference time for deterministic timestamp comparisons.
+        Defaults to ``datetime.now(timezone.utc)`` when ``None``.
+    stale_queued_grace:
+        Grace period before a ``queued`` item with ``updated_at`` is
+        considered stale.  Defaults to 5 minutes when ``None``.
 
     Returns
     -------
@@ -108,6 +135,13 @@ def classify_startup_reclamation(
         ``(classification_label, reason)`` where *classification_label*
         is one of the ``CLASS_*`` constants.
     """
+    _now = now if now is not None else datetime.now(timezone.utc)
+    _grace = (
+        stale_queued_grace
+        if stale_queued_grace is not None
+        else _DEFAULT_STALE_QUEUED_GRACE
+    )
+
     status = _to_str(_get(outbox_item, "status")).lower()
     event_id = _to_str(_get(outbox_item, "event_id"))
     outbox_id = _to_str(_get(outbox_item, "outbox_id"))
@@ -137,19 +171,23 @@ def classify_startup_reclamation(
             f"— orphaned work cannot be reclaimed without a valid event catalogue",
         )
 
-    # -- Stale / expired in_progress ----------------------------------------
+    # -- in_progress: lease check -------------------------------------------
     if status == "in_progress":
         if lease_until:
-            from datetime import datetime, timezone
-
             try:
-                lease_dt = datetime.fromisoformat(lease_until)
-                if datetime.now(timezone.utc) >= lease_dt:
+                lease_dt = _parse_as_utc(lease_until)
+                if _now >= lease_dt:
                     return (
                         CLASS_STALE,
                         f"Outbox item {outbox_id!r} lease expired ({lease_until}) "
                         f"— reclaimable by next worker",
                     )
+                # Lease still valid — item is actively being worked.
+                return (
+                    CLASS_RETRY_ELIGIBLE,
+                    f"Outbox item {outbox_id!r} is in_progress with active lease "
+                    f"(until {lease_until}) — not yet due",
+                )
             except (ValueError, TypeError):
                 # Unparseable timestamp — treat as stale conservatively.
                 pass
@@ -160,35 +198,44 @@ def classify_startup_reclamation(
             f"lease — reclaimable",
         )
 
-    # -- Stale queued -------------------------------------------------------
+    # -- queued: stale grace check ------------------------------------------
     if status == "queued":
-        # A queued item with no updated_at or very old updated_at
-        # is stale.  The exact grace period is storage-level policy,
-        # so we classify conservatively: if updated_at is empty or
-        # clearly old, treat as stale.
         if not updated_at:
             return (
                 CLASS_STALE,
                 f"Outbox item {outbox_id!r} is queued with no updated_at "
                 f"— treat as stale",
             )
-        return (
-            (
-                CLASS_ORPHANED
-                if known_event_ids is not None and event_id not in known_event_ids
-                else CLASS_IMMEDIATELY_CLAIMABLE
-            ),
-            f"Outbox item {outbox_id!r} is queued — claimable if stale",
-        )
+        try:
+            updated_dt = _parse_as_utc(updated_at)
+            age = _now - updated_dt
+            if age <= _grace:
+                # Recently queued — within grace period, not stale.
+                return (
+                    CLASS_RETRY_ELIGIBLE,
+                    f"Outbox item {outbox_id!r} is queued and recently updated "
+                    f"({updated_at}) — within stale grace period",
+                )
+            # Stale queued — grace period exceeded.
+            return (
+                CLASS_IMMEDIATELY_CLAIMABLE,
+                f"Outbox item {outbox_id!r} is queued and stale "
+                f"(updated_at {updated_at} exceeds grace) — claimable",
+            )
+        except (ValueError, TypeError):
+            # Unparseable updated_at — treat as stale conservatively.
+            return (
+                CLASS_STALE,
+                f"Outbox item {outbox_id!r} is queued with unparseable "
+                f"updated_at — treat as stale",
+            )
 
     # -- retry_wait with future next_attempt_at -----------------------------
     if status == "retry_wait":
         if next_attempt_at:
-            from datetime import datetime, timezone
-
             try:
-                next_dt = datetime.fromisoformat(next_attempt_at)
-                if datetime.now(timezone.utc) < next_dt:
+                next_dt = _parse_as_utc(next_attempt_at)
+                if _now < next_dt:
                     return (
                         CLASS_RETRY_ELIGIBLE,
                         f"Outbox item {outbox_id!r} is retry_wait with future "

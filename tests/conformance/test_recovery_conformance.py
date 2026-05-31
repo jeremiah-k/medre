@@ -14,14 +14,16 @@ import copy
 import json
 
 from medre.core.evidence.bundle import EvidenceBundle
-from medre.core.recovery import (
-    RecoveryOwnershipAction,
-    RecoveryOwnershipStatus,
-    RecoverySource,
+from medre.core.recovery.builder import (
     build_recovery_summary,
     build_startup_recovery_ledger,
-    classify_startup_reclamation,
 )
+from medre.core.recovery.classification import classify_startup_reclamation
+from medre.core.recovery.models import (
+    RecoveryOwnershipAction,
+    RecoveryOwnershipStatus,
+)
+from medre.core.recovery.recovery_source import RecoverySource
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,6 +272,7 @@ class TestRecoveryNotProofOfDelivery:
                 "reclaimed",
                 "abandoned",
                 "unrecoverable",
+                "skipped",
             }
             # None of these imply delivery completion
             assert "sent" not in status.value

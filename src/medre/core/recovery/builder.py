@@ -8,10 +8,10 @@ access, no state mutation.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
-from ._classification import (
+from .classification import (
     CLASS_IMMEDIATELY_CLAIMABLE,
     CLASS_INCONSISTENT,
     CLASS_ORPHANED,
@@ -20,13 +20,13 @@ from ._classification import (
     CLASS_TERMINAL,
     classify_startup_reclamation,
 )
-from ._models import (
+from .models import (
     RecoveryOwnershipAction,
     RecoveryOwnershipStatus,
     RecoverySummary,
     StartupRecoveryLedger,
 )
-from ._recovery_source import RecoverySource
+from .recovery_source import RecoverySource
 
 __all__ = ["build_startup_recovery_ledger", "build_recovery_summary"]
 
@@ -54,6 +54,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_as_utc(ts: str) -> datetime:
+    """Parse an ISO-8601 string and normalise to UTC."""
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 # ---------------------------------------------------------------------------
 # Recovery source inference
 # ---------------------------------------------------------------------------
@@ -64,14 +72,12 @@ def _infer_recovery_source(
     *,
     worker_id: str | None,
     startup_timestamp: str | None = None,
-    now_fn: Callable[[], str] | None = None,
 ) -> str:
     """Infer the recovery source for a claimable outbox item.
 
-    Priority:
-    1. ``startup_timestamp`` within the last 60s → ``STARTUP_RECOVERY``
-    2. ``worker_id`` set and not in the last startup window → ``RETRY_WORKER_RECOVERY``
-    3. Default → ``RETRY_WORKER_RECOVERY``
+    If ``startup_timestamp`` is present, the source is always
+    ``STARTUP_RECOVERY`` regardless of age.  Otherwise the source
+    defaults to ``RETRY_WORKER_RECOVERY``.
 
     **Note:** ``REPLAY_EXECUTION`` is inferred later by the collector
     when receipt-level ``source="replay"`` evidence exists for the same
@@ -79,21 +85,7 @@ def _infer_recovery_source(
     receipt data.
     """
     if startup_timestamp is not None:
-        try:
-            startup_dt = datetime.fromisoformat(startup_timestamp)
-            # Use injectable now_fn to produce a datetime for comparison.
-            if now_fn is not None:
-                now_str = now_fn()
-                now = datetime.fromisoformat(now_str)
-            else:
-                now = datetime.now(timezone.utc)
-            if (now - startup_dt).total_seconds() <= 60:
-                return str(RecoverySource.STARTUP_RECOVERY)
-        except (ValueError, TypeError):
-            pass
-
-    if worker_id:
-        return str(RecoverySource.RETRY_WORKER_RECOVERY)
+        return str(RecoverySource.STARTUP_RECOVERY)
 
     return str(RecoverySource.RETRY_WORKER_RECOVERY)
 
@@ -104,7 +96,7 @@ def _infer_recovery_source(
 
 _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
     CLASS_IMMEDIATELY_CLAIMABLE: str(RecoveryOwnershipStatus.RECOVERABLE),
-    CLASS_RETRY_ELIGIBLE: str(RecoveryOwnershipStatus.RECOVERABLE),
+    CLASS_RETRY_ELIGIBLE: str(RecoveryOwnershipStatus.SKIPPED),
     CLASS_STALE: str(RecoveryOwnershipStatus.CLAIMED_FOR_RECOVERY),
     CLASS_ORPHANED: str(RecoveryOwnershipStatus.UNRECOVERABLE),
     CLASS_TERMINAL: str(RecoveryOwnershipStatus.UNRECOVERABLE),
@@ -115,6 +107,8 @@ _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
 # Public builders
 # ---------------------------------------------------------------------------
 
+_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(minutes=5)
+
 
 def build_startup_recovery_ledger(
     outbox_items: Iterable[Any] = (),
@@ -123,6 +117,7 @@ def build_startup_recovery_ledger(
     recovery_run_id: str | None = None,
     now_fn: Callable[[], str] | None = None,
     known_event_ids: set[str] | frozenset[str] | None = None,
+    stale_queued_grace: timedelta | None = None,
 ) -> StartupRecoveryLedger:
     """Build a deterministic startup recovery ledger from outbox snapshots.
 
@@ -139,10 +134,14 @@ def build_startup_recovery_ledger(
         UUID identifying this recovery cycle.  Auto-generated when
         ``None``.
     now_fn:
-        Injectable clock for deterministic testing.
+        Injectable clock for deterministic testing.  Returns an
+        ISO-8601 string.
     known_event_ids:
         Known event IDs for orphan detection.  ``None`` skips orphan
         checks; an empty set flags all non-terminal items.
+    stale_queued_grace:
+        Grace period before a ``queued`` item with ``updated_at`` is
+        considered stale.  Defaults to 5 minutes when ``None``.
 
     Returns
     -------
@@ -150,9 +149,17 @@ def build_startup_recovery_ledger(
         Frozen, append-only recovery ledger with deterministically
         ordered actions by ``(outbox_id, timestamp)``.
     """
-    _now = now_fn or _now_iso
+    _now_iso_fn = now_fn or _now_iso
     _run_id = recovery_run_id if recovery_run_id is not None else uuid.uuid4().hex
-    generated_at = _now()
+    _grace = (
+        stale_queued_grace
+        if stale_queued_grace is not None
+        else _DEFAULT_STALE_QUEUED_GRACE
+    )
+    generated_at = _now_iso_fn()
+
+    # Derive a datetime for classification timestamp comparisons.
+    _now_dt = _parse_as_utc(generated_at)
 
     actions: list[RecoveryOwnershipAction] = []
 
@@ -169,6 +176,8 @@ def build_startup_recovery_ledger(
             item,
             startup_timestamp=startup_timestamp,
             known_event_ids=known_event_ids,
+            now=_now_dt,
+            stale_queued_grace=_grace,
         )
 
         ownership_action = _CLASSIFICATION_TO_OWNERSHIP.get(
@@ -179,13 +188,7 @@ def build_startup_recovery_ledger(
             item,
             worker_id=worker_id,
             startup_timestamp=startup_timestamp,
-            now_fn=now_fn,
         )
-
-        # Handle skipped (retry_eligible) as a distinct group in the summary
-        # but map ownership to UNRECOVERABLE since it's intentionally deferred.
-        if classification == CLASS_RETRY_ELIGIBLE:
-            ownership_action = "skipped"
 
         action_timestamp = updated_at or generated_at
 
@@ -255,7 +258,7 @@ def build_recovery_summary(
             claimed += 1
         elif oa == str(RecoveryOwnershipStatus.RECLAIMED):
             reclaimed += 1
-        elif oa == "skipped":
+        elif oa == str(RecoveryOwnershipStatus.SKIPPED):
             skipped += 1
         elif oa == str(RecoveryOwnershipStatus.ABANDONED):
             abandoned += 1

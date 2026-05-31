@@ -7,6 +7,8 @@ Covers:
 - build_startup_recovery_ledger() — empty, single, mixed, terminal → unrecoverable
 - build_recovery_summary() — consistency validation
 - RecoverySource disambiguation
+- Deterministic time: naive and aware timestamps, reference time injection
+- Queued stale-grace: recent, stale, missing updated_at
 - Edge cases: missing startup_timestamp, missing known_event_ids, unrecognised status
 """
 
@@ -18,16 +20,18 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from medre.core.recovery import (
-    RecoveryOwnershipAction,
-    RecoveryOwnershipStatus,
-    RecoverySource,
-    RecoverySummary,
-    StartupRecoveryLedger,
+from medre.core.recovery.builder import (
     build_recovery_summary,
     build_startup_recovery_ledger,
-    classify_startup_reclamation,
 )
+from medre.core.recovery.classification import classify_startup_reclamation
+from medre.core.recovery.models import (
+    RecoveryOwnershipAction,
+    RecoveryOwnershipStatus,
+    RecoverySummary,
+    StartupRecoveryLedger,
+)
+from medre.core.recovery.recovery_source import RecoverySource
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -60,6 +64,10 @@ def _fixed_now() -> str:
     return "2026-05-31T12:00:00+00:00"
 
 
+def _fixed_dt() -> datetime:
+    return datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # RecoveryOwnershipStatus
 # ---------------------------------------------------------------------------
@@ -74,6 +82,7 @@ class TestRecoveryOwnershipStatus:
             RecoveryOwnershipStatus.RECLAIMED,
             RecoveryOwnershipStatus.ABANDONED,
             RecoveryOwnershipStatus.UNRECOVERABLE,
+            RecoveryOwnershipStatus.SKIPPED,
         }
 
     def test_is_string_enum(self) -> None:
@@ -83,6 +92,10 @@ class TestRecoveryOwnershipStatus:
     def test_equality_with_strings(self) -> None:
         assert RecoveryOwnershipStatus.RECOVERABLE == "recoverable"
         assert RecoveryOwnershipStatus.RECOVERABLE != "claimed_for_recovery"
+
+    def test_skipped_value(self) -> None:
+        assert RecoveryOwnershipStatus.SKIPPED == "skipped"
+        assert str(RecoveryOwnershipStatus.SKIPPED) == "skipped"
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +185,25 @@ class TestRecoveryOwnershipAction:
         assert reloaded["worker_identity"] == "worker-1"
         assert reloaded["startup_timestamp"] is None
 
+    def test_none_recovery_run_id(self) -> None:
+        action = RecoveryOwnershipAction(
+            recovery_run_id=None,
+            startup_timestamp=None,
+            outbox_id="ob-1",
+            prior_status="pending",
+            recovered_status="pending",
+            ownership_action="skipped",
+            reason="Deferred",
+            worker_identity=None,
+            recovery_source="startup_recovery",
+            timestamp="2026-05-31T12:00:01+00:00",
+            delivery_plan_id="plan-1",
+            event_id="ev-1",
+        )
+        d = action.to_dict()
+        assert d["recovery_run_id"] is None
+        assert json.dumps(d)
+
 
 # ---------------------------------------------------------------------------
 # StartupRecoveryLedger
@@ -241,6 +273,18 @@ class TestStartupRecoveryLedger:
         sorted_ids = [a.outbox_id for a in ledger.actions]
         assert sorted_ids == ["ob-a", "ob-b"]
 
+    def test_none_recovery_run_id(self) -> None:
+        ledger = StartupRecoveryLedger(
+            recovery_run_id=None,
+            startup_timestamp=None,
+            actions=(),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+        assert ledger.recovery_run_id is None
+        d = ledger.to_dict()
+        assert d["recovery_run_id"] is None
+        assert json.dumps(d)
+
 
 # ---------------------------------------------------------------------------
 # RecoverySummary
@@ -306,84 +350,180 @@ class TestRecoverySummary:
 class TestClassifyStartupReclamation:
     def test_immediately_claimable_pending(self) -> None:
         item = _make_item(status="pending")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "immediately_claimable"
         assert "pending" in reason.lower()
 
     def test_immediately_claimable_retry_wait_due(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = _fixed_dt()
         past = (now - timedelta(hours=1)).isoformat()
         item = _make_item(status="retry_wait", next_attempt_at=past)
-        label, _ = classify_startup_reclamation(item)
+        label, _ = classify_startup_reclamation(item, now=now)
         assert label == "immediately_claimable"
 
     def test_retry_eligible_future(self) -> None:
-        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        now = _fixed_dt()
+        future = (now + timedelta(hours=1)).isoformat()
         item = _make_item(status="retry_wait", next_attempt_at=future)
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=now)
         assert label == "retry_eligible"
         assert "not yet due" in reason.lower()
 
     def test_stale_in_progress_lease_expired(self) -> None:
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        now = _fixed_dt()
+        past = (now - timedelta(hours=1)).isoformat()
         item = _make_item(status="in_progress", lease_until=past)
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=now)
         assert label == "stale"
         assert "expired" in reason.lower()
 
     def test_stale_in_progress_no_lease(self) -> None:
         item = _make_item(status="in_progress")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "stale"
         assert "missing" in reason.lower()
+
+    def test_in_progress_active_lease_not_stale(self) -> None:
+        """Item 9: Future non-expired lease must NOT be stale/reclaimable."""
+        now = _fixed_dt()
+        future = (now + timedelta(hours=1)).isoformat()
+        item = _make_item(status="in_progress", lease_until=future)
+        label, reason = classify_startup_reclamation(item, now=now)
+        assert label == "retry_eligible"
+        assert "active lease" in reason.lower()
 
     def test_orphaned(self) -> None:
         item = _make_item(status="pending", event_id="ev-missing")
         label, reason = classify_startup_reclamation(
-            item, known_event_ids={"ev-1", "ev-2"}
+            item, known_event_ids={"ev-1", "ev-2"}, now=_fixed_dt()
         )
         assert label == "orphaned"
         assert "orphaned" in reason.lower()
 
     def test_orphaned_skip_when_none(self) -> None:
         item = _make_item(status="pending", event_id="ev-missing")
-        label, _ = classify_startup_reclamation(item, known_event_ids=None)
+        label, _ = classify_startup_reclamation(
+            item, known_event_ids=None, now=_fixed_dt()
+        )
         assert label == "immediately_claimable"
 
     def test_terminal_sent(self) -> None:
         item = _make_item(status="sent")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "terminal"
         assert "terminal" in reason.lower()
 
     def test_terminal_dead_lettered(self) -> None:
         item = _make_item(status="dead_lettered")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "terminal"
         assert "dead_lettered" in reason.lower()
 
     def test_terminal_cancelled(self) -> None:
         item = _make_item(status="cancelled")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "terminal"
         assert "cancelled" in reason.lower()
 
     def test_terminal_abandoned(self) -> None:
         item = _make_item(status="abandoned")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "terminal"
         assert "abandoned" in reason.lower()
 
     def test_inconsistent_unrecognised(self) -> None:
         item = _make_item(status="garbage")
-        label, reason = classify_startup_reclamation(item)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "inconsistent"
         assert "unrecognised" in reason.lower()
 
-    def test_queued_stale(self) -> None:
-        item = _make_item(status="queued", updated_at="2020-01-01T00:00:00+00:00")
-        label, reason = classify_startup_reclamation(item)
+    # -- Item 9: Naive timestamp handling -----------------------------------
+
+    def test_lease_until_naive_treated_as_utc(self) -> None:
+        """Naive lease_until parsed as UTC — future lease is not stale."""
+        now = _fixed_dt()
+        # Naive timestamp 1 hour in the future
+        future_naive = (now + timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        item = _make_item(status="in_progress", lease_until=future_naive)
+        label, _ = classify_startup_reclamation(item, now=now)
+        assert label == "retry_eligible"
+
+    def test_lease_until_naive_expired(self) -> None:
+        """Naive lease_until parsed as UTC — past lease is stale."""
+        now = _fixed_dt()
+        past_naive = (now - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        item = _make_item(status="in_progress", lease_until=past_naive)
+        label, _ = classify_startup_reclamation(item, now=now)
+        assert label == "stale"
+
+    def test_next_attempt_at_naive_future(self) -> None:
+        """Naive next_attempt_at parsed as UTC — future is retry_eligible."""
+        now = _fixed_dt()
+        future_naive = (now + timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        item = _make_item(status="retry_wait", next_attempt_at=future_naive)
+        label, _ = classify_startup_reclamation(item, now=now)
+        assert label == "retry_eligible"
+
+    def test_next_attempt_at_naive_past(self) -> None:
+        """Naive next_attempt_at parsed as UTC — past is immediately_claimable."""
+        now = _fixed_dt()
+        past_naive = (now - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        item = _make_item(status="retry_wait", next_attempt_at=past_naive)
+        label, _ = classify_startup_reclamation(item, now=now)
         assert label == "immediately_claimable"
+
+    # -- Item 10: Queued stale-grace ----------------------------------------
+
+    def test_queued_recent_within_grace(self) -> None:
+        """Queued item with recent updated_at is within grace — not claimable."""
+        now = _fixed_dt()
+        recent = (now - timedelta(minutes=1)).isoformat()
+        item = _make_item(status="queued", updated_at=recent)
+        label, reason = classify_startup_reclamation(item, now=now)
+        assert label == "retry_eligible"
+        assert "grace" in reason.lower()
+
+    def test_queued_stale_beyond_grace(self) -> None:
+        """Queued item with old updated_at exceeds grace — claimable."""
+        now = _fixed_dt()
+        old = (now - timedelta(hours=1)).isoformat()
+        item = _make_item(status="queued", updated_at=old)
+        label, reason = classify_startup_reclamation(item, now=now)
+        assert label == "immediately_claimable"
+        assert "stale" in reason.lower()
+
+    def test_queued_missing_updated_at(self) -> None:
+        """Queued item with no updated_at is stale."""
+        item = _make_item(status="queued", updated_at=None)
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
+        assert label == "stale"
+        assert "no updated_at" in reason.lower()
+
+    def test_queued_stale_custom_grace(self) -> None:
+        """Custom grace period is respected."""
+        now = _fixed_dt()
+        updated = (now - timedelta(minutes=3)).isoformat()
+        item = _make_item(status="queued", updated_at=updated)
+        # Default grace (5 min) → not stale
+        label_default, _ = classify_startup_reclamation(item, now=now)
+        assert label_default == "retry_eligible"
+        # 2 min grace → stale
+        label_short, _ = classify_startup_reclamation(
+            item, now=now, stale_queued_grace=timedelta(minutes=2)
+        )
+        assert label_short == "immediately_claimable"
+
+    def test_queued_stale_old_timestamp(self) -> None:
+        """Legacy test: queued with very old timestamp is claimable."""
+        item = _make_item(status="queued", updated_at="2020-01-01T00:00:00+00:00")
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
+        assert label == "immediately_claimable"
+
+    def test_queued_unparseable_updated_at(self) -> None:
+        """Queued item with unparseable updated_at is stale."""
+        item = _make_item(status="queued", updated_at="not-a-date")
+        label, reason = classify_startup_reclamation(item, now=_fixed_dt())
+        assert label == "stale"
 
 
 # ---------------------------------------------------------------------------
@@ -484,8 +624,18 @@ class TestBuildStartupRecoveryLedger:
         assert ids1 == ["a", "b", "c"]
 
     def test_retry_eligible_skipped(self) -> None:
-        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        future = (datetime(2026, 5, 31, 13, 0, 0, tzinfo=timezone.utc)).isoformat()
         items = [_make_item(status="retry_wait", next_attempt_at=future)]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            now_fn=_fixed_now,
+        )
+        assert ledger.actions[0].ownership_action == "skipped"
+
+    def test_in_progress_active_lease_skipped(self) -> None:
+        """Item 9: in_progress with active lease should be skipped."""
+        future = (datetime(2026, 5, 31, 13, 0, 0, tzinfo=timezone.utc)).isoformat()
+        items = [_make_item(status="in_progress", lease_until=future)]
         ledger = build_startup_recovery_ledger(
             outbox_items=items,
             now_fn=_fixed_now,
@@ -533,16 +683,14 @@ class TestBuildRecoverySummary:
         assert computed == summary.total_items
 
     def test_by_source_populated(self) -> None:
-        now = datetime.now(timezone.utc)
-        recent = now.isoformat()
         items = [
             _make_item(outbox_id="ob-1", status="pending", worker_id="w1"),
             _make_item(outbox_id="ob-2", status="pending"),
         ]
         ledger = build_startup_recovery_ledger(
             outbox_items=items,
-            startup_timestamp=recent,
-            now_fn=lambda: recent,
+            startup_timestamp="2026-05-31T12:00:00+00:00",
+            now_fn=_fixed_now,
             recovery_run_id="run-1",
         )
         summary = build_recovery_summary(ledger)
@@ -566,13 +714,24 @@ class TestBuildRecoverySummary:
 
 
 class TestRecoverySourceInference:
-    def test_startup_recovery_with_recent_timestamp(self) -> None:
-        now = datetime.now(timezone.utc)
-        recent = now.isoformat()
+    def test_startup_recovery_with_timestamp(self) -> None:
+        """Item 8: startup_timestamp present → always startup_recovery."""
+        # Use a timestamp far in the past — source should still be startup
         items = [_make_item(status="pending")]
         ledger = build_startup_recovery_ledger(
             outbox_items=items,
-            startup_timestamp=recent,
+            startup_timestamp="2020-01-01T00:00:00+00:00",
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        assert ledger.actions[0].recovery_source == "startup_recovery"
+
+    def test_startup_recovery_with_recent_timestamp(self) -> None:
+        """Startup source even with recent timestamp."""
+        items = [_make_item(status="pending")]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            startup_timestamp="2026-05-31T12:00:00+00:00",
             now_fn=_fixed_now,
             recovery_run_id="run-1",
         )
@@ -597,6 +756,18 @@ class TestRecoverySourceInference:
             recovery_run_id="run-1",
         )
         assert ledger.actions[0].recovery_source == "retry_worker_recovery"
+
+    def test_no_age_based_source_flip(self) -> None:
+        """Item 8: Source does not flip to retry_worker after 60s."""
+        # startup_timestamp is 1 hour before now_fn — still startup_recovery
+        items = [_make_item(status="pending")]
+        ledger = build_startup_recovery_ledger(
+            outbox_items=items,
+            startup_timestamp="2026-05-31T11:00:00+00:00",
+            now_fn=_fixed_now,
+            recovery_run_id="run-1",
+        )
+        assert ledger.actions[0].recovery_source == "startup_recovery"
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +833,7 @@ class TestJsonSafety:
 class TestEdgeCases:
     def test_empty_string_status(self) -> None:
         item = _make_item(status="")
-        label, _ = classify_startup_reclamation(item)
+        label, _ = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "inconsistent"
 
     def test_none_fields(self) -> None:
@@ -676,11 +847,11 @@ class TestEdgeCases:
             "updated_at": None,
             "worker_id": None,
         }
-        label, _ = classify_startup_reclamation(item)
+        label, _ = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "inconsistent"  # None → "" → "" → unrecognised
 
     def test_dict_input(self) -> None:
         # classify_startup_reclamation accepts dict directly
         item = {"status": "pending", "event_id": "ev-1", "outbox_id": "ob-d"}
-        label, _ = classify_startup_reclamation(item)
+        label, _ = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "immediately_claimable"

@@ -52,6 +52,11 @@ class RecoveryOwnershipStatus(enum.StrEnum):
     """Outbox item is in a terminal status (``sent``, ``dead_lettered``,
     ``cancelled``, ``abandoned``) and does not require recovery."""
 
+    SKIPPED = "skipped"
+    """Outbox item is intentionally not recovered during this cycle
+    (e.g. retry_eligible with future ``next_attempt_at``, or
+    ``in_progress`` with an active lease)."""
+
 
 # ---------------------------------------------------------------------------
 # Recovery ownership action
@@ -66,9 +71,9 @@ class RecoveryOwnershipAction:
     what was claimed, by whom, from what prior state, and why.
     """
 
-    recovery_run_id: str
+    recovery_run_id: str | None
     """UUID generated at startup that binds this action to a specific
-    runtime session."""
+    runtime session.  ``None`` when the startup context is unavailable."""
 
     startup_timestamp: str | None
     """ISO-8601 timestamp of the runtime startup.  ``None`` when
@@ -128,8 +133,9 @@ class StartupRecoveryLedger:
     Actions are deterministically ordered by ``(outbox_id, timestamp)``.
     """
 
-    recovery_run_id: str
-    """UUID binding all actions to a single runtime startup."""
+    recovery_run_id: str | None
+    """UUID binding all actions to a single runtime startup.
+    ``None`` when the startup context is unavailable."""
 
     startup_timestamp: str | None
     """ISO-8601 timestamp of the runtime startup."""
@@ -173,8 +179,7 @@ class RecoverySummary:
     """Count of items classified as :attr:`RecoveryOwnershipStatus.RECLAIMED`."""
 
     skipped_items: int
-    """Count of items intentionally not recovered (e.g. retry_eligible
-    with future ``next_attempt_at``)."""
+    """Count of items classified as :attr:`RecoveryOwnershipStatus.SKIPPED`."""
 
     abandoned_items: int
     """Count of items classified as :attr:`RecoveryOwnershipStatus.ABANDONED`."""
@@ -199,8 +204,13 @@ class RecoverySummary:
     unavailable."""
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-safe dict with alphabetically sorted keys."""
+        """Return a JSON-safe dict with alphabetically sorted keys.
+
+        ``by_source`` is shallow-copied so that mutating the returned
+        dict does not leak back into the frozen model.
+        """
         result: dict[str, Any] = {
             name: getattr(self, name) for name in sorted(f.name for f in fields(self))
         }
+        result["by_source"] = dict(result["by_source"])
         return result

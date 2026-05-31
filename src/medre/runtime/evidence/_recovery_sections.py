@@ -45,7 +45,7 @@ async def _collect_recovery_section(
         Status-envelope section dict with recovery summary and ledger
         in ``data``.
     """
-    from medre.core.recovery._builder import (
+    from medre.core.recovery.builder import (
         build_recovery_summary,
         build_startup_recovery_ledger,
     )

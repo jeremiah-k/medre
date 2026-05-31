@@ -32,7 +32,7 @@ from medre.core.evidence.retry_outbox import (
     build_retry_outbox_summary,
 )
 from medre.core.evidence.tiers import infer_evidence_tier
-from medre.core.recovery._builder import (
+from medre.core.recovery.builder import (
     build_recovery_summary,
     build_startup_recovery_ledger,
 )
@@ -435,18 +435,20 @@ class EvidenceCollector:
             all_findings.sort(key=lambda f: (f.get("kind", ""), f.get("record_id", "")))
             orphan_report_dict["findings"] = all_findings
             orphan_report_dict["total_findings"] = len(all_findings)
-            # Recompute severity counts.
-            sev_counts: dict[str, int] = {}
+            # Recompute severity counts — always preserve the stable shape
+            # including "safe": 0 so consumers see a consistent JSON schema.
+            sev_counts: dict[str, int] = {"safe": 0, "degraded": 0, "inconsistent": 0}
             for f in all_findings:
                 sev = f.get("severity", "degraded")
                 sev_counts[sev] = sev_counts.get(sev, 0) + 1
             orphan_report_dict["severity_counts"] = sev_counts
-            if sev_counts:
-                orphan_report_dict["worst_severity"] = (
-                    "inconsistent"
-                    if sev_counts.get("inconsistent", 0) > 0
-                    else "degraded" if sev_counts.get("degraded", 0) > 0 else "safe"
-                )
+            # Recompute worst_severity consistently.
+            if sev_counts.get("inconsistent", 0) > 0:
+                orphan_report_dict["worst_severity"] = "inconsistent"
+            elif sev_counts.get("degraded", 0) > 0:
+                orphan_report_dict["worst_severity"] = "degraded"
+            else:
+                orphan_report_dict["worst_severity"] = "safe"
             # Update orphan count in convergence dict.
             convergence_dict["orphan_count"] = len(all_findings)
 
