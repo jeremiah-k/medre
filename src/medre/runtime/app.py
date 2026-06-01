@@ -969,6 +969,7 @@ class MedreApp:
 
         # 1. Stop adapters in reverse start order for clean teardown.
         errors: list[tuple[str, BaseException]] = []
+        _cancelled: asyncio.CancelledError | None = None
         _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
             if self._adapter_states.get(adapter_id) in _terminal:
@@ -999,14 +1000,15 @@ class MedreApp:
                     timeout,
                 )
                 errors.append((adapter_id, exc))
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while stopping adapter %s.%s",
                     transport,
                     adapter_id,
                 )
-                raise
+                _cancelled = exc
+                break
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
@@ -1055,14 +1057,15 @@ class MedreApp:
                 # never-started adapter has no such side-effects, so its
                 # cleanup is best-effort and should not mask the primary
                 # shutdown result.
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while stopping never-started adapter %s.%s",
                     transport,
                     adapter_id,
                 )
-                raise
+                _cancelled = exc
+                break
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
@@ -1088,6 +1091,10 @@ class MedreApp:
             except Exception as exc:
                 _logger.error("Error closing storage: %s", exc)
                 errors.append(("storage", exc))
+
+        # Re-raise deferred CancelledError after cleanup is complete.
+        if _cancelled is not None:
+            raise _cancelled
 
         if errors:
             summary = "; ".join(f"{name}: {exc}" for name, exc in errors)
@@ -1215,7 +1222,8 @@ class MedreApp:
                     transport,
                     adapter_id,
                 )
-                raise
+                # Do not re-raise — the caller's _cleanup_core_resources()
+                # must still run to close storage and pipeline runner.
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
@@ -1264,7 +1272,8 @@ class MedreApp:
                     transport,
                     adapter_id,
                 )
-                raise
+                # Do not re-raise — the caller's _cleanup_core_resources()
+                # must still run to close storage and pipeline runner.
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(

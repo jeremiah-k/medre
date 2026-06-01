@@ -365,7 +365,12 @@ class _SQLiteStorageBase:
                 # racing to close the same connection.
                 self._db = None
                 if self._use_aiosqlite:
-                    await db.close()
+                    # Shield from stray CancelledError delivered at this
+                    # await checkpoint after asyncio.wait_for timeouts in
+                    # the adapter stop loop.  Without the shield aiosqlite's
+                    # internal thread is never joined, leaving _connection
+                    # non-None and triggering ResourceWarning in __del__.
+                    await asyncio.shield(db.close())
                 else:
                     with self._lock:
                         db.close()

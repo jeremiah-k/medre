@@ -489,7 +489,8 @@ class TestCleanupStartedAdaptersDirect:
     @pytest.mark.asyncio
     async def test_started_adapter_cancelled(self, tmp_paths: MedrePaths) -> None:
         """A started adapter whose stop() raises CancelledError during
-        _cleanup_started_adapters propagates the CancelledError."""
+        _cleanup_started_adapters is marked FAILED; CancelledError is
+        suppressed so that _cleanup_core_resources always runs."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -498,8 +499,7 @@ class TestCleanupStartedAdaptersDirect:
         app.started_adapter_ids.append("cancelled_started")
         app._adapter_states["cancelled_started"] = AdapterState.READY
 
-        with pytest.raises(asyncio.CancelledError):
-            await app._cleanup_started_adapters()
+        await app._cleanup_started_adapters()
 
         assert cancelled.stop_called
         assert app._adapter_states["cancelled_started"] is AdapterState.FAILED
@@ -528,7 +528,8 @@ class TestCleanupStartedAdaptersDirect:
     @pytest.mark.asyncio
     async def test_never_started_adapter_cancelled(self, tmp_paths: MedrePaths) -> None:
         """A never-started adapter whose stop() raises CancelledError during
-        _cleanup_started_adapters propagates the CancelledError."""
+        _cleanup_started_adapters is marked FAILED; CancelledError is
+        suppressed so that _cleanup_core_resources always runs."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -537,8 +538,7 @@ class TestCleanupStartedAdaptersDirect:
         # NOT in started_adapter_ids.
         app._adapter_states["never_started_cancel"] = AdapterState.INITIALIZING
 
-        with pytest.raises(asyncio.CancelledError):
-            await app._cleanup_started_adapters()
+        await app._cleanup_started_adapters()
 
         assert cancelled.stop_called
         assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED
