@@ -275,9 +275,12 @@ sets that adapter to `FAILED` state, and continues stopping the remaining
 adapters, pipeline, and storage. A `RuntimeShutdownError` is raised at the end
 with a summary of which adapters failed.
 
-The RetryWorker follows the same pattern: it gets a 5-second grace period after
-receiving the shutdown signal. If it does not finish within that window, its
-background task is cancelled.
+The RetryWorker follows the same pattern: it gets a configurable grace period
+(default 5 seconds) after receiving the shutdown signal. If it does not finish
+within its configured stop timeout (default 5s), its background task is
+cancelled. The stop timeout is a constructor parameter
+(`stop_timeout_seconds`, default `5.0`) and is not currently exposed via the
+TOML `[retry]` config section.
 
 #### How to diagnose a shutdown hang
 
@@ -286,7 +289,7 @@ background task is cancelled.
    - `"Adapter <transport>.<id> stopping"` -- stop initiated
    - `"Timeout stopping adapter <transport>.<id> after Xs"` -- adapter hung
    - `"Cancelled while stopping adapter <transport>.<id>"` -- adapter cancelled
-   - `"RetryWorker did not stop within 5s, cancelling"` -- retry worker hung
+   - `"RetryWorker did not stop within its configured stop timeout (default 5s), cancelling"` -- retry worker hung
 
 2. **Check the final error.** If the runtime raises `RuntimeShutdownError`,
    the message lists each failed adapter or subsystem:

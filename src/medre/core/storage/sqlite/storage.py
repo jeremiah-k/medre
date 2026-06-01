@@ -347,8 +347,9 @@ class _SQLiteStorageBase:
         """Close the underlying database connection and release resources.
 
         Idempotent — safe to call multiple times.  Sets ``_closed`` early
-        to prevent concurrent-close races.  The private executor is always
-        shut down with ``wait=False`` to avoid blocking the event loop.
+        to prevent concurrent-close races.  The private executor is shut
+        down via ``asyncio.to_thread`` with ``wait=True`` to fully join
+        worker threads without blocking the event loop.
         """
         # Mark closed defensively *before* any I/O so that concurrent
         # callers see the closed flag immediately and do not race.
@@ -374,7 +375,7 @@ class _SQLiteStorageBase:
             executor = self._executor
             if executor is not None:
                 self._executor = None
-                executor.shutdown(wait=False)
+                await asyncio.to_thread(executor.shutdown, wait=True)
 
     # -- Read / write primitives --------------------------------------------
 

@@ -112,20 +112,16 @@ class TestExecutorLifecycle:
         assert s._db is None
         assert s._executor is None
 
-    async def test_executor_shutdown_uses_wait_false(self, tmp_path: Path) -> None:
-        """close() must call executor.shutdown(wait=False), not wait=True."""
+    async def test_executor_cleared_after_close(self, tmp_path: Path) -> None:
+        """close() must clear _executor after full shutdown (wait=True via asyncio.to_thread)."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
-        executor = s._executor
-        if executor is None:
-            # aiosqlite path — nothing to verify for executor
-            await s.close()
-            return
-        import unittest.mock
-
-        with unittest.mock.patch.object(executor, "shutdown") as mock_shutdown:
-            await s.close()
-            mock_shutdown.assert_called_once_with(wait=False)
+        # Executor is created lazily — verify it exists on sync path.
+        if not s._use_aiosqlite:
+            # Force executor creation by submitting a task.
+            await s._run_in_thread(lambda: None)
+            assert s._executor is not None
+        await s.close()
         assert s._executor is None
 
     async def test_closed_flag_set_before_db_operations(self, tmp_path: Path) -> None:

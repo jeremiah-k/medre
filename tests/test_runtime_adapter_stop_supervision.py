@@ -195,9 +195,11 @@ class TestAdapterStopTimeoutSupervision:
         assert storage_close_called, "storage.close() was not called"
 
     @pytest.mark.asyncio
-    async def test_cancelled_error_on_stop_recorded_and_others_continue(
+    async def test_cancelled_error_on_started_adapter_stop_propagates(
         self, tmp_paths: MedrePaths
     ) -> None:
+        """External CancelledError from a started adapter's stop() propagates
+        out of app.stop() instead of being swallowed as RuntimeShutdownError."""
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
         await app.start()
@@ -207,12 +209,11 @@ class TestAdapterStopTimeoutSupervision:
         clean_id = adapter_ids[1]
         app.adapters[cancel_id] = _CancelledStopAdapter(app.adapters[cancel_id])
 
-        with pytest.raises(RuntimeShutdownError):
+        with pytest.raises(asyncio.CancelledError):
             await app.stop()
 
         assert app.adapters[cancel_id].stop_called
         assert app.adapter_states[cancel_id] is AdapterState.FAILED
-        assert app.adapter_states[clean_id] is AdapterState.STOPPED
 
     @pytest.mark.asyncio
     async def test_reverse_stop_order_preserved_with_timeouts(
@@ -389,9 +390,8 @@ class TestAdapterStopTimeoutSupervision:
         self, tmp_paths: MedrePaths
     ) -> None:
         """An adapter in self.adapters but NOT in started_adapter_ids
-        whose stop() raises CancelledError is marked FAILED.
-        CancelledError from never-started adapters is intentionally not
-        appended to errors, so stop() completes without raising."""
+        whose stop() raises CancelledError causes app.stop() to propagate
+        the CancelledError (external cancellation must propagate)."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         await app.start()
@@ -402,7 +402,8 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters["never_started_cancel"] = cancel_ns
         app._adapter_states["never_started_cancel"] = AdapterState.INITIALIZING
 
-        await app.stop()
+        with pytest.raises(asyncio.CancelledError):
+            await app.stop()
 
         assert cancel_ns.stop_called
         assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED

@@ -992,14 +992,14 @@ class MedreApp:
                     timeout,
                 )
                 errors.append((adapter_id, exc))
-            except asyncio.CancelledError as exc:
+            except asyncio.CancelledError:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                _logger.error(
+                _logger.debug(
                     "Cancelled while stopping adapter %s.%s",
                     transport,
                     adapter_id,
                 )
-                errors.append((adapter_id, exc))
+                raise
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
@@ -1055,6 +1055,7 @@ class MedreApp:
                     transport,
                     adapter_id,
                 )
+                raise
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
@@ -1202,11 +1203,12 @@ class MedreApp:
                 )
             except asyncio.CancelledError:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                _logger.error(
+                _logger.debug(
                     "Cancelled while cleaning up adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
+                raise
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
@@ -1250,11 +1252,12 @@ class MedreApp:
                 )
             except asyncio.CancelledError:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                _logger.error(
+                _logger.debug(
                     "Cancelled while cleaning up never-started adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
+                raise
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
