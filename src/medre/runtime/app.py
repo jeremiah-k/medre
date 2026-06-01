@@ -903,7 +903,7 @@ class MedreApp:
         RuntimeShutdownError
             If one or more subsystems fail to shut down cleanly.
         """
-        if self._state in (RuntimeState.STOPPED, RuntimeState.INITIALIZED):
+        if self._state in (RuntimeState.STOPPED, RuntimeState.STOPPING, RuntimeState.INITIALIZED):
             return
 
         self._set_state(RuntimeState.STOPPING)
