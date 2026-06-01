@@ -617,6 +617,9 @@ class MedreApp:
                 batch_size=self.config.retry.batch_size,
                 max_attempts=self.config.retry.max_attempts,
                 event_buffer=self._event_buffer,
+                stop_timeout_seconds=float(
+                    self.config.runtime.shutdown_timeout_seconds
+                ),
             )
             await self._retry_worker.start()
 
@@ -903,13 +906,17 @@ class MedreApp:
         RuntimeShutdownError
             If one or more subsystems fail to shut down cleanly.
         """
-        if self._state in (RuntimeState.STOPPED, RuntimeState.STOPPING, RuntimeState.INITIALIZED):
+        if self._state in (
+            RuntimeState.STOPPED,
+            RuntimeState.STOPPING,
+            RuntimeState.INITIALIZED,
+        ):
             return
 
         self._set_state(RuntimeState.STOPPING)
         timeout = self.config.runtime.shutdown_timeout_seconds
         _logger.info(
-            "Stopping MEDRE runtime %s (timeout=%ds)",
+            "Stopping MEDRE runtime %s (timeout=%.1fs)",
             self.config.runtime.name,
             timeout,
         )

@@ -466,9 +466,7 @@ class TestCleanupStartedAdaptersDirect:
     implies started_adapter_ids is empty)."""
 
     @pytest.mark.asyncio
-    async def test_started_adapter_timeout(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_started_adapter_timeout(self, tmp_paths: MedrePaths) -> None:
         """A started adapter that times out during _cleanup_started_adapters
         is marked FAILED."""
         config = _config_with_one_fake_adapter()
@@ -489,9 +487,7 @@ class TestCleanupStartedAdaptersDirect:
         assert app._adapter_states["slow_started"] is AdapterState.FAILED
 
     @pytest.mark.asyncio
-    async def test_started_adapter_cancelled(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_started_adapter_cancelled(self, tmp_paths: MedrePaths) -> None:
         """A started adapter whose stop() raises CancelledError during
         _cleanup_started_adapters propagates the CancelledError."""
         config = _config_with_one_fake_adapter()
@@ -509,9 +505,7 @@ class TestCleanupStartedAdaptersDirect:
         assert app._adapter_states["cancelled_started"] is AdapterState.FAILED
 
     @pytest.mark.asyncio
-    async def test_never_started_adapter_timeout(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_never_started_adapter_timeout(self, tmp_paths: MedrePaths) -> None:
         """A never-started adapter that times out during
         _cleanup_started_adapters is marked FAILED."""
         config = _config_with_one_fake_adapter()
@@ -532,9 +526,7 @@ class TestCleanupStartedAdaptersDirect:
         assert app._adapter_states["never_started_slow"] is AdapterState.FAILED
 
     @pytest.mark.asyncio
-    async def test_never_started_adapter_cancelled(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_never_started_adapter_cancelled(self, tmp_paths: MedrePaths) -> None:
         """A never-started adapter whose stop() raises CancelledError during
         _cleanup_started_adapters propagates the CancelledError."""
         config = _config_with_one_fake_adapter()

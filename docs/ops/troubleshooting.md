@@ -294,7 +294,7 @@ TOML `[retry]` config section.
 2. **Check the final error.** If the runtime raises `RuntimeShutdownError`,
    the message lists each failed adapter or subsystem:
 
-   ```
+   ```text
    RuntimeShutdownError: Errors during shutdown; alpha: Timeout stopping adapter meshtastic.alpha after 10.0s
    ```
 

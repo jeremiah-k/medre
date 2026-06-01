@@ -12,19 +12,19 @@ no teardown concerns.
 
 ### Core Runtime Resources
 
-| Resource                      | Created by                    | Owner                                      | Teardown site                                                                 | Idempotent?      |
-| ----------------------------- | ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------- |
-| SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `shutdown(wait=False)`                   | Yes              |
-| SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                        | Yes              |
+| Resource                      | Created by                    | Owner                                      | Teardown site                                                                        | Idempotent?      |
+| ----------------------------- | ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------ | ---------------- |
+| SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `shutdown(wait=False)`                          | Yes              |
+| SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                               | Yes              |
 | RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (default 5 s), then cancels | Yes              |
-| PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                            | Yes              |
-| CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                 | N/A (gate)       |
-| ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                         | Yes              |
-| Runtime shutdown event        | `RuntimeBuilder.build()`      | `MedreApp.shutdown_event`                  | `set()` in `stop()`                                                           | Yes              |
-| EventBuffer                   | `MedreApp.__post_init__()`    | `MedreApp._event_buffer`                   | None (GC, bounded deque)                                                      | N/A              |
-| Inflight delivery records     | `_deliver_one()` per delivery | `PipelineRunner._inflight_deliveries` dict | `finally` block pops per delivery; `drain_abandoned_deliveries()` at shutdown | N/A              |
-| Outbox lease renewal task     | `_deliver_one()` per delivery | local in `_deliver_one` finally block      | `cancel()` + await in finally block                                           | N/A              |
-| Plugin shutdown               | plugin author                 | Plugin protocol                            | `shutdown()` called if present                                                | Plugin-dependent |
+| PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                                   | Yes              |
+| CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                        | N/A (gate)       |
+| ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                                | Yes              |
+| Runtime shutdown event        | `RuntimeBuilder.build()`      | `MedreApp.shutdown_event`                  | `set()` in `stop()`                                                                  | Yes              |
+| EventBuffer                   | `MedreApp.__post_init__()`    | `MedreApp._event_buffer`                   | None (GC, bounded deque)                                                             | N/A              |
+| Inflight delivery records     | `_deliver_one()` per delivery | `PipelineRunner._inflight_deliveries` dict | `finally` block pops per delivery; `drain_abandoned_deliveries()` at shutdown        | N/A              |
+| Outbox lease renewal task     | `_deliver_one()` per delivery | local in `_deliver_one` finally block      | `cancel()` + await in finally block                                                  | N/A              |
+| Plugin shutdown               | plugin author                 | Plugin protocol                            | `shutdown()` called if present                                                       | Plugin-dependent |
 
 ### Adapter Resources
 
@@ -48,7 +48,7 @@ cleans up its session and background tasks in its own `stop(timeout)` method.
 Errors at any step are accumulated, not raised immediately, so later cleanup
 always runs.
 
-```
+```text
  1. Idempotency guard        -- return if STOPPED or INITIALIZED
  2. State -> STOPPING
  3. Stop accepting new work   -- capacity_controller.stop_accepting()

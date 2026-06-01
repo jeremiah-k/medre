@@ -206,7 +206,7 @@ class TestAdapterStopTimeoutSupervision:
 
         adapter_ids = sorted(app.adapters.keys())
         cancel_id = adapter_ids[0]
-        clean_id = adapter_ids[1]
+        adapter_ids[1]
         app.adapters[cancel_id] = _CancelledStopAdapter(app.adapters[cancel_id])
 
         with pytest.raises(asyncio.CancelledError):
@@ -230,9 +230,13 @@ class TestAdapterStopTimeoutSupervision:
                 app.adapters[adapter_id], stop_order
             )
 
+        # Replace the first-to-stop adapter with a slow version wrapped in
+        # order tracking so stop_order still records the call.
         first_to_stop = adapter_ids[1]
         real_first = app.adapters[first_to_stop]._real  # type: ignore[attr-defined]
-        app.adapters[first_to_stop] = _SlowStopAdapter(real_first)
+        app.adapters[first_to_stop] = _OrderTrackingAdapter(
+            _SlowStopAdapter(real_first), stop_order
+        )
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
@@ -242,6 +246,10 @@ class TestAdapterStopTimeoutSupervision:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert app.adapter_states[adapter_ids[0]] is AdapterState.STOPPED
+
+        # Stop order must reflect reverse start order: slow adapter first,
+        # then clean adapter — even though the slow one timed out.
+        assert stop_order == [adapter_ids[1], adapter_ids[0]]
 
     @pytest.mark.asyncio
     async def test_all_adapters_timeout_storage_still_closes(
@@ -397,7 +405,9 @@ class TestAdapterStopTimeoutSupervision:
         await app.start()
 
         cancel_ns = _CancelledStopAdapter(
-            type("Obj", (), {"adapter_id": "never_started_cancel", "platform": "test"})(),
+            type(
+                "Obj", (), {"adapter_id": "never_started_cancel", "platform": "test"}
+            )(),
         )
         app.adapters["never_started_cancel"] = cancel_ns
         app._adapter_states["never_started_cancel"] = AdapterState.INITIALIZING

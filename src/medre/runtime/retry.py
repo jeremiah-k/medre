@@ -167,9 +167,17 @@ class RetryWorker:
             task = self._task
             task.cancel()
             try:
-                await task
+                await asyncio.wait_for(task, timeout=self._stop_timeout)
             except asyncio.CancelledError:
-                pass
+                pass  # normal cancellation completed
+            except asyncio.TimeoutError:
+                _logger.warning(
+                    "RetryWorker task did not cancel within %.1fs; abandoning",
+                    self._stop_timeout,
+                )
+                # task is abandoned but not awaited — the event loop will
+                # clean it up when the task eventually completes or the loop
+                # shuts down.
         self._task = None
         self.state.running = False
         self._emit(

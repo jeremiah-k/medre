@@ -616,11 +616,15 @@ class TestRetryWorkerStopOrphan:
         # Give the task a moment to enter the stuck claim call.
         await asyncio.sleep(0.1)
         assert not worker._task.done()
+        orig_task = worker._task
 
         await worker.stop()
+        await asyncio.sleep(0)
 
         # Task must be cleared — no orphan.
         assert worker._task is None
+        assert orig_task is not None
+        assert orig_task.done()
         assert worker.state.running is False
         # The task was actually cancelled (not still running).
         # Unblock the stuck call so it doesn't leak into other tests.
@@ -653,8 +657,13 @@ class TestRetryWorkerStopOrphan:
         )
 
         # First stop.
+        orig_task = worker._task
         await worker.stop()
+        await asyncio.sleep(0)
+
         assert worker._task is None
+        assert orig_task is not None
+        assert orig_task.done()
         assert worker.state.running is False
 
         # Second stop — must not raise.
@@ -687,9 +696,13 @@ class TestRetryWorkerStopOrphan:
             timeout=2.0,
         )
 
+        orig_task = worker._task
         await worker.stop()
+        await asyncio.sleep(0)
 
         assert worker._task is None
+        assert orig_task is not None
+        assert orig_task.done()
         assert worker.state.running is False
         # State counters are preserved (not reset).
         assert worker.state.processed == 0

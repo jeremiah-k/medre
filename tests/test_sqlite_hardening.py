@@ -181,9 +181,7 @@ class TestExecutorLifecycle:
 
             s._db = _FailingConn()
 
-            with pytest.raises(
-                RuntimeError, match="simulated sync db.close failure"
-            ):
+            with pytest.raises(RuntimeError, match="simulated sync db.close failure"):
                 await s.close()
             assert s._executor is None
 
