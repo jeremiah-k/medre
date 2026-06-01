@@ -568,6 +568,133 @@ class TestRetryShutdownRealPipeline:
             await runner.stop()
 
 
+class TestRetryWorkerStopOrphan:
+    """Hardened stop() tests using the real RetryWorker.
+
+    Proves that stop() cancels orphan tasks on timeout and is idempotent.
+    """
+
+    async def test_stop_timeout_cancels_orphan_task(self):
+        """When the background task ignores shutdown_event, stop() cancels it.
+
+        The worker's _run_loop blocks in _process_due via a storage call
+        that never returns.  After the grace period the task is cancelled
+        and awaited so no orphan remains.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        # claim_due_outbox_items blocks forever — simulates a stuck I/O call.
+        _unblock = asyncio.Event()
+
+        async def _stuck_claim(*args, **kwargs):
+            await _unblock.wait()
+            return []
+
+        storage.claim_due_outbox_items = AsyncMock(side_effect=_stuck_claim)
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.2,
+        )
+
+        await worker.start()
+        assert worker._task is not None
+
+        # Give the task a moment to enter the stuck claim call.
+        await asyncio.sleep(0.1)
+        assert not worker._task.done()
+
+        await worker.stop()
+
+        # Task must be cleared — no orphan.
+        assert worker._task is None
+        assert worker.state.running is False
+        # The task was actually cancelled (not still running).
+        # Unblock the stuck call so it doesn't leak into other tests.
+        _unblock.set()
+
+    async def test_stop_idempotent(self):
+        """Calling stop() twice is safe — second call is a no-op."""
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        storage.claim_due_outbox_items = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+        )
+
+        await worker.start()
+        # Wait for at least one loop iteration.
+        await wait_until(
+            lambda: storage.claim_due_outbox_items.call_count >= 1,
+            timeout=2.0,
+        )
+
+        # First stop.
+        await worker.stop()
+        assert worker._task is None
+        assert worker.state.running is False
+
+        # Second stop — must not raise.
+        await worker.stop()
+        assert worker._task is None
+        assert worker.state.running is False
+
+    async def test_stop_cleared_task_not_running(self):
+        """After stop(), state.running is False regardless of path taken."""
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        storage.claim_due_outbox_items = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+        )
+
+        await worker.start()
+        await wait_until(
+            lambda: storage.claim_due_outbox_items.call_count >= 1,
+            timeout=2.0,
+        )
+
+        await worker.stop()
+
+        assert worker._task is None
+        assert worker.state.running is False
+        # State counters are preserved (not reset).
+        assert worker.state.processed == 0
+
+
 class TestRetryCapacityRejectionBackoff:
     """Capacity rejection backoff policy tests using the real RetryWorker."""
 

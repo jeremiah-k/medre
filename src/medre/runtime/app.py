@@ -679,8 +679,27 @@ class MedreApp:
                     # start.  Cleanup errors are logged but suppressed
                     # so that the original start-failure error is preserved.
                     try:
-                        await adapter.stop(
-                            timeout=float(self.config.runtime.shutdown_timeout_seconds)
+                        await asyncio.wait_for(
+                            adapter.stop(
+                                timeout=float(
+                                    self.config.runtime.shutdown_timeout_seconds
+                                )
+                            ),
+                            timeout=float(self.config.runtime.shutdown_timeout_seconds),
+                        )
+                    except asyncio.TimeoutError as cleanup_exc:
+                        _logger.debug(
+                            "Timeout stopping adapter %s.%s after start failure: %s",
+                            transport,
+                            adapter_id,
+                            cleanup_exc,
+                        )
+                    except asyncio.CancelledError as cleanup_exc:
+                        _logger.debug(
+                            "Cancelled stopping adapter %s.%s after start failure: %s",
+                            transport,
+                            adapter_id,
+                            cleanup_exc,
                         )
                     except Exception as cleanup_exc:
                         _logger.debug(
@@ -942,7 +961,7 @@ class MedreApp:
         self.shutdown_event.set()
 
         # 1. Stop adapters in reverse start order for clean teardown.
-        errors: list[tuple[str, Exception]] = []
+        errors: list[tuple[str, BaseException]] = []
         _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
             if self._adapter_states.get(adapter_id) in _terminal:
@@ -954,13 +973,33 @@ class MedreApp:
             _logger.debug("Adapter %s.%s stopping", transport, adapter_id)
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                await asyncio.wait_for(
+                    adapter.stop(timeout=float(timeout)),
+                    timeout=float(timeout),
+                )
                 _logger.info("Adapter %s.%s stopped", transport, adapter_id)
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 self._emit_event(
                     RuntimeEventType.ADAPTER_STOPPED,
                     {"adapter_id": adapter_id},
                 )
+            except asyncio.TimeoutError as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Timeout stopping adapter %s.%s after %.1fs",
+                    transport,
+                    adapter_id,
+                    timeout,
+                )
+                errors.append((adapter_id, exc))
+            except asyncio.CancelledError as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Cancelled while stopping adapter %s.%s",
+                    transport,
+                    adapter_id,
+                )
+                errors.append((adapter_id, exc))
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
@@ -987,10 +1026,34 @@ class MedreApp:
             )
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                await asyncio.wait_for(
+                    adapter.stop(timeout=float(timeout)),
+                    timeout=float(timeout),
+                )
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Adapter %s.%s stopped (never started)", transport, adapter_id
+                )
+            except asyncio.TimeoutError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Timeout stopping never-started adapter %s.%s after %.1fs",
+                    transport,
+                    adapter_id,
+                    timeout,
+                )
+                # Intentionally not appended to `errors`: started-adapter
+                # cleanup failures are shutdown-visible because they may
+                # indicate data-loss or partial-delivery states.  A
+                # never-started adapter has no such side-effects, so its
+                # cleanup is best-effort and should not mask the primary
+                # shutdown result.
+            except asyncio.CancelledError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Cancelled while stopping never-started adapter %s.%s",
+                    transport,
+                    adapter_id,
                 )
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
@@ -1119,10 +1182,28 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                await asyncio.wait_for(
+                    adapter.stop(timeout=float(timeout)),
+                    timeout=float(timeout),
+                )
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Cleaned up adapter %s.%s during failed startup",
+                    transport,
+                    adapter_id,
+                )
+            except asyncio.TimeoutError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Timeout cleaning up adapter %s.%s during failed startup after %.1fs",
+                    transport,
+                    adapter_id,
+                    timeout,
+                )
+            except asyncio.CancelledError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Cancelled while cleaning up adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
@@ -1149,10 +1230,28 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                await asyncio.wait_for(
+                    adapter.stop(timeout=float(timeout)),
+                    timeout=float(timeout),
+                )
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Cleaned up never-started adapter %s.%s during failed startup",
+                    transport,
+                    adapter_id,
+                )
+            except asyncio.TimeoutError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Timeout cleaning up never-started adapter %s.%s during failed startup after %.1fs",
+                    transport,
+                    adapter_id,
+                    timeout,
+                )
+            except asyncio.CancelledError:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Cancelled while cleaning up never-started adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
