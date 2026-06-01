@@ -84,7 +84,15 @@ class TestSyncFallbackNormalClose:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             await storage.initialize()
+            # Capture executor before close() clears it, so we can ensure
+            # the worker thread is fully joined before gc.collect().
+            # Without this, shutdown(wait=False) leaves a live thread
+            # holding references to connection objects through internal
+            # structures, which Python's sqlite3 __del__ reports as unclosed.
+            executor = storage._executor
             await storage.close()
+            if executor is not None:
+                executor.shutdown(wait=True)
             del storage
             gc.collect()
 

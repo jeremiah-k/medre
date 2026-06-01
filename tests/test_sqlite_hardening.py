@@ -132,16 +132,20 @@ class TestExecutorLifecycle:
         """_closed must be True *before* the DB close() runs."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
-        closed_during_close = False
-        original_close = s._db.close
-
-        def _inspect_closed():
-            nonlocal closed_during_close
-            closed_during_close = s._closed
-            return original_close()
 
         if not s._use_aiosqlite:
-            s._db.close = _inspect_closed
+            closed_during_close = False
+            real_db = s._db
+
+            class _InspectClose:
+                """Wrapper that checks _closed when close() is called."""
+
+                def close(self):
+                    nonlocal closed_during_close
+                    closed_during_close = s._closed
+                    real_db.close()
+
+            s._db = _InspectClose()
             await s.close()
             assert (
                 closed_during_close is True
@@ -169,21 +173,22 @@ class TestExecutorLifecycle:
             await s.close()
             assert s._executor is None
         else:
-            # Sync path — inject failure into db.close() to prove executor
-            # cleanup still happens in the finally-block.
-            import unittest.mock
+            # Sync path — close the real connection ourselves, then install
+            # a mock whose close() raises to prove executor cleanup still
+            # happens in the finally-block.
+            real_db = s._db
+            real_db.close()
 
-            real_close = s._db.close
+            class _FailingConn:
+                def close(self):
+                    raise RuntimeError("simulated sync db.close failure")
 
-            def _failing_sync_close():
-                real_close()
-                raise RuntimeError("simulated sync db.close failure")
+            s._db = _FailingConn()
 
-            with unittest.mock.patch.object(s._db, "close", _failing_sync_close):
-                with pytest.raises(
-                    RuntimeError, match="simulated sync db.close failure"
-                ):
-                    await s.close()
+            with pytest.raises(
+                RuntimeError, match="simulated sync db.close failure"
+            ):
+                await s.close()
             assert s._executor is None
 
     async def test_close_safe_when_db_is_none(self) -> None:
