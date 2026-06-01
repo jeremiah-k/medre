@@ -324,3 +324,85 @@ class TestAdapterStopTimeoutSupervision:
             assert slow_id in str(exc_info.value)
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+    # -- STOPPING state guard --------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_stop_returns_early_when_already_stopping(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Calling stop() when the runtime is already STOPPING returns
+        immediately without re-entering the shutdown logic."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_id = next(iter(app.adapters))
+        original_state = app.adapter_states[adapter_id]
+
+        # Simulate being mid-stop by forcing state to STOPPING.
+        app._set_state(RuntimeState.STOPPING)
+        await app.stop()
+
+        # stop() returned early — adapter state should NOT have changed.
+        assert app.adapter_states[adapter_id] is original_state
+
+        # Clean up: reset state so the real stop can run.
+        app._set_state(RuntimeState.RUNNING)
+        await app.stop()
+
+    # -- Never-started adapter during shutdown ---------------------------------
+
+    @pytest.mark.asyncio
+    async def test_never_started_adapter_timeout_during_shutdown(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An adapter in self.adapters but NOT in started_adapter_ids
+        (never-started) that times out during stop() is marked FAILED.
+        The timeout is intentionally NOT appended to errors, so stop()
+        completes without raising RuntimeShutdownError."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        # Inject a never-started adapter with a slow stop.
+        slow_ns = _SlowStopAdapter(
+            type("Obj", (), {"adapter_id": "never_started_slow", "platform": "test"})(),
+            sleep_seconds=300.0,
+        )
+        app.adapters["never_started_slow"] = slow_ns
+        app._adapter_states["never_started_slow"] = AdapterState.INITIALIZING
+
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
+        try:
+            # Never-started adapter timeouts are intentionally not errors.
+            await app.stop()
+        finally:
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        assert slow_ns.stop_called
+        assert app._adapter_states["never_started_slow"] is AdapterState.FAILED
+        assert app.state == RuntimeState.STOPPED
+
+    @pytest.mark.asyncio
+    async def test_never_started_adapter_cancelled_during_shutdown(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An adapter in self.adapters but NOT in started_adapter_ids
+        whose stop() raises CancelledError is marked FAILED.
+        CancelledError from never-started adapters is intentionally not
+        appended to errors, so stop() completes without raising."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        cancel_ns = _CancelledStopAdapter(
+            type("Obj", (), {"adapter_id": "never_started_cancel", "platform": "test"})(),
+        )
+        app.adapters["never_started_cancel"] = cancel_ns
+        app._adapter_states["never_started_cancel"] = AdapterState.INITIALIZING
+
+        await app.stop()
+
+        assert cancel_ns.stop_called
+        assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED

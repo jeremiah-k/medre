@@ -32,6 +32,7 @@ from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
 )
+from medre.core.lifecycle.states import AdapterState
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
@@ -422,3 +423,126 @@ class TestStartupCleanupStopTimeout:
         assert alpha.stop_called
         assert storage_close_called, "storage.close() was not called"
         assert app.state == RuntimeState.FAILED
+
+
+# ===================================================================
+# Direct _cleanup_started_adapters unit tests
+# ===================================================================
+
+
+class _SlowStopDouble:
+    """Minimal adapter double whose stop() sleeps past any reasonable timeout."""
+
+    def __init__(self, adapter_id: str = "slow", sleep_seconds: float = 300.0) -> None:
+        self.adapter_id = adapter_id
+        self.platform = "test"
+        self.stop_called = False
+        self._sleep = sleep_seconds
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        await asyncio.sleep(self._sleep)
+
+
+class _CancelledStopDouble:
+    """Minimal adapter double whose stop() raises CancelledError."""
+
+    def __init__(self, adapter_id: str = "cancelled") -> None:
+        self.adapter_id = adapter_id
+        self.platform = "test"
+        self.stop_called = False
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        raise asyncio.CancelledError("simulated cancel")
+
+
+class TestCleanupStartedAdaptersDirect:
+    """Directly exercise _cleanup_started_adapters to cover started-adapter
+    and never-started-adapter timeout/cancel paths that are unreachable
+    through the normal TOTAL_FAILURE start() flow (because TOTAL_FAILURE
+    implies started_adapter_ids is empty)."""
+
+    @pytest.mark.asyncio
+    async def test_started_adapter_timeout(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A started adapter that times out during _cleanup_started_adapters
+        is marked FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        slow = _SlowStopDouble(adapter_id="slow_started")
+        app.adapters["slow_started"] = slow
+        app.started_adapter_ids.append("slow_started")
+        app._adapter_states["slow_started"] = AdapterState.READY
+
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
+        try:
+            await app._cleanup_started_adapters()
+        finally:
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        assert slow.stop_called
+        assert app._adapter_states["slow_started"] is AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_started_adapter_cancelled(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A started adapter whose stop() raises CancelledError during
+        _cleanup_started_adapters is marked FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        cancelled = _CancelledStopDouble(adapter_id="cancelled_started")
+        app.adapters["cancelled_started"] = cancelled
+        app.started_adapter_ids.append("cancelled_started")
+        app._adapter_states["cancelled_started"] = AdapterState.READY
+
+        await app._cleanup_started_adapters()
+
+        assert cancelled.stop_called
+        assert app._adapter_states["cancelled_started"] is AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_never_started_adapter_timeout(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A never-started adapter that times out during
+        _cleanup_started_adapters is marked FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        slow = _SlowStopDouble(adapter_id="never_started_slow")
+        app.adapters["never_started_slow"] = slow
+        # NOT in started_adapter_ids — simulates built-but-never-started.
+        app._adapter_states["never_started_slow"] = AdapterState.INITIALIZING
+
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
+        try:
+            await app._cleanup_started_adapters()
+        finally:
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        assert slow.stop_called
+        assert app._adapter_states["never_started_slow"] is AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_never_started_adapter_cancelled(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A never-started adapter whose stop() raises CancelledError during
+        _cleanup_started_adapters is marked FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        cancelled = _CancelledStopDouble(adapter_id="never_started_cancel")
+        app.adapters["never_started_cancel"] = cancelled
+        # NOT in started_adapter_ids.
+        app._adapter_states["never_started_cancel"] = AdapterState.INITIALIZING
+
+        await app._cleanup_started_adapters()
+
+        assert cancelled.stop_called
+        assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED
