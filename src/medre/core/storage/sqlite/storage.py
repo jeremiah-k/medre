@@ -359,19 +359,22 @@ class _SQLiteStorageBase:
         try:
             db = self._db
             if db is not None:
+                # Clear the reference *before* the await so concurrent
+                # callers see _db as None and return early rather than
+                # racing to close the same connection.
+                self._db = None
                 if self._use_aiosqlite:
                     await db.close()
                 else:
                     with self._lock:
                         db.close()
-                self._db = None
         finally:
             # Always shut down and clear the executor, even if DB close
             # raised an exception.
             executor = self._executor
             if executor is not None:
-                executor.shutdown(wait=False)
                 self._executor = None
+                executor.shutdown(wait=False)
 
     # -- Read / write primitives --------------------------------------------
 
