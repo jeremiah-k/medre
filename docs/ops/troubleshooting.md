@@ -261,6 +261,84 @@ Expected: replay result: `status == "error"`, `error == "replay_rejected_shutdow
 
 Fix: re-initiate replay after restart.
 
+### Shutdown Hangs (Adapter or Worker Does Not Stop)
+
+When the MEDRE process appears stuck during shutdown, the most likely cause is
+an adapter or background worker that does not respond to the stop signal within
+the configured timeout.
+
+#### What the runtime does automatically
+
+The runtime enforces a timeout (default 10 s) on every adapter stop call. If an
+adapter does not return within the deadline, the runtime records the failure,
+sets that adapter to `FAILED` state, and continues stopping the remaining
+adapters, pipeline, and storage. A `RuntimeShutdownError` is raised at the end
+with a summary of which adapters failed.
+
+The RetryWorker follows the same pattern: it gets a 5-second grace period after
+receiving the shutdown signal. If it does not finish within that window, its
+background task is cancelled.
+
+#### How to diagnose a shutdown hang
+
+1. **Check the logs.** The runtime logs per-adapter stop progress at DEBUG
+   level. Look for entries like:
+   - `"Adapter <transport>.<id> stopping"` -- stop initiated
+   - `"Timeout stopping adapter <transport>.<id> after Xs"` -- adapter hung
+   - `"Cancelled while stopping adapter <transport>.<id>"` -- adapter cancelled
+   - `"RetryWorker did not stop within 5s, cancelling"` -- retry worker hung
+
+2. **Check the final error.** If the runtime raises `RuntimeShutdownError`,
+   the message lists each failed adapter or subsystem:
+
+   ```
+   RuntimeShutdownError: Errors during shutdown; alpha: Timeout stopping adapter meshtastic.alpha after 10.0s
+   ```
+
+3. **Check adapter state after exit.** If the process eventually exits, the
+   evidence bundle or diagnostics output shows which adapters ended in `FAILED`
+   state rather than `STOPPED`.
+
+4. **Check for stuck in-flight deliveries.** If the drain phase times out,
+   abandoned deliveries are persisted as suppressed receipts:
+
+   ```sql
+   SELECT event_id, target_adapter, error, created_at
+   FROM delivery_receipts
+   WHERE failure_kind = 'shutdown_rejection'
+   ORDER BY created_at DESC
+   LIMIT 20;
+   ```
+
+5. **Send a SIGABRT for a stack trace** if the process is completely
+   unresponsive (not just slow). Python dumps thread stacks to stderr on
+   SIGABRT. This helps identify which code path is blocked:
+
+   ```bash
+   kill -ABRT <pid>
+   ```
+
+#### Common causes
+
+| Symptom                                          | Likely cause                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Adapter times out on every shutdown              | Transport SDK connection is in a blocking call with no timeout                |
+| RetryWorker requires forced cancel               | Storage operation (claim/renew) is blocked or very slow                       |
+| Process never exits after `RuntimeShutdownError` | A non-daemon thread created by a third-party SDK is keeping the process alive |
+| Drain phase times out repeatedly                 | Slow or unresponsive adapter callbacks holding capacity semaphore             |
+
+#### Tuning shutdown timeouts
+
+```toml
+[runtime]
+shutdown_timeout_seconds = 15      # per-adapter stop deadline (default 10)
+shutdown_drain_timeout_seconds = 20  # in-flight work drain deadline (default 10)
+```
+
+Increasing these values gives adapters more time to clean up, but also makes
+shutdown slower. If an adapter genuinely cannot stop (hard lock in a C
+extension), no timeout value will help, and the process needs a `SIGKILL`.
+
 ## Loop Prevention
 
 MEDRE provides three layers of loop prevention at different stages.

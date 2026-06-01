@@ -28,7 +28,6 @@ Uses fake adapters only, memory storage only, no live dependencies.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -1251,4 +1250,3 @@ class TestIntegratedBuildStartRouteDegradation:
         assert boot.failed_adapter_ids == ("fake_matrix",)
         assert boot.adapters_total == 2
         assert boot.adapters_started == 0
-
