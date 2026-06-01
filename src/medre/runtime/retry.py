@@ -795,7 +795,7 @@ class RetryWorker:
                     item.outbox_id,
                 )
         finally:
-            if capacity_acquired:
+            if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
 
     async def _check_dead_lettered(
