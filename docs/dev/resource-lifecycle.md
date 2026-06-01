@@ -117,15 +117,27 @@ adapters and in-memory storage. No live/hardware validation claims apply.
 worker is enabled and no task already exists. The run loop polls on
 `self._interval`, breaking immediately when `_shutdown_event` is set.
 
-**Teardown.** `stop()` is idempotent (returns immediately if `_task is None`):
+**Teardown.** `stop()` is idempotent (returns immediately if `_task is None`),
+and is serialised by an internal `asyncio.Lock` so concurrent callers
+cannot emit duplicate `retry_stopped` / `retry_abandoned` events:
 
 1. Sets `_shutdown_event`, cooperatively signaling the loop to break.
-2. `await asyncio.wait_for(self._task, timeout=stop_timeout_seconds)`. The
-   timeout defaults to 5.0 s and is exposed through
-   `runtime.shutdown_timeout_seconds` when the worker is created by
-   `MedreApp.start()` (see MedreApp Adapter Stop Loop below).
-3. If the cooperative stage times out, the task is **cancelled** and
-   re-awaited with the same bounded grace period.
+2. **Polling-based wait, not `asyncio.wait_for`.** Polls `task.done()` at
+   10 ms intervals until either the task finishes or the grace period
+   expires. Polling is used because `asyncio.wait_for` cannot terminate
+   a coroutine that catches and suppresses `asyncio.CancelledError` —
+   the cancel is consumed by an inner `except` block and the await never
+   raises, leaving `wait_for` to wait forever. Polling `task.done()` is
+   the only reliable hard bound for cancellation-resistant coroutines.
+3. **Forced cancel.** If the cooperative stage times out, the task is
+   `cancel()`-ed once and polled again for a second bounded grace
+   period. (The same `asyncio.wait_for`-cannot-terminate rationale
+   applies; the cancel grace is therefore also a poll loop, not a
+   `wait_for`.)
+
+Both stages use the `stop_timeout_seconds` grace (default 5.0 s,
+exposed through `runtime.shutdown_timeout_seconds` when the worker is
+created by `MedreApp.start()` — see MedreApp Adapter Stop Loop below).
 
 Outcomes:
 
@@ -145,6 +157,14 @@ Outcomes:
   supervisor) must inspect `state.abandoned` and either reset the
   worker (e.g. by waiting for the abandoned task to finish naturally)
   or shut the entire runtime down.
+- **External cancellation of `stop()` itself** (e.g. `MedreApp.stop()`
+  hits a shutdown timeout and cancels its inner cleanup work): the
+  `asyncio.CancelledError` is caught inside the polling loop, the
+  worker is marked abandoned (`state.abandoned = True`,
+  `state.running` left as `True`), a `retry_abandoned` event with
+  `reason="stop_cancelled"` is emitted, and the `CancelledError` is
+  re-raised to the caller. This makes the "stop was cancelled" state
+  distinguishable from "stop succeeded" and from "stop never called".
 
 `stop()` will never hang indefinitely: even in the cancellation-
 resistant case it returns within `2 * stop_timeout_seconds`.
@@ -157,12 +177,19 @@ lease of `interval * 1.5` seconds (minimum 30 s). There is no periodic lease
 renewal heartbeat. Leases naturally expire if the worker crashes; the next
 cycle reclaims them.
 
-**Logging.** `start()` logs at INFO. `stop()` logs a WARNING on forced cancel
-("did not stop within configured timeout, cancelling") and INFO on completion. Both emit
-structured events (`retry_started`, `retry_stopped`) with counters.
+**Logging.** `start()` logs at INFO. `stop()` logs at INFO on clean stop
+("RetryWorker stopped") and at WARNING on the cancellation-resistant
+abandonment path ("RetryWorker task did not cancel within Xs;
+abandoning"). There is no separate "cancelling" log line — the polling
+loop moves directly from deadline expiry to `task.cancel()` and
+continues polling. Emits structured events on each transition:
+`retry_started` (on launch), `retry_stopped` (on clean stop), and
+`retry_abandoned` (on the cancellation-resistant or stop-cancelled
+path, with `stop_timeout_seconds` plus counters).
 
 **Test boundaries.** Stop idempotency, timeout-then-cancel, cooperative
-shutdown mid-batch, and capacity release are covered in
+shutdown mid-batch, capacity release, concurrent stop serialization,
+and external-cancellation-of-stop handling are covered in
 `tests/test_retry_shutdown.py` using fake storage and in-memory adapters.
 
 ### MedreApp Adapter Stop Loop

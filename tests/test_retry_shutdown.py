@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from medre.config.model import RuntimeLimits
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -39,7 +41,17 @@ class _RetryWorkerState:
 
 
 class RetryWorker:
-    """Lightweight retry worker for shutdown/capacity tests."""
+    """Lightweight retry worker mock for shutdown/capacity tests.
+
+    This is **not** the production ``medre.runtime.retry.RetryWorker``;
+    it is a simplified mock used by ``TestRetryShutdown`` and
+    ``TestRetryShutdownRealPipeline`` to exercise capacity release,
+    mid-flight cancellation, and policy behaviour without spinning up
+    the full retry pipeline.  For polling-based stop / orphan-task
+    hardening tests, see ``TestRetryWorkerStopOrphan`` below, which
+    imports and tests the **real** ``RetryWorker`` from
+    ``medre.runtime.retry``.
+    """
 
     def __init__(
         self,
@@ -264,7 +276,6 @@ class TestRetryShutdown:
             lambda: storage.list_due_retry_receipts.call_count >= 1,
             timeout=2.0,
         )
-        # Stop immediately
         await worker.stop()
 
         assert worker.shutdown_event.is_set()
@@ -312,7 +323,6 @@ class TestRetryShutdown:
         await worker.start()
         await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
 
-        # The delivery slot should be occupied
         assert capacity.delivery_current >= 1
 
         # Fire the proceed event so delivery completes, then stop
@@ -320,7 +330,6 @@ class TestRetryShutdown:
         await wait_until(lambda: call_completed.is_set(), timeout=2.0)
         await worker.stop()
 
-        # Capacity slot should be released
         assert capacity.delivery_current == 0
         # No false success if we shut down before completion
         # (the delivery completed normally here, so succeeded is ok)
@@ -362,8 +371,6 @@ class TestRetryShutdownRealPipeline:
 
     async def test_shutdown_with_real_pipeline_and_due_receipt(self, temp_storage):
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
-        import uuid
-
         from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -445,12 +452,10 @@ class TestRetryShutdownRealPipeline:
             assert len(outcomes) == 1
             assert outcomes[0].status == "transient_failure"
 
-            # Verify due receipt exists
             receipts = await temp_storage.list_receipts_for_event(event_id)
             failed = [r for r in receipts if r.status == "failed"]
             assert len(failed) == 1
 
-            # Create capacity controller and worker
             limits = _make_limits(max_inflight_deliveries=1)
             capacity = CapacityController(limits)
             policy = RetryPolicy(max_attempts=3)
@@ -463,14 +468,11 @@ class TestRetryShutdownRealPipeline:
                 interval=300,
             )
 
-            # Start and immediately stop
             await worker.start()
             await wait_until(lambda: worker._task is not None, timeout=2.0)
             await worker.stop()
 
-            # Worker stops cleanly
             assert worker.shutdown_event.is_set()
-            # No leaked capacity
             assert capacity.delivery_current == 0
             # No false success (the adapter always fails)
             assert worker.state.succeeded == 0
@@ -479,8 +481,6 @@ class TestRetryShutdownRealPipeline:
 
     async def test_capacity_rejection_during_real_retry(self, temp_storage):
         """With capacity=0, retry worker fails without calling the pipeline."""
-        import uuid
-
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.metadata import EventMetadata
@@ -646,6 +646,15 @@ class TestRetryWorkerStopOrphan:
         event_types = [e.event_type.value for e in event_buffer]
         assert "retry_stopped" in event_types
         assert "retry_abandoned" not in event_types
+        # Verify retry_stopped payload contains the standard counters.
+        stopped_events = [
+            e for e in event_buffer if e.event_type.value == "retry_stopped"
+        ]
+        assert len(stopped_events) == 1
+        for key in ("processed", "succeeded", "failed", "dead_lettered"):
+            assert (
+                key in stopped_events[0].detail
+            ), f"retry_stopped payload missing '{key}'"
 
     async def test_stop_does_not_clear_task_when_cancellation_resistant(self):
         """Cancellation-resistant task: stop() returns boundedly but does
@@ -661,31 +670,26 @@ class TestRetryWorkerStopOrphan:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
-        # claim_due_outbox_items that shields itself from cancellation:
-        # the inner wait is wrapped in asyncio.shield so any
-        # CancelledError delivered to this coroutine is silently
-        # suppressed, and the coroutine keeps waiting.  The shield
-        # cancels the inner task but the outer task continues
-        # indefinitely.
+        # claim_due_outbox_items that catches CancelledError and spins
+        # until released.  This models an adapter-side bug where
+        # cancellation is swallowed and the call keeps blocking.
         _release = asyncio.Event()
-        call_count = 0
 
         async def _cancellation_resistant_claim(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            # Wait forever, but shield against cancellation so the
-            # outer task's cancel() is swallowed and re-entered.
-            inner = asyncio.create_task(_release.wait())
             try:
-                await asyncio.shield(inner)
+                await _release.wait()
             except asyncio.CancelledError:
-                # Shield swallowed the cancel; spin until released.
+                # Swallow: this is the bug we are simulating.
                 pass
-            # Busy-wait (with yields) so the loop can keep running but
-            # never terminates.  This is the pathological
-            # cancellation-resistant case.
             while not _release.is_set():
-                await asyncio.sleep(0.01)
+                # Yield to the loop so the task is not a CPU spin, but
+                # ignore any cancellation that arrives here too.  Each
+                # await is a fresh cancel delivery point but the
+                # except handler continues until released.
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
             return []
 
         storage.claim_due_outbox_items = AsyncMock(
@@ -730,14 +734,25 @@ class TestRetryWorkerStopOrphan:
 
             # Cancellation-resistant: _task is KEPT, abandoned=True,
             # running=True, retry_abandoned emitted, retry_stopped NOT.
-            assert worker._task is orig_task, (
-                "_task must remain pointing at the still-alive task"
-            )
+            assert (
+                worker._task is orig_task
+            ), "_task must remain pointing at the still-alive task"
             assert worker.state.running is True
             assert worker.state.abandoned is True
             event_types = [e.event_type.value for e in event_buffer]
             assert "retry_abandoned" in event_types
             assert "retry_stopped" not in event_types
+            # Verify retry_abandoned payload includes the timeout and
+            # the standard counters.
+            abandoned_events = [
+                e for e in event_buffer if e.event_type.value == "retry_abandoned"
+            ]
+            assert len(abandoned_events) == 1
+            assert abandoned_events[0].detail.get("stop_timeout_seconds") == 0.1
+            for key in ("processed", "succeeded", "failed", "dead_lettered"):
+                assert (
+                    key in abandoned_events[0].detail
+                ), f"retry_abandoned payload missing '{key}'"
         finally:
             # Release the stuck call so the task can complete and not
             # leak into other tests.
@@ -765,7 +780,10 @@ class TestRetryWorkerStopOrphan:
             except asyncio.CancelledError:
                 pass
             while not _release.is_set():
-                await asyncio.sleep(0.01)
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
             return []
 
         storage.claim_due_outbox_items = AsyncMock(side_effect=_resistant_claim)
@@ -886,6 +904,209 @@ class TestRetryWorkerStopOrphan:
         assert worker.state.running is False
         # State counters are preserved (not reset).
         assert worker.state.processed == 0
+
+    async def test_stop_when_task_already_done(self):
+        """stop() called when the background task has already completed
+        naturally (not due to stop()) returns promptly with clean-stop
+        semantics.
+
+        Covers the early-exit path in the polling loop: if ``task.done()``
+        is ``True`` on the first iteration, the loop exits immediately
+        without ever entering ``_force_cancel_with_poll``.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+
+        # Make the run loop end with a BaseException that is NOT
+        # asyncio.CancelledError (which would mean the task was
+        # cancelled, not that it finished naturally) and is NOT caught
+        # by the ``except Exception`` handler in ``_run_loop``.  This
+        # models an unrecoverable error that ends the worker without
+        # the stop path being involved.
+        class _FatalCrash(BaseException):
+            pass
+
+        async def _crashing_claim(*args, **kwargs):
+            raise _FatalCrash("simulated unrecoverable error")
+
+        storage.claim_due_outbox_items = AsyncMock(side_effect=_crashing_claim)
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+        )
+
+        await worker.start()
+        # Wait for the task to complete (it will end with _FatalCrash
+        # because the claim raises a BaseException the loop cannot
+        # catch).
+        orig_task = worker._task
+        assert orig_task is not None
+        await wait_until(lambda: orig_task.done(), timeout=2.0)
+        assert orig_task.done()
+
+        # Now call stop() — must return promptly with clean-stop
+        # semantics, NOT be treated as abandoned.
+        stop_start = asyncio.get_event_loop().time()
+        await worker.stop()
+        stop_elapsed = asyncio.get_event_loop().time() - stop_start
+
+        assert stop_elapsed < 0.1, (
+            f"stop() took {stop_elapsed:.3f}s for an already-done task; "
+            f"expected < 0.1s"
+        )
+        assert worker._task is None
+        assert worker.state.running is False
+        assert worker.state.abandoned is False
+        event_types = [e.event_type.value for e in event_buffer]
+        assert "retry_stopped" in event_types
+        assert "retry_abandoned" not in event_types
+
+    async def test_concurrent_stop_no_duplicate_events(self):
+        """Concurrent stop() calls do not emit duplicate events.
+
+        The internal ``asyncio.Lock`` serialises callers so the second
+        call sees ``_task is None`` after the first finishes and
+        returns without entering the polling loop.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        storage.claim_due_outbox_items = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+        )
+
+        await worker.start()
+        await wait_until(
+            lambda: storage.claim_due_outbox_items.call_count >= 1,
+            timeout=2.0,
+        )
+
+        # Launch two stop() calls concurrently.
+        await asyncio.gather(worker.stop(), worker.stop())
+
+        # Exactly one retry_stopped event.
+        event_types = [e.event_type.value for e in event_buffer]
+        assert (
+            event_types.count("retry_stopped") == 1
+        ), f"expected exactly one retry_stopped, got {event_types.count('retry_stopped')}"
+        assert worker._task is None
+        assert worker.state.running is False
+
+    async def test_stop_cancelled_mid_poll(self):
+        """External cancellation of stop() itself marks the worker
+        abandoned and emits ``retry_abandoned`` with
+        ``reason='stop_cancelled'``.
+
+        Models the case where the caller of ``await stop()`` is
+        cancelled mid-poll (e.g. ``MedreApp.stop()`` hits a shutdown
+        timeout and cancels its inner cleanup).  The worker must not
+        silently leave ``state.running=True`` and ``state.abandoned=False``
+        — the caller needs a way to detect this state.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        _release = asyncio.Event()
+
+        async def _resistant_claim(*args, **kwargs):
+            try:
+                await _release.wait()
+            except asyncio.CancelledError:
+                pass
+            while not _release.is_set():
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
+            return []
+
+        storage.claim_due_outbox_items = AsyncMock(side_effect=_resistant_claim)
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=2.0,  # long enough to cancel mid-poll
+        )
+
+        try:
+            await worker.start()
+            await wait_until(
+                lambda: storage.claim_due_outbox_items.call_count >= 1,
+                timeout=2.0,
+            )
+
+            # Begin stop() in a task, then cancel it mid-poll.
+            stop_task = asyncio.create_task(worker.stop())
+            # Let the polling loop start.
+            await asyncio.sleep(0.1)
+            stop_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await stop_task
+
+            # Worker must be marked abandoned so the caller can detect
+            # the cancelled state and refuse a relaunch.
+            assert worker.state.abandoned is True
+            assert worker.state.running is True
+            event_types = [e.event_type.value for e in event_buffer]
+            assert "retry_abandoned" in event_types
+            assert "retry_stopped" not in event_types
+
+            # Verify the abandonment event has reason='stop_cancelled'
+            # and the timeout payload.
+            abandoned_events = [
+                e for e in event_buffer if e.event_type.value == "retry_abandoned"
+            ]
+            assert len(abandoned_events) == 1
+            assert abandoned_events[0].detail.get("reason") == "stop_cancelled"
+            assert abandoned_events[0].detail.get("stop_timeout_seconds") == 2.0
+            # Standard counters must be present.
+            for key in ("processed", "succeeded", "failed", "dead_lettered"):
+                assert key in abandoned_events[0].detail
+        finally:
+            _release.set()
+            if worker._task is not None and not worker._task.done():
+                try:
+                    await asyncio.wait_for(worker._task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
 
 
 class TestRetryCapacityRejectionBackoff:
