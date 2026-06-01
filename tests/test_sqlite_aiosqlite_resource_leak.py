@@ -5,9 +5,11 @@ paths in ``SQLiteStorage``.
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import sqlite3
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -158,4 +160,116 @@ class TestAiosqliteOpenReadonlyRowFactoryFailure:
             await SQLiteStorage.open_readonly(db_path)
 
         mock_conn.close.assert_awaited_once()
+        gc.collect()
+
+
+# ---------------------------------------------------------------------------
+# Tests: aiosqlite close() — asyncio.shield coverage
+# ---------------------------------------------------------------------------
+
+
+class TestAiosqliteCloseShield:
+    """aiosqlite ``close()`` exercises the asyncio.shield protection logic.
+
+    The close() method wraps ``db.close()`` in ``asyncio.create_task`` +
+    ``asyncio.shield`` so that stray CancelledError does not abort the
+    aiosqlite thread join.  These tests cover the normal path and the two
+    exception-handling branches inside the shield block.
+    """
+
+    @staticmethod
+    def _make_storage_with_mock_conn(
+        tmp_path: Path,
+    ) -> tuple[SQLiteStorage, MagicMock]:
+        """Create a storage whose aiosqlite connection is a mock.
+
+        Returns (storage, mock_conn) — the storage is set up with
+        ``_use_aiosqlite`` forced True (via autouse fixture) and a
+        mock connection injected directly, bypassing ``initialize()``
+        so we don't need a fully-functional mock cursor.
+        """
+        db_path = _temp_db_path(tmp_path)
+
+        mock_conn = MagicMock()
+        mock_conn.close = AsyncMock()
+
+        _mock_aiosqlite_module.connect = AsyncMock(return_value=mock_conn)
+
+        storage = SQLiteStorage(db_path=db_path)
+        # Autouse fixture already set _HAS_AIOSQLITE = True and
+        # patched the module-level aiosqlite, but the flag is read
+        # at __init__ time — confirm the path is active.
+        assert storage._use_aiosqlite is True
+        # Inject the mock connection directly.
+        storage._db = mock_conn
+        storage._closed = False
+        return storage, mock_conn
+
+    async def test_aiosqlite_close_normal_path_awaits_close(
+        self, tmp_path: Path
+    ) -> None:
+        """Normal close: create_task + shield completes db.close()."""
+        storage, mock_conn = self._make_storage_with_mock_conn(tmp_path)
+
+        await storage.close()
+
+        mock_conn.close.assert_awaited_once()
+        assert storage._closed is True
+        assert storage._db is None
+        gc.collect()
+
+    async def test_aiosqlite_close_cancelled_error_still_awaits_close(
+        self, tmp_path: Path
+    ) -> None:
+        """CancelledError arriving during shield: close_task is still
+        awaited and CancelledError is re-raised."""
+        storage, mock_conn = self._make_storage_with_mock_conn(tmp_path)
+
+        # Patch asyncio.shield to raise CancelledError, simulating an
+        # external cancellation arriving at the await point.
+        async def _shield_raising_cancelled(awaitable: Any) -> None:
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.shield", side_effect=_shield_raising_cancelled):
+            with pytest.raises(asyncio.CancelledError):
+                await storage.close()
+
+        # The close_task was still awaited despite CancelledError.
+        mock_conn.close.assert_awaited()
+        assert storage._closed is True
+        gc.collect()
+
+    async def test_aiosqlite_close_base_exception_awaits_task(
+        self, tmp_path: Path
+    ) -> None:
+        """BaseException (non-CancelledError) during shield: close_task
+        is awaited if not done, then exception propagates."""
+        storage, mock_conn = self._make_storage_with_mock_conn(tmp_path)
+
+        async def _shield_raising_base_exc(awaitable: Any) -> None:
+            raise RuntimeError("simulated shield failure")
+
+        with patch("asyncio.shield", side_effect=_shield_raising_base_exc):
+            with pytest.raises(RuntimeError, match="simulated shield failure"):
+                await storage.close()
+
+        # close_task should still have been awaited.
+        mock_conn.close.assert_awaited()
+        assert storage._closed is True
+        gc.collect()
+
+    async def test_aiosqlite_close_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        """Repeated close() is safe — second call returns early."""
+        storage, mock_conn = self._make_storage_with_mock_conn(tmp_path)
+
+        await storage.close()
+        # Reset the mock to detect any additional calls.
+        mock_conn.close.reset_mock()
+
+        await storage.close()
+
+        mock_conn.close.assert_not_awaited()
+        assert storage._closed is True
         gc.collect()
