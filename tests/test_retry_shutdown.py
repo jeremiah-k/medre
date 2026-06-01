@@ -661,22 +661,29 @@ class TestRetryWorkerStopOrphan:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
-        # claim_due_outbox_items that swallows CancelledError and
-        # keeps blocking until released.  This is a pathological
-        # adapter-side fault, not a normal storage behaviour.
+        # claim_due_outbox_items that shields itself from cancellation:
+        # the inner wait is wrapped in asyncio.shield so any
+        # CancelledError delivered to this coroutine is silently
+        # suppressed, and the coroutine keeps waiting.  The shield
+        # cancels the inner task but the outer task continues
+        # indefinitely.
         _release = asyncio.Event()
         call_count = 0
 
         async def _cancellation_resistant_claim(*args, **kwargs):
             nonlocal call_count
             call_count += 1
+            # Wait forever, but shield against cancellation so the
+            # outer task's cancel() is swallowed and re-entered.
+            inner = asyncio.create_task(_release.wait())
             try:
-                await _release.wait()
+                await asyncio.shield(inner)
             except asyncio.CancelledError:
-                # Swallow cancellation -- simulate a bug or a transport
-                # SDK that ignores the cancellation request.
+                # Shield swallowed the cancel; spin until released.
                 pass
-            # If still not released, busy-wait until release.
+            # Busy-wait (with yields) so the loop can keep running but
+            # never terminates.  This is the pathological
+            # cancellation-resistant case.
             while not _release.is_set():
                 await asyncio.sleep(0.01)
             return []
