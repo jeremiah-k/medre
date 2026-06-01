@@ -1013,7 +1013,7 @@ class MedreApp:
                     timeout,
                 )
                 errors.append((adapter_id, exc))
-            else:  # outcome == "abandoned"
+            else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 errors.append((adapter_id, exc))
 
@@ -1067,11 +1067,11 @@ class MedreApp:
                 # never-started adapter has no such side-effects, so its
                 # cleanup is best-effort and should not mask the primary
                 # shutdown result.
-            else:  # outcome == "abandoned"
+            else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
-                    "Abandoned never-started adapter %s.%s; will be "
-                    "reclaimed when the event loop shuts down",
+                    "Never-started adapter %s.%s did not stop cleanly "
+                    "(see earlier log for details)",
                     transport,
                     adapter_id,
                 )
@@ -1149,7 +1149,7 @@ class MedreApp:
         -------
         (``outcome``, ``exception``, ``cancelled_outer``)
             * ``outcome`` -- one of ``"stopped"``, ``"timeout"``,
-              ``"abandoned"``.
+              ``"abandoned"``, ``"error"``.
             * ``exception`` -- the exception raised by the adapter, or
               ``None`` for a clean stop.
             * ``cancelled_outer`` -- ``True`` if an external
@@ -1197,6 +1197,17 @@ class MedreApp:
                 except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                     pass
             raise
+        except Exception as exc:
+            # Adapter's stop() raised a regular exception (e.g.
+            # RuntimeError).  Return it as an "error" outcome so the
+            # caller can set FAILED state and record it appropriately.
+            _logger.error(
+                "Error stopping adapter %s.%s: %s",
+                transport,
+                adapter_id,
+                exc,
+            )
+            return ("error", exc, False)
 
     async def _persist_drain_abandoned_evidence(self) -> None:
         """Persist structured abandonment receipts for in-flight deliveries.
@@ -1318,11 +1329,11 @@ class MedreApp:
                     adapter_id,
                     timeout,
                 )
-            else:  # outcome == "abandoned"
+            else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
-                    "Abandoned adapter %s.%s during failed startup "
-                    "(event loop will reclaim when shutting down)",
+                    "Adapter %s.%s did not stop cleanly during failed "
+                    "startup (see earlier log for details)",
                     transport,
                     adapter_id,
                 )
@@ -1373,11 +1384,11 @@ class MedreApp:
                     adapter_id,
                     timeout,
                 )
-            else:  # outcome == "abandoned"
+            else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
-                    "Abandoned never-started adapter %s.%s during failed "
-                    "startup (event loop will reclaim when shutting down)",
+                    "Never-started adapter %s.%s did not stop cleanly "
+                    "during failed startup (see earlier log for details)",
                     transport,
                     adapter_id,
                 )
