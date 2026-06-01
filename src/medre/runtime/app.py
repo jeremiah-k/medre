@@ -1042,6 +1042,12 @@ class MedreApp:
                     adapter_id,
                     timeout,
                 )
+                # Intentionally not appended to `errors`: started-adapter
+                # cleanup failures are shutdown-visible because they may
+                # indicate data-loss or partial-delivery states.  A
+                # never-started adapter has no such side-effects, so its
+                # cleanup is best-effort and should not mask the primary
+                # shutdown result.
             except asyncio.CancelledError:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(

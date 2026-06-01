@@ -84,6 +84,7 @@ class RetryWorker:
         batch_size: int = 20,
         max_attempts: int = 3,
         event_buffer: EventBuffer | None = None,
+        stop_timeout_seconds: float = 5.0,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
@@ -93,6 +94,7 @@ class RetryWorker:
         self._batch_size = batch_size
         self._max_attempts = max_attempts
         self._event_buffer = event_buffer
+        self._stop_timeout = stop_timeout_seconds
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._outbox_counts: dict[str, int] = {}
@@ -156,9 +158,12 @@ class RetryWorker:
             return
         self._shutdown_event.set()
         try:
-            await asyncio.wait_for(self._task, timeout=5.0)
+            await asyncio.wait_for(self._task, timeout=self._stop_timeout)
         except asyncio.TimeoutError:
-            _logger.warning("RetryWorker did not stop within 5s, cancelling")
+            _logger.warning(
+                "RetryWorker did not stop within %.1fs, cancelling",
+                self._stop_timeout,
+            )
             task = self._task
             task.cancel()
             try:

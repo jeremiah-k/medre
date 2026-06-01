@@ -578,8 +578,8 @@ class TestRetryWorkerStopOrphan:
         """When the background task ignores shutdown_event, stop() cancels it.
 
         The worker's _run_loop blocks in _process_due via a storage call
-        that never returns.  After the 5 s grace period the task is
-        cancelled and awaited so no orphan remains.
+        that never returns.  After the grace period the task is cancelled
+        and awaited so no orphan remains.
         """
         from medre.runtime.events import EventBuffer
         from medre.runtime.retry import RetryWorker
@@ -607,28 +607,8 @@ class TestRetryWorkerStopOrphan:
             enabled=True,
             interval_seconds=300,
             event_buffer=event_buffer,
+            stop_timeout_seconds=0.2,
         )
-
-        # Patch the internal wait_for timeout to make the test fast.
-        # We monkey-patch stop() to use a shorter timeout.
-
-        async def _fast_stop():
-            if worker._task is None:
-                return
-            worker._shutdown_event.set()
-            try:
-                await asyncio.wait_for(worker._task, timeout=0.2)
-            except asyncio.TimeoutError:
-                task = worker._task
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-            worker._task = None
-            worker.state.running = False
-
-        worker.stop = _fast_stop
 
         await worker.start()
         assert worker._task is not None
