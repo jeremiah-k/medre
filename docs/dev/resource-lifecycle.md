@@ -16,7 +16,7 @@ no teardown concerns.
 | ----------------------------- | ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------- |
 | SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `shutdown(wait=False)`                   | Yes              |
 | SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                        | Yes              |
-| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits 5 s, then cancels                         | Yes              |
+| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (default 5 s), then cancels | Yes              |
 | PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                            | Yes              |
 | CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                 | N/A (gate)       |
 | ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                         | Yes              |
@@ -53,7 +53,7 @@ always runs.
  2. State -> STOPPING
  3. Stop accepting new work   -- capacity_controller.stop_accepting()
  4. Cancel replay engine      -- replay_engine.cancel()
- 5. Stop retry worker         -- retry_worker.stop() (5 s grace, then cancel)
+ 5. Stop retry worker         -- retry_worker.stop() (configurable grace, default 5 s, then cancel)
  6. Drain in-flight work      -- poll capacity until empty or deadline
  7. Persist abandoned evidence -- suppressed receipts for timed-out deliveries
  8. Set shutdown event        -- signals all adapters
@@ -109,8 +109,8 @@ worker is enabled and no task already exists. The run loop polls on
 **Teardown.** `stop()` is idempotent (returns immediately if `_task is None`):
 
 1. Sets `_shutdown_event`, cooperatively signaling the loop to break.
-2. `await asyncio.wait_for(self._task, timeout=5.0)`.
-3. If the 5-second grace expires, cancels the task and awaits it, swallowing
+2. `await asyncio.wait_for(self._task, timeout=stop_timeout_seconds)` (constructor parameter, default 5.0).
+3. If the grace period expires, cancels the task and awaits it, swallowing
    `CancelledError`.
 4. Sets `_task = None` and `state.running = False`.
 
@@ -123,7 +123,7 @@ renewal heartbeat. Leases naturally expire if the worker crashes; the next
 cycle reclaims them.
 
 **Logging.** `start()` logs at INFO. `stop()` logs a WARNING on forced cancel
-("did not stop within 5s, cancelling") and INFO on completion. Both emit
+("did not stop within configured timeout, cancelling") and INFO on completion. Both emit
 structured events (`retry_started`, `retry_stopped`) with counters.
 
 **Test boundaries.** Stop idempotency, timeout-then-cancel, cooperative
