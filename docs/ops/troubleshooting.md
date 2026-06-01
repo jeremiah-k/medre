@@ -278,18 +278,32 @@ with a summary of which adapters failed.
 The RetryWorker follows the same pattern: it gets a configurable grace period
 (default 5 seconds) after receiving the shutdown signal. If it does not finish
 within its configured stop timeout (default 5s), its background task is
-cancelled. The stop timeout is a constructor parameter
-(`stop_timeout_seconds`, default `5.0`) and is not currently exposed via the
-TOML `[retry]` config section.
+cancelled, then a second bounded grace period is applied to let
+cancellation take effect.
+
+The stop timeout is a constructor parameter (`stop_timeout_seconds`,
+default `5.0`). When the worker is created by `MedreApp.start()`, this
+value is wired from `config.runtime.shutdown_timeout_seconds` (the
+`[runtime]` TOML section), so the same per-adapter stop deadline also
+governs the retry worker. It is not a `[retry]` config field; the
+single source of truth is `[runtime].shutdown_timeout_seconds`.
+
+If a RetryWorker task is cancellation-resistant (e.g. a storage call
+refuses to release), `stop()` will not hang forever. It returns within
+`2 * stop_timeout_seconds` and reports the abandonment by setting
+`state.abandoned = True` and emitting a `retry_abandoned` event. See
+`docs/dev/resource-lifecycle.md` for the full abandonment contract.
 
 #### How to diagnose a shutdown hang
 
 1. **Check the logs.** The runtime logs per-adapter stop progress at DEBUG
    level. Look for entries like:
    - `"Adapter <transport>.<id> stopping"` -- stop initiated
-   - `"Timeout stopping adapter <transport>.<id> after Xs"` -- adapter hung
-   - `"Cancelled while stopping adapter <transport>.<id>"` -- adapter cancelled
-   - `"RetryWorker did not stop within its configured stop timeout (default 5s), cancelling"` -- retry worker hung
+   - `"Timeout stopping adapter <transport>.<id> after Xs, cancelling"` -- adapter hung past cooperative grace
+   - `"Adapter <transport>.<id> did not stop after cancel within Xs; abandoning"` -- adapter did not respond to cancel
+   - `"Cancelled while stopping adapter <transport>.<id>"` -- adapter cancelled by external cancellation
+   - `"RetryWorker did not stop within Xs, cancelling"` -- retry worker hung past cooperative grace
+   - `"RetryWorker task did not cancel within Xs; abandoning"` -- retry worker did not respond to cancel; `state.abandoned = True`
 
 2. **Check the final error.** If the runtime raises `RuntimeShutdownError`,
    the message lists each failed adapter or subsystem:
@@ -326,7 +340,7 @@ TOML `[retry]` config section.
 | Symptom                                          | Likely cause                                                                  |
 | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | Adapter times out on every shutdown              | Transport SDK connection is in a blocking call with no timeout                |
-| RetryWorker requires forced cancel               | Storage operation (claim/renew) is blocked or very slow                       |
+| RetryWorker may be forcibly cancelled            | Storage operation (claim/renew) is blocked or very slow                       |
 | Process never exits after `RuntimeShutdownError` | A non-daemon thread created by a third-party SDK is keeping the process alive |
 | Drain phase times out repeatedly                 | Slow or unresponsive adapter callbacks holding capacity semaphore             |
 

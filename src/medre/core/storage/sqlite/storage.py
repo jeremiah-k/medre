@@ -347,9 +347,18 @@ class _SQLiteStorageBase:
         """Close the underlying database connection and release resources.
 
         Idempotent — safe to call multiple times.  Sets ``_closed`` early
-        to prevent concurrent-close races.  The private executor is shut
-        down via ``asyncio.to_thread`` with ``wait=True`` to fully join
-        worker threads without blocking the event loop.
+        to prevent concurrent-close races.  The aiosqlite close is wrapped
+        in an explicit task and shielded so that a stray ``CancelledError``
+        delivered at this await checkpoint (e.g. after an
+        ``asyncio.wait_for`` timeout in the caller) does not abort the
+        close before aiosqlite's internal thread is joined — which would
+        leave the connection half-closed and trigger
+        ``ResourceWarning: <aiosqlite.core.Connection ...> was deleted
+        before being closed`` on ``__del__``.
+
+        The private executor is shut down via ``asyncio.to_thread`` with
+        ``wait=True`` to fully join worker threads without blocking the
+        event loop.
         """
         # Mark closed defensively *before* any I/O so that concurrent
         # callers see the closed flag immediately and do not race.
@@ -365,12 +374,33 @@ class _SQLiteStorageBase:
                 # racing to close the same connection.
                 self._db = None
                 if self._use_aiosqlite:
-                    # Shield from stray CancelledError delivered at this
-                    # await checkpoint after asyncio.wait_for timeouts in
-                    # the adapter stop loop.  Without the shield aiosqlite's
-                    # internal thread is never joined, leaving _connection
-                    # non-None and triggering ResourceWarning in __del__.
-                    await asyncio.shield(db.close())
+                    # Run the close on an explicit task with a strong
+                    # reference held by a local binding.  ``asyncio.shield``
+                    # then protects the await from being interrupted by a
+                    # stray CancelledError, while the local binding keeps
+                    # the task alive for the duration of the close.
+                    close_task = asyncio.create_task(db.close())
+                    try:
+                        await asyncio.shield(close_task)
+                    except asyncio.CancelledError:
+                        # Outer cancellation arrived after the close had
+                        # already started; let the close finish so aiosqlite
+                        # can join its internal thread, then re-raise so the
+                        # caller's exception flow continues.
+                        try:
+                            await close_task
+                        finally:
+                            raise
+                    except BaseException:
+                        # On any non-cancellation failure, ensure the close
+                        # task is awaited so we don't leak it, then surface
+                        # the exception.
+                        if not close_task.done():
+                            try:
+                                await close_task
+                            except Exception:
+                                pass
+                        raise
                 else:
                     with self._lock:
                         db.close()

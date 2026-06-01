@@ -249,8 +249,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
@@ -267,7 +267,7 @@ class TestStartupCleanupStopTimeout:
         assert app.adapters["fake_matrix"].stop_called
 
         # Storage MUST have been closed despite the slow adapter.
-        assert storage_close_called, "storage.close() was not called"
+        assert storage_close_called, "storage.close() did not complete"
         assert app.state == RuntimeState.FAILED
 
     @pytest.mark.asyncio
@@ -287,8 +287,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_pipeline_stop() -> None:
             nonlocal pipeline_stop_called
-            pipeline_stop_called = True
             await original_pipeline_stop()
+            pipeline_stop_called = True
 
         app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
 
@@ -300,7 +300,7 @@ class TestStartupCleanupStopTimeout:
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
-        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+        assert pipeline_stop_called, "pipeline_runner.stop() did not complete"
 
     @pytest.mark.asyncio
     async def test_cancelled_error_during_startup_cleanup_stop(
@@ -322,8 +322,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_pipeline_stop() -> None:
             nonlocal pipeline_stop_called
-            pipeline_stop_called = True
             await original_pipeline_stop()
+            pipeline_stop_called = True
 
         app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
 
@@ -333,8 +333,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
@@ -342,8 +342,8 @@ class TestStartupCleanupStopTimeout:
             await app.start()
 
         assert app.adapters["fake_matrix"].stop_called
-        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
-        assert storage_close_called, "storage.close() was not called"
+        assert pipeline_stop_called, "pipeline_runner.stop() did not complete"
+        assert storage_close_called, "storage.close() did not complete"
         assert app.state == RuntimeState.FAILED
 
     @pytest.mark.asyncio
@@ -367,8 +367,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
@@ -385,7 +385,7 @@ class TestStartupCleanupStopTimeout:
         assert beta.stop_called, "beta stop() not called"
 
         # Storage close must still happen.
-        assert storage_close_called, "storage.close() was not called"
+        assert storage_close_called, "storage.close() did not complete"
 
     @pytest.mark.asyncio
     async def test_mixed_slow_and_fast_adapters_during_startup_cleanup(
@@ -409,8 +409,8 @@ class TestStartupCleanupStopTimeout:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
 
@@ -423,7 +423,7 @@ class TestStartupCleanupStopTimeout:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert alpha.stop_called
-        assert storage_close_called, "storage.close() was not called"
+        assert storage_close_called, "storage.close() did not complete"
         assert app.state == RuntimeState.FAILED
 
 

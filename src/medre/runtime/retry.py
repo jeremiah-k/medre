@@ -55,10 +55,23 @@ _logger = logging.getLogger(__name__)
 
 @dataclass
 class RetryWorkerState:
-    """Snapshot-visible state for the retry worker."""
+    """Snapshot-visible state for the retry worker.
+
+    Attributes
+    ----------
+    abandoned:
+        ``True`` if the previous :meth:`RetryWorker.stop` exited while the
+        background task was still running and could not be cancelled
+        within the grace period.  In this state :meth:`RetryWorker.start`
+        refuses to launch a second worker, because doing so would
+        silently launch a duplicate task over the same outbox while the
+        abandoned one is still alive.  The caller must inspect this flag
+        and either reset the worker or shut the entire runtime down.
+    """
 
     enabled: bool = False
     running: bool = False
+    abandoned: bool = False
     last_run_at: str | None = None
     processed: int = 0
     succeeded: int = 0
@@ -124,8 +137,22 @@ class RetryWorker:
         self._event_buffer.emit(rt, detail)
 
     async def start(self) -> None:
-        """Start the retry worker background task."""
+        """Start the retry worker background task.
+
+        Refuses to launch when the worker is already running, or when a
+        previous :meth:`stop` abandoned the background task while it was
+        still alive.  In the abandoned case launching again would
+        silently double-process the outbox, so :attr:`state.abandoned`
+        must be cleared by the caller first.
+        """
         if not self._enabled:
+            return
+        if self.state.abandoned:
+            _logger.error(
+                "RetryWorker.start refused: previous stop abandoned the "
+                "background task; worker must not be restarted without "
+                "operator intervention"
+            )
             return
         if self._task is not None:
             return
@@ -148,11 +175,32 @@ class RetryWorker:
         )
 
     async def stop(self) -> None:
-        """Signal shutdown and wait for worker to finish.
+        """Signal shutdown and wait for the worker to finish.
 
-        If the background task does not complete within the grace
-        period it is cancelled and awaited so that no orphan task
-        remains after this method returns.
+        Stop is **bounded** in two stages:
+
+        1. Cooperative stop: set the shutdown event and
+           ``await asyncio.wait_for(self._task, timeout=stop_timeout)``.
+        2. Forced cancel: if the cooperative stage times out, cancel the
+           task and wait a second bounded grace period for cancellation
+           to take effect.
+
+        Outcomes:
+
+        * **Cancellation-responsive task** -- the background task finishes
+          within the grace period.  :attr:`_task` is cleared,
+          :attr:`state.running` is set to ``False``, and a
+          ``retry_stopped`` event is emitted.  ``stop()`` returns
+          promptly.
+        * **Cancellation-resistant task** -- the task survives both
+          grace periods.  ``stop()`` does **not** clear :attr:`_task`
+          (the underlying coroutine may still complete and clean up
+          later), does **not** flip :attr:`state.running` to ``False``,
+          and does **not** emit ``retry_stopped``.  Instead it sets
+          :attr:`state.abandoned = True`, logs a warning, and emits a
+          ``retry_abandoned`` event so downstream observers see the
+          failure honestly.  :meth:`start` will refuse subsequent
+          launches while ``abandoned`` is set.
         """
         if self._task is None:
             return
@@ -171,13 +219,9 @@ class RetryWorker:
             except asyncio.CancelledError:
                 pass  # normal cancellation completed
             except asyncio.TimeoutError:
-                _logger.warning(
-                    "RetryWorker task did not cancel within %.1fs; abandoning",
-                    self._stop_timeout,
-                )
-                # task is abandoned but not awaited — the event loop will
-                # clean it up when the task eventually completes or the loop
-                # shuts down.
+                await self._mark_abandoned(task)
+                return
+        # Cooperative stop or successful forced cancel.
         self._task = None
         self.state.running = False
         self._emit(
@@ -190,6 +234,48 @@ class RetryWorker:
             },
         )
         _logger.info("RetryWorker stopped")
+
+    async def _mark_abandoned(self, task: asyncio.Task[None]) -> None:
+        """Record that *task* could not be stopped within the deadline.
+
+        Keeps :attr:`_task` pointing at the still-running task and sets
+        :attr:`state.abandoned` so subsequent :meth:`start` calls refuse
+        to launch a duplicate worker.  Does not await *task*; the
+        coroutine may complete later and clean itself up.
+        """
+        _logger.warning(
+            "RetryWorker task did not cancel within %.1fs; abandoning "
+            "(_task is still referenced, state.abandoned=True)",
+            self._stop_timeout,
+        )
+        # Defensive: recheck done() — if the task happened to finish
+        # between the TimeoutError and now, downgrade to a clean stop
+        # so we don't report a false abandonment.
+        if task.done():
+            self._task = None
+            self.state.running = False
+            self._emit(
+                "retry_stopped",
+                {
+                    "processed": self.state.processed,
+                    "succeeded": self.state.succeeded,
+                    "failed": self.state.failed,
+                    "dead_lettered": self.state.dead_lettered,
+                },
+            )
+            return
+        self.state.running = True
+        self.state.abandoned = True
+        self._emit(
+            "retry_abandoned",
+            {
+                "stop_timeout_seconds": self._stop_timeout,
+                "processed": self.state.processed,
+                "succeeded": self.state.succeeded,
+                "failed": self.state.failed,
+                "dead_lettered": self.state.dead_lettered,
+            },
+        )
 
     async def _run_loop(self) -> None:
         """Main polling loop."""

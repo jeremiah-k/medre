@@ -571,28 +571,40 @@ class TestRetryShutdownRealPipeline:
 class TestRetryWorkerStopOrphan:
     """Hardened stop() tests using the real RetryWorker.
 
-    Proves that stop() cancels orphan tasks on timeout and is idempotent.
+    Proves that stop() honors the bounded grace period, reports
+    abandonment honestly when the task is cancellation-resistant, and
+    is idempotent.
     """
 
-    async def test_stop_timeout_cancels_orphan_task(self):
-        """When the background task ignores shutdown_event, stop() cancels it.
+    async def test_stop_timeout_cancels_cancellation_responsive_task(self):
+        """Cancellation-responsive task: stop() clears _task and emits
+        retry_stopped.
 
-        The worker's _run_loop blocks in _process_due via a storage call
-        that never returns.  After the grace period the task is cancelled
-        and awaited so no orphan remains.
+        The worker's _run_loop blocks in _process_due via a storage
+        call that respects ``task.cancel()`` and returns.  After the
+        grace period the task is cancelled and awaited so no orphan
+        remains.
         """
         from medre.runtime.events import EventBuffer
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
-        # claim_due_outbox_items blocks forever — simulates a stuck I/O call.
-        _unblock = asyncio.Event()
+        # claim_due_outbox_items that honours task.cancel() (i.e. the
+        # underlying aiosqlite connection or similar cooperates).  We
+        # model this as "waits on an event that is set when the task
+        # is cancelled".
+        _cancelled_evt = asyncio.Event()
 
-        async def _stuck_claim(*args, **kwargs):
-            await _unblock.wait()
+        async def _cooperative_claim(*args, **kwargs):
+            try:
+                # Suspend forever, but raise if the task is cancelled.
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                _cancelled_evt.set()
+                raise
             return []
 
-        storage.claim_due_outbox_items = AsyncMock(side_effect=_stuck_claim)
+        storage.claim_due_outbox_items = AsyncMock(side_effect=_cooperative_claim)
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
@@ -611,24 +623,185 @@ class TestRetryWorkerStopOrphan:
         )
 
         await worker.start()
-        assert worker._task is not None
-
-        # Give the task a moment to enter the stuck claim call.
-        await asyncio.sleep(0.1)
-        assert not worker._task.done()
+        # Wait deterministically until the task is actually blocked in
+        # the storage call (avoids flaky asyncio.sleep(0.1)).
+        await wait_until(
+            lambda: storage.claim_due_outbox_items.call_count >= 1,
+            timeout=2.0,
+        )
         orig_task = worker._task
+        assert orig_task is not None
+        assert not orig_task.done()
 
         await worker.stop()
+        # Yield so the cancellation is observed before assertions.
         await asyncio.sleep(0)
 
-        # Task must be cleared — no orphan.
+        # Cancellation-responsive: _task cleared, retry_stopped emitted.
         assert worker._task is None
         assert orig_task is not None
         assert orig_task.done()
         assert worker.state.running is False
-        # The task was actually cancelled (not still running).
-        # Unblock the stuck call so it doesn't leak into other tests.
-        _unblock.set()
+        assert worker.state.abandoned is False
+        event_types = [e.event_type.value for e in event_buffer]
+        assert "retry_stopped" in event_types
+        assert "retry_abandoned" not in event_types
+
+    async def test_stop_does_not_clear_task_when_cancellation_resistant(self):
+        """Cancellation-resistant task: stop() returns boundedly but does
+        NOT clear _task or report a clean stop.
+
+        Models a storage call that swallows ``CancelledError`` and
+        continues blocking.  The worker's two-stage bounded cancel must
+        not hang forever; it returns within ``2 * stop_timeout_seconds``
+        and reports abandonment by setting ``state.abandoned = True``
+        while keeping ``_task`` referencing the still-alive task.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        # claim_due_outbox_items that swallows CancelledError and
+        # keeps blocking until released.  This is a pathological
+        # adapter-side fault, not a normal storage behaviour.
+        _release = asyncio.Event()
+        call_count = 0
+
+        async def _cancellation_resistant_claim(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            try:
+                await _release.wait()
+            except asyncio.CancelledError:
+                # Swallow cancellation -- simulate a bug or a transport
+                # SDK that ignores the cancellation request.
+                pass
+            # If still not released, busy-wait until release.
+            while not _release.is_set():
+                await asyncio.sleep(0.01)
+            return []
+
+        storage.claim_due_outbox_items = AsyncMock(
+            side_effect=_cancellation_resistant_claim
+        )
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.1,
+        )
+
+        try:
+            await worker.start()
+            await wait_until(
+                lambda: storage.claim_due_outbox_items.call_count >= 1,
+                timeout=2.0,
+            )
+            orig_task = worker._task
+            assert orig_task is not None
+            assert not orig_task.done()
+
+            stop_start = asyncio.get_event_loop().time()
+            await worker.stop()
+            stop_elapsed = asyncio.get_event_loop().time() - stop_start
+
+            # Hard bound: stop() must return within ~2*stop_timeout + slack
+            assert stop_elapsed < 1.0, (
+                f"stop() took {stop_elapsed:.3f}s, "
+                f"expected < 1.0s for stop_timeout=0.1"
+            )
+
+            # Cancellation-resistant: _task is KEPT, abandoned=True,
+            # running=True, retry_abandoned emitted, retry_stopped NOT.
+            assert worker._task is orig_task, (
+                "_task must remain pointing at the still-alive task"
+            )
+            assert worker.state.running is True
+            assert worker.state.abandoned is True
+            event_types = [e.event_type.value for e in event_buffer]
+            assert "retry_abandoned" in event_types
+            assert "retry_stopped" not in event_types
+        finally:
+            # Release the stuck call so the task can complete and not
+            # leak into other tests.
+            _release.set()
+            if worker._task is not None and not worker._task.done():
+                # Give the task a moment to finish after release.
+                try:
+                    await asyncio.wait_for(worker._task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
+
+    async def test_start_refused_when_previous_stop_abandoned_task(self):
+        """After a cancellation-resistant stop, subsequent start() is refused
+        while state.abandoned is True (so a duplicate worker is not launched
+        over the same outbox)."""
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        _release = asyncio.Event()
+
+        async def _resistant_claim(*args, **kwargs):
+            try:
+                await _release.wait()
+            except asyncio.CancelledError:
+                pass
+            while not _release.is_set():
+                await asyncio.sleep(0.01)
+            return []
+
+        storage.claim_due_outbox_items = AsyncMock(side_effect=_resistant_claim)
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.1,
+        )
+
+        try:
+            await worker.start()
+            await wait_until(
+                lambda: storage.claim_due_outbox_items.call_count >= 1,
+                timeout=2.0,
+            )
+            await worker.stop()
+            assert worker.state.abandoned is True
+            assert worker._task is not None
+
+            # Second start() must be refused: _task is still referenced,
+            # call_count is unchanged.
+            prev_call_count = storage.claim_due_outbox_items.call_count
+            await worker.start()
+            assert worker._task is not None
+            assert storage.claim_due_outbox_items.call_count == prev_call_count
+        finally:
+            _release.set()
+            if worker._task is not None and not worker._task.done():
+                try:
+                    await asyncio.wait_for(worker._task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
 
     async def test_stop_idempotent(self):
         """Calling stop() twice is safe — second call is a no-op."""

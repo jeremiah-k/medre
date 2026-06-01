@@ -12,19 +12,19 @@ no teardown concerns.
 
 ### Core Runtime Resources
 
-| Resource                      | Created by                    | Owner                                      | Teardown site                                                                        | Idempotent?      |
-| ----------------------------- | ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------ | ---------------- |
-| SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `shutdown(wait=False)`                          | Yes              |
-| SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                               | Yes              |
-| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (default 5 s), then cancels | Yes              |
-| PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                                   | Yes              |
-| CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                        | N/A (gate)       |
-| ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                                | Yes              |
-| Runtime shutdown event        | `RuntimeBuilder.build()`      | `MedreApp.shutdown_event`                  | `set()` in `stop()`                                                                  | Yes              |
-| EventBuffer                   | `MedreApp.__post_init__()`    | `MedreApp._event_buffer`                   | None (GC, bounded deque)                                                             | N/A              |
-| Inflight delivery records     | `_deliver_one()` per delivery | `PipelineRunner._inflight_deliveries` dict | `finally` block pops per delivery; `drain_abandoned_deliveries()` at shutdown        | N/A              |
-| Outbox lease renewal task     | `_deliver_one()` per delivery | local in `_deliver_one` finally block      | `cancel()` + await in finally block                                                  | N/A              |
-| Plugin shutdown               | plugin author                 | Plugin protocol                            | `shutdown()` called if present                                                       | Plugin-dependent |
+| Resource                      | Created by                    | Owner                                      | Teardown site                                                                          | Idempotent?      |
+| ----------------------------- | ----------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------- |
+| SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `asyncio.to_thread(executor.shutdown, wait=True)` | Yes              |
+| SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                                 | Yes              |
+| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (default 5 s), then cancels   | Yes              |
+| PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                                     | Yes              |
+| CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                          | N/A (gate)       |
+| ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                                  | Yes              |
+| Runtime shutdown event        | `RuntimeBuilder.build()`      | `MedreApp.shutdown_event`                  | `set()` in `stop()`                                                                    | Yes              |
+| EventBuffer                   | `MedreApp.__post_init__()`    | `MedreApp._event_buffer`                   | None (GC, bounded deque)                                                               | N/A              |
+| Inflight delivery records     | `_deliver_one()` per delivery | `PipelineRunner._inflight_deliveries` dict | `finally` block pops per delivery; `drain_abandoned_deliveries()` at shutdown          | N/A              |
+| Outbox lease renewal task     | `_deliver_one()` per delivery | local in `_deliver_one` finally block      | `cancel()` + await in finally block                                                    | N/A              |
+| Plugin shutdown               | plugin author                 | Plugin protocol                            | `shutdown()` called if present                                                         | Plugin-dependent |
 
 ### Adapter Resources
 
@@ -84,13 +84,24 @@ re-entry. On first call:
 2. Saves `_db` to a local, then sets `self._db = None` **before** awaiting
    `db.close()`. This prevents concurrent callers from racing to close the
    same connection.
-3. In the `finally` block: saves `_executor` to a local, sets
-   `self._executor = None`, calls `executor.shutdown(wait=False)`. The
-   `wait=False` avoids blocking the event loop.
-
-**Timeout/cancellation.** No `asyncio.wait_for` or `asyncio.shield` wraps the
-close path. A `CancelledError` during `await db.close()` propagates up. The
-`finally` block still runs, guaranteeing executor shutdown.
+3. For the aiosqlite path: the close coroutine is wrapped in an explicit
+   `asyncio.create_task(...)` and then awaited under
+   `asyncio.shield(...)`. A strong reference to the close task is held
+   by a local binding for the duration of the await. If a stray
+   `CancelledError` arrives (e.g. from a previous `asyncio.wait_for`
+   timeout in the adapter stop loop), the shielded close continues
+   running to completion so aiosqlite can join its internal worker
+   thread, and the cancellation is re-raised afterwards. Without the
+   shield+task pattern the `CancelledError` would interrupt the close
+   before aiosqlite's internal thread was joined, leaving the
+   connection half-closed and triggering
+   `ResourceWarning: <aiosqlite.core.Connection ...> was deleted
+before being closed` in `__del__`.
+4. In the `finally` block: saves `_executor` to a local, sets
+   `self._executor = None`, and calls
+   `asyncio.to_thread(executor.shutdown, wait=True)`. The `wait=True`
+   fully joins worker threads; the `to_thread` offload ensures the join
+   does not block the event loop.
 
 **Logging.** The `close()` method itself emits no logs. Debug-level logging
 appears only in the error-recovery path if `close()` itself fails during a
@@ -109,10 +120,34 @@ worker is enabled and no task already exists. The run loop polls on
 **Teardown.** `stop()` is idempotent (returns immediately if `_task is None`):
 
 1. Sets `_shutdown_event`, cooperatively signaling the loop to break.
-2. `await asyncio.wait_for(self._task, timeout=stop_timeout_seconds)` (constructor parameter, default 5.0).
-3. If the grace period expires, cancels the task and awaits it, swallowing
-   `CancelledError`.
-4. Sets `_task = None` and `state.running = False`.
+2. `await asyncio.wait_for(self._task, timeout=stop_timeout_seconds)`. The
+   timeout defaults to 5.0 s and is exposed through
+   `runtime.shutdown_timeout_seconds` when the worker is created by
+   `MedreApp.start()` (see MedreApp Adapter Stop Loop below).
+3. If the cooperative stage times out, the task is **cancelled** and
+   re-awaited with the same bounded grace period.
+
+Outcomes:
+
+- **Cancellation-responsive task** (the common case): the task finishes
+  within the second grace period. `_task` is cleared,
+  `state.running` is set to `False`, and a `retry_stopped` event is
+  emitted.
+- **Cancellation-resistant task** (rare; e.g. an adapter's stop
+  suppresses cancellation or a long-blocking storage call refuses to
+  release): the task is still alive after both grace periods. `_task`
+  is **kept** (the underlying coroutine may still complete and clean
+  itself up later), `state.abandoned` is set to `True`, `state.running`
+  remains `True`, a `retry_abandoned` event is emitted, and `stop()`
+  returns without re-raising. While `state.abandoned` is `True`,
+  subsequent `start()` calls are **refused** to prevent launching a
+  duplicate worker over the same outbox. The caller (operator /
+  supervisor) must inspect `state.abandoned` and either reset the
+  worker (e.g. by waiting for the abandoned task to finish naturally)
+  or shut the entire runtime down.
+
+`stop()` will never hang indefinitely: even in the cancellation-
+resistant case it returns within `2 * stop_timeout_seconds`.
 
 The in-flight batch loop checks `_shutdown_event.is_set()` between items,
 so a shutdown mid-batch completes the current item but skips the rest.
@@ -136,20 +171,55 @@ shutdown mid-batch, and capacity release are covered in
 never-started adapters that still exist in `self.adapters`. Adapters already
 in a terminal state (`STOPPED` or `FAILED`) are skipped in both passes.
 
-**Timeout.** Every `adapter.stop(timeout)` call is wrapped in
-`asyncio.wait_for(..., timeout=float(timeout))`, where `timeout` comes from
-`config.runtime.shutdown_timeout_seconds` (default 10 s). This is a
-double-layer timeout: the adapter receives the timeout as a parameter, and
-the runtime enforces the same deadline externally.
+**Timeout.** Every `adapter.stop(timeout)` call is driven by
+`MedreApp._stop_adapter_with_deadline(...)`, a hard-bounded two-stage
+helper:
+
+1. `stop_task = asyncio.create_task(adapter.stop(timeout=...))`
+2. `await asyncio.wait_for(stop_task, timeout=...)` (the **cooperative**
+   stage).
+3. On `asyncio.TimeoutError`, `stop_task.cancel()` and a second
+   `await asyncio.wait_for(stop_task, timeout=...)` apply a bounded
+   cancel grace.
+4. If the task is still alive after the cancel grace, it is **abandoned**
+   (event loop reclaims it on shutdown) and the helper returns
+   `("abandoned", exc, False)`.
+
+This is a true hard deadline, unlike a bare
+`asyncio.wait_for(adapter.stop(...), timeout=...)` which returns
+control while the inner coroutine is still running if `adapter.stop`
+swallows `CancelledError` or hangs during its own cleanup. The
+timeout comes from `config.runtime.shutdown_timeout_seconds` (default
+10 s). The adapter also receives the same timeout as a parameter
+(double-layer enforcement).
 
 **Error recording.** Each failed stop appends `(adapter_id, exception)` to a
 collector list. After all cleanup (adapters, pipeline, storage), if the list
 is non-empty, `stop()` transitions to `FAILED` state and raises
 `RuntimeShutdownError` with a summary string.
 
-**Continuation guarantee.** The adapter stop loop never breaks early on error.
-Pipeline runner stop and storage close always execute, regardless of adapter
-stop failures.
+**Continuation guarantee.** The adapter stop loop never breaks early on
+non-cancellation error. Pipeline runner stop and storage close always
+execute, regardless of adapter stop failures or external cancellation
+that arrives mid-stop.
+
+**CancelledError policy.** Two distinct paths:
+
+- **Normal `MedreApp.stop()`** (externally-cancelled shutdown): the
+  `CancelledError` is **deferred** to a local variable and the loop
+  breaks immediately. Pipeline runner stop and storage close still
+  run; only after the cleanup is complete is the `CancelledError`
+  re-raised to the caller. The runtime state is set to `FAILED`
+  _before_ re-raising so a subsequent `stop()` call is not trapped by
+  the `STOPPING` early-return guard.
+- **Startup best-effort cleanup** (`_cleanup_started_adapters`): a
+  `CancelledError` from an adapter's `stop()` is **suppressed** so
+  the caller's `_cleanup_core_resources()` (pipeline runner + storage
+  close) still runs and the original startup failure is preserved.
+  This is intentionally distinct from the normal-stop policy because
+  startup failure is already an exceptional state, and the priority
+  there is to leave the runtime in a clean state rather than to
+  propagate the cancellation.
 
 **Drain abandoned evidence.** Before stopping adapters, `stop()` polls
 capacity until in-flight work reaches zero or the drain deadline expires. On

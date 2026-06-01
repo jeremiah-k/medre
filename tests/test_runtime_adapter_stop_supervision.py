@@ -180,8 +180,8 @@ class TestAdapterStopTimeoutSupervision:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
@@ -192,7 +192,7 @@ class TestAdapterStopTimeoutSupervision:
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
-        assert storage_close_called, "storage.close() was not called"
+        assert storage_close_called, "storage.close() did not complete"
 
     @pytest.mark.asyncio
     async def test_cancelled_error_on_started_adapter_stop_propagates(
@@ -268,8 +268,8 @@ class TestAdapterStopTimeoutSupervision:
 
         async def _tracking_close() -> None:
             nonlocal storage_close_called
-            storage_close_called = True
             await original_close()
+            storage_close_called = True
 
         app.storage.close = _tracking_close  # type: ignore[assignment]
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
@@ -283,7 +283,7 @@ class TestAdapterStopTimeoutSupervision:
         assert all(
             state is AdapterState.FAILED for state in app.adapter_states.values()
         )
-        assert storage_close_called, "storage.close() was not called"
+        assert storage_close_called, "storage.close() did not complete"
 
     @pytest.mark.asyncio
     async def test_pipeline_runner_stopped_after_adapter_timeouts(
@@ -301,8 +301,8 @@ class TestAdapterStopTimeoutSupervision:
 
         async def _tracking_pipeline_stop() -> None:
             nonlocal pipeline_stop_called
-            pipeline_stop_called = True
             await original_pipeline_stop()
+            pipeline_stop_called = True
 
         app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
@@ -313,7 +313,7 @@ class TestAdapterStopTimeoutSupervision:
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
-        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+        assert pipeline_stop_called, "pipeline_runner.stop() did not complete"
 
     @pytest.mark.asyncio
     async def test_shutdown_error_includes_timeout_adapter_id(
