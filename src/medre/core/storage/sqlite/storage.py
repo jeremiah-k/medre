@@ -347,14 +347,16 @@ class _SQLiteStorageBase:
         """Close the underlying database connection and release resources.
 
         Idempotent — safe to call multiple times.  Sets ``_closed`` early
-        to prevent concurrent-close races.  The aiosqlite close is wrapped
-        in an explicit task and shielded so that a stray ``CancelledError``
-        delivered at this await checkpoint (e.g. after an
-        ``asyncio.wait_for`` timeout in the caller) does not abort the
-        close before aiosqlite's internal thread is joined — which would
-        leave the connection half-closed and trigger
-        ``ResourceWarning: <aiosqlite.core.Connection ...> was deleted
-        before being closed`` on ``__del__``.
+        as a race-safety gate to prevent concurrent-close races; restored
+        to ``False`` if the close I/O fails so a later ``close()`` can
+        retry.  The aiosqlite close is wrapped in an explicit task and
+        shielded so that a stray ``CancelledError`` delivered at this
+        await checkpoint (e.g. from caller cancellation or an external
+        ``CancelledError``) does not abort the close before aiosqlite's
+        internal thread is joined — which would leave the connection
+        half-closed and trigger ``ResourceWarning:
+        <aiosqlite.core.Connection ...> was deleted before being closed``
+        on ``__del__``.
 
         The private executor is shut down via ``asyncio.to_thread`` with
         ``wait=True`` to fully join worker threads without blocking the

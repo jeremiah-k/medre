@@ -269,7 +269,7 @@ class RetryWorker:
         1. **Cooperative stop.**  Set the shutdown event and poll
            ``task.done()`` at 10 ms intervals until either the task
            finishes or ``stop_timeout_seconds`` elapses.
-        2. **Forced cancel.**  If the cooperative stage times out,
+        2. **Forced cancellation.**  If the cooperative stage times out,
            cancel the task once and poll again for a second
            ``stop_timeout_seconds`` grace period.
 

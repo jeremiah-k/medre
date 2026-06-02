@@ -76,11 +76,12 @@ check:
   `ThreadPoolExecutor(max_workers=1)`, created lazily on first call to
   `_run_in_thread()`.
 
-**Teardown.** `close()` is idempotent. A triple guard
-(`_closed and _db is None and _executor is None`) returns immediately on
-re-entry. On first call:
+**Teardown.** `close()` is idempotent. An early-return guard
+(`if self._closed: return`) prevents concurrent callers from racing.
+On first call:
 
-1. Sets `_closed = True` as a one-way gate.
+1. Sets `_closed = True` as an early gate for race safety; restored to
+   `False` if the close I/O fails so a later `close()` can retry.
 2. Saves `_db` to a local, then sets `self._db = None` **before** awaiting
    `db.close()`. This prevents concurrent callers from racing to close the
    same connection.
@@ -88,20 +89,19 @@ re-entry. On first call:
    `asyncio.create_task(...)` and then awaited under
    `asyncio.shield(...)`. A strong reference to the close task is held
    by a local binding for the duration of the await. If a stray
-   `CancelledError` arrives (e.g. from an external cancellation in the
-   caller), the shielded close continues running to completion so
-   aiosqlite can join its internal worker thread, and the cancellation
+   `CancelledError` arrives (e.g. from caller cancellation or an external
+   `CancelledError`), the shielded close continues running to completion
+   so aiosqlite can join its internal worker thread, and the cancellation
    is re-raised afterwards. Without the shield+task pattern the
    `CancelledError` would interrupt the close before aiosqlite's
    internal thread was joined, leaving the connection half-closed and
    triggering `ResourceWarning: <aiosqlite.core.Connection ...> was
 deleted before being closed` in `__del__`. On any non-cancellation
-   failure during the shielded close, `self._db = db` is restored before
-   the exception is re-raised so a later `close()` call can retry the
-   close against the same connection. The inner `await close_task` uses
-   `except BaseException` (not `except Exception`) so that
-   `KeyboardInterrupt` / `SystemExit` cannot replace the triggering
-   exception with a new one.
+   failure during the shielded close, `self._db = db` and `_closed` are
+   restored before the exception is re-raised so a later `close()` call
+   can retry. The inner `await close_task` uses `except BaseException`
+   (not `except Exception`) so that `KeyboardInterrupt` / `SystemExit`
+   cannot replace the triggering exception with a new one.
 4. In the `finally` block: saves `_executor` to a local, sets
    `self._executor = None`, and calls
    `asyncio.to_thread(executor.shutdown, wait=True)`. The `wait=True`

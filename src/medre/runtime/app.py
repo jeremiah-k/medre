@@ -161,7 +161,7 @@ def _outcome_from_cancelled_task(
 
     The caller has already called ``task.cancel()`` and the task has
     finished.  In this stage a cancelled task is the *expected* result
-    of our forced cancel — it is not an external cancellation to
+    of our forced cancellation — it is not an external cancellation to
     propagate.  If the task raised an exception during cancellation
     cleanup, that exception is still a timeout outcome.
 
@@ -1298,7 +1298,7 @@ class MedreApp:
         1. **Cooperative.**  Poll ``stop_task.done()`` at 10 ms
            intervals until either the task finishes (clean stop) or
            ``timeout`` seconds elapse.
-        2. **Forced cancel.**  If the cooperative stage times out,
+        2. **Forced cancellation.**  If the cooperative stage times out,
            call ``stop_task.cancel()`` and poll again for a second
            ``timeout``-second grace period.  If the task is still
            alive after both stages, the task is **abandoned** and the
@@ -1335,7 +1335,7 @@ class MedreApp:
                     # caller can apply its cancellation policy.
                     raise asyncio.CancelledError("adapter stop cancelled")
                 return _outcome_from_task(stop_task, "stopped")
-            # Stage 2: forced cancel with bounded grace.
+            # Stage 2: forced cancellation with bounded grace.
             _logger.error(
                 "Timeout stopping adapter %s.%s after %.1fs, cancelling",
                 transport,
