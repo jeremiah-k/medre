@@ -1657,11 +1657,20 @@ class MedreApp:
         startup loop.
 
         Returns the total number of cancellation requests drained during
-        adapter cleanup so the ``CancelledError`` handler in ``start()``
-        can restore them.
+        adapter and core-resource cleanup so the ``CancelledError`` handler
+        in ``start()`` can restore them.
         """
         drained = await self._cleanup_started_adapters()
-        await self._cleanup_core_resources()
+        try:
+            await self._cleanup_core_resources()
+        except asyncio.CancelledError:
+            # ``_cleanup_core_resources`` may defer a CancelledError from
+            # retry_worker.stop(), restore its own drained cancellation
+            # count, and then re-raise.  Drain those restored requests here
+            # and fold them into our return value so ``start()`` reaches its
+            # single restore path and raises the original startup
+            # cancellation instead of a cleanup artifact.
+            drained += _drain_pending_cancellations()
         self._set_state(RuntimeState.FAILED)
         return drained
 
