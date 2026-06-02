@@ -1170,3 +1170,228 @@ class TestStartupCleanupDrainSites:
         # arrived during the first one's stop.
         assert alpha.stop_called, "alpha.stop() was not called"
         assert beta.stop_called, "beta.stop() was not called"
+
+
+# ---------------------------------------------------------------------------
+# TestPerAdapterStartFailureCleanupDrainAccounting
+# ---------------------------------------------------------------------------
+
+
+class TestPerAdapterStartFailureCleanupDrainAccounting:
+    """Regression tests for cancellation-accounting during per-adapter
+    start-failure cleanup in ``start()``.
+
+    The bug: ``_drain_pending_cancellations()`` was called in the
+    per-adapter cleanup ``except asyncio.CancelledError`` branch but the
+    returned count was discarded, silently losing external cancellation
+    requests.
+
+    The fix: accumulate the drained count in ``_startup_cleanup_drained``
+    and include it in the outer CancelledError handler's restore.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cleanup_drain_no_outer_cancel_non_propagating_path(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """One adapter fails to start (normal Exception); its cleanup stop
+        receives an external CancelledError.  The per-adapter cleanup
+        catches and drains the cancellation.  No further cancellation
+        arrives, so the startup loop exits normally and raises
+        RuntimeStartupError (total failure), NOT CancelledError.
+
+        This is the intentional non-propagating start-failure path: the
+        caller's cancellation intent was to abort startup, which already
+        happened (adapter start failed).  The drain is required so
+        subsequent adapter stops in the loop can release resources.
+        """
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Adapter that fails start and has a slow stop (allows external
+        # cancel to arrive during _stop_adapter_with_deadline polling).
+        alpha = _CancelledStopOnStartFailure(adapter_id="fake_matrix")
+        app.adapters["fake_matrix"] = alpha
+
+        # Track that pipeline/storage cleanup still runs.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # The adapter's stop() raises CancelledError directly (no
+        # external cancel needed), which is caught by the per-adapter
+        # cleanup handler.  The loop exits, total failure is classified,
+        # and RuntimeStartupError is raised.
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        assert alpha.stop_called
+        assert pipeline_stop_called, "pipeline_runner.stop() did not complete"
+        assert storage_close_called, "storage.close() did not complete"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cleanup_drain_count_included_in_outer_cancel_restore(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Two adapters: alpha fails to start, external cancel arrives
+        during its cleanup stop (per-adapter drain).  Beta then blocks in
+        start(), and a second external cancel triggers the outer
+        CancelledError handler.  The handler must include the per-adapter
+        cleanup drain count in its restore.
+
+        Without the fix, the per-adapter drain count would be discarded,
+        and only the outer handler's own drain would be restored — losing
+        one cancellation request.
+        """
+        from medre.runtime.app import RuntimeState
+
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Alpha: start raises RuntimeError, stop is slow (allows external
+        # cancel to arrive during _stop_adapter_with_deadline polling).
+        class _StartFailSlowStop(AdapterContract):
+            adapter_id: str = "alpha"
+            platform: str = "test"
+            role: AdapterRole = AdapterRole.TRANSPORT
+
+            def __init__(self, adapter_id: str) -> None:
+                self.adapter_id = adapter_id
+                self.stop_called = False
+
+            async def start(self, ctx: AdapterContext) -> None:
+                raise RuntimeError(f"Start failure: {self.adapter_id}")
+
+            async def stop(self, timeout: float = 5.0) -> None:
+                self.stop_called = True
+                # Yield long enough for external cancel to arrive
+                # during _stop_adapter_with_deadline's polling loop.
+                try:
+                    await asyncio.sleep(1.0)
+                except asyncio.CancelledError:
+                    raise
+
+            async def health_check(self) -> AdapterInfo:
+                return AdapterInfo(
+                    adapter_id=self.adapter_id,
+                    platform=self.platform,
+                    role=self.role,
+                    version="0.0.0",
+                    capabilities=AdapterCapabilities(),
+                    health="failed",
+                )
+
+            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+                return None
+
+        # Beta: start blocks on an event (allows second external cancel
+        # to arrive during the adapter start call).
+        beta_entered = asyncio.Event()
+
+        class _BlockingStart(AdapterContract):
+            adapter_id: str = "beta"
+            platform: str = "test"
+            role: AdapterRole = AdapterRole.TRANSPORT
+
+            def __init__(self, adapter_id: str) -> None:
+                self.adapter_id = adapter_id
+
+            async def start(self, ctx: AdapterContext) -> None:
+                beta_entered.set()
+                # Block until cancelled — the second external cancel
+                # triggers CancelledError here.
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    raise
+
+            async def stop(self, timeout: float = 5.0) -> None:
+                pass
+
+            async def health_check(self) -> AdapterInfo:
+                return AdapterInfo(
+                    adapter_id=self.adapter_id,
+                    platform=self.platform,
+                    role=self.role,
+                    version="0.0.0",
+                    capabilities=AdapterCapabilities(),
+                    health="ok",
+                )
+
+            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+                return None
+
+        app.adapters["alpha"] = _StartFailSlowStop(adapter_id="alpha")
+        app.adapters["beta"] = _BlockingStart(adapter_id="beta")
+
+        # Track cleanup.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # Short timeout so the slow stop in _stop_adapter_with_deadline
+        # doesn't delay the test too much.
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
+
+        async def _run_with_double_cancel() -> None:
+            start_task = asyncio.create_task(app.start())
+            # Let start() reach alpha's start (which fails immediately)
+            # and then the cleanup stop (which is slow).
+            await asyncio.sleep(0.05)
+            # First cancel: arrives during alpha's cleanup stop.
+            start_task.cancel()
+            # Wait for beta's start to be reached (after alpha's
+            # cleanup finishes and the drain is consumed).
+            await beta_entered.wait()
+            # Second cancel: arrives during beta's start(), triggering
+            # the outer CancelledError handler.
+            start_task.cancel()
+            try:
+                await start_task
+            except asyncio.CancelledError:
+                pass  # expected
+
+        try:
+            await _run_with_double_cancel()
+        finally:
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        # Cleanup MUST have run despite double cancellation.
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED

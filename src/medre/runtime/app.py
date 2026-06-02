@@ -721,6 +721,11 @@ class MedreApp:
             self._set_adapter_state(bf.adapter_id, AdapterState.FAILED)
 
         failed_adapter_ids: list[str] = []
+        # Track cancellation requests drained during per-adapter
+        # start-failure cleanup stops.  These are accumulated in the
+        # inner ``except asyncio.CancelledError`` branch so they can
+        # be restored if the outer CancelledError handler fires.
+        _startup_cleanup_drained: int = 0
         try:
             for adapter_id in adapter_ids:
                 adapter = self.adapters[adapter_id]
@@ -773,8 +778,24 @@ class MedreApp:
                         # CancelledError so the original start-failure
                         # error is preserved.  Drain the cancellation
                         # state so subsequent adapter stops in the loop
-                        # actually get a chance to run.
-                        _drain_pending_cancellations()
+                        # actually get a chance to run.  The drained
+                        # count is accumulated into
+                        # ``_startup_cleanup_drained`` so the outer
+                        # CancelledError handler can restore the full
+                        # cancellation depth if it fires.
+                        #
+                        # Safety of suppression when no outer
+                        # CancelledError fires: the caller's cancellation
+                        # intent was to abort startup, which already
+                        # happened (this adapter's start failed).  The
+                        # start-failure path will raise
+                        # RuntimeStartupError (total failure) or proceed
+                        # to RUNNING (partial failure) — both are the
+                        # correct outcomes for a cancelled startup.
+                        # The drain is required so subsequent adapter
+                        # stops in this loop are not immediately
+                        # cancelled before they can release resources.
+                        _startup_cleanup_drained += _drain_pending_cancellations()
                         _logger.debug(
                             "Cancelled stopping adapter %s.%s after start failure: %s",
                             transport,
@@ -820,12 +841,22 @@ class MedreApp:
             # come first — Python evaluates except clauses in order, and
             # ``asyncio.CancelledError`` is a ``BaseException`` (not an
             # ``Exception``).
+            #
+            # The restore includes:
+            #   _cleared                — cancellations drained by this handler
+            #   _cleanup_drained        — cancellations drained by
+            #                             _start_failure_cleanup() →
+            #                             _cleanup_started_adapters()
+            #   _startup_cleanup_drained — cancellations drained during
+            #                             per-adapter start-failure cleanup
+            #                             stops inside the loop body
             _cleared = _drain_pending_cancellations()
             _cleanup_drained = await self._start_failure_cleanup()
-            if _cleared or _cleanup_drained:
+            _total = _cleared + _cleanup_drained + _startup_cleanup_drained
+            if _total:
                 current = asyncio.current_task()
                 if current is not None:
-                    for _ in range(_cleared + _cleanup_drained):
+                    for _ in range(_total):
                         current.cancel()
             raise c_exc
         except Exception:
