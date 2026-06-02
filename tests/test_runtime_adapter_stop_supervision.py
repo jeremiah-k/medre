@@ -526,3 +526,52 @@ class TestAdapterStopTimeoutSupervision:
         )
         assert resistant.stop_called
         assert resistant._release.is_set() or True  # release may not have propagated yet
+
+    @pytest.mark.asyncio
+    async def test_abandoned_adapter_stop_task_retained(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A cancellation-resistant adapter stop that is abandoned
+        retains its still-alive task reference in
+        ``_abandoned_adapter_stop_tasks`` so the event loop does not
+        garbage-collect the task while it is still running.
+        """
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        real = app.adapters[next(iter(app.adapters))]
+        resistant = _CancellationResistantAdapter(real)
+        resistant_id = next(iter(app.adapters))
+        app.adapters[resistant_id] = resistant
+        app.started_adapter_ids.append(resistant_id)
+        app._adapter_states[resistant_id] = AdapterState.READY
+
+        timeout = 0.1
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", timeout)
+
+        try:
+            outcome, _, _ = await app._stop_adapter_with_deadline(
+                adapter=resistant,
+                adapter_id=resistant_id,
+                transport=resistant.platform,
+                timeout=float(timeout),
+            )
+            assert outcome == "abandoned"
+            # The task must be retained while still alive.
+            assert len(app._abandoned_adapter_stop_tasks) == 1
+            retained_task = next(iter(app._abandoned_adapter_stop_tasks))
+            assert not retained_task.done()
+        finally:
+            # Release the adapter so the task can finish.
+            resistant.release()
+            # Give the done callback a chance to run.
+            for _ in range(20):
+                if not app._abandoned_adapter_stop_tasks:
+                    break
+                await asyncio.sleep(0.01)
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        # After the task completes, the done callback removes it
+        # from the retained set.
+        assert app._abandoned_adapter_stop_tasks == set()

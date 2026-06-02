@@ -244,6 +244,14 @@ class MedreApp:
         default=None, init=False
     )  # set in __post_init__
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
+    # Set of still-alive adapter stop tasks that were abandoned by
+    # ``_stop_adapter_with_deadline`` because the adapter's ``stop()``
+    # suppressed cancellation.  Retained so the event loop does not
+    # garbage-collect the task reference while it is still running;
+    # tasks are removed via a done callback when they complete.
+    _abandoned_adapter_stop_tasks: set[asyncio.Task[object]] = field(
+        default_factory=set, init=False
+    )
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
@@ -948,7 +956,10 @@ class MedreApp:
         shutting down.
 
         This method is idempotent: calling it when the runtime is in
-        ``INITIALIZED`` or ``STOPPED`` state returns immediately.
+        ``STOPPED``, ``STOPPING``, or ``INITIALIZED`` state returns
+        immediately.  A concurrent ``stop()`` call during an in-flight
+        ``STOPPING`` transition is guarded by this early-return so the
+        second caller does not race the first.
 
         Raises
         ------
@@ -1276,6 +1287,7 @@ class MedreApp:
                         adapter_id,
                         timeout,
                     )
+                    self._retain_abandoned_stop_task(stop_task)
                     return (
                         "abandoned",
                         TimeoutError("adapter stop abandoned"),
@@ -1301,6 +1313,25 @@ class MedreApp:
                         break
                     await asyncio.sleep(0.01)
             raise
+
+    def _retain_abandoned_stop_task(self, stop_task: asyncio.Task[object]) -> None:
+        """Retain *stop_task* in :attr:`_abandoned_adapter_stop_tasks`.
+
+        Called when :meth:`_stop_adapter_with_deadline` abandons a
+        still-running adapter stop task (the adapter's ``stop()``
+        suppressed cancellation and the cancel grace expired).  Without
+        this retention, the local ``stop_task`` reference would go out
+        of scope when the helper returns, allowing the event loop to
+        garbage-collect the task while it is still running.  The task
+        is removed from the retained set when it finishes via a done
+        callback, so the set does not grow unboundedly.
+        """
+        self._abandoned_adapter_stop_tasks.add(stop_task)
+
+        def _on_done(task: asyncio.Task[object]) -> None:
+            self._abandoned_adapter_stop_tasks.discard(task)
+
+        stop_task.add_done_callback(_on_done)
 
     async def _persist_drain_abandoned_evidence(self) -> None:
         """Persist structured abandonment receipts for in-flight deliveries.

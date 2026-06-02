@@ -16,7 +16,7 @@ no teardown concerns.
 | ----------------------------- | ----------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------- |
 | SQLiteStorage executor        | `_run_in_thread()` (lazy)     | `_SQLiteStorageBase._executor`             | `close()` sets `_executor=None` then `asyncio.to_thread(executor.shutdown, wait=True)` | Yes              |
 | SQLiteStorage connection      | `initialize()`                | `_SQLiteStorageBase._db`                   | `close()` sets `_db=None` before awaiting `db.close()`                                 | Yes              |
-| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (default 5 s), then cancels   | Yes              |
+| RetryWorker task              | `start()` via `create_task`   | `RetryWorker._task`                        | `stop()` sets shutdown event, waits configurable timeout (standalone default 5 s; app-managed uses `runtime.shutdown_timeout_seconds`, default 10 s), then cancels   | Yes              |
 | PipelineRunner middleware     | `start()`                     | `PipelineRunner`                           | `stop()` removes middleware, sets `_running=False`                                     | Yes              |
 | CapacityController semaphores | constructor                   | `MedreApp._capacity_controller`            | `stop_accepting()` gates new work; semaphores drain naturally                          | N/A (gate)       |
 | ReplayEngine cancel event     | constructor                   | `MedreApp._replay_engine`                  | `cancel()` sets event                                                                  | Yes              |
@@ -53,7 +53,7 @@ always runs.
  2. State -> STOPPING
  3. Stop accepting new work   -- capacity_controller.stop_accepting()
  4. Cancel replay engine      -- replay_engine.cancel()
- 5. Stop retry worker         -- retry_worker.stop() (configurable grace, default 5 s, then cancel)
+ 5. Stop retry worker         -- retry_worker.stop() (grace = runtime.shutdown_timeout_seconds, default 10 s; standalone constructor default is 5 s)
  6. Drain in-flight work      -- poll capacity until empty or deadline
  7. Persist abandoned evidence -- suppressed receipts for timed-out deliveries
  8. Set shutdown event        -- signals all adapters
@@ -96,7 +96,13 @@ re-entry. On first call:
    before aiosqlite's internal thread was joined, leaving the
    connection half-closed and triggering
    `ResourceWarning: <aiosqlite.core.Connection ...> was deleted
-before being closed` in `__del__`.
+before being closed` in `__del__`.  On any non-cancellation failure
+   during the shielded close, `self._db = db` is restored before the
+   exception is re-raised so a later `close()` call can retry the close
+   against the same connection.  The inner `await close_task` uses
+   `except BaseException` (not `except Exception`) so that
+   `KeyboardInterrupt` / `SystemExit` cannot replace the triggering
+   exception with a new one.
 4. In the `finally` block: saves `_executor` to a local, sets
    `self._executor = None`, and calls
    `asyncio.to_thread(executor.shutdown, wait=True)`. The `wait=True`
@@ -135,9 +141,12 @@ cannot emit duplicate `retry_stopped` / `retry_abandoned` events:
    applies; the cancel grace is therefore also a poll loop, not a
    `wait_for`.)
 
-Both stages use the `stop_timeout_seconds` grace (default 5.0 s,
-exposed through `runtime.shutdown_timeout_seconds` when the worker is
-created by `MedreApp.start()` — see MedreApp Adapter Stop Loop below).
+Both stages use the `stop_timeout_seconds` grace.  The **standalone
+default** (when constructing `RetryWorker` directly) is **5.0 s**.
+When the worker is created by `MedreApp.start()`, it is wired from
+`config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML
+section, default **10.0 s**), not from any `[retry]` config field —
+see the shutdown sequence below.
 
 Outcomes:
 
@@ -159,12 +168,22 @@ Outcomes:
   or shut the entire runtime down.
 - **External cancellation of `stop()` itself** (e.g. `MedreApp.stop()`
   hits a shutdown timeout and cancels its inner cleanup work): the
-  `asyncio.CancelledError` is caught inside the polling loop, the
-  worker is marked abandoned (`state.abandoned = True`,
-  `state.running` left as `True`), a `retry_abandoned` event with
-  `reason="stop_cancelled"` is emitted, and the `CancelledError` is
-  re-raised to the caller. This makes the "stop was cancelled" state
-  distinguishable from "stop succeeded" and from "stop never called".
+  `asyncio.CancelledError` is caught inside the polling loop.  Two
+  sub-cases:
+
+  * **Task already done at cancellation time** (race between the
+    polling loop's cooperative check and the external cancel): the
+    worker does **clean-stop** cleanup — `_task` is cleared,
+    `state.running` is set to `False`, a `retry_stopped` event is
+    emitted — and then the `CancelledError` is re-raised.  This
+    prevents `_task` and `state.running=True` from leaking when the
+    cancellation arrives a tick after the task finished naturally.
+  * **Task still alive**: the worker is marked abandoned
+    (`state.abandoned = True`, `state.running` left as `True`), a
+    `retry_abandoned` event with `reason="stop_cancelled"` is emitted,
+    and the `CancelledError` is re-raised.  This makes the
+    "stop was cancelled" state distinguishable from "stop succeeded"
+    and from "stop never called".
 
 `stop()` will never hang indefinitely: even in the cancellation-
 resistant case it returns within `2 * stop_timeout_seconds`.
@@ -244,6 +263,16 @@ that arrives mid-stop.
   re-raised to the caller. The runtime state is set to `FAILED`
   _before_ re-raising so a subsequent `stop()` call is not trapped by
   the `STOPPING` early-return guard.
+
+  Because Python 3.11+ latches a task's cancellation state after a
+  `CancelledError` is caught (the next `await` in the same task would
+  re-raise immediately), the deferred-cancellation path uses
+  `asyncio.current_task().uncancel()` to clear the latched cancel
+  count before `await self.pipeline_runner.stop()` and
+  `await self.storage.close()`, then calls `current.cancel()` the same
+  number of times to restore the cancel count before re-raising.  This
+  lets the cleanup awaits actually run while still propagating the
+  original cancellation to the caller.
 - **Startup best-effort cleanup** (`_cleanup_started_adapters`): a
   `CancelledError` from an adapter's `stop()` is **suppressed** so
   the caller's `_cleanup_core_resources()` (pipeline runner + storage
@@ -334,7 +363,7 @@ task cleanup. Fake/synthetic test boundaries apply.
 | ----------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
 | SQLiteStorage.close()               | `_closed` flag + `_db is None` + `_executor is None` | Yes                                                        |
 | RetryWorker.stop()                  | `_task is None` check                                | Yes                                                        |
-| MedreApp.stop()                     | state in `{STOPPED, INITIALIZED}`                    | Yes (but concurrent calls during STOPPING are not guarded) |
+| MedreApp.stop()                     | state in `{STOPPED, STOPPING, INITIALIZED}`          | Yes (concurrent calls during STOPPING return early)        |
 | Adapter.stop()                      | Per-adapter `_started` / `_closed` flags             | Adapter-dependent; generally yes                           |
 | PipelineRunner.stop()               | `_running` flag                                      | Yes                                                        |
 | CapacityController.stop_accepting() | `_accepting_work` flag                               | Yes (no-op on second call)                                 |
