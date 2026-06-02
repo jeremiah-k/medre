@@ -15,6 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import asyncio
+
 import pytest
 
 from medre.config.paths import MedrePaths, resolve
@@ -76,8 +78,6 @@ class TestDrainPendingCancellations:
         """Cancelling a task N times, then draining, removes exactly N
         pending cancellation requests.  Restoring N cancels makes the
         next await raise CancelledError again."""
-        import asyncio
-
         N = 3
         drain_count: int = 0
 
@@ -133,7 +133,6 @@ class TestDrainPendingCancellations:
         ``_drain_pending_cancellations()`` is guaranteed to be reached
         after the cancel is latched, not bypassed.
         """
-        import asyncio
 
         started = asyncio.Event()
 
@@ -241,7 +240,6 @@ class TestPerAdapterStartFailureCleanupDrainAccounting:
         and only the outer handler's own drain would be restored — losing
         one cancellation request.
         """
-        import asyncio
 
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -370,7 +368,6 @@ class TestStartupCleanupRestoreOnCoreResourcesCancel:
         self, tmp_paths: MedrePaths
     ) -> None:
         """External cancel + retry_worker CE preserves cancellation depth."""
-        import asyncio
 
         N = 2  # number of external cancels to verify round-trip
         config = _config_with_one_fake_adapter()
@@ -443,7 +440,6 @@ class TestStartupCleanupRestoreOnCoreResourcesCancel:
         requests from core cleanup, folds them into the adapter drain
         count, and returns the combined total.  No count is lost.
         """
-        import asyncio
 
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -484,7 +480,6 @@ class TestDrainRestoreIntegration:
         """Externally cancel the stop() task while retry_worker.stop()
         raises CE.  Verify drain happens, pipeline/storage cleanup runs,
         cancellation count is restored, and CE propagates."""
-        import asyncio
 
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -534,7 +529,6 @@ class TestStartCatastrophicCancelledError:
         """Externally cancel the task running start() during the adapter
         loop.  The CE handler must run cleanup_started_adapters,
         cleanup_core_resources, set state to FAILED, then re-raise."""
-        import asyncio
 
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)

@@ -178,13 +178,16 @@ class TestCleanupCoreResourcesCancelledError:
         worker = _make_cancel_retry_worker("no-drain case")
         app._retry_worker = worker
 
-        # Pipeline stop should still run even with no pending cancellation.
+        # Pipeline stop and storage close should still run even with no
+        # pending cancellation.
         pipeline_called = _make_tracking_pipeline_stop(app)
+        storage_called = _make_tracking_storage_close(app)
 
         with pytest.raises(asyncio.CancelledError, match="no-drain case"):
             await app._cleanup_core_resources()
 
-        assert pipeline_called[0]
+        assert pipeline_called[0], "pipeline_runner.stop() was skipped"
+        assert storage_called[0], "storage.close() was skipped"
         assert app.state == RuntimeState.FAILED
 
     @pytest.mark.asyncio

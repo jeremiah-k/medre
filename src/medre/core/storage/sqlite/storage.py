@@ -398,6 +398,7 @@ class _SQLiteStorageBase:
                             # original cancellation.
                             self._db = db
                             self._closed = False
+                            raise orig_cancelled
                         except BaseException as close_exc:
                             # If the close task raises a non-cancellation
                             # exception, we must restore _db so a later
@@ -409,8 +410,6 @@ class _SQLiteStorageBase:
                             self._db = db
                             self._closed = False
                             raise close_exc
-                        # If close_task finishes cleanly, raise the original
-                        # cancellation as requested.
                         raise orig_cancelled
                     except BaseException:
                         # On any non-cancellation failure, ensure the close

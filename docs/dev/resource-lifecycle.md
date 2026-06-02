@@ -44,7 +44,7 @@ cleans up its session and background tasks in its own `stop(timeout)` method.
 
 ## Shutdown Sequence
 
-`MedreApp.stop()` (lines 889-1084 in `src/medre/runtime/app.py`) follows this fixed order.
+`MedreApp.stop()` in `src/medre/runtime/app.py` follows this fixed order.
 Errors at any step are accumulated, not raised immediately, so later cleanup
 always runs.
 

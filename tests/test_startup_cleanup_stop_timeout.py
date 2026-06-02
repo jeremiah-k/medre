@@ -175,6 +175,9 @@ class TestStartupCleanupStopTimeout:
         # Beta: fast stop (FailingAdapter), start fails.
         beta = FailingAdapter(adapter_id="beta")
         # Track beta.stop() since FailingAdapter doesn't track it internally.
+        # NOTE: beta is a FailingAdapter whose stop() returns immediately;
+        # if beta becomes slow or raises CancelledError, the assertion
+        # semantics should be revisited.
         beta_stop_called = False
         _original_beta_stop = beta.stop
 

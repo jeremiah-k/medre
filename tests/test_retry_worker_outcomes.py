@@ -679,7 +679,7 @@ class TestRetryWorkerStopAbandonedEarlyReturn:
         )
 
         # Simulate: a previous stop() abandoned the worker.
-        object.__setattr__(worker.state, "abandoned", True)
+        worker.state.abandoned = True
 
         # Give it a non-None _task so the `_task is None` guard is
         # bypassed.

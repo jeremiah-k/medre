@@ -166,8 +166,6 @@ class RetryWorker:
         )
 
     async def start(self) -> None:
-        import asyncio
-
         self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:
@@ -176,8 +174,6 @@ class RetryWorker:
             await self._task
 
     async def _run_loop(self) -> None:
-        import asyncio
-
         while not self.shutdown_event.is_set():
             now = datetime.now(timezone.utc)
             await self._process_due(now)
