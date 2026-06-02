@@ -504,3 +504,52 @@ class TestAdapterStopTimeoutSupervision:
         # After the task completes, the done callback removes it
         # from the retained set.
         assert app._abandoned_adapter_stop_tasks == set()
+
+
+# ===================================================================
+# _outcome_from_cancelled_task returning TimeoutError
+# ===================================================================
+
+
+class TestOutcomeFromCancelledTaskTimeout:
+    """Verify that _outcome_from_cancelled_task returns TimeoutError
+    instances instead of None for the exception field."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_task_returns_timeout_error(self) -> None:
+        """When a cancelled task is passed to _outcome_from_cancelled_task,
+        the exception field is a TimeoutError, not None."""
+        from medre.runtime.app import _outcome_from_cancelled_task
+
+        async def _cancel_self() -> None:
+            raise asyncio.CancelledError("test")
+
+        task = asyncio.create_task(_cancel_self())
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert task.done()
+        outcome, exc, cancelled_outer = _outcome_from_cancelled_task(task)
+        assert outcome == "timeout"
+        assert isinstance(exc, asyncio.TimeoutError)
+        assert exc.args[0] == "adapter stop timed out"
+        assert not cancelled_outer
+
+    @pytest.mark.asyncio
+    async def test_finished_task_no_exception_returns_timeout_error(self) -> None:
+        """When a finished task with no exception is passed to
+        _outcome_from_cancelled_task, the exception field is TimeoutError."""
+        from medre.runtime.app import _outcome_from_cancelled_task
+
+        async def _noop() -> None:
+            pass
+
+        task = asyncio.create_task(_noop())
+        await task
+
+        outcome, exc, cancelled_outer = _outcome_from_cancelled_task(task)
+        assert outcome == "timeout"
+        assert isinstance(exc, asyncio.TimeoutError)
+        assert not cancelled_outer

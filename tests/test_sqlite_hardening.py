@@ -7,6 +7,7 @@ decode fallback, write-batch atomicity, and plain-import scanner regex.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -193,6 +194,54 @@ class TestExecutorLifecycle:
         assert s._closed is True
         assert s._db is None
         assert s._executor is None
+
+    async def test_aiosqlite_close_survives_external_cancellation(
+        self, tmp_path: Path
+    ) -> None:
+        """When external CancelledError arrives during close(), the aiosqlite
+        connection still closes cleanly — no ResourceWarning, no leaked state.
+
+        Regression test: before the shield fix, a CancelledError delivered at
+        the ``await aiosqlite.close()`` checkpoint would abort the close
+        before aiosqlite's internal thread was joined, causing
+        ``ResourceWarning: ... was deleted before being closed``.
+        """
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        if not s._use_aiosqlite:
+            pytest.skip("aiosqlite not available — cancellation path is aiosqlite-only")
+
+        real_close = s._db.close
+        entered = asyncio.Event()
+
+        async def _slow_close() -> None:
+            entered.set()
+            # Hold the close open long enough for the cancel to arrive.
+            await asyncio.sleep(0.15)
+            await real_close()
+
+        s._db.close = _slow_close
+
+        # Start close() in a background task.
+        task = asyncio.create_task(s.close())
+
+        # Wait until the slow close has started, then give the event loop a
+        # tick so the shield await is definitely entered.
+        await entered.wait()
+        await asyncio.sleep(0)
+
+        # Cancel the outer close() task while the inner close is still running.
+        task.cancel()
+
+        # The shield catches the cancel, waits for the inner close to finish,
+        # then re-raises CancelledError to the caller.
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Storage must be in a clean closed state.
+        assert s._executor is None
+        assert s._closed is True
+        assert s._db is None
 
 
 # ===================================================================

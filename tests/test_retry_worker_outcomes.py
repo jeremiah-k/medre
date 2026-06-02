@@ -649,3 +649,51 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
             r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
         ]
         assert abandonment_warnings == []
+
+
+# ===================================================================
+# RetryWorker.stop() early return when already abandoned
+# ===================================================================
+
+
+class TestRetryWorkerStopAbandonedEarlyReturn:
+    """Verify that RetryWorker.stop() returns immediately when the
+    worker has already been abandoned by a previous stop() call."""
+
+    @pytest.mark.asyncio
+    async def test_stop_returns_early_when_abandoned(self) -> None:
+        """When RetryWorker.state.abandoned is True and _task is non-None,
+        stop() returns immediately without emitting duplicate events."""
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        pipeline = MagicMock()
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300.0,
+            stop_timeout_seconds=0.5,
+        )
+
+        # Simulate: a previous stop() abandoned the worker.
+        object.__setattr__(worker.state, "abandoned", True)
+
+        # Give it a non-None _task so the `_task is None` guard is
+        # bypassed.
+        worker._task = asyncio.create_task(asyncio.sleep(0))
+
+        # stop() must return immediately (no TimeoutError, no events).
+        await worker.stop()
+
+        # The task is still there — stop() did not clean it up.
+        assert worker._task is not None
+
+        # Clean up the dummy task.
+        worker._task.cancel()
+        try:
+            await worker._task
+        except asyncio.CancelledError:
+            pass

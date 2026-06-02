@@ -392,10 +392,12 @@ class _SQLiteStorageBase:
                         try:
                             await close_task
                         except asyncio.CancelledError:
-                            # If the close task itself was cancelled, that's
-                            # fine, we still want to propagate the original
-                            # cancellation.
-                            pass
+                            # If the close task itself was cancelled, the
+                            # database did not close.  Restore state so a
+                            # later close() can retry, then propagate the
+                            # original cancellation.
+                            self._db = db
+                            self._closed = False
                         except BaseException as close_exc:
                             # If the close task raises a non-cancellation
                             # exception, we must restore _db so a later

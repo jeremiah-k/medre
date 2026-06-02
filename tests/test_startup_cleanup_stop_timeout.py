@@ -9,9 +9,7 @@ storage close still proceed regardless.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -27,6 +25,7 @@ from tests.helpers.startup_cleanup import (
     _config_with_two_fake_adapters,
     _make_tracking_pipeline_stop,
     _make_tracking_storage_close,
+    _set_shutdown_timeout,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,24 +49,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
     return resolve()
-
-
-@contextmanager
-def _set_shutdown_timeout(app: object, seconds: float) -> Generator[None, None, None]:
-    """Temporarily set ``config.runtime.shutdown_timeout_seconds``."""
-    object.__setattr__(
-        app.config.runtime,  # type: ignore[attr-defined]
-        "shutdown_timeout_seconds",
-        seconds,
-    )
-    try:
-        yield
-    finally:
-        object.__setattr__(
-            app.config.runtime,  # type: ignore[attr-defined]
-            "shutdown_timeout_seconds",
-            10,
-        )
 
 
 # ===================================================================

@@ -12,9 +12,8 @@ Split from ``test_startup_cleanup_stop_supervision.py``.  Covers:
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import pytest
 
@@ -38,6 +37,7 @@ from tests.helpers.startup_cleanup import (
     _make_cancel_retry_worker,
     _make_tracking_pipeline_stop,
     _make_tracking_storage_close,
+    _set_shutdown_timeout,
 )
 
 # ---------------------------------------------------------------------------
@@ -61,23 +61,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
     return resolve()
-
-
-@contextmanager
-def _set_shutdown_timeout(app: object, seconds: float) -> Generator[None, None, None]:
-    object.__setattr__(
-        app.config.runtime,  # type: ignore[attr-defined]
-        "shutdown_timeout_seconds",
-        seconds,
-    )
-    try:
-        yield
-    finally:
-        object.__setattr__(
-            app.config.runtime,  # type: ignore[attr-defined]
-            "shutdown_timeout_seconds",
-            10,
-        )
 
 
 # ===================================================================
@@ -133,12 +116,10 @@ class TestDrainPendingCancellations:
         assert drain_count == N, f"Expected drain count {N}, got {drain_count}"
 
     @pytest.mark.asyncio
-    async def test_drain_returns_zero_outside_task(self) -> None:
-        """The helper returns 0 when called outside an asyncio task."""
-        # _drain_pending_cancellations checks current_task().  Inside a
-        # coroutine running as a task, current_task() is not None, so
-        # we test that the function returns 0 when there are no pending
-        # cancellations.
+    async def test_drain_returns_zero_when_no_pending_cancels(self) -> None:
+        """The helper returns 0 when called inside a task with no pending
+        cancellations.  (The current_task() is None branch requires a
+        non-async call and is not exercised here.)"""
         result = _drain_pending_cancellations()
         assert result == 0
 

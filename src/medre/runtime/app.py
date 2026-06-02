@@ -151,13 +151,7 @@ def _outcome_from_task(
         return (default_outcome, None, False)
     if isinstance(exc, asyncio.TimeoutError):
         return ("timeout", exc, False)
-    # exc is guaranteed non-None here (the early return above handles
-    # None), but guard defensively against a None exception argument.
-    return (
-        "error",
-        exc if exc is not None else RuntimeError("adapter stop failed"),
-        False,
-    )
+    return ("error", exc, False)
 
 
 def _outcome_from_cancelled_task(

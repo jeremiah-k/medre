@@ -186,3 +186,60 @@ class TestCleanupCoreResourcesCancelledError:
 
         assert pipeline_called[0]
         assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cancelled_pipeline_runner_stop_runs_storage(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When pipeline_runner.stop() raises CancelledError during
+        _cleanup_core_resources (no retry worker), the CE is deferred,
+        storage cleanup still runs, and the CE re-raises."""
+        import asyncio
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
+
+        # No retry worker — exercises the pipeline_runner CE handler directly.
+        assert app._retry_worker is None
+
+        async def _pipeline_stop_cancel() -> None:
+            raise asyncio.CancelledError("pipeline cancel during startup cleanup")
+
+        app.pipeline_runner.stop = _pipeline_stop_cancel  # type: ignore[assignment]
+
+        storage_called = _make_tracking_storage_close(app)
+
+        with pytest.raises(asyncio.CancelledError, match="pipeline cancel"):
+            await app._cleanup_core_resources()
+
+        assert storage_called[0], "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cancelled_storage_close_after_pipeline_stop(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When storage.close() raises CancelledError during
+        _cleanup_core_resources (no retry worker), the CE propagates
+        through _cleanup_storage_safely and is deferred, then re-raises."""
+        import asyncio
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
+
+        assert app._retry_worker is None
+
+        async def _storage_close_cancel() -> None:
+            raise asyncio.CancelledError("storage cancel during startup cleanup")
+
+        app.storage.close = _storage_close_cancel  # type: ignore[assignment]
+
+        pipeline_called = _make_tracking_pipeline_stop(app)
+
+        with pytest.raises(asyncio.CancelledError, match="storage cancel"):
+            await app._cleanup_core_resources()
+
+        assert pipeline_called[0], "pipeline_runner.stop() was skipped"
+        assert app.state == RuntimeState.FAILED
