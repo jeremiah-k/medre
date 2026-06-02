@@ -44,7 +44,7 @@ cleans up its session and background tasks in its own `stop(timeout)` method.
 
 ## Shutdown Sequence
 
-`MedreApp.stop()` (lines 889-1084 in `runtime/app.py`) follows this fixed order.
+`MedreApp.stop()` (lines 889-1084 in `src/medre/runtime/app.py`) follows this fixed order.
 Errors at any step are accumulated, not raised immediately, so later cleanup
 always runs.
 
@@ -88,18 +88,17 @@ re-entry. On first call:
    `asyncio.create_task(...)` and then awaited under
    `asyncio.shield(...)`. A strong reference to the close task is held
    by a local binding for the duration of the await. If a stray
-   `CancelledError` arrives (e.g. from a previous `asyncio.wait_for`
-   timeout in the adapter stop loop), the shielded close continues
-   running to completion so aiosqlite can join its internal worker
-   thread, and the cancellation is re-raised afterwards. Without the
-   shield+task pattern the `CancelledError` would interrupt the close
-   before aiosqlite's internal thread was joined, leaving the
-   connection half-closed and triggering
-   `ResourceWarning: <aiosqlite.core.Connection ...> was deleted
-before being closed` in `__del__`. On any non-cancellation failure
-   during the shielded close, `self._db = db` is restored before the
-   exception is re-raised so a later `close()` call can retry the close
-   against the same connection. The inner `await close_task` uses
+   `CancelledError` arrives (e.g. from an external cancellation in the
+   caller), the shielded close continues running to completion so
+   aiosqlite can join its internal worker thread, and the cancellation
+   is re-raised afterwards. Without the shield+task pattern the
+   `CancelledError` would interrupt the close before aiosqlite's
+   internal thread was joined, leaving the connection half-closed and
+   triggering `ResourceWarning: <aiosqlite.core.Connection ...> was
+deleted before being closed` in `__del__`. On any non-cancellation
+   failure during the shielded close, `self._db = db` is restored before
+   the exception is re-raised so a later `close()` call can retry the
+   close against the same connection. The inner `await close_task` uses
    `except BaseException` (not `except Exception`) so that
    `KeyboardInterrupt` / `SystemExit` cannot replace the triggering
    exception with a new one.

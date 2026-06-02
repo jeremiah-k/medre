@@ -273,23 +273,18 @@ class TestAiosqliteCloseShield:
         gc.collect()
 
 
-class TestAiosqliteClosePreservesCancelledError:
-    """Verify that SQLiteStorage.close() preserves the original CancelledError
-    when await close_task raises a different exception.
-
-    The bug: a bare ``raise`` in a finally block re-raises whatever is
-    ACTIVE, so if close_task raises a non-CE exception, the original CE
-    is replaced.  The fix binds the original CE and re-raises it
-    explicitly.
+class TestAiosqliteCloseRestoresDbOnFailure:
+    """Verify that SQLiteStorage.close() restores _db when await close_task
+    raises a non-cancellation exception, allowing a later close to retry.
     """
 
     @pytest.mark.asyncio
-    async def test_close_preserves_cancelled_error_when_close_task_raises_other(
+    async def test_close_restores_db_when_close_task_raises_other(
         self, tmp_path: Path
     ) -> None:
         """When outer CE arrives (asyncio.shield raises CE) and close_task
-        itself raises a non-CE exception, the original CE must propagate,
-        not the close_task's exception."""
+        itself raises a non-CE exception, the close failure must propagate
+        and _db must be restored so a later close() can retry."""
         from unittest.mock import patch
 
         db_path = _temp_db_path(tmp_path)
@@ -303,30 +298,76 @@ class TestAiosqliteClosePreservesCancelledError:
         _mock_aiosqlite_module.connect = AsyncMock(return_value=mock_conn)
 
         storage = SQLiteStorage(db_path=db_path)
-        # Set up storage state to use aiosqlite path
-        storage._HAS_AIOSQLITE = True
+        # Inject the mock connection directly. The autouse fixture
+        # already ensures _use_aiosqlite is True via _HAS_AIOSQLITE.
         storage._db = mock_conn
-        storage._use_aiosqlite = True
-        storage._closed = False
 
         # Patch asyncio.shield to raise CE on first call, simulating outer cancellation
-
         def _raising_shield(awaitable, *args, **kwargs):
-            # Raise CE immediately when shield is awaited
             async def _raise_ce() -> None:
                 raise asyncio.CancelledError("outer cancel from asyncio.shield")
 
             return _raise_ce()
 
         with patch("asyncio.shield", side_effect=_raising_shield):
-            with pytest.raises(asyncio.CancelledError, match="outer cancel"):
+            with pytest.raises(
+                RuntimeError, match="simulated aiosqlite thread join failure"
+            ):
                 await storage.close()
 
-        # The original CE must be the propagated exception, not RuntimeError
-        # (verified by the pytest.raises match above)
+        # _db must be restored so a later close() can retry
+        assert storage._db is mock_conn
+        assert storage._closed is True
 
     @pytest.mark.asyncio
-    async def test_close_preserves_cancelled_error_when_close_task_raises_cancelled(
+    async def test_close_can_retry_after_close_task_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """After a close_task failure restores _db, a subsequent close()
+        can retry and succeed if _closed is reset."""
+        from unittest.mock import patch
+
+        db_path = _temp_db_path(tmp_path)
+
+        mock_conn = MagicMock()
+        # First close() raises, second close() succeeds
+        mock_conn.close = AsyncMock(
+            side_effect=[RuntimeError("simulated aiosqlite thread join failure"), None]
+        )
+
+        _mock_aiosqlite_module.connect = AsyncMock(return_value=mock_conn)
+
+        storage = SQLiteStorage(db_path=db_path)
+        storage._db = mock_conn
+
+        def _raising_shield(awaitable, *args, **kwargs):
+            async def _raise_ce() -> None:
+                raise asyncio.CancelledError("outer cancel from asyncio.shield")
+
+            return _raise_ce()
+
+        # First close: shield raises CE, close_task raises RuntimeError.
+        # RuntimeError should propagate, _db should be restored.
+        with patch("asyncio.shield", side_effect=_raising_shield):
+            with pytest.raises(
+                RuntimeError, match="simulated aiosqlite thread join failure"
+            ):
+                await storage.close()
+
+        assert storage._db is mock_conn
+
+        # Reset _closed to allow retry (simulating caller intent to retry)
+        storage._closed = False
+
+        # Second close: shield succeeds, close_task succeeds.
+        await storage.close()
+
+        assert storage._db is None
+        assert storage._closed is True
+        mock_conn.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_close_propagates_ce_when_close_task_raises_cancelled(
         self, tmp_path: Path
     ) -> None:
         """When outer CE arrives and close_task also raises CE, the original
@@ -345,10 +386,7 @@ class TestAiosqliteClosePreservesCancelledError:
         _mock_aiosqlite_module.connect = AsyncMock(return_value=mock_conn)
 
         storage = SQLiteStorage(db_path=db_path)
-        storage._HAS_AIOSQLITE = True
         storage._db = mock_conn
-        storage._use_aiosqlite = True
-        storage._closed = False
 
         # Patch asyncio.shield to raise CE on first call
         def _raising_shield(awaitable, *args, **kwargs):

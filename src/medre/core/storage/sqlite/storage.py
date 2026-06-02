@@ -386,19 +386,26 @@ class _SQLiteStorageBase:
                         # Outer cancellation arrived after the close had
                         # already started; let the close finish so aiosqlite
                         # can join its internal thread, then re-raise so the
-                        # caller's exception flow continues.  Bind the
-                        # original ``CancelledError`` so any exception raised
-                        # by ``await close_task`` cannot replace the
-                        # cancellation we are supposed to propagate — the
-                        # caller asked for cancellation, and cancellation
-                        # is what the caller should see.
+                        # caller's exception flow continues.
                         try:
                             await close_task
-                        except BaseException:
-                            # Suppress close_task's exception — the original
-                            # CancelledError is the active cancellation
-                            # request and must be preserved.
+                        except asyncio.CancelledError:
+                            # If the close task itself was cancelled, that's
+                            # fine, we still want to propagate the original
+                            # cancellation.
                             pass
+                        except BaseException as close_exc:
+                            # If the close task raises a non-cancellation
+                            # exception, we must restore _db so a later
+                            # close() can retry, and then re-raise the
+                            # close failure. The caller's cancellation
+                            # request is superseded by the actual close
+                            # failure, which is more informative and
+                            # prevents silent resource leaks.
+                            self._db = db
+                            raise close_exc
+                        # If close_task finishes cleanly, raise the original
+                        # cancellation as requested.
                         raise orig_cancelled
                     except BaseException:
                         # On any non-cancellation failure, ensure the close

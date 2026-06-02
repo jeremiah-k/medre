@@ -322,6 +322,7 @@ and emits a `retry_abandoned` event. See
    SELECT event_id, target_adapter, error, created_at
    FROM delivery_receipts
    WHERE failure_kind = 'shutdown_rejection'
+     AND error = 'shutdown_drain_timeout'
    ORDER BY created_at DESC
    LIMIT 20;
    ```

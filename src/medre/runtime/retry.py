@@ -392,7 +392,7 @@ class RetryWorker:
         task.cancel()
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._stop_timeout
-        
+
         # Poll on a 10 ms cadence.  If the task is cancellation-
         # responsive it will finish within a few cycles; if it is
         # cancellation-resistant we will hit the deadline hard.
@@ -400,7 +400,7 @@ class RetryWorker:
             if loop.time() >= deadline:
                 break
             await asyncio.sleep(0.01)
-            
+
         # Check AFTER the loop to correctly handle the race condition
         # where the task finishes between the deadline check and the
         # loop exit.

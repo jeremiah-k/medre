@@ -1142,10 +1142,9 @@ class TestStartupCleanupDrainSites:
             task = asyncio.create_task(app._cleanup_started_adapters())
             await asyncio.sleep(0)
             task.cancel()
-            try:
-                await task
-            except BaseException:
-                pass
+            # _cleanup_started_adapters suppresses CancelledError (best-effort
+            # cleanup), so the task should complete normally.
+            await task
 
         await _run_with_external_cancel()
 

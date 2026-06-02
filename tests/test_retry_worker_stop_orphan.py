@@ -636,8 +636,8 @@ class TestRetryWorkerStopOrphan:
 
             # Begin stop() in a task, then cancel it mid-poll.
             stop_task = asyncio.create_task(worker.stop())
-            # Let the polling loop start.
-            await asyncio.sleep(0.1)
+            # Wait for the shutdown event to be set, proving stop() is actively polling.
+            await wait_until(lambda: worker._shutdown_event.is_set(), timeout=2.0)
             stop_task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await stop_task

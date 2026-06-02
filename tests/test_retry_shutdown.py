@@ -304,7 +304,11 @@ class TestRetryShutdownRealPipeline:
             )
 
             await worker.start()
-            await wait_until(lambda: worker._task is not None, timeout=2.0)
+            # Wait for the due-receipt processing side effect.
+            await wait_until(
+                lambda: worker.state.processed >= 1 or worker.state.failed >= 1,
+                timeout=2.0,
+            )
             await worker.stop()
 
             assert worker.shutdown_event.is_set()

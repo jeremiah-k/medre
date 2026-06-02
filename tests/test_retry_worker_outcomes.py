@@ -3,16 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from medre.config.paths import MedrePaths, resolve
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from tests._retry_test_helpers import _make_event, _make_limits
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture()
+def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    return resolve()
 
 
 class TestRetryCapacityRejectionBackoff:
@@ -337,8 +359,14 @@ class TestRetryWorkerTaskCrashedOutcome:
 
         with caplog.at_level(logging.WARNING, logger="asyncio"):
             clean, _ = worker._finalize_task_outcome(task)
+            assert clean is False
 
-        assert clean is False
+            # Delete the task and force GC to ensure any unretrieved
+            # exception warning would be triggered immediately.
+            del task
+            gc.collect()
+            await asyncio.sleep(0)
+
         unretrieved = [
             r
             for r in caplog.records
@@ -516,45 +544,65 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
     that subprocess-driven retries may still be in-flight after
     ``stop()`` returns.
 
-    Drives the retry-worker block from ``MedreApp.stop()`` with a
-    stub worker whose ``stop()`` sets ``state.abandoned = True`` to
-    verify the warning is emitted.
+    Exercises the real ``MedreApp.stop()`` branch with a stub retry
+    worker to verify the warning is emitted.
     """
 
-    async def test_stop_logs_warning_when_retry_worker_abandoned(self, caplog):
+    @pytest.mark.asyncio
+    async def test_stop_logs_warning_when_retry_worker_abandoned(
+        self, tmp_paths: Any, caplog: pytest.LogCaptureFixture
+    ):
         """When ``RetryWorker.stop()`` returns with
         ``state.abandoned=True``, the retry-worker block in
         ``MedreApp.stop()`` must log a warning naming the
         abandonment.
         """
+        from medre.config.model import (
+            AdapterConfigSet,
+            LoggingConfig,
+            MatrixRuntimeConfig,
+            RuntimeConfig,
+            RuntimeOptions,
+            StorageConfig,
+        )
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-abandonment"),
+            logging=LoggingConfig(level="DEBUG"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    )
+                },
+            ),
+        )
+        app = RuntimeBuilder(config=config, paths=tmp_paths).build()
+
+        # Bring the app to RUNNING state so stop() proceeds past the early-return guard.
+        app._set_state(RuntimeState.RUNNING)
+
+        # Stub retry worker whose stop() sets abandoned=True.
         worker_state = RetryWorkerState()
-        worker_state.abandoned = True  # set after stop() returns
+        worker_state.abandoned = True
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
 
-        async def _mark_abandoned() -> None:
-            pass  # state already marked abandoned above
+        async def _abandon_on_stop() -> None:
+            pass
 
-        worker.stop = _mark_abandoned
-
-        from medre.runtime.app import _logger as _app_logger
+        worker.stop = _abandon_on_stop
+        app._retry_worker = worker
 
         with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):
-            # Replicate the exact retry-worker block from
-            # ``MedreApp.stop()`` to verify the warning is emitted.
-            try:
-                await worker.stop()
-            except Exception as exc:
-                _app_logger.error("Error stopping retry worker: %s", exc)
-            if worker.state.abandoned:
-                _app_logger.warning(
-                    "RetryWorker was abandoned during shutdown: "
-                    "background task did not finish within timeout; "
-                    "state.running=True, abandoned=True. "
-                    "Subprocess-driven retries may still be in-flight."
-                )
+            await app.stop()
 
         abandonment_warnings = [
             r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
@@ -564,12 +612,45 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
             abandonment_warnings[0].getMessage()
         )
 
-    async def test_stop_does_not_log_warning_when_retry_worker_clean(self, caplog):
+    @pytest.mark.asyncio
+    async def test_stop_does_not_log_warning_when_retry_worker_clean(
+        self, tmp_paths: Any, caplog: pytest.LogCaptureFixture
+    ):
         """When the retry worker stops cleanly, no abandonment
         warning must be emitted.
         """
+        from medre.config.model import (
+            AdapterConfigSet,
+            LoggingConfig,
+            MatrixRuntimeConfig,
+            RuntimeConfig,
+            RuntimeOptions,
+            StorageConfig,
+        )
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-clean-stop"),
+            logging=LoggingConfig(level="DEBUG"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    )
+                },
+            ),
+        )
+        app = RuntimeBuilder(config=config, paths=tmp_paths).build()
+
+        app._set_state(RuntimeState.RUNNING)
+
+        # Stub retry worker that stops cleanly.
         worker_state = RetryWorkerState()
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
@@ -578,16 +659,10 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
             pass
 
         worker.stop = _clean_stop
-
-        from medre.runtime.app import _logger as _app_logger
+        app._retry_worker = worker
 
         with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):
-            try:
-                await worker.stop()
-            except Exception as exc:
-                _app_logger.error("Error stopping retry worker: %s", exc)
-            if worker.state.abandoned:
-                _app_logger.warning("RetryWorker was abandoned during shutdown")
+            await app.stop()
 
         abandonment_warnings = [
             r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
