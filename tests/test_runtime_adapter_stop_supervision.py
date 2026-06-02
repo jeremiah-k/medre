@@ -506,6 +506,10 @@ class TestAdapterStopTimeoutSupervision:
             resistant.release()
             # Wait for the adapter's task to actually finish.
             await asyncio.sleep(0.01)
+            # Close storage so the aiosqlite connection is not leaked
+            # into subsequent tests' warnings.catch_warnings() context.
+            if app.storage is not None and not app.storage._closed:
+                await app.storage.close()
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         elapsed = loop.time() - t0
@@ -570,6 +574,10 @@ class TestAdapterStopTimeoutSupervision:
                 if not app._abandoned_adapter_stop_tasks:
                     break
                 await asyncio.sleep(0.01)
+            # Close storage so the aiosqlite connection is not leaked
+            # into subsequent tests' warnings.catch_warnings() context.
+            if app.storage is not None and not app.storage._closed:
+                await app.storage.close()
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         # After the task completes, the done callback removes it
