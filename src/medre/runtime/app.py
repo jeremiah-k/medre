@@ -811,13 +811,28 @@ class MedreApp:
                             "error": str(exc),
                         },
                     )
+        except asyncio.CancelledError:
+            # Cancellation arrived during the startup loop.  Drain the
+            # pending cancellation so cleanup awaits can actually run,
+            # then run the same cleanup as the ``Exception`` handler.
+            # The cancellation is restored after cleanup so it propagates
+            # to the caller.  The ``except CancelledError`` branch MUST
+            # come first — Python evaluates except clauses in order, and
+            # ``asyncio.CancelledError`` is a ``BaseException`` (not an
+            # ``Exception``).
+            _cleared = _drain_pending_cancellations()
+            await self._start_failure_cleanup()
+            if _cleared:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_cleared):
+                        current.cancel()
+            raise
         except Exception:
             # Catastrophic failure during the loop itself (not an adapter
             # failure).  Clean up already-started adapters in reverse order,
             # then clean up core resources (pipeline runner + storage).
-            await self._cleanup_started_adapters()
-            await self._cleanup_core_resources()
-            self._set_state(RuntimeState.FAILED)
+            await self._start_failure_cleanup()
             raise
 
         # Store failed adapter IDs for diagnostics.
@@ -1578,21 +1593,54 @@ class MedreApp:
         self.started_adapter_ids.clear()
         self.adapter_start_monotonic.clear()
 
+    async def _start_failure_cleanup(self) -> None:
+        """Run the full startup-failure cleanup sequence.
+
+        Used by both the catastrophic ``Exception`` catch-all in ``start()``
+        and the parallel ``CancelledError`` handler.  Ensures the same
+        cleanup runs regardless of which exception type escapes the
+        startup loop.
+        """
+        await self._cleanup_started_adapters()
+        await self._cleanup_core_resources()
+        self._set_state(RuntimeState.FAILED)
+
     async def _cleanup_core_resources(self) -> None:
         """Stop pipeline runner and close storage during failed startup.
 
-        Logs but suppresses individual cleanup errors so that the original
+        CancelledError policy
+        ---------------------
+        If the retry worker's ``stop()`` raises ``CancelledError``, the
+        cancellation is deferred so that the pipeline runner and storage
+        cleanup below still execute.  The deferred cancellation is then
+        re-raised to the caller so the original cancellation propagates
+        correctly.  This mirrors the Phase 1 pattern in ``MedreApp.stop()``.
+
+        Other cleanup errors are logged and suppressed so the original
         startup failure remains the raised exception.
         """
-        # Stop retry worker if it was started.
+        # Stop retry worker if it was started.  Defer CancelledError so
+        # pipeline runner stop and storage close can still run.
+        _cancelled: asyncio.CancelledError | None = None
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
                 _logger.info("Retry worker stopped during startup cleanup")
+            except asyncio.CancelledError as c_exc:
+                _cancelled = c_exc
+                _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error(
                     "Error stopping retry worker during startup cleanup: %s", exc
                 )
+
+        # If the retry worker stop raised CE, the task likely has a
+        # pending cancellation request that would prevent the awaits
+        # below from actually running.  Drain it.
+        _had_cancellation = _cancelled is not None
+        _cleared_cancels = 0
+        if _had_cancellation:
+            _cleared_cancels = _drain_pending_cancellations()
 
         try:
             await self.pipeline_runner.stop()
@@ -1603,6 +1651,18 @@ class MedreApp:
             )
 
         await self._cleanup_storage_safely()
+
+        # Restore the deferred cancellation count and re-raise so the
+        # caller's cancellation propagates correctly.
+        if _had_cancellation:
+            self._set_state(RuntimeState.FAILED)
+            if _cleared_cancels:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_cleared_cancels):
+                        current.cancel()
+            assert _cancelled is not None  # for type checker
+            raise _cancelled
 
     async def _cleanup_storage_safely(self) -> None:
         """Close storage during failed startup, suppressing errors."""

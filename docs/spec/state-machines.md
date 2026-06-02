@@ -274,7 +274,7 @@ For in-flight adapter deliveries (those actively executing an adapter `deliver()
 call when shutdown begins), the drain period allows completion. Deliveries
 that complete during drain produce normal receipts. Deliveries abandoned after
 the drain timeout expires produce suppressed receipts with error
-`delivery_rejected_shutdown`.
+`shutdown_drain_timeout`.
 
 ---
 

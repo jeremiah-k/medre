@@ -265,13 +265,17 @@ that arrives mid-stop.
 
   Because Python 3.11+ latches a task's cancellation state after a
   `CancelledError` is caught (the next `await` in the same task would
-  re-raise immediately), the deferred-cancellation path uses
-  `asyncio.current_task().uncancel()` to clear the latched cancel
-  count before `await self.pipeline_runner.stop()` and
-  `await self.storage.close()`, then calls `current.cancel()` the same
-  number of times to restore the cancel count before re-raising. This
-  lets the cleanup awaits actually run while still propagating the
-  original cancellation to the caller.
+  re-raise immediately), the deferred-cancellation path calls
+  `_drain_pending_cancellations()` which loops `current.uncancel()`
+  while `current.cancelling() > 0` to remove all pending cancellation
+  requests before `await self.pipeline_runner.stop()` and
+  `await self.storage.close()`. `Task.uncancel()` decrements the
+  cancellation count by one and returns the _remaining_ count (not the
+  number removed), so a loop is required to drain more than one
+  pending cancellation. The restore path then calls `current.cancel()`
+  the same number of times to restore the cancel count before
+  re-raising. This lets the cleanup awaits actually run while still
+  propagating the original cancellation to the caller.
 
 - **Startup best-effort cleanup** (`_cleanup_started_adapters`): a
   `CancelledError` from an adapter's `stop()` is **suppressed** so

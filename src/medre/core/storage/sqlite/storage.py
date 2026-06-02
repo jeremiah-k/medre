@@ -382,15 +382,24 @@ class _SQLiteStorageBase:
                     close_task = asyncio.create_task(db.close())
                     try:
                         await asyncio.shield(close_task)
-                    except asyncio.CancelledError:
+                    except asyncio.CancelledError as orig_cancelled:
                         # Outer cancellation arrived after the close had
                         # already started; let the close finish so aiosqlite
                         # can join its internal thread, then re-raise so the
-                        # caller's exception flow continues.
+                        # caller's exception flow continues.  Bind the
+                        # original ``CancelledError`` so any exception raised
+                        # by ``await close_task`` cannot replace the
+                        # cancellation we are supposed to propagate — the
+                        # caller asked for cancellation, and cancellation
+                        # is what the caller should see.
                         try:
                             await close_task
-                        finally:
-                            raise
+                        except BaseException:
+                            # Suppress close_task's exception — the original
+                            # CancelledError is the active cancellation
+                            # request and must be preserved.
+                            pass
+                        raise orig_cancelled
                     except BaseException:
                         # On any non-cancellation failure, ensure the close
                         # task is awaited so we don't leak it.  Widen the

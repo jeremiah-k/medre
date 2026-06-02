@@ -708,3 +708,442 @@ class TestDrainPendingCancellations:
             await task
         except asyncio.CancelledError:
             pass  # CancelledError propagated as expected
+
+
+# ---------------------------------------------------------------------------
+# TestCleanupCoreResourcesCancelledError
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupCoreResourcesCancelledError:
+    """Verify that CancelledError from retry_worker.stop() during
+    _cleanup_core_resources does NOT skip pipeline_runner.stop() or
+    storage.close()."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_retry_worker_stop_runs_pipeline_and_storage(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Direct invocation of _cleanup_core_resources with a stub worker
+        that raises CE must still run pipeline_runner.stop() and
+        storage.close() and then re-raise the CE."""
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        # Bypass the full startup lifecycle: we want to test
+        # _cleanup_core_resources in isolation.
+        app._set_state(RuntimeState.STARTING)
+
+        # Stub retry worker whose stop() raises CE.
+        worker_state = RetryWorkerState()
+        worker = MagicMock(spec=RetryWorker)
+        worker.state = worker_state
+
+        async def _cancel_on_stop() -> None:
+            raise asyncio.CancelledError("simulated cancel from retry worker stop")
+
+        worker.stop = _cancel_on_stop
+        app._retry_worker = worker
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # The cleanup should re-raise the CE after pipeline/storage cleanup.
+        with pytest.raises(asyncio.CancelledError, match="simulated cancel"):
+            await app._cleanup_core_resources()
+
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cancelled_retry_worker_end_to_end_via_start(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Full start() flow: one adapter that fails to start, plus a retry
+        worker that raises CE on stop.  Pipeline and storage cleanup must
+        still run; CE re-raises from start()."""
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Adapter that fails on start with a regular Exception.
+        app.adapters["fake_matrix"] = _FailingAdapter(adapter_id="fake_matrix")
+
+        # Stub retry worker whose stop() raises CE.
+        worker_state = RetryWorkerState()
+        worker = MagicMock(spec=RetryWorker)
+        worker.state = worker_state
+
+        async def _cancel_on_stop() -> None:
+            raise asyncio.CancelledError("simulated cancel from retry worker stop")
+
+        worker.stop = _cancel_on_stop
+        app._retry_worker = worker
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # start() should re-raise the CE from cleanup.
+        with pytest.raises(asyncio.CancelledError, match="simulated cancel"):
+            await app.start()
+
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cancelled_retry_worker_no_pending_cancel_no_drain(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When retry_worker.stop() raises CE but the task has no pending
+        cancellation, _drain_pending_cancellations returns 0 and the CE
+        still re-raises.  Verifies the no-drain case doesn't break."""
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
+
+        worker_state = RetryWorkerState()
+        worker = MagicMock(spec=RetryWorker)
+        worker.state = worker_state
+
+        async def _cancel_on_stop() -> None:
+            raise asyncio.CancelledError("no-drain case")
+
+        worker.stop = _cancel_on_stop
+        app._retry_worker = worker
+
+        # Pipeline stop should still run even with no pending cancellation.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        with pytest.raises(asyncio.CancelledError, match="no-drain case"):
+            await app._cleanup_core_resources()
+
+        assert pipeline_stop_called
+        assert app.state == RuntimeState.FAILED
+
+
+# ---------------------------------------------------------------------------
+# TestStartCatastrophicCancelledError
+# ---------------------------------------------------------------------------
+
+
+class TestStartCatastrophicCancelledError:
+    """Verify that CancelledError arriving during the start() adapter
+    loop triggers the same cleanup as a regular Exception."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_during_startup_loop_runs_cleanup(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Externally cancel the task running start() during the adapter
+        loop.  The CE handler must run cleanup_started_adapters,
+        cleanup_core_resources, set state to FAILED, then re-raise."""
+        from medre.runtime.app import RuntimeState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # Build a fake adapter that lets the cancellation arrive during
+        # its start() coroutine.
+        class _AdaptersThatWait:
+            adapter_id = "blocking"
+            platform = "test"
+            role = AdapterRole.TRANSPORT
+
+            def __init__(self) -> None:
+                self._start_event = asyncio.Event()
+
+            async def start(self, ctx: AdapterContext) -> None:
+                # Wait until cancelled.  This ensures CE arrives during
+                # the loop body, not before it.
+                try:
+                    await self._start_event.wait()
+                except asyncio.CancelledError:
+                    raise
+                raise AssertionError("should not reach here")
+
+            async def stop(self, timeout: float = 5.0) -> None:
+                pass
+
+            async def health_check(self) -> AdapterInfo:
+                return AdapterInfo(
+                    adapter_id=self.adapter_id,
+                    platform=self.platform,
+                    role=self.role,
+                    version="0.0.0",
+                    capabilities=AdapterCapabilities(),
+                    health="failed",
+                )
+
+            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+                return None
+
+        blocking = _AdaptersThatWait()
+        app.adapters["fake_matrix"] = blocking
+        # pre-populate started_adapter_ids so cleanup has something to do
+        app.started_adapter_ids.append("fake_matrix")
+        app._adapter_states["fake_matrix"] = AdapterState.INITIALIZING
+
+        async def _run_and_cancel() -> None:
+            start_task = asyncio.create_task(app.start())
+            # Let start() reach the blocking adapter.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            start_task.cancel()
+            try:
+                await start_task
+            except asyncio.CancelledError:
+                pass
+
+        await _run_and_cancel()
+
+        # Cleanup MUST have run despite CE.
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+
+# ---------------------------------------------------------------------------
+# TestDrainRestoreIntegration
+# ---------------------------------------------------------------------------
+
+
+class TestDrainRestoreIntegration:
+    """Integration test: drain+restore cycle in a real MedreApp.stop() call.
+
+    The existing TestRetryWorkerCancelledErrorDuringStop verifies CE
+    deferral, but the retry_worker.stop() raises CE in isolation (no
+    external cancellation on the task).  This test exercises the full
+    cycle: external task cancellation + CE from retry_worker.stop() +
+    drain + restore.
+    """
+
+    @pytest.mark.asyncio
+    async def test_external_cancel_with_retry_worker_ce_full_drain_restore(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Externally cancel the stop() task while retry_worker.stop()
+        raises CE.  Verify drain happens, pipeline/storage cleanup runs,
+        cancellation count is restored, and CE propagates."""
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.RUNNING)
+
+        # Stub retry worker that raises CE AND takes a moment to do so
+        # (so we can cancel externally before stop() finishes).
+        worker_state = RetryWorkerState()
+        worker = MagicMock(spec=RetryWorker)
+        worker.state = worker_state
+
+        async def _slow_cancel_on_stop() -> None:
+            await asyncio.sleep(0.1)  # give outer code time to cancel us
+            raise asyncio.CancelledError("simulated cancel from retry worker stop")
+
+        worker.stop = _slow_cancel_on_stop
+        app._retry_worker = worker
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        async def _run_and_cancel() -> None:
+            stop_task = asyncio.create_task(app.stop())
+            # Let stop() start and reach the retry worker await.
+            await asyncio.sleep(0)
+            # Cancel externally to add a pending cancellation request.
+            stop_task.cancel()
+            try:
+                await stop_task
+            except (asyncio.CancelledError, BaseException):
+                pass
+
+        await _run_and_cancel()
+
+        # Cleanup MUST have run.
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+
+# ---------------------------------------------------------------------------
+# TestStartupCleanupDrainSites
+# ---------------------------------------------------------------------------
+
+
+class TestStartupCleanupDrainSites:
+    """Verify that _drain_pending_cancellations in _cleanup_started_adapters
+    allows subsequent adapter stops in the loop to actually run."""
+
+    @pytest.mark.asyncio
+    async def test_external_cancel_during_first_adapter_stop_allows_second(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Two adapters that have started.  External CE arrives during the
+        first adapter's cleanup stop.  The second adapter's stop must
+        still run because the cancellation state is drained."""
+
+        class _StopOnCancel(AdapterContract):
+            """stop() that yields to the event loop, allowing external
+            cancellation to arrive."""
+
+            adapter_id: str = "stop_on_cancel"
+            platform: str = "test"
+            role: AdapterRole = AdapterRole.TRANSPORT
+
+            def __init__(self, adapter_id: str) -> None:
+                self.adapter_id = adapter_id
+                self.stop_called = False
+
+            async def start(self, ctx: AdapterContext) -> None:
+                pass
+
+            async def stop(self, timeout: float = 5.0) -> None:
+                self.stop_called = True
+                # Yield long enough for an external cancel to land here.
+                try:
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    raise
+
+            async def health_check(self) -> AdapterInfo:
+                return AdapterInfo(
+                    adapter_id=self.adapter_id,
+                    platform=self.platform,
+                    role=self.role,
+                    version="0.0.0",
+                    capabilities=AdapterCapabilities(),
+                    health="ok",
+                )
+
+            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+                return None
+
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        alpha = _StopOnCancel(adapter_id="alpha")
+        beta = _StopOnCancel(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta
+        app.started_adapter_ids.extend(["alpha", "beta"])
+        for aid in ("alpha", "beta"):
+            app._adapter_states[aid] = AdapterState.READY
+
+        # Cancel the cleanup task externally while it's processing the
+        # first adapter.  Wrap in a helper so we can use pytest.raises.
+        async def _run_with_external_cancel() -> None:
+            task = asyncio.create_task(app._cleanup_started_adapters())
+            await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+
+        await _run_with_external_cancel()
+
+        # Both adapters should have had stop() called, even though CE
+        # arrived during the first one's stop.
+        assert alpha.stop_called, "alpha.stop() was not called"
+        assert beta.stop_called, "beta.stop() was not called"

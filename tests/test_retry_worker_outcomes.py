@@ -237,7 +237,7 @@ class TestRetryWorkerTaskCrashedOutcome:
             if task.done():
                 break
             await asyncio.sleep(0)
-        assert task.done() and task.exception() is not None
+        assert task.done()  # do NOT pre-retrieve via task.exception()
 
         clean, exc = worker._finalize_task_outcome(task)
         assert clean is False
