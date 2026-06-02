@@ -686,8 +686,15 @@ class TestDrainPendingCancellations:
     async def test_single_cancel_drain_restore_roundtrip(self) -> None:
         """A single cancel/drain/restore cycle preserves CancelledError
         propagation to the next await."""
+        started = asyncio.Event()
 
         async def _target() -> None:
+            # Signal that the task has started before any cancel arrives.
+            started.set()
+            # Yield to the event loop so the caller's cancel() can be
+            # delivered.  Without this yield, _drain_pending_cancellations
+            # would run before the cancel request is latched.
+            await asyncio.sleep(0)
             # Drain the cancellation (there should be 1).
             count = _drain_pending_cancellations()
             assert count == 1
@@ -703,6 +710,8 @@ class TestDrainPendingCancellations:
             raise AssertionError("Expected CancelledError after restore")
 
         task = asyncio.create_task(_target())
+        # Wait until the task has actually started before cancelling.
+        await started.wait()
         task.cancel()
         try:
             await task
@@ -1061,7 +1070,7 @@ class TestDrainRestoreIntegration:
             stop_task.cancel()
             try:
                 await stop_task
-            except (asyncio.CancelledError, BaseException):
+            except asyncio.CancelledError:
                 pass
 
         await _run_and_cancel()

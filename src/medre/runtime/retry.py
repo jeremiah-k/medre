@@ -335,7 +335,7 @@ class RetryWorker:
                     if not clean:
                         # Re-raise the crash so the caller sees the
                         # real failure rather than a swallowed one.
-                        raise exc  # type: ignore[misc]
+                        raise exc from None  # type: ignore[misc]
                 else:
                     self.state.abandoned = True
                     self._emit(

@@ -106,6 +106,10 @@ class RetryWorker:
                     self.state.succeeded += 1
                 except asyncio.CancelledError:
                     raise
+                except (AssertionError, TypeError):
+                    # Programming errors must surface as test failures,
+                    # not be silently converted to retry outcomes.
+                    raise
                 except Exception:
                     if self._retry_executor.is_exhausted(next_attempt):
                         self.state.dead_lettered += 1

@@ -8,7 +8,6 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,6 +15,7 @@ import pytest
 from medre.config.paths import MedrePaths, resolve
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
+from medre.runtime.app import MedreApp
 from tests._retry_test_helpers import _make_event, _make_limits
 
 
@@ -548,15 +548,8 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
     worker to verify the warning is emitted.
     """
 
-    @pytest.mark.asyncio
-    async def test_stop_logs_warning_when_retry_worker_abandoned(
-        self, tmp_paths: Any, caplog: pytest.LogCaptureFixture
-    ):
-        """When ``RetryWorker.stop()`` returns with
-        ``state.abandoned=True``, the retry-worker block in
-        ``MedreApp.stop()`` must log a warning naming the
-        abandonment.
-        """
+    @staticmethod
+    def _build_app(paths: MedrePaths) -> MedreApp:
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
@@ -565,9 +558,7 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
             RuntimeOptions,
             StorageConfig,
         )
-        from medre.runtime.app import RuntimeState
         from medre.runtime.builder import RuntimeBuilder
-        from medre.runtime.retry import RetryWorker, RetryWorkerState
 
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="test-abandonment"),
@@ -584,7 +575,21 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
                 },
             ),
         )
-        app = RuntimeBuilder(config=config, paths=tmp_paths).build()
+        return RuntimeBuilder(config=config, paths=paths).build()
+
+    @pytest.mark.asyncio
+    async def test_stop_logs_warning_when_retry_worker_abandoned(
+        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
+    ):
+        """When ``RetryWorker.stop()`` returns with
+        ``state.abandoned=True``, the retry-worker block in
+        ``MedreApp.stop()`` must log a warning naming the
+        abandonment.
+        """
+        from medre.runtime.app import RuntimeState
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        app = self._build_app(tmp_paths)
 
         # Bring the app to RUNNING state so stop() proceeds past the early-return guard.
         app._set_state(RuntimeState.RUNNING)
@@ -614,39 +619,15 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
 
     @pytest.mark.asyncio
     async def test_stop_does_not_log_warning_when_retry_worker_clean(
-        self, tmp_paths: Any, caplog: pytest.LogCaptureFixture
+        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
     ):
         """When the retry worker stops cleanly, no abandonment
         warning must be emitted.
         """
-        from medre.config.model import (
-            AdapterConfigSet,
-            LoggingConfig,
-            MatrixRuntimeConfig,
-            RuntimeConfig,
-            RuntimeOptions,
-            StorageConfig,
-        )
         from medre.runtime.app import RuntimeState
-        from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
-        config = RuntimeConfig(
-            runtime=RuntimeOptions(name="test-clean-stop"),
-            logging=LoggingConfig(level="DEBUG"),
-            storage=StorageConfig(backend="memory"),
-            adapters=AdapterConfigSet(
-                matrix={
-                    "main": MatrixRuntimeConfig(
-                        adapter_id="main",
-                        enabled=True,
-                        adapter_kind="fake",
-                        config=None,
-                    )
-                },
-            ),
-        )
-        app = RuntimeBuilder(config=config, paths=tmp_paths).build()
+        app = self._build_app(tmp_paths)
 
         app._set_state(RuntimeState.RUNNING)
 

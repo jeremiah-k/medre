@@ -821,11 +821,11 @@ class MedreApp:
             # ``asyncio.CancelledError`` is a ``BaseException`` (not an
             # ``Exception``).
             _cleared = _drain_pending_cancellations()
-            await self._start_failure_cleanup()
-            if _cleared:
+            _cleanup_drained = await self._start_failure_cleanup()
+            if _cleared or _cleanup_drained:
                 current = asyncio.current_task()
                 if current is not None:
-                    for _ in range(_cleared):
+                    for _ in range(_cleared + _cleanup_drained):
                         current.cancel()
             raise c_exc
         except Exception:
@@ -1376,6 +1376,10 @@ class MedreApp:
                 cancel_deadline = loop.time() + float(timeout)
                 while not stop_task.done():
                     if loop.time() >= cancel_deadline:
+                        # Still alive after cancel grace — retain the
+                        # task so the event loop does not garbage-collect
+                        # the reference while it is still running.
+                        self._retain_abandoned_stop_task(stop_task)
                         break
                     await asyncio.sleep(0.01)
             raise
@@ -1391,11 +1395,25 @@ class MedreApp:
         garbage-collect the task while it is still running.  The task
         is removed from the retained set when it finishes via a done
         callback, so the set does not grow unboundedly.
+
+        The done callback also consumes the task's exception (if any)
+        so Python does not emit ``Task exception was never retrieved``.
         """
         self._abandoned_adapter_stop_tasks.add(stop_task)
 
         def _on_done(task: asyncio.Task[object]) -> None:
-            self._abandoned_adapter_stop_tasks.discard(task)
+            try:
+                if not task.cancelled():
+                    exc = task.exception()
+                    if exc is not None:
+                        _logger.warning(
+                            "Abandoned adapter stop task raised: %s",
+                            exc,
+                        )
+            except Exception:
+                pass
+            finally:
+                self._abandoned_adapter_stop_tasks.discard(task)
 
         stop_task.add_done_callback(_on_done)
 
@@ -1458,7 +1476,7 @@ class MedreApp:
                 persisted_count,
             )
 
-    async def _cleanup_started_adapters(self) -> None:
+    async def _cleanup_started_adapters(self) -> int:
         """Stop already-started adapters in reverse order during failed startup.
 
         Used for partial-startup cleanup: if an unrecoverable error occurs
@@ -1467,6 +1485,10 @@ class MedreApp:
 
         Also stops adapters that were built but never started (still in
         INITIALIZING state) so they are not leaked on total failure.
+
+        Returns the total number of cancellation requests drained during
+        adapter cleanup so the caller can restore them for the outer
+        cancellation path.
 
         CancelledError policy
         ---------------------
@@ -1479,6 +1501,7 @@ class MedreApp:
         that an externally-cancelled shutdown still propagates the
         cancellation to the caller.
         """
+        _total_drained: int = 0
         timeout = self.config.runtime.shutdown_timeout_seconds
         for adapter_id in reversed(self.started_adapter_ids):
             adapter = self.adapters.get(adapter_id)
@@ -1498,7 +1521,7 @@ class MedreApp:
                 # _cleanup_core_resources() must still run.  Drain the
                 # cancellation state so subsequent adapter stops in the
                 # loop actually get a chance to run.
-                _drain_pending_cancellations()
+                _total_drained += _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while cleaning up adapter %s.%s during "
@@ -1556,7 +1579,7 @@ class MedreApp:
                 # _cleanup_core_resources() must still run.  Drain the
                 # cancellation state so subsequent adapter stops in the
                 # loop actually get a chance to run.
-                _drain_pending_cancellations()
+                _total_drained += _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while cleaning up never-started adapter "
@@ -1591,18 +1614,24 @@ class MedreApp:
 
         self.started_adapter_ids.clear()
         self.adapter_start_monotonic.clear()
+        return _total_drained
 
-    async def _start_failure_cleanup(self) -> None:
+    async def _start_failure_cleanup(self) -> int:
         """Run the full startup-failure cleanup sequence.
 
         Used by both the catastrophic ``Exception`` catch-all in ``start()``
         and the parallel ``CancelledError`` handler.  Ensures the same
         cleanup runs regardless of which exception type escapes the
         startup loop.
+
+        Returns the total number of cancellation requests drained during
+        adapter cleanup so the ``CancelledError`` handler in ``start()``
+        can restore them.
         """
-        await self._cleanup_started_adapters()
+        drained = await self._cleanup_started_adapters()
         await self._cleanup_core_resources()
         self._set_state(RuntimeState.FAILED)
+        return drained
 
     async def _cleanup_core_resources(self) -> None:
         """Stop pipeline runner and close storage during failed startup.

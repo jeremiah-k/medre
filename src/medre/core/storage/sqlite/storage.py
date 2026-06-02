@@ -403,6 +403,7 @@ class _SQLiteStorageBase:
                             # failure, which is more informative and
                             # prevents silent resource leaks.
                             self._db = db
+                            self._closed = False
                             raise close_exc
                         # If close_task finishes cleanly, raise the original
                         # cancellation as requested.
@@ -426,10 +427,18 @@ class _SQLiteStorageBase:
                         # suppressed because we are about to re-raise
                         # the original.
                         self._db = db
+                        self._closed = False
                         raise
                 else:
-                    with self._lock:
-                        db.close()
+                    try:
+                        with self._lock:
+                            db.close()
+                    except BaseException:
+                        # Restore _db and _closed so a later close()
+                        # can retry.
+                        self._db = db
+                        self._closed = False
+                        raise
         finally:
             # Always shut down and clear the executor, even if DB close
             # raised an exception.

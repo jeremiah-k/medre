@@ -164,11 +164,7 @@ class TestRetryShutdown:
             if worker._task is not None and not worker._task.done():
                 try:
                     await asyncio.wait_for(worker._task, timeout=2.0)
-                except (
-                    asyncio.TimeoutError,
-                    asyncio.CancelledError,
-                    Exception,
-                ):
+                except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
 
     async def test_capacity_rejection_during_retry(self):

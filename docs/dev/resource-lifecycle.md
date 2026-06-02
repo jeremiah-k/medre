@@ -375,17 +375,17 @@ task cleanup. Fake/synthetic test boundaries apply.
 
 ### What the runtime logs during shutdown
 
-| Phase             | Level            | What is logged                               |
-| ----------------- | ---------------- | -------------------------------------------- |
-| Enter STOPPING    | INFO             | Runtime name, configured timeout             |
-| Replay cancelled  | INFO             | Replay engine cancelled, capacity stopped    |
-| Retry worker stop | INFO             | Worker stopped (or WARNING on forced cancel) |
-| Drain complete    | INFO             | In-flight work drained                       |
-| Drain timeout     | WARNING          | Count of abandoned deliveries and replays    |
-| Per-adapter stop  | DEBUG/INFO/ERROR | Per-adapter lifecycle progress               |
-| Pipeline stopped  | INFO             | Pipeline runner stopped                      |
-| Storage closed    | INFO             | Storage close complete                       |
-| Final state       | INFO             | Runtime stopped, or ERROR with summary       |
+| Phase             | Level            | What is logged                                     |
+| ----------------- | ---------------- | -------------------------------------------------- |
+| Enter STOPPING    | INFO             | Runtime name, configured timeout                   |
+| Replay cancelled  | INFO             | Replay engine cancelled, capacity stopped          |
+| Retry worker stop | INFO             | Worker stopped (or WARNING on forced cancellation) |
+| Drain complete    | INFO             | In-flight work drained                             |
+| Drain timeout     | WARNING          | Count of abandoned deliveries and replays          |
+| Per-adapter stop  | DEBUG/INFO/ERROR | Per-adapter lifecycle progress                     |
+| Pipeline stopped  | INFO             | Pipeline runner stopped                            |
+| Storage closed    | INFO             | Storage close complete                             |
+| Final state       | INFO             | Runtime stopped, or ERROR with summary             |
 
 ### What the runtime persists during shutdown
 

@@ -92,6 +92,7 @@ class TestSyncFallbackNormalClose:
             warnings.simplefilter("always", ResourceWarning)
             await storage.initialize()
             await storage.close()
+            assert storage._db is None
             del storage
             gc.collect()
 
@@ -123,6 +124,7 @@ class TestSyncFallbackNormalClose:
             warnings.simplefilter("always", ResourceWarning)
             ro = await SQLiteStorage.open_readonly(db_path)
             await ro.close()
+            assert ro._db is None
             del ro
             gc.collect()
 
@@ -286,7 +288,7 @@ class TestSyncFallbackExecutorCleanup:
     """Sync fallback — executor is always cleaned up by close()."""
 
     async def test_close_clears_executor_sync_path(self, tmp_path: Path) -> None:
-        """close() sets _executor to None on the sync fallback path."""
+        """close() sets _executor to None and _db to None on the sync fallback path."""
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
         await storage.initialize()
@@ -294,11 +296,13 @@ class TestSyncFallbackExecutorCleanup:
         await storage.close()
         assert storage._executor is None
         assert storage._closed is True
+        assert storage._db is None
 
     async def test_executor_cleared_even_if_db_close_raises_sync(
         self, tmp_path: Path
     ) -> None:
-        """If an exception occurs during DB close, executor is still shut down.
+        """If an exception occurs during DB close, executor is still shut down
+        and _db/_closed are restored for retry.
 
         We simulate a failure in the close path by replacing _db with a mock
         whose close() raises after the real connection is cleaned up.
@@ -316,14 +320,17 @@ class TestSyncFallbackExecutorCleanup:
             def close(self):
                 raise RuntimeError("simulated db close error")
 
-        storage._db = _MockConn()
+        mock_conn = _MockConn()
+        storage._db = mock_conn
 
         with pytest.raises(RuntimeError, match="simulated db close error"):
             await storage.close()
 
         # Executor must still be cleared.
         assert storage._executor is None
-        assert storage._closed is True
+        # _db and _closed are restored so a retry close() can succeed.
+        assert storage._db is mock_conn
+        assert storage._closed is False
 
     async def test_close_with_none_db_clears_executor_sync(
         self, tmp_path: Path
