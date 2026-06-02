@@ -276,13 +276,14 @@ adapters, pipeline, and storage. A `RuntimeShutdownError` is raised at the end
 with a summary of which adapters failed.
 
 The RetryWorker follows the same pattern: it gets a configurable grace period
-(default 5 seconds) after receiving the shutdown signal. If it does not finish
-within its configured stop timeout, its background task is cancelled and a
-second bounded grace period (also `stop_timeout_seconds`) is applied.
+(default 10 seconds, sourced from `runtime.shutdown_timeout_seconds`) after
+receiving the shutdown signal. If it does not finish within its configured
+stop timeout, its background task is cancelled and a second bounded grace
+period (also `stop_timeout_seconds`) is applied.
 
 The RetryWorker stop timeout is wired from
 `config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML section,
-default `5.0`) — the same value that governs per-adapter stop deadlines.
+default `10`) — the same value that governs per-adapter stop deadlines.
 It is not a `[retry]` config field.
 
 If a RetryWorker task is cancellation-resistant (e.g. a storage call
@@ -335,7 +336,7 @@ and emits a `retry_abandoned` event. See
 | Symptom                                          | Likely cause                                                                  |
 | ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | Adapter times out on every shutdown              | Transport SDK connection is in a blocking call with no timeout                |
-| RetryWorker may be forcibly cancelled            | Storage operation (claim/renew) is blocked or very slow                       |
+| RetryWorker task may be cancelled then abandoned | Storage operation (claim/renew) is blocked or very slow                       |
 | Process never exits after `RuntimeShutdownError` | A non-daemon thread created by a third-party SDK is keeping the process alive |
 | Drain phase times out repeatedly                 | Slow or unresponsive adapter callbacks holding capacity semaphore             |
 

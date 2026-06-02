@@ -241,11 +241,31 @@ class RetryWorker:
                         return
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
-                # ``stop()`` itself was cancelled by the caller.
-                # Mark the worker abandoned so the next start() call
-                # refuses a relaunch, emit the event for downstream
-                # observability, and re-raise.
-                if not task.done():
+                # ``stop()`` itself was cancelled by the caller.  Two
+                # sub-cases:
+                #
+                # 1. The task had already finished by the time the
+                #    cancellation arrived (race between the polling
+                #    loop's cooperative check and the external cancel).
+                #    Do clean-stop cleanup so ``_task`` and
+                #    ``state.running`` do not leak, then re-raise.
+                # 2. The task is still alive.  Mark the worker
+                #    abandoned so the next start() call refuses a
+                #    relaunch, emit the event for downstream
+                #    observability, and re-raise.
+                if task.done():
+                    self._task = None
+                    self.state.running = False
+                    self._emit(
+                        "retry_stopped",
+                        {
+                            "processed": self.state.processed,
+                            "succeeded": self.state.succeeded,
+                            "failed": self.state.failed,
+                            "dead_lettered": self.state.dead_lettered,
+                        },
+                    )
+                else:
                     self.state.abandoned = True
                     self._emit(
                         "retry_abandoned",
@@ -313,12 +333,6 @@ class RetryWorker:
         # cancellation-resistant we will hit the deadline hard.
         while not task.done():
             if loop.time() >= deadline:
-                _logger.warning(
-                    "RetryWorker task did not cancel within %.1fs; "
-                    "abandoning (_task is still referenced, "
-                    "state.abandoned=True)",
-                    self._stop_timeout,
-                )
                 if task.done():
                     # Race: task finished between the deadline check
                     # and here.  Treat as successful cancel-grace
@@ -335,6 +349,18 @@ class RetryWorker:
                         },
                     )
                     return
+                # Truly abandoned: the task is still alive after the
+                # cancel grace period.  Emit the warning *after* the
+                # race check so a task that finished in the narrow
+                # window between the deadline check and the race
+                # check does not produce a misleading "abandoning"
+                # log line.
+                _logger.warning(
+                    "RetryWorker task did not cancel within %.1fs; "
+                    "abandoning (_task is still referenced, "
+                    "state.abandoned=True)",
+                    self._stop_timeout,
+                )
                 # state.running is still True from start();
                 # intentionally not cleared to reflect the honest
                 # state of the still-alive task.

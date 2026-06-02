@@ -103,6 +103,57 @@ def _monotonic_ms() -> float:
     return _time.monotonic() * 1000
 
 
+def _outcome_from_task(
+    task: asyncio.Task[object],
+    default_outcome: str,
+) -> tuple[str, BaseException | None, bool]:
+    """Extract ``(outcome, exception, cancelled_outer)`` from a finished task.
+
+    Caller must have already confirmed ``task.done()``.  We never ``await``
+    the task, so the adapter's exception (if any) is stored on the task
+    object and inspected here.  Mapping:
+
+    * Task ended with ``CancelledError`` (either ``task.cancel()`` was
+      called and the coroutine handled it, or the coroutine raised
+      ``CancelledError`` on its own): **propagate** by raising
+      ``CancelledError`` so the caller can apply its cancellation
+      policy.  This matches the behaviour callers expect from
+      ``await task`` and from ``asyncio.wait_for``.
+    * No exception    -> ``default_outcome`` with ``None``
+    * ``TimeoutError`` -> ``"timeout"`` with the exception
+    * Anything else   -> ``"error"`` with the exception
+    """
+    if task.cancelled():
+        raise asyncio.CancelledError("adapter stop cancelled")
+    exc = task.exception()
+    if exc is None:
+        return (default_outcome, None, False)
+    if isinstance(exc, asyncio.TimeoutError):
+        return ("timeout", exc, False)
+    return ("error", exc, False)
+
+
+def _outcome_from_cancelled_task(
+    task: asyncio.Task[object],
+) -> tuple[str, BaseException | None, bool]:
+    """Extract outcome from a task that *we* cancelled (stage 2).
+
+    The caller has already called ``task.cancel()`` and the task has
+    finished.  In this stage a cancelled task is the *expected* result
+    of our forced cancel — it is not an external cancellation to
+    propagate.  If the task raised an exception during cancellation
+    cleanup, that exception is still a timeout outcome.
+
+    Caller must have already confirmed ``task.done()``.
+    """
+    if task.cancelled():
+        return ("timeout", None, False)
+    exc = task.exception()
+    if exc is None:
+        return ("timeout", None, False)
+    return ("timeout", exc, False)
+
+
 @dataclass
 class MedreApp:
     """Holds all runtime subsystem references and coordinates lifecycle.
@@ -1077,6 +1128,15 @@ class MedreApp:
                 )
 
         # 2. Stop the pipeline runner.
+        # If a CancelledError was caught earlier, the task's cancellation
+        # state is latched in Python 3.11+: the next ``await`` in the same
+        # task would re-raise immediately.  Clear the cancel state here so
+        # cleanup awaits actually run, then restore it before re-raising.
+        _cleared_cancels = 0
+        if _cancelled is not None:
+            current = asyncio.current_task()
+            if current is not None:
+                _cleared_cancels = current.uncancel()
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped")
@@ -1101,6 +1161,13 @@ class MedreApp:
             # FAILED is the honest terminal state, since cleanup was
             # driven by a cancellation rather than a normal stop.
             self._set_state(RuntimeState.FAILED)
+            if _cleared_cancels:
+                # Restore the original cancel count so the caller's
+                # next await is still cancelled.
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_cleared_cancels):
+                        current.cancel()
             raise _cancelled
 
         if errors:
@@ -1142,8 +1209,26 @@ class MedreApp:
         cleanup, the outer ``wait_for`` returns control while the
         inner coroutine is still running.  This helper provides a true
         hard deadline by driving the stop on an explicit asyncio task
-        and re-applying a bounded cancel grace if the task does not
-        finish in time.
+        and polling ``task.done()`` at a short cadence.  Polling is
+        required because ``asyncio.wait_for`` cannot terminate a
+        coroutine that suppresses ``CancelledError`` indefinitely —
+        the cancel is consumed by an inner ``except`` block and the
+        await never raises, leaving ``wait_for`` to wait forever.
+
+        Two-stage deadline:
+
+        1. **Cooperative.**  Poll ``stop_task.done()`` at 10 ms
+           intervals until either the task finishes (clean stop) or
+           ``timeout`` seconds elapse.
+        2. **Forced cancel.**  If the cooperative stage times out,
+           call ``stop_task.cancel()`` and poll again for a second
+           ``timeout``-second grace period.  If the task is still
+           alive after both stages, the task is **abandoned** and the
+           event loop reclaims it on shutdown.
+
+        External ``CancelledError`` delivered to this helper itself is
+        handled by giving the adapter one bounded cancel grace and
+        then re-raising, so the caller's cleanup still runs.
 
         Returns
         -------
@@ -1157,10 +1242,22 @@ class MedreApp:
               whether to propagate, defer, or swallow it.
         """
         stop_task = asyncio.create_task(adapter.stop(timeout=float(timeout)))
+        loop = asyncio.get_running_loop()
         try:
-            await asyncio.wait_for(stop_task, timeout=float(timeout))
-            return ("stopped", None, False)
-        except asyncio.TimeoutError as exc:
+            # Stage 1: cooperative.  Poll until done or deadline.
+            deadline = loop.time() + float(timeout)
+            while not stop_task.done():
+                if loop.time() >= deadline:
+                    break
+                await asyncio.sleep(0.01)
+            if stop_task.done():
+                if stop_task.cancelled():
+                    # Adapter's stop() raised CancelledError on its own
+                    # (we never called task.cancel()).  Propagate so the
+                    # caller can apply its cancellation policy.
+                    raise asyncio.CancelledError("adapter stop cancelled")
+                return _outcome_from_task(stop_task, "stopped")
+            # Stage 2: forced cancel with bounded grace.
             _logger.error(
                 "Timeout stopping adapter %s.%s after %.1fs, cancelling",
                 transport,
@@ -1168,46 +1265,42 @@ class MedreApp:
                 timeout,
             )
             stop_task.cancel()
-            try:
-                await asyncio.wait_for(stop_task, timeout=float(timeout))
-            except asyncio.CancelledError:
-                pass  # cancellation completed cleanly
-            except asyncio.TimeoutError:
-                # The task is still alive after cancel.  Do not await it
-                # indefinitely — let the event loop reclaim it when the
-                # loop shuts down.  Caller records the abandonment.
-                _logger.error(
-                    "Adapter %s.%s did not stop after cancel within "
-                    "%.1fs; abandoning",
-                    transport,
-                    adapter_id,
-                    timeout,
-                )
-                return ("abandoned", exc, False)
-            return ("timeout", exc, False)
+            cancel_deadline = loop.time() + float(timeout)
+            while not stop_task.done():
+                if loop.time() >= cancel_deadline:
+                    # Still alive after cancel grace — abandon.
+                    _logger.error(
+                        "Adapter %s.%s did not stop after cancel within "
+                        "%.1fs; abandoning",
+                        transport,
+                        adapter_id,
+                        timeout,
+                    )
+                    return (
+                        "abandoned",
+                        TimeoutError("adapter stop abandoned"),
+                        False,
+                    )
+                await asyncio.sleep(0.01)
+            # Task finished during cancel grace.  We called
+            # task.cancel(), so the task ended because of our cancel.
+            # If the task's exception is non-None, it raised during
+            # cancellation — still a timeout outcome, not a propagation.
+            return _outcome_from_cancelled_task(stop_task)
         except asyncio.CancelledError:
             # External cancellation arrived during the stop.  Try to
             # give the adapter its own bounded cancel grace before
             # propagating, so the adapter can do a minimal cleanup if
-            # it cooperates.
+            # it cooperates.  Polling is used so cancellation-resistant
+            # adapters cannot hang the helper indefinitely.
             if not stop_task.done():
                 stop_task.cancel()
-                try:
-                    await asyncio.wait_for(stop_task, timeout=float(timeout))
-                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                    pass
+                cancel_deadline = loop.time() + float(timeout)
+                while not stop_task.done():
+                    if loop.time() >= cancel_deadline:
+                        break
+                    await asyncio.sleep(0.01)
             raise
-        except Exception as exc:
-            # Adapter's stop() raised a regular exception (e.g.
-            # RuntimeError).  Return it as an "error" outcome so the
-            # caller can set FAILED state and record it appropriately.
-            _logger.error(
-                "Error stopping adapter %s.%s: %s",
-                transport,
-                adapter_id,
-                exc,
-            )
-            return ("error", exc, False)
 
     async def _persist_drain_abandoned_evidence(self) -> None:
         """Persist structured abandonment receipts for in-flight deliveries.

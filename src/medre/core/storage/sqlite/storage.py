@@ -393,13 +393,19 @@ class _SQLiteStorageBase:
                             raise
                     except BaseException:
                         # On any non-cancellation failure, ensure the close
-                        # task is awaited so we don't leak it, then surface
-                        # the exception.
+                        # task is awaited so we don't leak it.  Widen the
+                        # inner ``except`` to ``BaseException`` so
+                        # ``KeyboardInterrupt`` / ``SystemExit`` cannot
+                        # replace the triggering exception with a new
+                        # one.  Restore ``self._db = db`` before re-raising
+                        # so a later ``close()`` call can retry the close
+                        # against the same connection.
                         if not close_task.done():
                             try:
                                 await close_task
-                            except Exception:
+                            except BaseException:
                                 pass
+                        self._db = db
                         raise
                 else:
                     with self._lock:

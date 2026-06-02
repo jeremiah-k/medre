@@ -49,7 +49,7 @@ Errors at any step are accumulated, not raised immediately, so later cleanup
 always runs.
 
 ```text
- 1. Idempotency guard        -- return if STOPPED or INITIALIZED
+ 1. Idempotency guard        -- return if STOPPED, STOPPING, or INITIALIZED
  2. State -> STOPPING
  3. Stop accepting new work   -- capacity_controller.stop_accepting()
  4. Cancel replay engine      -- replay_engine.cancel()
@@ -200,25 +200,30 @@ in a terminal state (`STOPPED` or `FAILED`) are skipped in both passes.
 
 **Timeout.** Every `adapter.stop(timeout)` call is driven by
 `MedreApp._stop_adapter_with_deadline(...)`, a hard-bounded two-stage
-helper:
+helper that uses **polling, not `asyncio.wait_for`**, at every stage:
 
 1. `stop_task = asyncio.create_task(adapter.stop(timeout=...))`
-2. `await asyncio.wait_for(stop_task, timeout=...)` (the **cooperative**
-   stage).
-3. On `asyncio.TimeoutError`, `stop_task.cancel()` and a second
-   `await asyncio.wait_for(stop_task, timeout=...)` apply a bounded
-   cancel grace.
-4. If the task is still alive after the cancel grace, it is **abandoned**
-   (event loop reclaims it on shutdown) and the helper returns
+2. **Cooperative stage**: poll `stop_task.done()` at 10 ms intervals
+   until the task finishes or the deadline expires. The
+   `adapter.stop(timeout=...)` argument is the *adapter's* cooperative
+   timeout (double-layer enforcement with the runtime deadline).
+3. **Forced cancel stage**: on deadline expiry, `stop_task.cancel()`
+   and poll again for a second bounded grace period. If the task is
+   still alive after the cancel grace, it is **abandoned** (event loop
+   reclaims it on shutdown) and the helper returns
    `("abandoned", exc, False)`.
+4. **External cancellation**: if a `CancelledError` is delivered to
+   the helper itself, the adapter's task is given one bounded cancel
+   grace (also polling) and then the `CancelledError` is re-raised.
 
-This is a true hard deadline, unlike a bare
-`asyncio.wait_for(adapter.stop(...), timeout=...)` which returns
-control while the inner coroutine is still running if `adapter.stop`
-swallows `CancelledError` or hangs during its own cleanup. The
-timeout comes from `config.runtime.shutdown_timeout_seconds` (default
-10 s). The adapter also receives the same timeout as a parameter
-(double-layer enforcement).
+Polling is mandatory at every stage. A bare
+`asyncio.wait_for(adapter.stop(...), timeout=...)` cannot bound
+cancellation-resistant adapters: if `adapter.stop` swallows
+`CancelledError` or hangs during its own cleanup, `wait_for` returns
+control while the inner coroutine is still running. Polling
+`task.done()` is the only reliable hard bound for such adapters. The
+runtime deadline comes from `config.runtime.shutdown_timeout_seconds`
+(default 10 s).
 
 **Error recording.** Each failed stop appends `(adapter_id, exception)` to a
 collector list. After all cleanup (adapters, pipeline, storage), if the list
@@ -257,8 +262,8 @@ timeout, abandoned deliveries get persisted as `DeliveryReceipt` with
 **Test boundaries.** Timeout supervision, cancellation handling, storage-close
 resilience, pipeline-stop resilience, reverse-stop-order preservation, and
 RuntimeShutdownError message content are covered in
-`tests/test_runtime_adapter_stop_supervision.py` (326 lines) and
-`tests/test_startup_cleanup_stop_supervision.py` (424 lines). Both files use
+`tests/test_runtime_adapter_stop_supervision.py` and
+`tests/test_startup_cleanup_stop_supervision.py`. Both files use
 fake adapters with controlled stop timing. No live/hardware validation claims
 apply.
 

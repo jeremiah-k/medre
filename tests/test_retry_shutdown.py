@@ -974,6 +974,83 @@ class TestRetryWorkerStopOrphan:
         assert "retry_stopped" in event_types
         assert "retry_abandoned" not in event_types
 
+    async def test_stop_cancelled_after_task_already_done(self):
+        """stop() cancelled by the caller *after* the background task has
+        already completed naturally must still do clean-stop cleanup.
+
+        Regression: the old ``except asyncio.CancelledError`` branch in
+        ``stop()`` only checked ``if not task.done()`` and skipped
+        cleanup when the task was already done, leaking ``_task`` and
+        ``state.running=True``.  The fix splits the branch: if the task
+        is already done at cancellation time, do the clean-stop cleanup
+        (clear ``_task``, set ``state.running=False``, emit
+        ``retry_stopped``) and then re-raise.
+
+        The test uses a sub-task for ``stop()`` and cancels it
+        immediately.  Because the background task is already done,
+        ``stop()`` may complete normally (in which case the cancel is
+        a no-op and the clean-stop path is verified directly) or it
+        may be cancelled mid-execution (in which case the new
+        ``task.done()`` branch in the ``except CancelledError`` handler
+        is verified).  Either way the end state must be clean.
+        """
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        storage.claim_due_outbox_items = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+        )
+
+        await worker.start()
+        orig_task = worker._task
+        assert orig_task is not None
+
+        # Signal shutdown so the run loop exits cleanly on its next
+        # iteration, ending the task without raising.  Wait for the
+        # task to be truly done.
+        worker._shutdown_event.set()
+        await wait_until(lambda: orig_task.done(), timeout=2.0)
+        assert orig_task.done()
+
+        # Force stop() to be cancelled by the caller.  wait_for with
+        # a very short timeout cancels the inner coroutine at the
+        # first await point, modelling an external cancellation that
+        # arrives while stop() is running.  When the background task
+        # is already done, stop() may complete normally before the
+        # timeout fires (in which case the cancel is a no-op and the
+        # clean-stop path is verified directly) or it may be
+        # cancelled mid-execution (in which case the new
+        # ``task.done()`` branch in the ``except CancelledError``
+        # handler is verified).  Either way the end state must be
+        # clean.
+        try:
+            await asyncio.wait_for(worker.stop(), timeout=1e-6)
+        except asyncio.TimeoutError:
+            pass  # expected: wait_for cancelled stop() mid-execution
+
+        # Clean-stop state must hold regardless of whether stop()
+        # completed normally or was cancelled mid-execution.
+        assert worker._task is None
+        assert worker.state.running is False
+        assert worker.state.abandoned is False
+        event_types = [e.event_type.value for e in event_buffer]
+        assert "retry_stopped" in event_types
+        assert "retry_abandoned" not in event_types
+
     async def test_concurrent_stop_no_duplicate_events(self):
         """Concurrent stop() calls do not emit duplicate events.
 

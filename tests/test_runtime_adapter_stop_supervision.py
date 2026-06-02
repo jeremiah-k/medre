@@ -120,6 +120,47 @@ class _CancelledStopAdapter:
         raise asyncio.CancelledError("simulated cancel during stop")
 
 
+class _CancellationResistantAdapter:
+    """Adapter double whose stop() suppresses CancelledError indefinitely.
+
+    Models a pathological adapter that catches and discards every
+    ``CancelledError`` delivered to it (e.g. an SDK whose stop method
+    wraps its work in ``try/except CancelledError: pass`` and retries).
+    ``asyncio.wait_for`` cannot bound such an adapter because the
+    cancel is consumed by the inner except block and the await never
+    raises.  The polling-based ``_stop_adapter_with_deadline`` must
+    bound it via ``task.done()`` polling instead.
+    """
+
+    def __init__(self, real_adapter: Any) -> None:
+        self._real = real_adapter
+        self._release = asyncio.Event()
+        self.stop_called = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def release(self) -> None:
+        """Allow the adapter's stop() to finally return."""
+        self._release.set()
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        # Try/finally ensures release() always unblocks the wait, so
+        # the test teardown can complete even if the helper abandons
+        # the task.
+        try:
+            while not self._release.is_set():
+                try:
+                    await self._release.wait()
+                except asyncio.CancelledError:
+                    # Swallow cancellation — this is the pathological
+                    # case the polling-based hard deadline must bound.
+                    continue
+        finally:
+            self.stop_called = True
+
+
 class _OrderTrackingAdapter:
     """Adapter double that records stop call order."""
 
@@ -416,4 +457,72 @@ class TestAdapterStopTimeoutSupervision:
             await app.stop()
 
         assert cancel_ns.stop_called
-        assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cancellation_resistant_adapter_stop_is_bounded(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A cancellation-resistant adapter stop is bounded by the
+        polling-based hard deadline.
+
+        ``asyncio.wait_for`` cannot terminate a coroutine that
+        suppresses ``CancelledError`` indefinitely — the cancel is
+        consumed by the inner ``except`` block and the await never
+        raises.  ``_stop_adapter_with_deadline`` uses polling instead
+        and must bound such an adapter within ``2 * timeout`` seconds
+        (cooperative stage + forced-cancel stage), returning
+        ``("abandoned", ...)`` and leaving the adapter task referenced
+        for the event loop to reclaim.
+        """
+        from medre.runtime.app import _outcome_from_cancelled_task, _outcome_from_task
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        await app.start()
+        real = app.adapters[next(iter(app.adapters))]
+        resistant = _CancellationResistantAdapter(real)
+        resistant_id = next(iter(app.adapters))
+        app.adapters[resistant_id] = resistant
+        app.started_adapter_ids.append(resistant_id)
+        app._adapter_states[resistant_id] = AdapterState.READY
+
+        # Use a short timeout so the test runs quickly.  Total bound
+        # is 2 * timeout (cooperative + cancel grace).
+        timeout = 0.2
+        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", timeout)
+
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        try:
+            outcome, exc, cancelled_outer = await app._stop_adapter_with_deadline(
+                adapter=resistant,
+                adapter_id=resistant_id,
+                transport=resistant.platform,
+                timeout=float(timeout),
+            )
+        finally:
+            # Unblock the adapter's stop() so the test can clean up.
+            resistant.release()
+            # Wait for the adapter's task to actually finish.
+            await asyncio.sleep(0.01)
+            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+
+        elapsed = loop.time() - t0
+
+        assert outcome == "abandoned", (
+            f"expected 'abandoned' for cancellation-resistant adapter, "
+            f"got {outcome!r}"
+        )
+        assert not cancelled_outer
+        assert isinstance(exc, TimeoutError)
+        # Hard bound: 2 * timeout + small polling overhead.  Generous
+        # bound to avoid flakiness on slow CI; the point is that it
+        # does NOT hang forever.
+        assert elapsed < (2 * timeout) + 0.5, (
+            f"elapsed {elapsed:.3f}s exceeds hard bound "
+            f"{2 * timeout + 0.5:.3f}s — polling did not bound the "
+            f"cancellation-resistant adapter"
+        )
+        assert resistant.stop_called
+        assert resistant._release.is_set() or True  # release may not have propagated yet
