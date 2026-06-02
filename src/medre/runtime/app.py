@@ -994,6 +994,19 @@ class MedreApp:
                 await self._retry_worker.stop()
             except Exception as exc:
                 _logger.error("Error stopping retry worker: %s", exc)
+            # Visibility for the abandonment case: ``stop()`` returns
+            # normally even when the worker task was abandoned (i.e.
+            # cancellation-resistant), so the caller would otherwise
+            # have no signal.  Do not escalate to
+            # ``RuntimeShutdownError`` — abandonment is best-effort
+            # cleanup, the same as abandoned adapter stops.
+            if self._retry_worker.state.abandoned:
+                _logger.warning(
+                    "RetryWorker was abandoned during shutdown: "
+                    "background task did not finish within timeout; "
+                    "state.running=True, abandoned=True. "
+                    "Subprocess-driven retries may still be in-flight."
+                )
 
         _logger.info("Runtime stopping — accepting no new work")
 
@@ -1143,11 +1156,20 @@ class MedreApp:
         # state is latched in Python 3.11+: the next ``await`` in the same
         # task would re-raise immediately.  Clear the cancel state here so
         # cleanup awaits actually run, then restore it before re-raising.
+        #
+        # ``Task.uncancel()`` only decrements the count by one and returns
+        # the REMAINING count (not the number removed).  To drain every
+        # pending cancellation request we must loop while ``cancelling()``
+        # is non-zero.  One ``cancel()`` after cleanup is sufficient to
+        # re-latch the cancellation for the caller's next await.
+        _had_cancellation = _cancelled is not None
         _cleared_cancels = 0
-        if _cancelled is not None:
+        if _had_cancellation:
             current = asyncio.current_task()
             if current is not None:
-                _cleared_cancels = current.uncancel()
+                while current.cancelling() > 0:
+                    current.uncancel()
+                    _cleared_cancels += 1
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped")
@@ -1167,18 +1189,19 @@ class MedreApp:
         # Re-raise deferred CancelledError after cleanup is complete.
         # Set a terminal state first so a subsequent stop() call does
         # not get trapped in the "STOPPING" early-return guard above.
-        if _cancelled is not None:
+        if _had_cancellation:
             # External cancellation interrupted normal completion;
             # FAILED is the honest terminal state, since cleanup was
             # driven by a cancellation rather than a normal stop.
             self._set_state(RuntimeState.FAILED)
             if _cleared_cancels:
-                # Restore the original cancel count so the caller's
-                # next await is still cancelled.
+                # Restore a single cancellation request so the
+                # caller's next await is still cancelled.  One
+                # request is enough to propagate ``CancelledError``
+                # from the next ``await`` in the same task.
                 current = asyncio.current_task()
                 if current is not None:
-                    for _ in range(_cleared_cancels):
-                        current.cancel()
+                    current.cancel()
             raise _cancelled
 
         if errors:

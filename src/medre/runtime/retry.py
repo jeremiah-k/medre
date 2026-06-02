@@ -139,6 +139,83 @@ class RetryWorker:
             return
         self._event_buffer.emit(rt, detail)
 
+    def _finalize_task_outcome(
+        self, task: asyncio.Task[None]
+    ) -> tuple[bool, BaseException | None]:
+        """Inspect a finished worker task, clear worker state, emit the
+        correct terminal event.
+
+        Called from every clean-stop path in :meth:`stop` and
+        :meth:`_force_cancel_with_poll` once ``task.done()`` is true.
+        Retrieves ``task.exception()`` so Python does not log
+        ``Task exception was never retrieved`` for crashes, and chooses
+        between ``retry_stopped`` and ``retry_failed`` based on whether
+        the task exited cleanly or raised.
+
+        Always clears :attr:`_task` and flips :attr:`state.running` to
+        ``False`` — the worker is done regardless of exit reason, and
+        leaving ``running=True`` after the task finished would prevent
+        a future :meth:`start` from launching a replacement.
+
+        A cancelled task is treated as a **clean** stop (not a crash):
+        the cancellation is the expected outcome of the stop sequence,
+        and emitting ``retry_failed`` for it would be a false alarm.
+        The caller's ``stop_timeout_seconds`` + polling logic decided
+        to cancel, so the cancellation is by design.
+
+        Returns
+        -------
+        ``(clean, exc)`` where ``clean`` is ``True`` if the task exited
+        without an exception and ``exc`` is the exception instance if
+        it raised (``None`` otherwise).  Callers use ``clean`` to
+        decide between ``_logger.info("RetryWorker stopped")`` and
+        logging the failure.
+        """
+        counts = {
+            "processed": self.state.processed,
+            "succeeded": self.state.succeeded,
+            "failed": self.state.failed,
+            "dead_lettered": self.state.dead_lettered,
+        }
+        # Worker is done in both branches; clear the reference and
+        # flip ``running`` so a future ``start()`` is allowed.
+        self._task = None
+        self.state.running = False
+        if task.cancelled():
+            # Task was cancelled (expected outcome of stop).  Emit
+            # ``retry_stopped`` — the cancellation is by design, not
+            # a crash.  Note: ``task.exception()`` would raise
+            # ``CancelledError`` for a cancelled task, so we must
+            # check ``cancelled()`` first.
+            self._emit("retry_stopped", counts)
+            return (True, None)
+        # ``task.exception()`` returns ``None`` for cleanly-finished
+        # tasks and the exception instance for crashed ones.  Calling
+        # it also marks the exception as retrieved, suppressing the
+        # ``Task exception was never retrieved`` warning.
+        exc = task.exception()
+        if exc is None:
+            self._emit("retry_stopped", counts)
+            return (True, None)
+        # Task crashed with a non-cancellation exception.  Log with
+        # the full traceback for operators and emit ``retry_failed``
+        # so downstream observers see the failure honestly instead of
+        # a misleading clean-stop.
+        _logger.error(
+            "RetryWorker task exited with exception: %s",
+            exc,
+            exc_info=exc,
+        )
+        self._emit(
+            "retry_failed",
+            {
+                **counts,
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_type": type(exc).__name__,
+            },
+        )
+        return (False, exc)
+
     async def start(self) -> None:
         """Start the retry worker background task.
 
@@ -254,17 +331,11 @@ class RetryWorker:
                 #    relaunch, emit the event for downstream
                 #    observability, and re-raise.
                 if task.done():
-                    self._task = None
-                    self.state.running = False
-                    self._emit(
-                        "retry_stopped",
-                        {
-                            "processed": self.state.processed,
-                            "succeeded": self.state.succeeded,
-                            "failed": self.state.failed,
-                            "dead_lettered": self.state.dead_lettered,
-                        },
-                    )
+                    clean, exc = self._finalize_task_outcome(task)
+                    if not clean:
+                        # Re-raise the crash so the caller sees the
+                        # real failure rather than a swallowed one.
+                        raise exc  # type: ignore[misc]
                 else:
                     self.state.abandoned = True
                     self._emit(
@@ -279,18 +350,11 @@ class RetryWorker:
                         },
                     )
                 raise
-            self._task = None
-            self.state.running = False
-            self._emit(
-                "retry_stopped",
-                {
-                    "processed": self.state.processed,
-                    "succeeded": self.state.succeeded,
-                    "failed": self.state.failed,
-                    "dead_lettered": self.state.dead_lettered,
-                },
-            )
-            _logger.info("RetryWorker stopped")
+            clean, exc = self._finalize_task_outcome(task)
+            if clean:
+                _logger.info("RetryWorker stopped")
+            else:
+                raise exc  # type: ignore[misc]
 
     async def _force_cancel_with_poll(self, task: asyncio.Task[None]) -> None:
         """Cancel *task* and wait for it with a hard time bound that does
@@ -335,19 +399,13 @@ class RetryWorker:
             if loop.time() >= deadline:
                 if task.done():
                     # Race: task finished between the deadline check
-                    # and here.  Treat as successful cancel-grace
-                    # completion rather than false abandonment.
-                    self._task = None
-                    self.state.running = False
-                    self._emit(
-                        "retry_stopped",
-                        {
-                            "processed": self.state.processed,
-                            "succeeded": self.state.succeeded,
-                            "failed": self.state.failed,
-                            "dead_lettered": self.state.dead_lettered,
-                        },
-                    )
+                    # and here.  Treat as cancel-grace completion
+                    # rather than false abandonment.  Surface a crash
+                    # here too — the task may have died during the
+                    # cancel grace rather than exiting cleanly.
+                    clean, exc = self._finalize_task_outcome(task)
+                    if not clean:
+                        raise exc  # type: ignore[misc]
                     return
                 # Truly abandoned: the task is still alive after the
                 # cancel grace period.  Emit the warning *after* the
@@ -377,17 +435,14 @@ class RetryWorker:
                 )
                 return
             await asyncio.sleep(0.01)
-        self._task = None
-        self.state.running = False
-        self._emit(
-            "retry_stopped",
-            {
-                "processed": self.state.processed,
-                "succeeded": self.state.succeeded,
-                "failed": self.state.failed,
-                "dead_lettered": self.state.dead_lettered,
-            },
-        )
+        # Loop exited because ``task.done()`` is true.  The task may
+        # have exited cleanly (the common case for a cooperative
+        # task that responded to ``task.cancel()``) or crashed
+        # during the cancel grace.  Inspect the outcome and emit the
+        # correct terminal event.
+        clean, exc = self._finalize_task_outcome(task)
+        if not clean:
+            raise exc  # type: ignore[misc]
 
     async def _run_loop(self) -> None:
         """Main polling loop."""
