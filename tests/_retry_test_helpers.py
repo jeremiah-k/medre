@@ -99,11 +99,16 @@ class RetryWorker:
                     receipt.attempt_number,
                 )
 
+                # Evaluate route/plan OUTSIDE the try so setup errors (helper
+                # bugs, malformed doubles) surface as test failures rather than
+                # being silently converted to retry outcomes.
+                route = self._make_route(receipt)
+                plan = self._make_plan(receipt)
                 try:
                     await self.pipeline.deliver_to_target(
                         event,
-                        self._make_route(receipt),
-                        self._make_plan(receipt),
+                        route,
+                        plan,
                         previous_receipt=receipt,
                     )
                     self.state.succeeded += 1

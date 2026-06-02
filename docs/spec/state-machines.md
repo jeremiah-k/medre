@@ -315,7 +315,7 @@ corresponding receipt. This enables:
 | `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation                                                                             |
 | `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                               |
 | `cancelled`     | —                 | No receipt produced (pre-delivery)                                                                                                 |
-| `abandoned`     | `suppressed`      | Drain-timeout abandonment produces a suppressed receipt with `failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` |
+| `abandoned`     | `suppressed`      | **Shutdown drain-timeout** abandonment produces a suppressed receipt with `failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` |
 | —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                  |
 
 ### 3.4 Implicit Suppression Paths

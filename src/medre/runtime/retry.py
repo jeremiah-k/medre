@@ -107,6 +107,10 @@ class RetryWorker:
         self._batch_size = batch_size
         self._max_attempts = max_attempts
         self._event_buffer = event_buffer
+        if stop_timeout_seconds <= 0:
+            raise ValueError(
+                f"stop_timeout_seconds must be > 0, got {stop_timeout_seconds!r}"
+            )
         self._stop_timeout = stop_timeout_seconds
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None

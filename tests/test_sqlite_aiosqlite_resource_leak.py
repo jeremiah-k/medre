@@ -399,3 +399,9 @@ class TestAiosqliteCloseRestoresDbOnFailure:
         with patch("asyncio.shield", side_effect=_raising_shield):
             with pytest.raises(asyncio.CancelledError, match="outer cancel"):
                 await storage.close()
+            # After the CE+CE branch, the close_task cancel-path must
+            # have restored _db and _closed so the connection remains
+            # retryable.  Verify the retry state explicitly.
+            mock_conn.close.assert_awaited()
+            assert storage._db is mock_conn
+            assert storage._closed is False

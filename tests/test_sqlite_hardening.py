@@ -213,12 +213,14 @@ class TestExecutorLifecycle:
 
         real_close = s._db.close
         entered = asyncio.Event()
+        finished_real_close = asyncio.Event()
 
         async def _slow_close() -> None:
             entered.set()
             # Hold the close open long enough for the cancel to arrive.
             await asyncio.sleep(0.15)
             await real_close()
+            finished_real_close.set()
 
         s._db.close = _slow_close
 
@@ -238,6 +240,10 @@ class TestExecutorLifecycle:
         with pytest.raises(asyncio.CancelledError):
             await task
 
+        # The shield must wait for the inner aiosqlite close to actually finish —
+        # not just reach the boundary of the close.  This guards against future
+        # regressions where the shield is removed or bypassed.
+        assert finished_real_close.is_set(), "inner aiosqlite close never completed"
         # Storage must be in a clean closed state.
         assert s._executor is None
         assert s._closed is True

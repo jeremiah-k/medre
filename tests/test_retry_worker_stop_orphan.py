@@ -208,7 +208,7 @@ class TestRetryWorkerStopOrphan:
                 # Give the task a moment to finish after release.
                 try:
                     await asyncio.wait_for(abandoned, timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
 
     async def test_start_refused_when_previous_stop_abandoned_task(self):
@@ -275,7 +275,7 @@ class TestRetryWorkerStopOrphan:
             if abandoned is not None and not abandoned.done():
                 try:
                     await asyncio.wait_for(abandoned, timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
 
     async def test_stop_idempotent(self):
@@ -675,5 +675,5 @@ class TestRetryWorkerStopOrphan:
             if abandoned is not None and not abandoned.done():
                 try:
                     await asyncio.wait_for(abandoned, timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass

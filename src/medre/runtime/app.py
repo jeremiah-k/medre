@@ -1441,6 +1441,16 @@ class MedreApp:
                     # the caller's except handler will drain and restore.
                     if not stop_task.done():
                         self._retain_abandoned_stop_task(stop_task)
+            # Consume any exception on the stop task to avoid
+            # "Task exception was never retrieved" warnings if the
+            # adapter stop raised during the cancel-grace period.
+            if stop_task.done() and not stop_task.cancelled():
+                exc = stop_task.exception()
+                if exc is not None:
+                    _logger.warning(
+                        "Adapter stop task raised during external cancellation: %s",
+                        exc,
+                    )
             raise
 
     def _retain_abandoned_stop_task(self, stop_task: asyncio.Task[object]) -> None:

@@ -339,7 +339,11 @@ class TestSyncFallbackExecutorCleanup:
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
         await storage.initialize()
-        # Manually nil the db to simulate partial cleanup.
+        # Manually nil the db to simulate partial cleanup.  Close the
+        # real connection first so the sqlite3.Connection is not leaked.
+        real_db = storage._db
+        assert real_db is not None
+        real_db.close()
         storage._db = None
         assert storage._executor is not None
         await storage.close()
