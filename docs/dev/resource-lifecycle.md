@@ -96,7 +96,7 @@ On first call:
    `CancelledError` would interrupt the close before aiosqlite's
    internal thread was joined, leaving the connection half-closed and
    triggering `ResourceWarning: <aiosqlite.core.Connection ...> was
-deleted before being closed` in `__del__`. On any non-cancellation
+   deleted before being closed` in `__del__`. On any non-cancellation
    failure during the shielded close, `self._db = db` and `_closed` are
    restored before the exception is re-raised so a later `close()` call
    can retry. The inner `await close_task` uses `except BaseException`
