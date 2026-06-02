@@ -329,7 +329,7 @@ class TestStartupCleanupDrainAccounting:
                 start_task.cancel()  # second cancel — triggers outer CE handler
                 try:
                     await start_task
-                except (asyncio.CancelledError, Exception):
+                except asyncio.CancelledError:
                     pass
 
             await _run()
