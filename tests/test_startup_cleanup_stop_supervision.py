@@ -685,20 +685,29 @@ class TestDrainPendingCancellations:
     @pytest.mark.asyncio
     async def test_single_cancel_drain_restore_roundtrip(self) -> None:
         """A single cancel/drain/restore cycle preserves CancelledError
-        propagation to the next await."""
+        propagation to the next await.
+
+        The cancellation is caught inside ``_target`` via an explicit
+        ``try / except CancelledError`` around a long sleep so that
+        ``_drain_pending_cancellations()`` is guaranteed to be reached
+        after the cancel is latched, not bypassed.
+        """
         started = asyncio.Event()
 
         async def _target() -> None:
             # Signal that the task has started before any cancel arrives.
             started.set()
-            # Yield to the event loop so the caller's cancel() can be
-            # delivered.  Without this yield, _drain_pending_cancellations
-            # would run before the cancel request is latched.
-            await asyncio.sleep(0)
-            # Drain the cancellation (there should be 1).
+            # Await inside try so the external cancel() is caught
+            # *within* _target, guaranteeing execution reaches
+            # _drain_pending_cancellations().
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                pass  # caught inside _target
+            # Now drain the cancellation (there should be exactly 1).
             count = _drain_pending_cancellations()
             assert count == 1
-            # Restore it.
+            # Restore it so the cancellation propagates to the caller.
             current = asyncio.current_task()
             assert current is not None
             current.cancel()

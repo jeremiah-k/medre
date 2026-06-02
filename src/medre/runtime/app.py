@@ -1281,12 +1281,13 @@ class MedreApp:
         """Stop *adapter* with a hard-bounded two-stage deadline.
 
         A simple ``asyncio.wait_for(adapter.stop(...), timeout=...)`` is
-        not a hard deadline: if ``adapter.stop`` swallows
-        ``CancelledError`` or hangs during its own cancellation
-        cleanup, the outer ``wait_for`` returns control while the
-        inner coroutine is still running.  This helper provides a true
-        hard deadline by driving the stop on an explicit asyncio task
-        and polling ``task.done()`` at a short cadence.  Polling is
+        not a hard deadline: ``wait_for`` cancels the awaited task on
+        timeout and then waits for its cancellation/cleanup to finish,
+        but if ``adapter.stop`` suppresses ``CancelledError`` or blocks
+        during its own cleanup, ``wait_for`` can overrun the timeout or
+        hang indefinitely.  This helper provides a true hard deadline by
+        driving the stop on an explicit asyncio task and polling
+        ``task.done()`` at a short cadence.  Polling is
         required because ``asyncio.wait_for`` cannot terminate a
         coroutine that suppresses ``CancelledError`` indefinitely —
         the cancel is consumed by an inner ``except`` block and the

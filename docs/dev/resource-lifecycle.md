@@ -134,7 +134,7 @@ cannot emit duplicate `retry_stopped` / `retry_abandoned` events:
    the cancel is consumed by an inner `except` block and the await never
    raises, leaving `wait_for` to wait forever. Polling `task.done()` is
    the only reliable hard bound for cancellation-resistant coroutines.
-3. **Forced cancel.** If the cooperative stage times out, the task is
+3. **Forced cancellation.** If the cooperative stage times out, the task is
    `cancel()`-ed once and polled again for a second bounded grace
    period. (The same `asyncio.wait_for`-cannot-terminate rationale
    applies; the cancel grace is therefore also a poll loop, not a
@@ -224,7 +224,7 @@ helper that uses **polling, not `asyncio.wait_for`**, at every stage:
    until the task finishes or the deadline expires. The
    `adapter.stop(timeout=...)` argument is the _adapter's_ cooperative
    timeout (double-layer enforcement with the runtime deadline).
-3. **Forced cancel stage**: on deadline expiry, `stop_task.cancel()`
+3. **Forced cancellation stage**: on deadline expiry, `stop_task.cancel()`
    and poll again for a second bounded grace period. If the task is
    still alive after the cancel grace, it is **abandoned** (event loop
    reclaims it on shutdown) and the helper returns
@@ -235,11 +235,12 @@ helper that uses **polling, not `asyncio.wait_for`**, at every stage:
 
 Polling is mandatory at every stage. A bare
 `asyncio.wait_for(adapter.stop(...), timeout=...)` cannot bound
-cancellation-resistant adapters: if `adapter.stop` swallows
-`CancelledError` or hangs during its own cleanup, `wait_for` returns
-control while the inner coroutine is still running. Polling
-`task.done()` is the only reliable hard bound for such adapters. The
-runtime deadline comes from `config.runtime.shutdown_timeout_seconds`
+cancellation-resistant adapters: `wait_for` cancels the awaited task on
+timeout and then waits for its cancellation/cleanup to finish, but if
+`adapter.stop` suppresses `CancelledError` or blocks during its own
+cleanup, `wait_for` can overrun the timeout or hang indefinitely.
+Polling `task.done()` is the only reliable hard bound for such adapters.
+The runtime deadline comes from `config.runtime.shutdown_timeout_seconds`
 (default 10 s).
 
 **Error recording.** Each failed stop appends `(adapter_id, exception)` to a
