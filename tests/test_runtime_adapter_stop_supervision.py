@@ -23,6 +23,7 @@ from tests.helpers.startup_cleanup import (
     _config_with_two_fake_adapters,
     _make_tracking_pipeline_stop,
     _make_tracking_storage_close,
+    _set_shutdown_timeout,
 )
 
 
@@ -140,13 +141,10 @@ class TestAdapterStopTimeoutSupervision:
         slow_id = adapter_ids[0]
         clean_id = adapter_ids[1]
         app.adapters[slow_id] = _SlowStopAdapter(app.adapters[slow_id])
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert app.adapters[slow_id].stop_called
         assert app.adapter_states[slow_id] is AdapterState.FAILED
@@ -167,13 +165,9 @@ class TestAdapterStopTimeoutSupervision:
         assert app.storage is not None
         storage_close_called = _make_tracking_storage_close(app)
 
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
-
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert storage_close_called[0], "storage.close() did not complete"
 
@@ -219,13 +213,10 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters[first_to_stop] = _OrderTrackingAdapter(
             _SlowStopAdapter(real_first), stop_order
         )
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert app.adapter_states[adapter_ids[0]] is AdapterState.STOPPED
 
@@ -246,13 +237,10 @@ class TestAdapterStopTimeoutSupervision:
 
         assert app.storage is not None
         storage_close_called = _make_tracking_storage_close(app)
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert all(
             state is AdapterState.FAILED for state in app.adapter_states.values()
@@ -271,13 +259,10 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters[adapter_id] = _SlowStopAdapter(app.adapters[adapter_id])
 
         pipeline_stop_called = _make_tracking_pipeline_stop(app)
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError):
                 await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert pipeline_stop_called[0], "pipeline_runner.stop() did not complete"
 
@@ -291,14 +276,11 @@ class TestAdapterStopTimeoutSupervision:
 
         slow_id = next(iter(app.adapters))
         app.adapters[slow_id] = _SlowStopAdapter(app.adapters[slow_id])
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             with pytest.raises(RuntimeShutdownError, match=slow_id) as exc_info:
                 await app.stop()
             assert slow_id in str(exc_info.value)
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
     # -- STOPPING state guard --------------------------------------------------
 
@@ -348,12 +330,9 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters["never_started_slow"] = slow_ns
         app._adapter_states["never_started_slow"] = AdapterState.INITIALIZING
 
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
-        try:
+        with _set_shutdown_timeout(app, 0.2):
             # Never-started adapter timeouts are intentionally not errors.
             await app.stop()
-        finally:
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
         assert slow_ns.stop_called
         assert app._adapter_states["never_started_slow"] is AdapterState.FAILED
@@ -413,27 +392,26 @@ class TestAdapterStopTimeoutSupervision:
         # Use a short timeout so the test runs quickly.  Total bound
         # is 2 * timeout (cooperative + cancel grace).
         timeout = 0.2
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", timeout)
 
         loop = asyncio.get_running_loop()
         t0 = loop.time()
-        try:
-            outcome, exc = await app._stop_adapter_with_deadline(
-                adapter=resistant,
-                adapter_id=resistant_id,
-                transport=resistant.platform,
-                timeout=float(timeout),
-            )
-        finally:
-            # Unblock the adapter's stop() so the test can clean up.
-            resistant.release()
-            # Wait for the adapter's task to actually finish.
-            await asyncio.sleep(0.01)
-            # Close storage so the aiosqlite connection is not leaked
-            # into subsequent tests' warnings.catch_warnings() context.
-            if app.storage is not None and not app.storage._closed:
-                await app.storage.close()
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+        with _set_shutdown_timeout(app, timeout):
+            try:
+                outcome, exc = await app._stop_adapter_with_deadline(
+                    adapter=resistant,
+                    adapter_id=resistant_id,
+                    transport=resistant.platform,
+                    timeout=float(timeout),
+                )
+            finally:
+                # Unblock the adapter's stop() so the test can clean up.
+                resistant.release()
+                # Wait for the adapter's task to actually finish.
+                await asyncio.sleep(0.01)
+                # Close storage so the aiosqlite connection is not leaked
+                # into subsequent tests' warnings.catch_warnings() context.
+                if app.storage is not None and not app.storage._closed:
+                    await app.storage.close()
 
         elapsed = loop.time() - t0
 
@@ -472,33 +450,32 @@ class TestAdapterStopTimeoutSupervision:
         app._adapter_states[resistant_id] = AdapterState.READY
 
         timeout = 0.1
-        object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", timeout)
 
-        try:
-            outcome, _ = await app._stop_adapter_with_deadline(
-                adapter=resistant,
-                adapter_id=resistant_id,
-                transport=resistant.platform,
-                timeout=float(timeout),
-            )
-            assert outcome == "abandoned"
-            # The task must be retained while still alive.
-            assert len(app._abandoned_adapter_stop_tasks) == 1
-            retained_task = next(iter(app._abandoned_adapter_stop_tasks))
-            assert not retained_task.done()
-        finally:
-            # Release the adapter so the task can finish.
-            resistant.release()
-            # Give the done callback a chance to run.
-            for _ in range(20):
-                if not app._abandoned_adapter_stop_tasks:
-                    break
-                await asyncio.sleep(0.01)
-            # Close storage so the aiosqlite connection is not leaked
-            # into subsequent tests' warnings.catch_warnings() context.
-            if app.storage is not None and not app.storage._closed:
-                await app.storage.close()
-            object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
+        with _set_shutdown_timeout(app, timeout):
+            try:
+                outcome, _ = await app._stop_adapter_with_deadline(
+                    adapter=resistant,
+                    adapter_id=resistant_id,
+                    transport=resistant.platform,
+                    timeout=float(timeout),
+                )
+                assert outcome == "abandoned"
+                # The task must be retained while still alive.
+                assert len(app._abandoned_adapter_stop_tasks) == 1
+                retained_task = next(iter(app._abandoned_adapter_stop_tasks))
+                assert not retained_task.done()
+            finally:
+                # Release the adapter so the task can finish.
+                resistant.release()
+                # Give the done callback a chance to run.
+                for _ in range(20):
+                    if not app._abandoned_adapter_stop_tasks:
+                        break
+                    await asyncio.sleep(0.01)
+                # Close storage so the aiosqlite connection is not leaked
+                # into subsequent tests' warnings.catch_warnings() context.
+                if app.storage is not None and not app.storage._closed:
+                    await app.storage.close()
 
         # After the task completes, the done callback removes it
         # from the retained set.

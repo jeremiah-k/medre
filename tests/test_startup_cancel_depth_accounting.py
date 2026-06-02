@@ -12,10 +12,9 @@ Split from ``test_startup_cleanup_stop_supervision.py``.  Covers:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
-
-import asyncio
 
 import pytest
 
@@ -600,3 +599,142 @@ class TestStartCatastrophicCancelledError:
         assert pipeline_called[0], "pipeline_runner.stop() was skipped"
         assert storage_called[0], "storage.close() was skipped"
         assert app.state == RuntimeState.FAILED
+
+
+# ===================================================================
+# _stop_adapter_with_deadline cancellation-count regression
+# ===================================================================
+
+
+class TestStopAdapterWithDeadlineCancelCountPreserved:
+    """Regression test for lost cancellation count in
+    ``_stop_adapter_with_deadline``.
+
+    Bug: ``_drain_pending_cancellations()`` was called inside the
+    helper's ``except asyncio.CancelledError`` block, discarding the
+    returned count before the caller could drain and accumulate it.
+    The caller's own ``except`` handler also calls
+    ``_drain_pending_cancellations()``, but by then there is nothing
+    left to drain — the count is silently lost.
+
+    Fix: removed the drain from inside the helper; the caller's
+    existing handler drains and accumulates the count.  Bounded
+    cancel-grace polling is preserved via an inner ``try/except``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cancel_count_preserved_through_stop_adapter_deadline(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """External cancellation during ``_stop_adapter_with_deadline()``
+        for a slow adapter preserves the full cancellation count at the
+        caller (in ``_stop_all_adapters``).
+
+        Scenario:
+
+        1.  App is in RUNNING state with one adapter whose ``stop()``
+            sleeps past any reasonable timeout.
+        2.  ``app.stop()`` calls ``_stop_adapter_with_deadline``, which
+            enters its cooperative polling loop.
+        3.  The test cancels the stop task *N* times.
+        4.  The helper's ``except`` block runs but does **not** drain
+            (the fix).
+        5.  The caller's ``except`` handler in ``_stop_all_adapters``
+            drains and accumulates the count.
+        6.  After pipeline + storage cleanup, the count is restored via
+            ``cancel()`` *N* times.
+        7.  The outer handler verifies ``task.cancelling() == N``.
+        """
+        N = 2  # cancellation depth to verify
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.RUNNING)
+
+        stop_entered = asyncio.Event()
+
+        class _SlowStopAdapter(AdapterContract):
+            adapter_id: str = "fake_matrix"
+            platform: str = "test"
+            role: AdapterRole = AdapterRole.TRANSPORT
+
+            def __init__(self, adapter_id: str) -> None:
+                self.adapter_id = adapter_id
+
+            async def start(self, ctx: AdapterContext) -> None:
+                pass
+
+            async def stop(self, timeout: float = 5.0) -> None:
+                stop_entered.set()
+                # Sleep past any reasonable timeout so the helper's
+                # polling loop stays active when the external cancel
+                # arrives.
+                try:
+                    await asyncio.sleep(300.0)
+                except asyncio.CancelledError:
+                    raise
+
+            async def health_check(self) -> AdapterInfo:
+                return AdapterInfo(
+                    adapter_id=self.adapter_id,
+                    platform=self.platform,
+                    role=self.role,
+                    version="0.0.0",
+                    capabilities=AdapterCapabilities(),
+                    health="ok",
+                )
+
+            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+                return None
+
+        app.adapters["fake_matrix"] = _SlowStopAdapter(adapter_id="fake_matrix")
+        app.started_adapter_ids.append("fake_matrix")
+        app._adapter_states["fake_matrix"] = AdapterState.READY
+
+        pipeline_called = _make_tracking_pipeline_stop(app)
+        storage_called = _make_tracking_storage_close(app)
+
+        restored_depth: int = 0
+
+        async def _inner_target() -> None:
+            nonlocal restored_depth
+            try:
+                await app.stop()
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                assert task is not None
+                restored_depth = task.cancelling()
+                while task.cancelling() > 0:
+                    task.uncancel()
+                return
+            raise AssertionError("stop() should have raised CancelledError")
+
+        with _set_shutdown_timeout(app, 0.5):
+            stop_task = asyncio.create_task(_inner_target())
+
+            # Wait for the adapter's stop() to be reached so the
+            # helper's cooperative polling loop is active.
+            await stop_entered.wait()
+            await asyncio.sleep(0.05)
+
+            # Cancel N times — these should be drained by the caller
+            # in _stop_all_adapters, not consumed inside the helper.
+            for _ in range(N):
+                stop_task.cancel("external stop cancel")
+
+            try:
+                await stop_task
+            except asyncio.CancelledError:
+                pass
+
+        # Adapter state must have transitioned to FAILED via the
+        # caller's except handler in _stop_all_adapters.
+        assert app._adapter_states.get("fake_matrix") == AdapterState.FAILED
+        # Pipeline and storage cleanup must still have run.
+        assert pipeline_called[0], "pipeline_runner.stop() was skipped"
+        assert storage_called[0], "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+        # The critical assertion: the full cancellation depth is
+        # restored — no count was lost inside the helper.
+        assert (
+            restored_depth == N
+        ), f"Expected {N} restored cancellations, got {restored_depth}"

@@ -181,9 +181,7 @@ class TestRetryWorkerStopOrphan:
             # abandoned=True, _abandoned_task retains the still-alive
             # task with a done callback, retry_abandoned emitted,
             # retry_stopped NOT.
-            assert (
-                worker._task is None
-            ), "_task must be cleared after abandonment"
+            assert worker._task is None, "_task must be cleared after abandonment"
             assert worker._abandoned_task is orig_task
             assert worker.state.running is False
             assert worker.state.abandoned is True

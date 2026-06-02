@@ -276,6 +276,11 @@ that complete during drain produce normal receipts. Deliveries abandoned after
 the drain timeout expires produce suppressed receipts with error
 `shutdown_drain_timeout`.
 
+New deliveries submitted to the pipeline after shutdown has begun are rejected
+immediately. These produce suppressed receipts with error
+`delivery_rejected_shutdown` — no outbox item is created and no adapter
+interaction occurs.
+
 ---
 
 ## 3. Relationship Between Machines
@@ -311,6 +316,7 @@ corresponding receipt. This enables:
 | `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                               |
 | `cancelled`     | —                 | No receipt produced (pre-delivery)                                                                                                 |
 | `abandoned`     | `suppressed`      | Drain-timeout abandonment produces a suppressed receipt with `failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` |
+| —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                  |
 
 ### 3.4 Implicit Suppression Paths
 

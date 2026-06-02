@@ -9,6 +9,7 @@ Split from ``test_startup_cleanup_stop_supervision.py``.  Covers:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -69,8 +70,6 @@ class TestRetryWorkerCancelledErrorDuringStop:
         """When retry_worker.stop() raises CancelledError, the deferred
         cancellation path runs pipeline_runner.stop() and storage.close()
         before re-raising."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -111,8 +110,6 @@ class TestCleanupCoreResourcesCancelledError:
         """Direct invocation of _cleanup_core_resources with a stub worker
         that raises CE must still run pipeline_runner.stop() and
         storage.close() and then re-raise the CE."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         # Bypass the full startup lifecycle: we want to test
@@ -140,8 +137,6 @@ class TestCleanupCoreResourcesCancelledError:
         """Full start() flow: one adapter that fails to start, plus a retry
         worker that raises CE on stop.  Pipeline and storage cleanup must
         still run; CE re-raises from start()."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -169,8 +164,6 @@ class TestCleanupCoreResourcesCancelledError:
         """When retry_worker.stop() raises CE but the task has no pending
         cancellation, _drain_pending_cancellations returns 0 and the CE
         still re-raises.  Verifies the no-drain case doesn't break."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         app._set_state(RuntimeState.STARTING)
@@ -197,8 +190,6 @@ class TestCleanupCoreResourcesCancelledError:
         """When pipeline_runner.stop() raises CancelledError during
         _cleanup_core_resources (no retry worker), the CE is deferred,
         storage cleanup still runs, and the CE re-raises."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         app._set_state(RuntimeState.STARTING)
@@ -226,8 +217,6 @@ class TestCleanupCoreResourcesCancelledError:
         """When storage.close() raises CancelledError during
         _cleanup_core_resources (no retry worker), the CE propagates
         through _cleanup_storage_safely and is deferred, then re-raises."""
-        import asyncio
-
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         app._set_state(RuntimeState.STARTING)

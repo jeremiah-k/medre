@@ -1420,28 +1420,27 @@ class MedreApp:
             # cancellation — still a timeout outcome, not a propagation.
             return _outcome_from_cancelled_task(stop_task)
         except asyncio.CancelledError:
-            # External cancellation arrived during the stop.  Try to
-            # give the adapter its own bounded cancel grace before
-            # propagating, so the adapter can do a minimal cleanup if
-            # it cooperates.  Polling is used so cancellation-resistant
-            # adapters cannot hang the helper indefinitely.
-            #
-            # Drain all pending cancellation requests so the polling
-            # loop below can actually poll without immediately
-            # re-raising on the next pending cancellation.  The caller
-            # already accumulates drained counts for restoration.
-            _drain_pending_cancellations()
+            # Do NOT drain here -- the caller is responsible for
+            # drain + restore of the cancellation count.  We use an
+            # inner try/except to give the polling loop bounded
+            # cancel-grace: if a pending cancellation re-raises during
+            # the sleep, we abandon the stop task and re-raise so the
+            # caller's drain picks up the full count.
             if not stop_task.done():
                 stop_task.cancel()
                 cancel_deadline = loop.time() + float(timeout)
-                while not stop_task.done():
-                    if loop.time() >= cancel_deadline:
-                        # Still alive after cancel grace — retain the
-                        # task so the event loop does not garbage-collect
-                        # the reference while it is still running.
+                try:
+                    while not stop_task.done():
+                        if loop.time() >= cancel_deadline:
+                            self._retain_abandoned_stop_task(stop_task)
+                            break
+                        await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    # Re-cancelled during cancel-grace polling.
+                    # Abandon the stop task to prevent reference leak;
+                    # the caller's except handler will drain and restore.
+                    if not stop_task.done():
                         self._retain_abandoned_stop_task(stop_task)
-                        break
-                    await asyncio.sleep(0.01)
             raise
 
     def _retain_abandoned_stop_task(self, stop_task: asyncio.Task[object]) -> None:

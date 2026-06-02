@@ -57,8 +57,9 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
 
 
 class TestStartupCleanupStopTimeout:
-    """Startup failure cleanup uses wait_for so slow/hung adapter stops
-    don't block pipeline runner stop or storage close."""
+    """Startup failure cleanup uses hard-bounded polling around adapter.stop()
+    so slow/hung adapter stops don't block pipeline runner stop or storage
+    close."""
 
     @pytest.mark.asyncio
     async def test_slow_adapter_stop_during_startup_cleanup_does_not_block_storage(

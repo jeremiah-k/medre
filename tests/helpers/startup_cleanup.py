@@ -194,9 +194,9 @@ def _make_tracking_pipeline_stop(app: MedreApp) -> list[bool]:
 class SlowStopOnStartFailure(AdapterContract):
     """Fails on start(); stop() sleeps longer than any reasonable timeout.
 
-    Verifies that the runtime's wait_for cuts a hung adapter.stop() short
-    during startup failure cleanup so that pipeline runner stop and storage
-    close still proceed.
+    Verifies that startup cleanup uses hard-bounded polling around
+    adapter.stop() to cut a hung stop short during startup failure cleanup
+    so that pipeline runner stop and storage close still proceed.
     """
 
     adapter_id: str = "slow_stop"
