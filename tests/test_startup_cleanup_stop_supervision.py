@@ -924,6 +924,8 @@ class TestStartCatastrophicCancelledError:
 
         # Build a fake adapter that lets the cancellation arrive during
         # its start() coroutine.
+        adapter_entered = asyncio.Event()
+
         class _AdaptersThatWait:
             adapter_id = "blocking"
             platform = "test"
@@ -933,6 +935,9 @@ class TestStartCatastrophicCancelledError:
                 self._start_event = asyncio.Event()
 
             async def start(self, ctx: AdapterContext) -> None:
+                # Signal that start() has been reached so the test
+                # knows it is safe to cancel.
+                adapter_entered.set()
                 # Wait until cancelled.  This ensures CE arrives during
                 # the loop body, not before it.
                 try:
@@ -965,9 +970,10 @@ class TestStartCatastrophicCancelledError:
 
         async def _run_and_cancel() -> None:
             start_task = asyncio.create_task(app.start())
-            # Let start() reach the blocking adapter.
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
+            # Wait until start() has reached the adapter's start()
+            # coroutine — guarantees CE arrives during the loop body,
+            # not during storage/pipeline initialization.
+            await adapter_entered.wait()
             start_task.cancel()
             try:
                 await start_task
