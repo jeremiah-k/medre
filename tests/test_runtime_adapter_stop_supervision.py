@@ -418,7 +418,7 @@ class TestAdapterStopTimeoutSupervision:
         loop = asyncio.get_running_loop()
         t0 = loop.time()
         try:
-            outcome, exc, cancelled_outer = await app._stop_adapter_with_deadline(
+            outcome, exc = await app._stop_adapter_with_deadline(
                 adapter=resistant,
                 adapter_id=resistant_id,
                 transport=resistant.platform,
@@ -441,7 +441,6 @@ class TestAdapterStopTimeoutSupervision:
             f"expected 'abandoned' for cancellation-resistant adapter, "
             f"got {outcome!r}"
         )
-        assert not cancelled_outer
         assert isinstance(exc, TimeoutError)
         # Hard bound: 2 * timeout + small polling overhead.  Generous
         # bound to avoid flakiness on slow CI; the point is that it
@@ -476,7 +475,7 @@ class TestAdapterStopTimeoutSupervision:
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", timeout)
 
         try:
-            outcome, _, _ = await app._stop_adapter_with_deadline(
+            outcome, _ = await app._stop_adapter_with_deadline(
                 adapter=resistant,
                 adapter_id=resistant_id,
                 transport=resistant.platform,
@@ -531,11 +530,10 @@ class TestOutcomeFromCancelledTaskTimeout:
             pass
 
         assert task.done()
-        outcome, exc, cancelled_outer = _outcome_from_cancelled_task(task)
+        outcome, exc = _outcome_from_cancelled_task(task)
         assert outcome == "timeout"
         assert isinstance(exc, asyncio.TimeoutError)
         assert exc.args[0] == "adapter stop timed out"
-        assert not cancelled_outer
 
     @pytest.mark.asyncio
     async def test_finished_task_no_exception_returns_timeout_error(self) -> None:
@@ -549,7 +547,6 @@ class TestOutcomeFromCancelledTaskTimeout:
         task = asyncio.create_task(_noop())
         await task
 
-        outcome, exc, cancelled_outer = _outcome_from_cancelled_task(task)
+        outcome, exc = _outcome_from_cancelled_task(task)
         assert outcome == "timeout"
         assert isinstance(exc, asyncio.TimeoutError)
-        assert not cancelled_outer

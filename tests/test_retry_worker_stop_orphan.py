@@ -99,14 +99,17 @@ class TestRetryWorkerStopOrphan:
             ), f"retry_stopped payload missing '{key}'"
 
     async def test_stop_does_not_clear_task_when_cancellation_resistant(self):
-        """Cancellation-resistant task: stop() returns boundedly but does
-        NOT clear _task or report a clean stop.
+        """Cancellation-resistant task: stop() returns boundedly, clears
+        ``_task``, sets ``state.running = False``, and installs a done
+        callback on the still-running task.
 
         Models a storage call that swallows ``CancelledError`` and
         continues blocking.  The worker's two-stage bounded cancel must
         not hang forever; it returns within ``2 * stop_timeout_seconds``
-        and reports abandonment by setting ``state.abandoned = True``
-        while keeping ``_task`` referencing the still-alive task.
+        and reports abandonment by setting ``state.abandoned = True``,
+        clearing ``_task``, flipping ``running`` to ``False``, and
+        retaining the task in ``_abandoned_task`` with a done callback
+        that consumes any exception.
         """
         from medre.runtime.events import EventBuffer
         from medre.runtime.retry import RetryWorker
@@ -174,12 +177,15 @@ class TestRetryWorkerStopOrphan:
                 f"expected < 1.0s for stop_timeout=0.1"
             )
 
-            # Cancellation-resistant: _task is KEPT, abandoned=True,
-            # running=True, retry_abandoned emitted, retry_stopped NOT.
+            # Cancellation-resistant: _task is cleared, running=False,
+            # abandoned=True, _abandoned_task retains the still-alive
+            # task with a done callback, retry_abandoned emitted,
+            # retry_stopped NOT.
             assert (
-                worker._task is orig_task
-            ), "_task must remain pointing at the still-alive task"
-            assert worker.state.running is True
+                worker._task is None
+            ), "_task must be cleared after abandonment"
+            assert worker._abandoned_task is orig_task
+            assert worker.state.running is False
             assert worker.state.abandoned is True
             event_types = [e.event_type.value for e in event_buffer]
             assert "retry_abandoned" in event_types
@@ -199,10 +205,11 @@ class TestRetryWorkerStopOrphan:
             # Release the stuck call so the task can complete and not
             # leak into other tests.
             _release.set()
-            if worker._task is not None and not worker._task.done():
+            abandoned = worker._abandoned_task
+            if abandoned is not None and not abandoned.done():
                 # Give the task a moment to finish after release.
                 try:
-                    await asyncio.wait_for(worker._task, timeout=2.0)
+                    await asyncio.wait_for(abandoned, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
 
@@ -254,21 +261,22 @@ class TestRetryWorkerStopOrphan:
             )
             await worker.stop()
             assert worker.state.abandoned is True
-            assert worker._task is not None
-            orig_task = worker._task
+            assert worker._task is None
+            assert worker._abandoned_task is not None
+            orig_abandoned = worker._abandoned_task
 
-            # Second start() must be refused: _task is still referenced,
-            # call_count is unchanged, and the task object is the SAME
-            # one (start must not replace the still-alive abandoned task).
+            # Second start() must be refused: abandoned is True,
+            # call_count is unchanged.
             prev_call_count = storage.claim_due_outbox_items.call_count
             await worker.start()
-            assert worker._task is orig_task
+            assert worker._abandoned_task is orig_abandoned
             assert storage.claim_due_outbox_items.call_count == prev_call_count
         finally:
             _release.set()
-            if worker._task is not None and not worker._task.done():
+            abandoned = worker._abandoned_task
+            if abandoned is not None and not abandoned.done():
                 try:
-                    await asyncio.wait_for(worker._task, timeout=2.0)
+                    await asyncio.wait_for(abandoned, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
 
@@ -645,7 +653,9 @@ class TestRetryWorkerStopOrphan:
             # Worker must be marked abandoned so the caller can detect
             # the cancelled state and refuse a relaunch.
             assert worker.state.abandoned is True
-            assert worker.state.running is True
+            assert worker.state.running is False
+            assert worker._task is None
+            assert worker._abandoned_task is not None
             event_types = [e.event_type.value for e in event_buffer]
             assert "retry_abandoned" in event_types
             assert "retry_stopped" not in event_types
@@ -663,8 +673,9 @@ class TestRetryWorkerStopOrphan:
                 assert key in abandoned_events[0].detail
         finally:
             _release.set()
-            if worker._task is not None and not worker._task.done():
+            abandoned = worker._abandoned_task
+            if abandoned is not None and not abandoned.done():
                 try:
-                    await asyncio.wait_for(worker._task, timeout=2.0)
+                    await asyncio.wait_for(abandoned, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass

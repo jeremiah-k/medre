@@ -127,8 +127,8 @@ def _drain_pending_cancellations() -> int:
 def _outcome_from_task(
     task: asyncio.Task[object],
     default_outcome: str,
-) -> tuple[str, BaseException | None, bool]:
-    """Extract ``(outcome, exception, cancelled_outer)`` from a finished task.
+) -> tuple[str, BaseException | None]:
+    """Extract ``(outcome, exception)`` from a finished task.
 
     Caller must have already confirmed ``task.done()``.  We never ``await``
     the task, so the adapter's exception (if any) is stored on the task
@@ -148,15 +148,15 @@ def _outcome_from_task(
         raise asyncio.CancelledError("adapter stop cancelled")
     exc = task.exception()
     if exc is None:
-        return (default_outcome, None, False)
+        return (default_outcome, None)
     if isinstance(exc, asyncio.TimeoutError):
-        return ("timeout", exc, False)
-    return ("error", exc, False)
+        return ("timeout", exc)
+    return ("error", exc)
 
 
 def _outcome_from_cancelled_task(
     task: asyncio.Task[object],
-) -> tuple[str, BaseException | None, bool]:
+) -> tuple[str, BaseException | None]:
     """Extract outcome from a task that *we* cancelled (stage 2).
 
     The caller has already called ``task.cancel()`` and the task has
@@ -168,11 +168,11 @@ def _outcome_from_cancelled_task(
     Caller must have already confirmed ``task.done()``.
     """
     if task.cancelled():
-        return ("timeout", asyncio.TimeoutError("adapter stop timed out"), False)
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"))
     exc = task.exception()
     if exc is None:
-        return ("timeout", asyncio.TimeoutError("adapter stop timed out"), False)
-    return ("timeout", exc, False)
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"))
+    return ("timeout", exc)
 
 
 @dataclass
@@ -767,7 +767,7 @@ class MedreApp:
                     # start.  Cleanup errors are logged but suppressed
                     # so that the original start-failure error is preserved.
                     try:
-                        outcome, _, _ = await self._stop_adapter_with_deadline(
+                        outcome, _ = await self._stop_adapter_with_deadline(
                             adapter=adapter,
                             adapter_id=adapter_id,
                             transport=transport,
@@ -1156,7 +1156,7 @@ class MedreApp:
             _logger.debug("Adapter %s.%s stopping", transport, adapter_id)
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                outcome, exc, _ = await self._stop_adapter_with_deadline(
+                outcome, exc = await self._stop_adapter_with_deadline(
                     adapter=adapter,
                     adapter_id=adapter_id,
                     transport=transport,
@@ -1213,7 +1213,7 @@ class MedreApp:
             )
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                outcome, _, _ = await self._stop_adapter_with_deadline(
+                outcome, _ = await self._stop_adapter_with_deadline(
                     adapter=adapter,
                     adapter_id=adapter_id,
                     transport=transport,
@@ -1334,7 +1334,7 @@ class MedreApp:
         adapter_id: str,
         transport: str,
         timeout: float,
-    ) -> tuple[str, BaseException | None, bool]:
+    ) -> tuple[str, BaseException | None]:
         """Stop *adapter* with a hard-bounded two-stage deadline.
 
         A simple ``asyncio.wait_for(adapter.stop(...), timeout=...)`` is
@@ -1367,14 +1367,11 @@ class MedreApp:
 
         Returns
         -------
-        (``outcome``, ``exception``, ``cancelled_outer``)
+        (``outcome``, ``exception``)
             * ``outcome`` -- one of ``"stopped"``, ``"timeout"``,
               ``"abandoned"``, ``"error"``.
             * ``exception`` -- the exception raised by the adapter, or
               ``None`` for a clean stop.
-            * ``cancelled_outer`` -- ``True`` if an external
-              ``CancelledError`` was observed; the caller decides
-              whether to propagate, defer, or swallow it.
         """
         stop_task = asyncio.create_task(adapter.stop(timeout=float(timeout)))
         loop = asyncio.get_running_loop()
@@ -1415,7 +1412,6 @@ class MedreApp:
                     return (
                         "abandoned",
                         TimeoutError("adapter stop abandoned"),
-                        False,
                     )
                 await asyncio.sleep(0.01)
             # Task finished during cancel grace.  We called
@@ -1429,6 +1425,12 @@ class MedreApp:
             # propagating, so the adapter can do a minimal cleanup if
             # it cooperates.  Polling is used so cancellation-resistant
             # adapters cannot hang the helper indefinitely.
+            #
+            # Drain all pending cancellation requests so the polling
+            # loop below can actually poll without immediately
+            # re-raising on the next pending cancellation.  The caller
+            # already accumulates drained counts for restoration.
+            _drain_pending_cancellations()
             if not stop_task.done():
                 stop_task.cancel()
                 cancel_deadline = loop.time() + float(timeout)
@@ -1568,7 +1570,7 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                outcome, _, _ = await self._stop_adapter_with_deadline(
+                outcome, _ = await self._stop_adapter_with_deadline(
                     adapter=adapter,
                     adapter_id=adapter_id,
                     transport=transport,
@@ -1626,7 +1628,7 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                outcome, _, _ = await self._stop_adapter_with_deadline(
+                outcome, _ = await self._stop_adapter_with_deadline(
                     adapter=adapter,
                     adapter_id=adapter_id,
                     transport=transport,
@@ -1697,7 +1699,8 @@ class MedreApp:
             # single restore path and raises the original startup
             # cancellation instead of a cleanup artifact.
             drained += _drain_pending_cancellations()
-        self._set_state(RuntimeState.FAILED)
+        if self._state != RuntimeState.FAILED:
+            self._set_state(RuntimeState.FAILED)
         return drained
 
     async def _cleanup_core_resources(self) -> None:

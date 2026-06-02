@@ -110,6 +110,11 @@ class RetryWorker:
         self._stop_timeout = stop_timeout_seconds
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        # Retained reference to a still-running task that was abandoned
+        # by :meth:`stop` because it survived the cancel grace period.
+        # Prevents the event loop from garbage-collecting the task while
+        # it is still alive; removed via a done callback when it finishes.
+        self._abandoned_task: asyncio.Task[None] | None = None
         # Serializes concurrent :meth:`stop` calls so the worker
         # emits ``retry_stopped`` / ``retry_abandoned`` exactly once.
         self._stop_lock = asyncio.Lock()
@@ -217,6 +222,38 @@ class RetryWorker:
         )
         return (False, exc)
 
+    def _retain_abandoned_task(self, task: asyncio.Task[None]) -> None:
+        """Retain *task* in :attr:`_abandoned_task` with a done callback.
+
+        Called when :meth:`stop` or :meth:`_force_cancel_with_poll` abandons
+        a still-running background task (the worker survived the cancel grace
+        period).  Without this retention, the ``self._task`` reference would
+        already have been cleared, allowing the event loop to garbage-collect
+        the task while it is still running.
+
+        The done callback consumes the task's exception (if any) so Python
+        does not emit ``Task exception was never retrieved``, and clears the
+        retained reference.
+        """
+        self._abandoned_task = task
+
+        def _on_done(task: asyncio.Task[None]) -> None:
+            try:
+                if not task.cancelled():
+                    exc = task.exception()
+                    if exc is not None:
+                        _logger.warning(
+                            "Abandoned RetryWorker task raised: %s",
+                            exc,
+                        )
+            except Exception:
+                pass
+            finally:
+                if self._abandoned_task is task:
+                    self._abandoned_task = None
+
+        task.add_done_callback(_on_done)
+
     async def start(self) -> None:
         """Start the retry worker background task.
 
@@ -286,11 +323,11 @@ class RetryWorker:
           ``retry_stopped`` event is emitted.  ``stop()`` returns
           promptly.
         * **Cancellation-resistant task** -- the task survives both
-          grace periods.  ``stop()`` does **not** clear :attr:`_task`
-          (the underlying coroutine may still complete and clean up
-          later), does **not** flip :attr:`state.running` to ``False``,
-          and does **not** emit ``retry_stopped``.  Instead it sets
-          :attr:`state.abandoned = True`, logs a warning, and emits a
+          grace periods.  ``stop()`` installs a done callback on the
+          task to consume any exception (preventing ``Task exception
+          was never retrieved`` warnings), clears :attr:`_task`,
+          flips :attr:`state.running` to ``False``, sets
+          :attr:`state.abandoned = True``, and emits a
           ``retry_abandoned`` event so downstream observers see the
           failure honestly.  :meth:`start` will refuse subsequent
           launches while ``abandoned`` is set.
@@ -331,7 +368,9 @@ class RetryWorker:
                 #    loop's cooperative check and the external cancel).
                 #    Do clean-stop cleanup so ``_task`` and
                 #    ``state.running`` do not leak, then re-raise.
-                # 2. The task is still alive.  Mark the worker
+                # 2. The task is still alive.  Install a done callback
+                #    to consume its exception, clear ``_task``, flip
+                #    ``state.running`` to ``False``, mark the worker
                 #    abandoned so the next start() call refuses a
                 #    relaunch, emit the event for downstream
                 #    observability, and re-raise.
@@ -342,6 +381,9 @@ class RetryWorker:
                         # real failure rather than a swallowed one.
                         raise exc from None  # type: ignore[misc]
                 else:
+                    self._retain_abandoned_task(task)
+                    self._task = None
+                    self.state.running = False
                     self.state.abandoned = True
                     self._emit(
                         "retry_abandoned",
@@ -380,11 +422,13 @@ class RetryWorker:
           ``False``, and a ``retry_stopped`` event is emitted — the
           same observable result as the cooperative-stop path.
         * **Task does not finish** (cancellation-resistant): the task
-          is recorded as abandoned (:attr:`_task` kept,
-          :attr:`state.abandoned` set, :attr:`state.running` left as
-          ``True`` from :meth:`start`) and a ``retry_abandoned`` event
-          is emitted.  The worker reports its failure honestly instead
-          of pretending to have stopped cleanly.
+          is recorded as abandoned.  A done callback is installed to
+          consume any exception (preventing ``Task exception was never
+          retrieved`` warnings).  :attr:`_task` is cleared,
+          :attr:`state.running` is set to ``False``,
+          :attr:`state.abandoned` is set to ``True``, and a
+          ``retry_abandoned`` event is emitted.  The worker reports its
+          failure honestly instead of pretending to have stopped cleanly.
         * **Race after the deadline**: if the task happens to finish
           between the deadline check and the loop exit, the worker
           takes the clean-stop path so it does not report a false
@@ -416,13 +460,13 @@ class RetryWorker:
         else:
             _logger.warning(
                 "RetryWorker task did not cancel within %.1fs; "
-                "abandoning (_task is still referenced, "
+                "abandoning (done callback installed, "
                 "state.abandoned=True)",
                 self._stop_timeout,
             )
-            # state.running is still True from start();
-            # intentionally not cleared to reflect the honest
-            # state of the still-alive task.
+            self._retain_abandoned_task(task)
+            self._task = None
+            self.state.running = False
             self.state.abandoned = True
             self._emit(
                 "retry_abandoned",
