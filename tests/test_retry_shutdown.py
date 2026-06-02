@@ -1584,7 +1584,7 @@ class TestRetryWorkerTaskCrashedOutcome:
             try:
                 await asyncio.Event().wait()  # suspend forever
             except asyncio.CancelledError:
-                raise RuntimeError("cleanup failure during cancel")
+                raise RuntimeError("cleanup failure during cancel") from None
 
         task = asyncio.create_task(_crash_on_cancel())
         # Wait for the task to actually start and suspend.
