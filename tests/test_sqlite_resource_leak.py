@@ -152,6 +152,9 @@ class TestSyncFallbackFailureClose:
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
 
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
 
@@ -189,6 +192,10 @@ class TestSyncFallbackFailureClose:
 
         # Re-open: verify_schema_version should raise StorageInitializationError.
         storage2 = SQLiteStorage(db_path=db_path)
+
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError):
@@ -211,6 +218,10 @@ class TestSyncFallbackFailureClose:
 
         # Attempt to open a non-existent file read-only (will fail at
         # the sqlite3.connect level with URI mode=ro).
+
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError, match="does not exist"):

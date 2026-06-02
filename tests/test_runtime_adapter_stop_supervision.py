@@ -146,19 +146,13 @@ class _CancellationResistantAdapter:
 
     async def stop(self, timeout: float = 10.0) -> None:
         self.stop_called = True
-        # Try/finally ensures release() always unblocks the wait, so
-        # the test teardown can complete even if the helper abandons
-        # the task.
-        try:
-            while not self._release.is_set():
-                try:
-                    await self._release.wait()
-                except asyncio.CancelledError:
-                    # Swallow cancellation — this is the pathological
-                    # case the polling-based hard deadline must bound.
-                    continue
-        finally:
-            self.stop_called = True
+        while not self._release.is_set():
+            try:
+                await self._release.wait()
+            except asyncio.CancelledError:
+                # Swallow cancellation — this is the pathological
+                # case the polling-based hard deadline must bound.
+                continue
 
 
 class _OrderTrackingAdapter:
@@ -483,7 +477,6 @@ class TestAdapterStopTimeoutSupervision:
         resistant = _CancellationResistantAdapter(real)
         resistant_id = next(iter(app.adapters))
         app.adapters[resistant_id] = resistant
-        app.started_adapter_ids.append(resistant_id)
         app._adapter_states[resistant_id] = AdapterState.READY
 
         # Use a short timeout so the test runs quickly.  Total bound
@@ -528,9 +521,6 @@ class TestAdapterStopTimeoutSupervision:
             f"cancellation-resistant adapter"
         )
         assert resistant.stop_called
-        assert (
-            resistant._release.is_set() or True
-        )  # release may not have propagated yet
 
     @pytest.mark.asyncio
     async def test_abandoned_adapter_stop_task_retained(
@@ -549,7 +539,6 @@ class TestAdapterStopTimeoutSupervision:
         resistant = _CancellationResistantAdapter(real)
         resistant_id = next(iter(app.adapters))
         app.adapters[resistant_id] = resistant
-        app.started_adapter_ids.append(resistant_id)
         app._adapter_states[resistant_id] = AdapterState.READY
 
         timeout = 0.1

@@ -71,12 +71,20 @@ class TestRetryShutdown:
         assert worker.shutdown_event.is_set()
 
     async def test_shutdown_while_retry_in_flight(self):
-        """Capacity slot released when retry is cancelled mid-flight."""
+        """Capacity slot released when retry is cancelled mid-flight.
+
+        Uses the real RetryWorker (not the lightweight mock) so that
+        stop()'s bounded cancel logic is exercised.  The delivery blocks
+        on a ``proceed`` event; stop() is called while the slot is held,
+        then ``proceed`` is set so the delivery completes within the
+        cooperative grace period.  The capacity slot must be released
+        and the call must finish.
+        """
+        from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker as RealRetryWorker
+
         event = _make_event()
-        receipt = _make_failed_receipt()
-        storage = MagicMock()
-        storage.list_due_retry_receipts = AsyncMock(return_value=[receipt])
-        storage.get = AsyncMock(return_value=event)
 
         # Pipeline that blocks until an event fires
         proceed = asyncio.Event()
@@ -92,38 +100,76 @@ class TestRetryShutdown:
                 created_at=datetime.now(timezone.utc),
             )
 
+        storage = MagicMock()
+        # The real worker calls claim_due_outbox_items.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obx-001",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="target_a",
+            attempt_number=1,
+            status="retry_wait",
+            next_attempt_at=(
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat(),
+            receipt_id="rcpt-fail-001",
+        )
+        storage.claim_due_outbox_items = AsyncMock(return_value=[outbox_item])
+        storage.get = AsyncMock(return_value=event)
+        storage.list_receipts_for_plan = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+        storage.mark_outbox_sent = AsyncMock(return_value=None)
+        storage.mark_outbox_queued = AsyncMock(return_value=None)
+
         pipeline = MagicMock()
         pipeline.deliver_to_target = _slow_deliver
 
         limits = _make_limits(max_inflight_deliveries=1)
         capacity = CapacityController(limits)
-        policy = RetryPolicy(max_attempts=3)
+        event_buffer = EventBuffer(maxlen=64)
 
-        shutdown_evt = asyncio.Event()
-        worker = RetryWorker(
-            storage,
-            pipeline,
-            policy,
-            shutdown_event=shutdown_evt,
+        worker = RealRetryWorker(
+            storage=storage,
+            pipeline=pipeline,
             capacity_controller=capacity,
-            interval=300,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.5,
         )
 
-        # Start worker — it will acquire a slot and block in deliver_to_target
-        await worker.start()
-        await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
+        try:
+            await worker.start()
+            # Wait for the worker to claim the outbox item and acquire
+            # the capacity slot (delivery is blocked on proceed).
+            await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
+            assert capacity.delivery_current >= 1
 
-        assert capacity.delivery_current >= 1
+            # Call stop() while the delivery is still blocked in
+            # proceed.wait().  stop() sets the shutdown event and polls;
+            # we unblock the delivery so it completes within the
+            # cooperative grace period.
+            stop_task = asyncio.create_task(worker.stop())
+            # Yield so stop() acquires the lock and sets the shutdown
+            # event before we unblock the delivery.
+            await asyncio.sleep(0)
+            proceed.set()
+            await stop_task
 
-        # Fire the proceed event so delivery completes, then stop
-        proceed.set()
-        await wait_until(lambda: call_completed.is_set(), timeout=2.0)
-        await worker.stop()
-
-        assert capacity.delivery_current == 0
-        # No false success if we shut down before completion
-        # (the delivery completed normally here, so succeeded is ok)
-        assert call_completed.is_set()
+            assert capacity.delivery_current == 0
+            assert call_completed.is_set()
+        finally:
+            proceed.set()
+            if worker._task is not None and not worker._task.done():
+                try:
+                    await asyncio.wait_for(worker._task, timeout=2.0)
+                except (
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
+                    Exception,
+                ):
+                    pass
 
     async def test_capacity_rejection_during_retry(self):
         """When capacity is 0, retry is rejected without calling pipeline."""

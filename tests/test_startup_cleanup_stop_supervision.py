@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,7 +34,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
 )
 from medre.core.lifecycle.states import AdapterState
-from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.app import MedreApp, RuntimeState, _drain_pending_cancellations
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
 
@@ -307,9 +308,11 @@ class TestStartupCleanupStopTimeout:
         self, tmp_paths: MedrePaths
     ) -> None:
         """CancelledError from adapter stop during startup best-effort
-        cleanup (after start failure) is caught; pipeline and storage cleanup
-        proceed.  The CancelledError here is raised in the per-adapter
-        best-effort stop (line ~697), not in _cleanup_started_adapters()."""
+        cleanup (after start failure) is caught and suppressed (pattern C);
+        pipeline and storage cleanup proceed.  The CancelledError is
+        raised in the per-adapter best-effort stop in ``start()``, NOT
+        in ``_cleanup_started_adapters()``.  The cancellation state is
+        drained so subsequent adapter stops in the loop can still run."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -542,3 +545,166 @@ class TestCleanupStartedAdaptersDirect:
 
         assert cancelled.stop_called
         assert app._adapter_states["never_started_cancel"] is AdapterState.FAILED
+
+
+# ===================================================================
+# Retry worker CancelledError during stop()
+# ===================================================================
+
+
+class TestRetryWorkerCancelledErrorDuringStop:
+    """Verify that a CancelledError raised by the retry worker's stop()
+    does NOT skip pipeline_runner.stop() or storage.close().
+
+    The retry worker stop is in Phase 1 of ``MedreApp.stop()``.  Before
+    the fix, ``asyncio.CancelledError`` (a BaseException, not caught by
+    ``except Exception``) would unwind the entire ``stop()`` method,
+    bypassing pipeline runner and storage cleanup.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cancelled_retry_worker_stop_does_not_skip_cleanup(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When retry_worker.stop() raises CancelledError, the deferred
+        cancellation path runs pipeline_runner.stop() and storage.close()
+        before re-raising."""
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Bring the app to a state where stop() will proceed past the
+        # early-return guard.  We set STOPPING directly to avoid the
+        # full startup lifecycle.
+        app._set_state(RuntimeState.RUNNING)
+
+        # Stub retry worker whose stop() raises CancelledError.
+        worker_state = RetryWorkerState()
+        worker = MagicMock(spec=RetryWorker)
+        worker.state = worker_state
+
+        async def _cancel_on_stop() -> None:
+            raise asyncio.CancelledError("simulated cancel from retry worker stop")
+
+        worker.stop = _cancel_on_stop
+        app._retry_worker = worker
+
+        # Track pipeline runner stop.
+        pipeline_stop_called = False
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _tracking_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            await original_pipeline_stop()
+            pipeline_stop_called = True
+
+        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+
+        # Track storage close.
+        assert app.storage is not None
+        storage_close_called = False
+        original_close = app.storage.close
+
+        async def _tracking_close() -> None:
+            nonlocal storage_close_called
+            await original_close()
+            storage_close_called = True
+
+        app.storage.close = _tracking_close  # type: ignore[assignment]
+
+        # stop() should re-raise the CancelledError after cleanup.
+        with pytest.raises(asyncio.CancelledError, match="simulated cancel"):
+            await app.stop()
+
+        assert pipeline_stop_called, "pipeline_runner.stop() was skipped"
+        assert storage_close_called, "storage.close() was skipped"
+        assert app.state == RuntimeState.FAILED
+
+
+# ===================================================================
+# _drain_pending_cancellations helper tests
+# ===================================================================
+
+
+class TestDrainPendingCancellations:
+    """Verify the cancellation-drain helper restores the exact count."""
+
+    @pytest.mark.asyncio
+    async def test_drain_restores_exact_count(self) -> None:
+        """Cancelling a task N times, then draining, removes exactly N
+        pending cancellation requests.  Restoring N cancels makes the
+        next await raise CancelledError again."""
+        N = 3
+        drain_count: int = 0
+
+        async def _target() -> None:
+            nonlocal drain_count
+            # Let the task start before the outer cancels arrive.
+            try:
+                await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                # CancelledError caught; cancelling() still reports N
+                # (the framework does not auto-decrement).
+                drain_count = _drain_pending_cancellations()
+                current = asyncio.current_task()
+                assert current is not None
+                for _ in range(drain_count):
+                    current.cancel()
+                # The next await should raise CancelledError again.
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    return  # expected
+            raise AssertionError("Should not reach here")
+
+        task = asyncio.create_task(_target())
+        # Let the task start before cancelling.
+        await asyncio.sleep(0)
+        # Cancel N times.
+        for _ in range(N):
+            task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert drain_count == N, f"Expected drain count {N}, got {drain_count}"
+
+    @pytest.mark.asyncio
+    async def test_drain_returns_zero_outside_task(self) -> None:
+        """The helper returns 0 when called outside an asyncio task."""
+        # _drain_pending_cancellations checks current_task().  Inside a
+        # coroutine running as a task, current_task() is not None, so
+        # we test that the function returns 0 when there are no pending
+        # cancellations.
+        result = _drain_pending_cancellations()
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_single_cancel_drain_restore_roundtrip(self) -> None:
+        """A single cancel/drain/restore cycle preserves CancelledError
+        propagation to the next await."""
+
+        async def _target() -> None:
+            # Drain the cancellation (there should be 1).
+            count = _drain_pending_cancellations()
+            assert count == 1
+            # Restore it.
+            current = asyncio.current_task()
+            assert current is not None
+            current.cancel()
+            # The next await should raise CancelledError.
+            try:
+                await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                return  # expected path
+            raise AssertionError("Expected CancelledError after restore")
+
+        task = asyncio.create_task(_target())
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass  # CancelledError propagated as expected

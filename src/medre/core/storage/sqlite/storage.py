@@ -397,14 +397,18 @@ class _SQLiteStorageBase:
                         # inner ``except`` to ``BaseException`` so
                         # ``KeyboardInterrupt`` / ``SystemExit`` cannot
                         # replace the triggering exception with a new
-                        # one.  Restore ``self._db = db`` before re-raising
-                        # so a later ``close()`` call can retry the close
-                        # against the same connection.
+                        # one.
                         if not close_task.done():
                             try:
                                 await close_task
                             except BaseException:
                                 pass
+                        # Restore ``_db`` so a later ``close()`` can
+                        # retry.  The close task is either already done
+                        # (its exception was raised through the shield)
+                        # or is awaited above and any further exception
+                        # suppressed because we are about to re-raise
+                        # the original.
                         self._db = db
                         raise
                 else:

@@ -255,12 +255,14 @@ class TestRetryWorkerStopOrphan:
             await worker.stop()
             assert worker.state.abandoned is True
             assert worker._task is not None
+            orig_task = worker._task
 
             # Second start() must be refused: _task is still referenced,
-            # call_count is unchanged.
+            # call_count is unchanged, and the task object is the SAME
+            # one (start must not replace the still-alive abandoned task).
             prev_call_count = storage.claim_due_outbox_items.call_count
             await worker.start()
-            assert worker._task is not None
+            assert worker._task is orig_task
             assert storage.claim_due_outbox_items.call_count == prev_call_count
         finally:
             _release.set()

@@ -229,11 +229,14 @@ class TestRetryWorkerTaskCrashedOutcome:
             raise RuntimeError("worker crashed during stop")
 
         task = asyncio.create_task(_crash())
-        # Suppress the re-raise from ``await task``; we want the
-        # exception to be present on the task object, not propagated
-        # to the test.
-        with pytest.raises(RuntimeError, match="worker crashed during stop"):
-            await task
+        # Let the task settle without awaiting it — we want the
+        # exception to remain on the task object for
+        # _finalize_task_outcome to retrieve, not propagated into
+        # the test via ``await task``.
+        for _ in range(50):
+            if task.done():
+                break
+            await asyncio.sleep(0)
         assert task.done() and task.exception() is not None
 
         clean, exc = worker._finalize_task_outcome(task)
@@ -324,8 +327,13 @@ class TestRetryWorkerTaskCrashedOutcome:
             raise ValueError("boom")
 
         task = asyncio.create_task(_crash())
-        with pytest.raises(ValueError, match="boom"):
-            await task
+        # Let the task settle without awaiting — the exception must
+        # remain on the task object so _finalize_task_outcome is the
+        # one that retrieves it (which is what we are testing).
+        for _ in range(50):
+            if task.done():
+                break
+            await asyncio.sleep(0)
 
         with caplog.at_level(logging.WARNING, logger="asyncio"):
             clean, _ = worker._finalize_task_outcome(task)

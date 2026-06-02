@@ -103,6 +103,27 @@ def _monotonic_ms() -> float:
     return _time.monotonic() * 1000
 
 
+def _drain_pending_cancellations() -> int:
+    """Drain all pending cancellation requests from the current task.
+
+    ``Task.uncancel()`` decrements the cancellation count by one and
+    returns the **remaining** count (not the number removed).  To drain
+    every pending request we must loop while ``cancelling()`` is
+    non-zero.
+
+    Returns the number of cancellation requests removed, or 0 when
+    called outside an asyncio task context.
+    """
+    current = asyncio.current_task()
+    if current is None:
+        return 0
+    count = 0
+    while current.cancelling() > 0:
+        current.uncancel()
+        count += 1
+    return count
+
+
 def _outcome_from_task(
     task: asyncio.Task[object],
     default_outcome: str,
@@ -748,6 +769,12 @@ class MedreApp:
                             timeout=float(self.config.runtime.shutdown_timeout_seconds),
                         )
                     except asyncio.CancelledError as cleanup_exc:
+                        # Best-effort startup cleanup: suppress the
+                        # CancelledError so the original start-failure
+                        # error is preserved.  Drain the cancellation
+                        # state so subsequent adapter stops in the loop
+                        # actually get a chance to run.
+                        _drain_pending_cancellations()
                         _logger.debug(
                             "Cancelled stopping adapter %s.%s after start failure: %s",
                             transport,
@@ -981,6 +1008,12 @@ class MedreApp:
             timeout,
         )
 
+        # Deferred cancellation: saved here and re-raised after core
+        # cleanup so pipeline_runner.stop() and storage.close() always
+        # run, even when an external cancellation arrives during Phase 1
+        # (retry worker stop) or adapter stops.
+        _cancelled: asyncio.CancelledError | None = None
+
         # Phase 1: Stop accepting new work.
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
@@ -992,6 +1025,12 @@ class MedreApp:
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
+            except asyncio.CancelledError as c_exc:
+                # Cancellation during retry worker stop must NOT skip
+                # pipeline_runner.stop() or storage.close().  Defer
+                # the cancellation so core cleanup still runs.
+                _cancelled = c_exc
+                _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error("Error stopping retry worker: %s", exc)
             # Visibility for the abandonment case: ``stop()`` returns
@@ -1042,7 +1081,6 @@ class MedreApp:
 
         # 1. Stop adapters in reverse start order for clean teardown.
         errors: list[tuple[str, BaseException]] = []
-        _cancelled: asyncio.CancelledError | None = None
         _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
             if self._adapter_states.get(adapter_id) in _terminal:
@@ -1156,20 +1194,10 @@ class MedreApp:
         # state is latched in Python 3.11+: the next ``await`` in the same
         # task would re-raise immediately.  Clear the cancel state here so
         # cleanup awaits actually run, then restore it before re-raising.
-        #
-        # ``Task.uncancel()`` only decrements the count by one and returns
-        # the REMAINING count (not the number removed).  To drain every
-        # pending cancellation request we must loop while ``cancelling()``
-        # is non-zero.  One ``cancel()`` after cleanup is sufficient to
-        # re-latch the cancellation for the caller's next await.
         _had_cancellation = _cancelled is not None
         _cleared_cancels = 0
         if _had_cancellation:
-            current = asyncio.current_task()
-            if current is not None:
-                while current.cancelling() > 0:
-                    current.uncancel()
-                    _cleared_cancels += 1
+            _cleared_cancels = _drain_pending_cancellations()
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped")
@@ -1195,13 +1223,14 @@ class MedreApp:
             # driven by a cancellation rather than a normal stop.
             self._set_state(RuntimeState.FAILED)
             if _cleared_cancels:
-                # Restore a single cancellation request so the
-                # caller's next await is still cancelled.  One
-                # request is enough to propagate ``CancelledError``
-                # from the next ``await`` in the same task.
+                # Restore the exact number of cancellation requests
+                # that were drained so the caller's next await still
+                # sees the full cancellation depth.  One ``cancel()``
+                # is not sufficient when multiple requests were pending.
                 current = asyncio.current_task()
                 if current is not None:
-                    current.cancel()
+                    for _ in range(_cleared_cancels):
+                        current.cancel()
             raise _cancelled
 
         if errors:
@@ -1452,7 +1481,10 @@ class MedreApp:
                 )
             except asyncio.CancelledError:
                 # Best-effort cleanup: do not re-raise — the caller's
-                # _cleanup_core_resources() must still run.
+                # _cleanup_core_resources() must still run.  Drain the
+                # cancellation state so subsequent adapter stops in the
+                # loop actually get a chance to run.
+                _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while cleaning up adapter %s.%s during "
@@ -1507,7 +1539,10 @@ class MedreApp:
                 )
             except asyncio.CancelledError:
                 # Best-effort cleanup: do not re-raise — the caller's
-                # _cleanup_core_resources() must still run.
+                # _cleanup_core_resources() must still run.  Drain the
+                # cancellation state so subsequent adapter stops in the
+                # loop actually get a chance to run.
+                _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Cancelled while cleaning up never-started adapter "
