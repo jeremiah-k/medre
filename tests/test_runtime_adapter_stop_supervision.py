@@ -474,7 +474,6 @@ class TestAdapterStopTimeoutSupervision:
         ``("abandoned", ...)`` and leaving the adapter task referenced
         for the event loop to reclaim.
         """
-        from medre.runtime.app import _outcome_from_cancelled_task, _outcome_from_task
 
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -529,7 +528,9 @@ class TestAdapterStopTimeoutSupervision:
             f"cancellation-resistant adapter"
         )
         assert resistant.stop_called
-        assert resistant._release.is_set() or True  # release may not have propagated yet
+        assert (
+            resistant._release.is_set() or True
+        )  # release may not have propagated yet
 
     @pytest.mark.asyncio
     async def test_abandoned_adapter_stop_task_retained(

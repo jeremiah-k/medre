@@ -284,7 +284,7 @@ period (also `stop_timeout_seconds`) is applied.
 The RetryWorker stop timeout is wired from
 `config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML section,
 default `10`) — the same value that governs per-adapter stop deadlines.
-It is not a `[retry]` config field.  The standalone `RetryWorker`
+It is not a `[retry]` config field. The standalone `RetryWorker`
 constructor has its own default of `5.0` seconds, which only applies
 when constructing the worker outside `MedreApp`; the app-managed
 worker always uses the runtime config value above.

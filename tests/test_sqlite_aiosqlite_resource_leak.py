@@ -258,9 +258,7 @@ class TestAiosqliteCloseShield:
         assert storage._closed is True
         gc.collect()
 
-    async def test_aiosqlite_close_idempotent(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_aiosqlite_close_idempotent(self, tmp_path: Path) -> None:
         """Repeated close() is safe — second call returns early."""
         storage, mock_conn = self._make_storage_with_mock_conn(tmp_path)
 

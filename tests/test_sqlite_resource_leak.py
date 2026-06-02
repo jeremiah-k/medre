@@ -81,6 +81,13 @@ class TestSyncFallbackNormalClose:
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
 
+        # Drain unreachable objects (including zombie aiosqlite
+        # connections left over from earlier tests) BEFORE opening the
+        # recording context.  Otherwise their ``__del__`` finalizers
+        # would fire under the ``simplefilter("always", ResourceWarning)``
+        # filter and pollute the captured warnings.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             await storage.initialize()
@@ -105,6 +112,10 @@ class TestSyncFallbackNormalClose:
         await storage.initialize()
         await storage.close()
         del storage
+        gc.collect()
+
+        # Drain unreachable objects before opening the recording
+        # context (see comment in test_initialize_and_close_no_resource_warning).
         gc.collect()
 
         # Now open it read-only and verify no leak.
