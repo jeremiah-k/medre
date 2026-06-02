@@ -444,15 +444,15 @@ In addition to unidirectional criteria for each direction:
 
 ### Runtime Failure Drills
 
-| Drill name                  | What it proves                                                               |
-| --------------------------- | ---------------------------------------------------------------------------- |
-| `renderer_failure`          | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry           |
-| `adapter_permanent_failure` | Non-recoverable adapter error produces `ADAPTER_PERMANENT` receipt, no retry |
-| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain        |
-| `capacity_rejection`        | Delivery capacity exhaustion produces `delivery_capacity_exceeded`           |
-| `shutdown_rejection`        | In-flight deliveries during shutdown produce `delivery_rejected_shutdown`    |
-| `replay_duplicate_risk`     | BEST_EFFORT replay produces duplicate receipts per run                       |
-| `degraded_live_health`      | Adapters can report degraded/failed health without runtime exit              |
+| Drill name                  | What it proves                                                                                                                         |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `renderer_failure`          | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry                                                                     |
+| `adapter_permanent_failure` | Non-recoverable adapter error produces `ADAPTER_PERMANENT` receipt, no retry                                                           |
+| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain                                                                  |
+| `capacity_rejection`        | Delivery capacity exhaustion produces `delivery_capacity_exceeded`                                                                     |
+| `shutdown_rejection`        | In-flight deliveries during shutdown produce `shutdown_rejection` with either `shutdown_drain_timeout` or `delivery_rejected_shutdown` |
+| `replay_duplicate_risk`     | BEST_EFFORT replay produces duplicate receipts per run                                                                                 |
+| `degraded_live_health`      | Adapters can report degraded/failed health without runtime exit                                                                        |
 
 ### Pre-Runtime Drills
 
@@ -590,13 +590,13 @@ medre diagnostics --refresh-health --config my-bridge.toml
 
 When the runtime shuts down, the delivery evidence system records what happened to in-flight work:
 
-| Scenario                                           | Evidence produced                                          |
-| -------------------------------------------------- | ---------------------------------------------------------- |
-| In-flight delivery completes during drain period   | Normal receipt with final status (`sent` or `failed`)      |
-| In-flight delivery abandoned after drain timeout   | Suppressed receipt with error `delivery_rejected_shutdown` |
-| New delivery rejected because shutdown is underway | Suppressed receipt with error `delivery_rejected_shutdown` |
-| Pending retry receipt at shutdown                  | No change; receipt stays in storage for next startup       |
-| Pending outbox item at shutdown                    | No change; outbox row stays for next startup               |
+| Scenario                                           | Evidence produced                                                                             |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| In-flight delivery completes during drain period   | Normal receipt with final status (`sent` or `failed`)                                         |
+| In-flight delivery abandoned after drain timeout   | Suppressed receipt with failure_kind `shutdown_rejection`, error `shutdown_drain_timeout`     |
+| New delivery rejected because shutdown is underway | Suppressed receipt with failure_kind `shutdown_rejection`, error `delivery_rejected_shutdown` |
+| Pending retry receipt at shutdown                  | No change; receipt stays in storage for next startup                                          |
+| Pending outbox item at shutdown                    | No change; outbox row stays for next startup                                                  |
 
 Pending retry receipts and outbox items are not cancelled during shutdown. They survive in SQLite and are processed on next startup by the RetryWorker (for due retry receipts) or by the normal outbox reclaim path (`claim_due_outbox_items`) for plain pending/queued/in_progress rows. This is an intentional design choice: non-terminal outbox work is preserved as resumable work, not implicitly transitioned to a cancelled state. The `ShutdownEvidence` record (in the evidence bundle) reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals the resumable policy is active. Operators can inspect `pending_outbox_counts` in the shutdown evidence to see exactly which statuses and counts were preserved.
 

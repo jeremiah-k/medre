@@ -344,26 +344,111 @@ class _SQLiteStorageBase:
             )
 
     async def close(self) -> None:
-        """Close the underlying database connection and release resources."""
-        db = self._db
-        if db is None:
+        """Close the underlying database connection and release resources.
+
+        Idempotent — safe to call multiple times.  Sets ``_closed`` early
+        as a race-safety gate to prevent concurrent-close races; restored
+        to ``False`` if the close I/O fails so a later ``close()`` can
+        retry.  The aiosqlite close is wrapped in an explicit task and
+        shielded so that a stray ``CancelledError`` delivered at this
+        await checkpoint (e.g. from caller cancellation or an external
+        ``CancelledError``) does not abort the close before aiosqlite's
+        internal thread is joined — which would leave the connection
+        half-closed and trigger ``ResourceWarning:
+        <aiosqlite.core.Connection ...> was deleted before being closed``
+        on ``__del__``.
+
+        The private executor is shut down via ``asyncio.to_thread`` with
+        ``wait=True`` to fully join worker threads without blocking the
+        event loop.
+        """
+        # Mark closed defensively *before* any I/O so that concurrent
+        # callers see the closed flag immediately and do not race.
+        if self._closed:
             return
-        if self._use_aiosqlite:
-            await db.close()
-        else:
-            with self._lock:
-                db.close()
-        self._db = None
         self._closed = True
-        # Shut down the private executor and join worker threads so that
-        # no stale references to the connection object remain (prevents
-        # ResourceWarning on gc.collect()).
-        # All work was awaited before close(), so the executor is idle;
-        # wait=True merely ensures the thread stack frames are unwound.
-        executor = self._executor
-        if executor is not None:
-            executor.shutdown(wait=True)
-            self._executor = None
+
+        try:
+            db = self._db
+            if db is not None:
+                # Clear the reference *before* the await so concurrent
+                # callers see _db as None and return early rather than
+                # racing to close the same connection.
+                self._db = None
+                if self._use_aiosqlite:
+                    # Run the close on an explicit task with a strong
+                    # reference held by a local binding.  ``asyncio.shield``
+                    # then protects the await from being interrupted by a
+                    # stray CancelledError, while the local binding keeps
+                    # the task alive for the duration of the close.
+                    close_task = asyncio.create_task(db.close())
+                    try:
+                        await asyncio.shield(close_task)
+                    except asyncio.CancelledError as orig_cancelled:
+                        # Outer cancellation arrived after the close had
+                        # already started; let the close finish so aiosqlite
+                        # can join its internal thread, then re-raise so the
+                        # caller's exception flow continues.
+                        try:
+                            await close_task
+                        except asyncio.CancelledError:
+                            # If the close task itself was cancelled, the
+                            # database did not close.  Restore state so a
+                            # later close() can retry, then propagate the
+                            # original cancellation.
+                            self._db = db
+                            self._closed = False
+                            raise orig_cancelled
+                        except BaseException as close_exc:
+                            # If the close task raises a non-cancellation
+                            # exception, we must restore _db so a later
+                            # close() can retry, and then re-raise the
+                            # close failure. The caller's cancellation
+                            # request is superseded by the actual close
+                            # failure, which is more informative and
+                            # prevents silent resource leaks.
+                            self._db = db
+                            self._closed = False
+                            raise close_exc
+                        raise orig_cancelled
+                    except BaseException:
+                        # On any non-cancellation failure, ensure the close
+                        # task is awaited so we don't leak it.  Widen the
+                        # inner ``except`` to ``BaseException`` so
+                        # ``KeyboardInterrupt`` / ``SystemExit`` cannot
+                        # replace the triggering exception with a new
+                        # one.
+                        if not close_task.done():
+                            try:
+                                await close_task
+                            except BaseException:
+                                pass
+                        # Restore ``_db`` so a later ``close()`` can
+                        # retry.  The close task is either already done
+                        # (its exception was raised through the shield)
+                        # or is awaited above and any further exception
+                        # suppressed because we are about to re-raise
+                        # the original.
+                        self._db = db
+                        self._closed = False
+                        raise
+                else:
+                    try:
+                        with self._lock:
+                            db.close()
+                    except BaseException:
+                        # Restore _db and _closed so a later close()
+                        # can retry.
+                        self._db = db
+                        self._closed = False
+                        raise
+        finally:
+            # Always shut down and clear the executor, even if DB close
+            # raised an exception.
+            executor = self._executor
+            if executor is not None:
+                self._executor = None
+                await asyncio.to_thread(executor.shutdown, wait=True)
 
     # -- Read / write primitives --------------------------------------------
 

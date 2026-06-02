@@ -120,7 +120,8 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | Category                                                               | Behaviour                                                                           |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | In-flight adapter deliveries                                           | Drained up to `shutdown_drain_timeout_seconds`, then abandoned                      |
-| Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with error `delivery_rejected_shutdown` |
+| Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with error `shutdown_drain_timeout`     |
+| New deliveries rejected during shutdown                                | Evidence persisted as `suppressed` receipts with error `delivery_rejected_shutdown` |
 | Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                           |
 | Replay events                                                          | Cancelled; completed receipts preserved                                             |
 | Route statistics, diagnostic counters                                  | Lost — in-memory only                                                               |

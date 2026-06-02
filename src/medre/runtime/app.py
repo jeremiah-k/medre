@@ -103,6 +103,78 @@ def _monotonic_ms() -> float:
     return _time.monotonic() * 1000
 
 
+def _drain_pending_cancellations() -> int:
+    """Drain all pending cancellation requests from the current task.
+
+    ``Task.uncancel()`` decrements the cancellation count by one and
+    returns the **remaining** count (not the number removed).  To drain
+    every pending request we must loop while ``cancelling()`` is
+    non-zero.
+
+    Returns the number of cancellation requests removed, or 0 when
+    called outside an asyncio task context.
+    """
+    current = asyncio.current_task()
+    if current is None:
+        return 0
+    count = 0
+    while current.cancelling() > 0:
+        current.uncancel()
+        count += 1
+    return count
+
+
+def _outcome_from_task(
+    task: asyncio.Task[object],
+    default_outcome: str,
+) -> tuple[str, BaseException | None]:
+    """Extract ``(outcome, exception)`` from a finished task.
+
+    Caller must have already confirmed ``task.done()``.  We never ``await``
+    the task, so the adapter's exception (if any) is stored on the task
+    object and inspected here.  Mapping:
+
+    * Task ended with ``CancelledError`` (either ``task.cancel()`` was
+      called and the coroutine handled it, or the coroutine raised
+      ``CancelledError`` on its own): **propagate** by raising
+      ``CancelledError`` so the caller can apply its cancellation
+      policy.  This matches the behaviour callers expect from
+      ``await task`` and from ``asyncio.wait_for``.
+    * No exception    -> ``default_outcome`` with ``None``
+    * ``TimeoutError`` -> ``"timeout"`` with the exception
+    * Anything else   -> ``"error"`` with the exception
+    """
+    if task.cancelled():
+        raise asyncio.CancelledError("adapter stop cancelled")
+    exc = task.exception()
+    if exc is None:
+        return (default_outcome, None)
+    if isinstance(exc, asyncio.TimeoutError):
+        return ("timeout", exc)
+    return ("error", exc)
+
+
+def _outcome_from_cancelled_task(
+    task: asyncio.Task[object],
+) -> tuple[str, BaseException | None]:
+    """Extract outcome from a task that *we* cancelled (stage 2).
+
+    The caller has already called ``task.cancel()`` and the task has
+    finished.  In this stage a cancelled task is the *expected* result
+    of our forced cancellation — it is not an external cancellation to
+    propagate.  If the task raised an exception during cancellation
+    cleanup, that exception is still a timeout outcome.
+
+    Caller must have already confirmed ``task.done()``.
+    """
+    if task.cancelled():
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"))
+    exc = task.exception()
+    if exc is None:
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"))
+    return ("timeout", exc)
+
+
 @dataclass
 class MedreApp:
     """Holds all runtime subsystem references and coordinates lifecycle.
@@ -193,6 +265,14 @@ class MedreApp:
         default=None, init=False
     )  # set in __post_init__
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
+    # Set of still-alive adapter stop tasks that were abandoned by
+    # ``_stop_adapter_with_deadline`` because the adapter's ``stop()``
+    # suppressed cancellation.  Retained so the event loop does not
+    # garbage-collect the task reference while it is still running;
+    # tasks are removed via a done callback when they complete.
+    _abandoned_adapter_stop_tasks: set[asyncio.Task[object]] = field(
+        default_factory=set, init=False
+    )
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
@@ -617,6 +697,9 @@ class MedreApp:
                 batch_size=self.config.retry.batch_size,
                 max_attempts=self.config.retry.max_attempts,
                 event_buffer=self._event_buffer,
+                stop_timeout_seconds=float(
+                    self.config.runtime.shutdown_timeout_seconds
+                ),
             )
             await self._retry_worker.start()
 
@@ -638,6 +721,11 @@ class MedreApp:
             self._set_adapter_state(bf.adapter_id, AdapterState.FAILED)
 
         failed_adapter_ids: list[str] = []
+        # Track cancellation requests drained during per-adapter
+        # start-failure cleanup stops.  These are accumulated in the
+        # inner ``except asyncio.CancelledError`` branch so they can
+        # be restored if the outer CancelledError handler fires.
+        _startup_cleanup_drained: int = 0
         try:
             for adapter_id in adapter_ids:
                 adapter = self.adapters[adapter_id]
@@ -679,16 +767,55 @@ class MedreApp:
                     # start.  Cleanup errors are logged but suppressed
                     # so that the original start-failure error is preserved.
                     try:
-                        await adapter.stop(
-                            timeout=float(self.config.runtime.shutdown_timeout_seconds)
+                        outcome, _ = await self._stop_adapter_with_deadline(
+                            adapter=adapter,
+                            adapter_id=adapter_id,
+                            transport=transport,
+                            timeout=float(self.config.runtime.shutdown_timeout_seconds),
                         )
-                    except Exception as cleanup_exc:
+                    except asyncio.CancelledError as cleanup_exc:
+                        # Best-effort startup cleanup: suppress the
+                        # CancelledError so the original start-failure
+                        # error is preserved.  Drain the cancellation
+                        # state so subsequent adapter stops in the loop
+                        # actually get a chance to run.  The drained
+                        # count is accumulated into
+                        # ``_startup_cleanup_drained`` so the outer
+                        # CancelledError handler can restore the full
+                        # cancellation depth if it fires.
+                        #
+                        # Safety of suppression when no outer
+                        # CancelledError fires: the caller's cancellation
+                        # intent was to abort startup, which already
+                        # happened (this adapter's start failed).  The
+                        # start-failure path will raise
+                        # RuntimeStartupError (total failure) or proceed
+                        # to RUNNING (partial failure) — both are the
+                        # correct outcomes for a cancelled startup.
+                        # The drain is required so subsequent adapter
+                        # stops in this loop are not immediately
+                        # cancelled before they can release resources.
+                        _startup_cleanup_drained += _drain_pending_cancellations()
                         _logger.debug(
-                            "Error stopping adapter %s.%s after start failure: %s",
+                            "Cancelled stopping adapter %s.%s after start failure: %s",
                             transport,
                             adapter_id,
                             cleanup_exc,
                         )
+                    else:
+                        if outcome == "timeout":
+                            _logger.debug(
+                                "Timeout stopping adapter %s.%s after start failure",
+                                transport,
+                                adapter_id,
+                            )
+                        elif outcome == "abandoned":
+                            _logger.debug(
+                                "Abandoned adapter %s.%s after start failure "
+                                "(event loop will reclaim when shutting down)",
+                                transport,
+                                adapter_id,
+                            )
                     self._set_adapter_state(adapter_id, AdapterState.FAILED)
                     _logger.error(
                         "Adapter %s.%s failed to start (%.0fms): %s",
@@ -705,13 +832,39 @@ class MedreApp:
                             "error": str(exc),
                         },
                     )
+        except asyncio.CancelledError as c_exc:
+            # Cancellation arrived during the startup loop.  Drain the
+            # pending cancellation so cleanup awaits can actually run,
+            # then run the same cleanup as the ``Exception`` handler.
+            # The cancellation is restored after cleanup so it propagates
+            # to the caller.  ``except CancelledError`` appears first
+            # because Python evaluates except clauses in order.
+            # ``asyncio.CancelledError`` is a ``BaseException``, not an
+            # ``Exception``, so ``except Exception`` below cannot match
+            # it — the explicit ordering documents intent.
+            #
+            # The restore includes:
+            #   _cleared                — cancellations drained by this handler
+            #   _cleanup_drained        — cancellations drained by
+            #                             _start_failure_cleanup() →
+            #                             _cleanup_started_adapters()
+            #   _startup_cleanup_drained — cancellations drained during
+            #                             per-adapter start-failure cleanup
+            #                             stops inside the loop body
+            _cleared = _drain_pending_cancellations()
+            _cleanup_drained = await self._start_failure_cleanup()
+            _total = _cleared + _cleanup_drained + _startup_cleanup_drained
+            if _total:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_total):
+                        current.cancel()
+            raise c_exc
         except Exception:
             # Catastrophic failure during the loop itself (not an adapter
             # failure).  Clean up already-started adapters in reverse order,
             # then clean up core resources (pipeline runner + storage).
-            await self._cleanup_started_adapters()
-            await self._cleanup_core_resources()
-            self._set_state(RuntimeState.FAILED)
+            await self._start_failure_cleanup()
             raise
 
         # Store failed adapter IDs for diagnostics.
@@ -877,23 +1030,37 @@ class MedreApp:
         shutting down.
 
         This method is idempotent: calling it when the runtime is in
-        ``INITIALIZED`` or ``STOPPED`` state returns immediately.
+        ``STOPPED``, ``STOPPING``, or ``INITIALIZED`` state returns
+        immediately.  A concurrent ``stop()`` call during an in-flight
+        ``STOPPING`` transition is guarded by this early-return so the
+        second caller does not race the first.
 
         Raises
         ------
         RuntimeShutdownError
             If one or more subsystems fail to shut down cleanly.
         """
-        if self._state in (RuntimeState.STOPPED, RuntimeState.INITIALIZED):
+        if self._state in (
+            RuntimeState.STOPPED,
+            RuntimeState.STOPPING,
+            RuntimeState.INITIALIZED,
+        ):
             return
 
         self._set_state(RuntimeState.STOPPING)
         timeout = self.config.runtime.shutdown_timeout_seconds
         _logger.info(
-            "Stopping MEDRE runtime %s (timeout=%ds)",
+            "Stopping MEDRE runtime %s (timeout=%.1fs)",
             self.config.runtime.name,
             timeout,
         )
+
+        # Deferred cancellation: saved here and re-raised after core
+        # cleanup so pipeline_runner.stop() and storage.close() always
+        # run, even when an external cancellation arrives during Phase 1
+        # (retry worker stop) or adapter stops.
+        _cancelled: asyncio.CancelledError | None = None
+        _deferred_cancel_count: int = 0
 
         # Phase 1: Stop accepting new work.
         if self._capacity_controller is not None:
@@ -906,8 +1073,28 @@ class MedreApp:
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
+            except asyncio.CancelledError as c_exc:
+                # Cancellation during retry worker stop must NOT skip
+                # pipeline_runner.stop() or storage.close().  Defer
+                # the cancellation so core cleanup still runs.
+                _cancelled = c_exc
+                _deferred_cancel_count += _drain_pending_cancellations()
+                _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error("Error stopping retry worker: %s", exc)
+            # Visibility for the abandonment case: ``stop()`` returns
+            # normally even when the worker task was abandoned (i.e.
+            # cancellation-resistant), so the caller would otherwise
+            # have no signal.  Do not escalate to
+            # ``RuntimeShutdownError`` — abandonment is best-effort
+            # cleanup, the same as abandoned adapter stops.
+            if self._retry_worker.state.abandoned:
+                _logger.warning(
+                    "RetryWorker was abandoned during shutdown: "
+                    "background task did not finish within timeout; "
+                    "state.running=True, abandoned=True. "
+                    "Subprocess-driven retries may still be in-flight."
+                )
 
         _logger.info("Runtime stopping — accepting no new work")
 
@@ -925,7 +1112,14 @@ class MedreApp:
                 ):
                     _logger.info("In-flight work drained")
                     break
-                await asyncio.sleep(0.1)
+                try:
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError as c_exc:
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                    if _cancelled is None:
+                        _cancelled = c_exc
+                    _logger.debug("Cancelled during drain loop (deferred)")
+                    break
             else:
                 if drain_snap is None:
                     drain_snap = self._capacity_controller.snapshot()
@@ -936,13 +1130,21 @@ class MedreApp:
                 )
                 # Persist structured abandonment evidence for in-flight
                 # deliveries that could not complete before the drain deadline.
-                await self._persist_drain_abandoned_evidence()
+                try:
+                    await self._persist_drain_abandoned_evidence()
+                except asyncio.CancelledError as c_exc:
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                    if _cancelled is None:
+                        _cancelled = c_exc
+                    _logger.debug(
+                        "Cancelled during drain abandoned evidence persist (deferred)"
+                    )
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
 
         # 1. Stop adapters in reverse start order for clean teardown.
-        errors: list[tuple[str, Exception]] = []
+        errors: list[tuple[str, BaseException]] = []
         _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
             if self._adapter_states.get(adapter_id) in _terminal:
@@ -954,21 +1156,45 @@ class MedreApp:
             _logger.debug("Adapter %s.%s stopping", transport, adapter_id)
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                outcome, exc = await self._stop_adapter_with_deadline(
+                    adapter=adapter,
+                    adapter_id=adapter_id,
+                    transport=transport,
+                    timeout=float(timeout),
+                )
+            except asyncio.CancelledError as c_exc:
+                # External cancellation during the stop.  Defer until
+                # after pipeline + storage cleanup so the close still
+                # runs.  Drain the cancellation so we can continue
+                # best-effort cleanup of remaining adapters.
+                _deferred_cancel_count += _drain_pending_cancellations()
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Cancelled while stopping adapter %s.%s (deferred)",
+                    transport,
+                    adapter_id,
+                )
+                if _cancelled is None:
+                    _cancelled = c_exc
+                continue
+            if outcome == "stopped":
                 _logger.info("Adapter %s.%s stopped", transport, adapter_id)
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 self._emit_event(
                     RuntimeEventType.ADAPTER_STOPPED,
                     {"adapter_id": adapter_id},
                 )
-            except Exception as exc:
+            elif outcome == "timeout":
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
-                    "Error stopping adapter %s.%s: %s",
+                    "Timeout stopping adapter %s.%s after %.1fs",
                     transport,
                     adapter_id,
-                    exc,
+                    timeout,
                 )
+                errors.append((adapter_id, exc))
+            else:  # outcome == "abandoned" or "error"
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 errors.append((adapter_id, exc))
 
         # Also stop any adapters that were in self.adapters but not in
@@ -987,24 +1213,60 @@ class MedreApp:
             )
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                outcome, _ = await self._stop_adapter_with_deadline(
+                    adapter=adapter,
+                    adapter_id=adapter_id,
+                    transport=transport,
+                    timeout=float(timeout),
+                )
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Cancelled while stopping never-started adapter %s.%s (deferred)",
+                    transport,
+                    adapter_id,
+                )
+                if _cancelled is None:
+                    _cancelled = c_exc
+                continue
+            if outcome == "stopped":
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Adapter %s.%s stopped (never started)", transport, adapter_id
                 )
-            except Exception as exc:
+            elif outcome == "timeout":
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
-                    "Error stopping never-started adapter %s.%s: %s",
+                    "Timeout stopping never-started adapter %s.%s after %.1fs",
                     transport,
                     adapter_id,
-                    exc,
+                    timeout,
+                )
+                # Intentionally not appended to `errors`: started-adapter
+                # cleanup failures are shutdown-visible because they may
+                # indicate data-loss or partial-delivery states.  A
+                # never-started adapter has no such side-effects, so its
+                # cleanup is best-effort and should not mask the primary
+                # shutdown result.
+            else:  # outcome == "abandoned" or "error"
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Never-started adapter %s.%s did not stop cleanly "
+                    "(see earlier log for details)",
+                    transport,
+                    adapter_id,
                 )
 
         # 2. Stop the pipeline runner.
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped")
+        except asyncio.CancelledError as c_exc:
+            _deferred_cancel_count += _drain_pending_cancellations()
+            if _cancelled is None:
+                _cancelled = c_exc
+            _logger.debug("Cancelled while stopping pipeline runner (deferred)")
         except Exception as exc:
             _logger.error("Error stopping pipeline runner: %s", exc)
             errors.append(("pipeline", exc))
@@ -1014,9 +1276,33 @@ class MedreApp:
             try:
                 await self.storage.close()
                 _logger.info("Storage closed")
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug("Cancelled while closing storage (deferred)")
             except Exception as exc:
                 _logger.error("Error closing storage: %s", exc)
                 errors.append(("storage", exc))
+
+        # Re-raise deferred CancelledError after cleanup is complete.
+        # Set a terminal state first so a subsequent stop() call does
+        # not get trapped in the "STOPPING" early-return guard above.
+        if _cancelled is not None:
+            # External cancellation interrupted normal completion;
+            # FAILED is the honest terminal state, since cleanup was
+            # driven by a cancellation rather than a normal stop.
+            self._set_state(RuntimeState.FAILED)
+            if _deferred_cancel_count:
+                # Restore the exact number of cancellation requests
+                # that were drained so the caller's next await still
+                # sees the full cancellation depth.  One ``cancel()``
+                # is not sufficient when multiple requests were pending.
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_deferred_cancel_count):
+                        current.cancel()
+            raise _cancelled
 
         if errors:
             summary = "; ".join(f"{name}: {exc}" for name, exc in errors)
@@ -1041,6 +1327,164 @@ class MedreApp:
             await self.shutdown_event.wait()
 
     # -- Helpers -----------------------------------------------------------------
+
+    async def _stop_adapter_with_deadline(
+        self,
+        adapter: Any,
+        adapter_id: str,
+        transport: str,
+        timeout: float,
+    ) -> tuple[str, BaseException | None]:
+        """Stop *adapter* with a hard-bounded two-stage deadline.
+
+        A simple ``asyncio.wait_for(adapter.stop(...), timeout=...)`` is
+        not a hard deadline: ``wait_for`` cancels the awaited task on
+        timeout and then waits for its cancellation/cleanup to finish,
+        but if ``adapter.stop`` suppresses ``CancelledError`` or blocks
+        during its own cleanup, ``wait_for`` can overrun the timeout or
+        hang indefinitely.  This helper provides a true hard deadline by
+        driving the stop on an explicit asyncio task and polling
+        ``task.done()`` at a short cadence.  Polling is
+        required because ``asyncio.wait_for`` cannot terminate a
+        coroutine that suppresses ``CancelledError`` indefinitely —
+        the cancel is consumed by an inner ``except`` block and the
+        await never raises, leaving ``wait_for`` to wait forever.
+
+        Two-stage deadline:
+
+        1. **Cooperative.**  Poll ``stop_task.done()`` at 10 ms
+           intervals until either the task finishes (clean stop) or
+           ``timeout`` seconds elapse.
+        2. **Forced cancellation.**  If the cooperative stage times out,
+           call ``stop_task.cancel()`` and poll again for a second
+           ``timeout``-second grace period.  If the task is still
+           alive after both stages, the task is **abandoned** and the
+           event loop reclaims it on shutdown.
+
+        External ``CancelledError`` delivered to this helper itself is
+        handled by giving the adapter one bounded cancel grace and
+        then re-raising, so the caller's cleanup still runs.
+
+        Returns
+        -------
+        (``outcome``, ``exception``)
+            * ``outcome`` -- one of ``"stopped"``, ``"timeout"``,
+              ``"abandoned"``, ``"error"``.
+            * ``exception`` -- the exception raised by the adapter, or
+              ``None`` for a clean stop.
+        """
+        stop_task = asyncio.create_task(adapter.stop(timeout=float(timeout)))
+        loop = asyncio.get_running_loop()
+        try:
+            # Stage 1: cooperative.  Poll until done or deadline.
+            deadline = loop.time() + float(timeout)
+            while not stop_task.done():
+                if loop.time() >= deadline:
+                    break
+                await asyncio.sleep(0.01)
+            if stop_task.done():
+                if stop_task.cancelled():
+                    # Adapter's stop() raised CancelledError on its own
+                    # (we never called task.cancel()).  Propagate so the
+                    # caller can apply its cancellation policy.
+                    raise asyncio.CancelledError("adapter stop cancelled")
+                return _outcome_from_task(stop_task, "stopped")
+            # Stage 2: forced cancellation with bounded grace.
+            _logger.error(
+                "Timeout stopping adapter %s.%s after %.1fs, cancelling",
+                transport,
+                adapter_id,
+                timeout,
+            )
+            stop_task.cancel()
+            cancel_deadline = loop.time() + float(timeout)
+            while not stop_task.done():
+                if loop.time() >= cancel_deadline:
+                    # Still alive after cancel grace — abandon.
+                    _logger.error(
+                        "Adapter %s.%s did not stop after cancel within "
+                        "%.1fs; abandoning",
+                        transport,
+                        adapter_id,
+                        timeout,
+                    )
+                    self._retain_abandoned_stop_task(stop_task)
+                    return (
+                        "abandoned",
+                        TimeoutError("adapter stop abandoned"),
+                    )
+                await asyncio.sleep(0.01)
+            # Task finished during cancel grace.  We called
+            # task.cancel(), so the task ended because of our cancel.
+            # If the task's exception is non-None, it raised during
+            # cancellation — still a timeout outcome, not a propagation.
+            return _outcome_from_cancelled_task(stop_task)
+        except asyncio.CancelledError:
+            # Do NOT drain here -- the caller is responsible for
+            # drain + restore of the cancellation count.  We use an
+            # inner try/except to give the polling loop bounded
+            # cancel-grace: if a pending cancellation re-raises during
+            # the sleep, we abandon the stop task and re-raise so the
+            # caller's drain picks up the full count.
+            if not stop_task.done():
+                stop_task.cancel()
+                cancel_deadline = loop.time() + float(timeout)
+                try:
+                    while not stop_task.done():
+                        if loop.time() >= cancel_deadline:
+                            self._retain_abandoned_stop_task(stop_task)
+                            break
+                        await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    # Re-cancelled during cancel-grace polling.
+                    # Abandon the stop task to prevent reference leak;
+                    # the caller's except handler will drain and restore.
+                    if not stop_task.done():
+                        self._retain_abandoned_stop_task(stop_task)
+            # Consume any exception on the stop task to avoid
+            # "Task exception was never retrieved" warnings if the
+            # adapter stop raised during the cancel-grace period.
+            if stop_task.done() and not stop_task.cancelled():
+                exc = stop_task.exception()
+                if exc is not None:
+                    _logger.warning(
+                        "Adapter stop task raised during external cancellation: %s",
+                        exc,
+                    )
+            raise
+
+    def _retain_abandoned_stop_task(self, stop_task: asyncio.Task[object]) -> None:
+        """Retain *stop_task* in :attr:`_abandoned_adapter_stop_tasks`.
+
+        Called when :meth:`_stop_adapter_with_deadline` abandons a
+        still-running adapter stop task (the adapter's ``stop()``
+        suppressed cancellation and the cancel grace expired).  Without
+        this retention, the local ``stop_task`` reference would go out
+        of scope when the helper returns, allowing the event loop to
+        garbage-collect the task while it is still running.  The task
+        is removed from the retained set when it finishes via a done
+        callback, so the set does not grow unboundedly.
+
+        The done callback also consumes the task's exception (if any)
+        so Python does not emit ``Task exception was never retrieved``.
+        """
+        self._abandoned_adapter_stop_tasks.add(stop_task)
+
+        def _on_done(task: asyncio.Task[object]) -> None:
+            try:
+                if not task.cancelled():
+                    exc = task.exception()
+                    if exc is not None:
+                        _logger.warning(
+                            "Abandoned adapter stop task raised: %s",
+                            exc,
+                        )
+            except Exception:
+                pass
+            finally:
+                self._abandoned_adapter_stop_tasks.discard(task)
+
+        stop_task.add_done_callback(_on_done)
 
     async def _persist_drain_abandoned_evidence(self) -> None:
         """Persist structured abandonment receipts for in-flight deliveries.
@@ -1101,7 +1545,7 @@ class MedreApp:
                 persisted_count,
             )
 
-    async def _cleanup_started_adapters(self) -> None:
+    async def _cleanup_started_adapters(self) -> int:
         """Stop already-started adapters in reverse order during failed startup.
 
         Used for partial-startup cleanup: if an unrecoverable error occurs
@@ -1110,7 +1554,23 @@ class MedreApp:
 
         Also stops adapters that were built but never started (still in
         INITIALIZING state) so they are not leaked on total failure.
+
+        Returns the total number of cancellation requests drained during
+        adapter cleanup so the caller can restore them for the outer
+        cancellation path.
+
+        CancelledError policy
+        ---------------------
+        Startup cleanup is *best-effort*: if adapter ``stop()`` raises
+        ``CancelledError``, the error is logged and suppressed so the
+        caller's ``_cleanup_core_resources()`` (pipeline runner + storage
+        close) still runs and the original startup failure is preserved.
+        This is **distinct** from the normal ``stop()`` path, which
+        defers ``CancelledError`` and re-raises it after core cleanup so
+        that an externally-cancelled shutdown still propagates the
+        cancellation to the caller.
         """
+        _total_drained: int = 0
         timeout = self.config.runtime.shutdown_timeout_seconds
         for adapter_id in reversed(self.started_adapter_ids):
             adapter = self.adapters.get(adapter_id)
@@ -1119,20 +1579,48 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                outcome, _ = await self._stop_adapter_with_deadline(
+                    adapter=adapter,
+                    adapter_id=adapter_id,
+                    transport=transport,
+                    timeout=float(timeout),
+                )
+            except asyncio.CancelledError:
+                # Best-effort cleanup: do not re-raise — the caller's
+                # _cleanup_core_resources() must still run.  Drain the
+                # cancellation state so subsequent adapter stops in the
+                # loop actually get a chance to run.
+                _total_drained += _drain_pending_cancellations()
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Cancelled while cleaning up adapter %s.%s during "
+                    "failed startup (best-effort: suppressed)",
+                    transport,
+                    adapter_id,
+                )
+                continue
+            if outcome == "stopped":
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Cleaned up adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
-            except Exception as exc:
+            elif outcome == "timeout":
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
-                    "Error cleaning up adapter %s.%s during failed startup: %s",
+                    "Timeout cleaning up adapter %s.%s during failed startup after %.1fs",
                     transport,
                     adapter_id,
-                    exc,
+                    timeout,
+                )
+            else:  # outcome == "abandoned" or "error"
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Adapter %s.%s did not stop cleanly during failed "
+                    "startup (see earlier log for details)",
+                    transport,
+                    adapter_id,
                 )
 
         # Also clean up adapters that were built but never started (still
@@ -1149,50 +1637,154 @@ class MedreApp:
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                await adapter.stop(timeout=float(timeout))
+                outcome, _ = await self._stop_adapter_with_deadline(
+                    adapter=adapter,
+                    adapter_id=adapter_id,
+                    transport=transport,
+                    timeout=float(timeout),
+                )
+            except asyncio.CancelledError:
+                # Best-effort cleanup: do not re-raise — the caller's
+                # _cleanup_core_resources() must still run.  Drain the
+                # cancellation state so subsequent adapter stops in the
+                # loop actually get a chance to run.
+                _total_drained += _drain_pending_cancellations()
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.debug(
+                    "Cancelled while cleaning up never-started adapter "
+                    "%s.%s during failed startup (best-effort: suppressed)",
+                    transport,
+                    adapter_id,
+                )
+                continue
+            if outcome == "stopped":
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Cleaned up never-started adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
-            except Exception as exc:
+            elif outcome == "timeout":
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
-                    "Error cleaning up never-started adapter %s.%s during failed startup: %s",
+                    "Timeout cleaning up never-started adapter %s.%s during failed startup after %.1fs",
                     transport,
                     adapter_id,
-                    exc,
+                    timeout,
+                )
+            else:  # outcome == "abandoned" or "error"
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Never-started adapter %s.%s did not stop cleanly "
+                    "during failed startup (see earlier log for details)",
+                    transport,
+                    adapter_id,
                 )
 
         self.started_adapter_ids.clear()
         self.adapter_start_monotonic.clear()
+        return _total_drained
+
+    async def _start_failure_cleanup(self) -> int:
+        """Run the full startup-failure cleanup sequence.
+
+        Used by both the catastrophic ``Exception`` catch-all in ``start()``
+        and the parallel ``CancelledError`` handler.  Ensures the same
+        cleanup runs regardless of which exception type escapes the
+        startup loop.
+
+        Returns the total number of cancellation requests drained during
+        adapter and core-resource cleanup so the ``CancelledError`` handler
+        in ``start()`` can restore them.
+        """
+        drained = await self._cleanup_started_adapters()
+        try:
+            await self._cleanup_core_resources()
+        except asyncio.CancelledError:
+            # ``_cleanup_core_resources`` may defer a CancelledError from
+            # retry_worker.stop(), restore its own drained cancellation
+            # count, and then re-raise.  Drain those restored requests here
+            # and fold them into our return value so ``start()`` reaches its
+            # single restore path and raises the original startup
+            # cancellation instead of a cleanup artifact.
+            drained += _drain_pending_cancellations()
+        if self._state != RuntimeState.FAILED:
+            self._set_state(RuntimeState.FAILED)
+        return drained
 
     async def _cleanup_core_resources(self) -> None:
         """Stop pipeline runner and close storage during failed startup.
 
-        Logs but suppresses individual cleanup errors so that the original
+        CancelledError policy
+        ---------------------
+        If the retry worker's ``stop()`` raises ``CancelledError``, the
+        cancellation is drained so that the pipeline runner and storage
+        cleanup below still execute.  The deferred cancellation is then
+        re-raised to the caller so the original cancellation propagates
+        correctly.  This mirrors the Phase 1 pattern in ``MedreApp.stop()``.
+
+        Other cleanup errors are logged and suppressed so the original
         startup failure remains the raised exception.
         """
-        # Stop retry worker if it was started.
+        # Stop retry worker if it was started.  Defer CancelledError so
+        # pipeline runner stop and storage close can still run.
+        _cancelled: asyncio.CancelledError | None = None
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
                 _logger.info("Retry worker stopped during startup cleanup")
+            except asyncio.CancelledError as c_exc:
+                _cancelled = c_exc
+                _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error(
                     "Error stopping retry worker during startup cleanup: %s", exc
                 )
 
+        # If the retry worker stop raised CE, the task likely has a
+        # pending cancellation request that would prevent the awaits
+        # below from actually running.  Drain it.
+        _cleared_cancels = 0
+        if _cancelled is not None:
+            _cleared_cancels = _drain_pending_cancellations()
+
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped during startup cleanup")
+        except asyncio.CancelledError as c_exc:
+            if _cancelled is None:
+                _cancelled = c_exc
+            _cleared_cancels += _drain_pending_cancellations()
+            _logger.debug(
+                "Cancelled while stopping pipeline runner during "
+                "startup cleanup (deferred)"
+            )
         except Exception as exc:
             _logger.error(
                 "Error stopping pipeline runner during startup cleanup: %s", exc
             )
 
-        await self._cleanup_storage_safely()
+        try:
+            await self._cleanup_storage_safely()
+        except asyncio.CancelledError as c_exc:
+            if _cancelled is None:
+                _cancelled = c_exc
+            _cleared_cancels += _drain_pending_cancellations()
+            _logger.debug(
+                "Cancelled during storage cleanup during " "startup cleanup (deferred)"
+            )
+
+        # Restore the deferred cancellation count and re-raise so the
+        # caller's cancellation propagates correctly.
+        if _cancelled is not None:
+            self._set_state(RuntimeState.FAILED)
+            if _cleared_cancels:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_cleared_cancels):
+                        current.cancel()
+            assert _cancelled is not None  # for type checker
+            raise _cancelled
 
     async def _cleanup_storage_safely(self) -> None:
         """Close storage during failed startup, suppressing errors."""

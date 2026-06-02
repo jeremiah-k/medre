@@ -14,13 +14,13 @@ See also: [architecture.md](architecture.md), [storage.md](storage.md),
 
 The receipt state machine has five terminal and non-terminal statuses:
 
-| Status          | Terminal | Meaning                                                                    |
-| --------------- | -------- | -------------------------------------------------------------------------- |
-| `queued`        | No       | Adapter accepted the event into a local send queue.                        |
-| `sent`          | Yes      | Adapter reported successful handoff to the transport layer.                |
-| `failed`        | No       | Delivery attempt failed. May be followed by retry or dead letter.          |
-| `dead_lettered` | Yes      | All retry attempts exhausted or terminal failure.                          |
-| `suppressed`    | Yes      | Delivery was suppressed by loop prevention, policy, or capacity rejection. |
+| Status          | Terminal | Meaning                                                                                        |
+| --------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `queued`        | No       | Adapter accepted the event into a local send queue.                                            |
+| `sent`          | Yes      | Adapter reported successful handoff to the transport layer.                                    |
+| `failed`        | No       | Delivery attempt failed. May be followed by retry or dead letter.                              |
+| `dead_lettered` | Yes      | All retry attempts exhausted or terminal failure.                                              |
+| `suppressed`    | Yes      | Delivery was suppressed by loop prevention, policy, capacity rejection, or shutdown rejection. |
 
 ### 1.2 Transition Graph
 
@@ -72,7 +72,7 @@ supersedes receipt N for the same delivery chain.
 | —                          | `queued`                 | Queue-based adapter accepts event              |
 | —                          | `sent`                   | Synchronous adapter reports successful handoff |
 | —                          | `failed`                 | Adapter raises transient or permanent error    |
-| —                          | `suppressed`             | Loop/policy/capacity suppression               |
+| —                          | `suppressed`             | Loop/policy/capacity/shutdown suppression      |
 | `queued`                   | `sent`                   | Queue-based adapter reports native message ID  |
 | `failed`                   | `failed`                 | Retry attempt also fails                       |
 | `failed`                   | `dead_lettered`          | Retry exhausted                                |
@@ -274,7 +274,12 @@ For in-flight adapter deliveries (those actively executing an adapter `deliver()
 call when shutdown begins), the drain period allows completion. Deliveries
 that complete during drain produce normal receipts. Deliveries abandoned after
 the drain timeout expires produce suppressed receipts with error
-`delivery_rejected_shutdown`.
+`shutdown_drain_timeout`.
+
+New deliveries submitted to the pipeline after shutdown has begun are rejected
+immediately. These produce suppressed receipts with error
+`delivery_rejected_shutdown` — no outbox item is created and no adapter
+interaction occurs.
 
 ---
 
@@ -304,13 +309,14 @@ corresponding receipt. This enables:
 
 ### 3.3 Terminal State Correspondence
 
-| Outbox Terminal | Receipt Terminal  | Condition                                              |
-| --------------- | ----------------- | ------------------------------------------------------ |
-| `sent`          | `sent`            | Successful delivery                                    |
-| `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation |
-| `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                   |
-| `cancelled`     | —                 | No receipt produced (pre-delivery)                     |
-| `abandoned`     | —                 | No receipt produced (pre-delivery)                     |
+| Outbox Terminal | Receipt Terminal  | Condition                                                                                                                          |
+| --------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `sent`          | `sent`            | Successful delivery                                                                                                                |
+| `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation                                                                             |
+| `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                               |
+| `cancelled`     | —                 | No receipt produced (pre-delivery)                                                                                                 |
+| `abandoned`     | `suppressed`      | **Shutdown drain-timeout** abandonment produces a suppressed receipt with `failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` |
+| —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                  |
 
 ### 3.4 Implicit Suppression Paths
 

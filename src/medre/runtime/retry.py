@@ -55,10 +55,23 @@ _logger = logging.getLogger(__name__)
 
 @dataclass
 class RetryWorkerState:
-    """Snapshot-visible state for the retry worker."""
+    """Snapshot-visible state for the retry worker.
+
+    Attributes
+    ----------
+    abandoned:
+        ``True`` if the previous :meth:`RetryWorker.stop` exited while the
+        background task was still running and could not be cancelled
+        within the grace period.  In this state :meth:`RetryWorker.start`
+        refuses to launch a second worker, because doing so would
+        silently launch a duplicate task over the same outbox while the
+        abandoned one is still alive.  The caller must inspect this flag
+        and either reset the worker or shut the entire runtime down.
+    """
 
     enabled: bool = False
     running: bool = False
+    abandoned: bool = False
     last_run_at: str | None = None
     processed: int = 0
     succeeded: int = 0
@@ -84,6 +97,7 @@ class RetryWorker:
         batch_size: int = 20,
         max_attempts: int = 3,
         event_buffer: EventBuffer | None = None,
+        stop_timeout_seconds: float = 5.0,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
@@ -93,8 +107,21 @@ class RetryWorker:
         self._batch_size = batch_size
         self._max_attempts = max_attempts
         self._event_buffer = event_buffer
+        if stop_timeout_seconds <= 0:
+            raise ValueError(
+                f"stop_timeout_seconds must be > 0, got {stop_timeout_seconds!r}"
+            )
+        self._stop_timeout = stop_timeout_seconds
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        # Retained reference to a still-running task that was abandoned
+        # by :meth:`stop` because it survived the cancel grace period.
+        # Prevents the event loop from garbage-collecting the task while
+        # it is still alive; removed via a done callback when it finishes.
+        self._abandoned_task: asyncio.Task[None] | None = None
+        # Serializes concurrent :meth:`stop` calls so the worker
+        # emits ``retry_stopped`` / ``retry_abandoned`` exactly once.
+        self._stop_lock = asyncio.Lock()
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
         self.state = RetryWorkerState(enabled=enabled)
@@ -121,9 +148,133 @@ class RetryWorker:
             return
         self._event_buffer.emit(rt, detail)
 
+    def _finalize_task_outcome(
+        self, task: asyncio.Task[None]
+    ) -> tuple[bool, BaseException | None]:
+        """Inspect a finished worker task, clear worker state, emit the
+        correct terminal event.
+
+        Called from every clean-stop path in :meth:`stop` and
+        :meth:`_force_cancel_with_poll` once ``task.done()`` is true.
+        Retrieves ``task.exception()`` so Python does not log
+        ``Task exception was never retrieved`` for crashes, and chooses
+        between ``retry_stopped`` and ``retry_failed`` based on whether
+        the task exited cleanly or raised.
+
+        Always clears :attr:`_task` and flips :attr:`state.running` to
+        ``False`` — the worker is done regardless of exit reason, and
+        leaving ``running=True`` after the task finished would prevent
+        a future :meth:`start` from launching a replacement.
+
+        A cancelled task is treated as a **clean** stop (not a crash):
+        the cancellation is the expected outcome of the stop sequence,
+        and emitting ``retry_failed`` for it would be a false alarm.
+        The caller's ``stop_timeout_seconds`` + polling logic decided
+        to cancel, so the cancellation is by design.
+
+        Returns
+        -------
+        ``(clean, exc)`` where ``clean`` is ``True`` if the task exited
+        without an exception and ``exc`` is the exception instance if
+        it raised (``None`` otherwise).  Callers use ``clean`` to
+        decide between ``_logger.info("RetryWorker stopped")`` and
+        logging the failure.
+        """
+        assert task.done(), "task must be done before finalization"
+        counts = {
+            "processed": self.state.processed,
+            "succeeded": self.state.succeeded,
+            "failed": self.state.failed,
+            "dead_lettered": self.state.dead_lettered,
+        }
+        # Worker is done in both branches; clear the reference and
+        # flip ``running`` so a future ``start()`` is allowed.
+        self._task = None
+        self.state.running = False
+        if task.cancelled():
+            # Task was cancelled (expected outcome of stop).  Emit
+            # ``retry_stopped`` — the cancellation is by design, not
+            # a crash.  Note: ``task.exception()`` would raise
+            # ``CancelledError`` for a cancelled task, so we must
+            # check ``cancelled()`` first.
+            self._emit("retry_stopped", counts)
+            return (True, None)
+        # ``task.exception()`` returns ``None`` for cleanly-finished
+        # tasks and the exception instance for crashed ones.  Calling
+        # it also marks the exception as retrieved, suppressing the
+        # ``Task exception was never retrieved`` warning.
+        exc = task.exception()
+        if exc is None:
+            self._emit("retry_stopped", counts)
+            return (True, None)
+        # Task crashed with a non-cancellation exception.  Log with
+        # the full traceback for operators and emit ``retry_failed``
+        # so downstream observers see the failure honestly instead of
+        # a misleading clean-stop.
+        _logger.error(
+            "RetryWorker task exited with exception: %s",
+            exc,
+            exc_info=exc,
+        )
+        self._emit(
+            "retry_failed",
+            {
+                **counts,
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_type": type(exc).__name__,
+            },
+        )
+        return (False, exc)
+
+    def _retain_abandoned_task(self, task: asyncio.Task[None]) -> None:
+        """Retain *task* in :attr:`_abandoned_task` with a done callback.
+
+        Called when :meth:`stop` or :meth:`_force_cancel_with_poll` abandons
+        a still-running background task (the worker survived the cancel grace
+        period).  Without this retention, the ``self._task`` reference would
+        already have been cleared, allowing the event loop to garbage-collect
+        the task while it is still running.
+
+        The done callback consumes the task's exception (if any) so Python
+        does not emit ``Task exception was never retrieved``, and clears the
+        retained reference.
+        """
+        self._abandoned_task = task
+
+        def _on_done(task: asyncio.Task[None]) -> None:
+            try:
+                if not task.cancelled():
+                    exc = task.exception()
+                    if exc is not None:
+                        _logger.warning(
+                            "Abandoned RetryWorker task raised: %s",
+                            exc,
+                        )
+            except Exception:
+                pass
+            finally:
+                if self._abandoned_task is task:
+                    self._abandoned_task = None
+
+        task.add_done_callback(_on_done)
+
     async def start(self) -> None:
-        """Start the retry worker background task."""
+        """Start the retry worker background task.
+
+        Refuses to launch when the worker is already running, or when a
+        previous :meth:`stop` abandoned the background task while it was
+        still alive.  In the abandoned case launching again would
+        silently double-process the outbox, so :attr:`state.abandoned`
+        must be cleared by the caller first.
+        """
         if not self._enabled:
+            return
+        if self.state.abandoned:
+            _logger.error(
+                "RetryWorker.start refused: previous stop abandoned the "
+                "background task; worker must not be restarted without "
+                "operator intervention"
+            )
             return
         if self._task is not None:
             return
@@ -146,26 +297,191 @@ class RetryWorker:
         )
 
     async def stop(self) -> None:
-        """Signal shutdown and wait for worker to finish."""
-        if self._task is None:
-            return
-        self._shutdown_event.set()
-        try:
-            await asyncio.wait_for(self._task, timeout=5.0)
-        except asyncio.TimeoutError:
-            _logger.warning("RetryWorker did not stop within 5s")
-        self._task = None
-        self.state.running = False
-        self._emit(
-            "retry_stopped",
-            {
-                "processed": self.state.processed,
-                "succeeded": self.state.succeeded,
-                "failed": self.state.failed,
-                "dead_lettered": self.state.dead_lettered,
-            },
-        )
-        _logger.info("RetryWorker stopped")
+        """Signal shutdown and wait for the worker to finish.
+
+        Stop is **bounded** in two stages, both implemented as a
+        short-cadence poll of :meth:`asyncio.Task.done` rather than
+        :func:`asyncio.wait_for` — the latter cannot terminate a
+        coroutine that catches and suppresses :class:`asyncio.CancelledError`
+        (the cancel is consumed by an inner ``except`` block and the
+        await never raises, leaving ``wait_for`` to wait forever).
+        Polling ``task.done()`` is the only reliable hard bound for
+        cancellation-resistant coroutines.
+
+        1. **Cooperative stop.**  Set the shutdown event and poll
+           ``task.done()`` at 10 ms intervals until either the task
+           finishes or ``stop_timeout_seconds`` elapses.
+        2. **Forced cancellation.**  If the cooperative stage times out,
+           cancel the task once and poll again for a second
+           ``stop_timeout_seconds`` grace period.
+
+        ``stop()`` is serialised by an internal :class:`asyncio.Lock`
+        so concurrent callers cannot emit duplicate ``retry_stopped``
+        or ``retry_abandoned`` events.
+
+        Outcomes:
+
+        * **Cancellation-responsive task** -- the background task
+          finishes within the grace period.  :attr:`_task` is cleared,
+          :attr:`state.running` is set to ``False``, and a
+          ``retry_stopped`` event is emitted.  ``stop()`` returns
+          promptly.
+        * **Cancellation-resistant task** -- the task survives both
+          grace periods.  ``stop()`` installs a done callback on the
+          task to consume any exception (preventing ``Task exception
+          was never retrieved`` warnings), clears :attr:`_task`,
+          flips :attr:`state.running` to ``False``, sets
+          :attr:`state.abandoned = True``, and emits a
+          ``retry_abandoned`` event so downstream observers see the
+          failure honestly.  :meth:`start` will refuse subsequent
+          launches while ``abandoned`` is set.
+        * **External cancellation of ``stop()`` itself** -- if the
+          caller cancels the ``await stop()`` (e.g. ``MedreApp.stop()``
+          hits a shutdown timeout), the worker's :attr:`state.abandoned`
+          is set and a ``retry_abandoned`` event is emitted before the
+          :class:`asyncio.CancelledError` is re-raised.  This makes the
+          "stop was cancelled" state distinguishable from
+          "stop succeeded" and from "stop never called".
+        """
+        async with self._stop_lock:
+            if self._task is None:
+                return
+            if self.state.abandoned:
+                # A previous stop() already abandoned the worker; do not
+                # emit duplicate retry_stopped / retry_failed events.
+                return
+            self._shutdown_event.set()
+            loop = asyncio.get_running_loop()
+            # Stage 1: cooperative stop.  Poll ``task.done()`` on a
+            # short cadence until either the task finishes (clean
+            # stop) or the grace period expires.
+            deadline = loop.time() + self._stop_timeout
+            task = self._task
+            try:
+                while not task.done():
+                    if loop.time() >= deadline:
+                        await self._force_cancel_with_poll(task=task)
+                        return
+                    await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                # ``stop()`` itself was cancelled by the caller.  Two
+                # sub-cases:
+                #
+                # 1. The task had already finished by the time the
+                #    cancellation arrived (race between the polling
+                #    loop's cooperative check and the external cancel).
+                #    Do clean-stop cleanup so ``_task`` and
+                #    ``state.running`` do not leak, then re-raise.
+                # 2. The task is still alive.  Install a done callback
+                #    to consume its exception, clear ``_task``, flip
+                #    ``state.running`` to ``False``, mark the worker
+                #    abandoned so the next start() call refuses a
+                #    relaunch, emit the event for downstream
+                #    observability, and re-raise.
+                if task.done():
+                    clean, exc = self._finalize_task_outcome(task)
+                    if not clean:
+                        # Re-raise the crash so the caller sees the
+                        # real failure rather than a swallowed one.
+                        raise exc from None  # type: ignore[misc]
+                else:
+                    self._retain_abandoned_task(task)
+                    self._task = None
+                    self.state.running = False
+                    self.state.abandoned = True
+                    self._emit(
+                        "retry_abandoned",
+                        {
+                            "stop_timeout_seconds": self._stop_timeout,
+                            "reason": "stop_cancelled",
+                            "processed": self.state.processed,
+                            "succeeded": self.state.succeeded,
+                            "failed": self.state.failed,
+                            "dead_lettered": self.state.dead_lettered,
+                        },
+                    )
+                raise
+            clean, exc = self._finalize_task_outcome(task)
+            if clean:
+                _logger.info("RetryWorker stopped")
+            else:
+                raise exc  # type: ignore[misc]
+
+    async def _force_cancel_with_poll(self, task: asyncio.Task[None]) -> None:
+        """Cancel *task* and wait for it with a hard time bound that does
+        **not** rely on ``asyncio.wait_for``'s cancel mechanism.
+
+        ``asyncio.wait_for(coro, timeout)`` cannot terminate a coroutine
+        that swallows ``CancelledError`` indefinitely — the cancel is
+        consumed by the inner ``except`` block and the await never
+        raises.  This helper instead polls ``task.done()`` at short
+        intervals, calling ``task.cancel()`` once on entry to give a
+        cooperative task a chance to clean up, and giving up hard
+        after ``self._stop_timeout`` seconds.
+
+        Outcomes:
+
+        * **Task finishes within the cancel grace** (the common case):
+          :attr:`_task` is cleared, :attr:`state.running` is set to
+          ``False``, and a ``retry_stopped`` event is emitted — the
+          same observable result as the cooperative-stop path.
+        * **Task does not finish** (cancellation-resistant): the task
+          is recorded as abandoned.  A done callback is installed to
+          consume any exception (preventing ``Task exception was never
+          retrieved`` warnings).  :attr:`_task` is cleared,
+          :attr:`state.running` is set to ``False``,
+          :attr:`state.abandoned` is set to ``True``, and a
+          ``retry_abandoned`` event is emitted.  The worker reports its
+          failure honestly instead of pretending to have stopped cleanly.
+        * **Race after the deadline**: if the task happens to finish
+          between the deadline check and the loop exit, the worker
+          takes the clean-stop path so it does not report a false
+          abandonment.
+
+        External cancellation of this helper is handled by
+        :meth:`stop` (its only caller), which marks the worker
+        abandoned and re-raises.
+        """
+        task.cancel()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._stop_timeout
+
+        # Poll on a 10 ms cadence.  If the task is cancellation-
+        # responsive it will finish within a few cycles; if it is
+        # cancellation-resistant we will hit the deadline hard.
+        while not task.done():
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(0.01)
+
+        # Check AFTER the loop to correctly handle the race condition
+        # where the task finishes between the deadline check and the
+        # loop exit.
+        if task.done():
+            clean, exc = self._finalize_task_outcome(task)
+            if not clean:
+                raise exc  # type: ignore[misc]
+        else:
+            _logger.warning(
+                "RetryWorker task did not cancel within %.1fs; "
+                "abandoning (done callback installed, "
+                "state.abandoned=True)",
+                self._stop_timeout,
+            )
+            self._retain_abandoned_task(task)
+            self._task = None
+            self.state.running = False
+            self.state.abandoned = True
+            self._emit(
+                "retry_abandoned",
+                {
+                    "stop_timeout_seconds": self._stop_timeout,
+                    "processed": self.state.processed,
+                    "succeeded": self.state.succeeded,
+                    "failed": self.state.failed,
+                    "dead_lettered": self.state.dead_lettered,
+                },
+            )
 
     async def _run_loop(self) -> None:
         """Main polling loop."""
@@ -218,7 +534,6 @@ class RetryWorker:
                     "RetryWorker: unexpected error for outbox %s",
                     item.outbox_id,
                 )
-        # Refresh outbox counts after processing a batch.
         try:
             self._outbox_counts = await self._storage.count_outbox_by_status()
             self._cycle_completed = True
@@ -245,7 +560,6 @@ class RetryWorker:
             )
             return
 
-        # Find the most recent receipt for lineage.
         receipts = await self._storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
@@ -268,7 +582,6 @@ class RetryWorker:
 
         capacity_acquired = False
 
-        # Acquire delivery capacity.
         if self._capacity is not None:
             try:
                 acquired = await self._capacity.acquire_delivery()
@@ -353,7 +666,6 @@ class RetryWorker:
             capacity_acquired = True
 
         try:
-            # Reconstruct Route and DeliveryPlan from outbox metadata.
             _dest: RouteDestination | None = None
             if item.metadata and "destination_kind" in item.metadata:
                 _dest = RouteDestination(
@@ -478,7 +790,6 @@ class RetryWorker:
                     },
                 )
             else:
-                # Compute backoff for next retry attempt.
                 _exhausted = False
                 try:
                     # Try to get the actual failure kind from the latest
@@ -572,7 +883,6 @@ class RetryWorker:
                 exc_info=True,
             )
         else:
-            # Success — delivery returned a receipt.
             self.state.processed += 1
             self.state.succeeded += 1
             try:

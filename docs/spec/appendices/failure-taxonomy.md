@@ -313,7 +313,7 @@ resumed on next startup.
 | Scenario                                         | Evidence produced                                           |
 | ------------------------------------------------ | ----------------------------------------------------------- |
 | In-flight delivery completes during drain        | Normal receipt with final status (`sent` or `failed`)       |
-| In-flight delivery abandoned after drain timeout | Suppressed receipt with error `delivery_rejected_shutdown`  |
+| In-flight delivery abandoned after drain timeout | Suppressed receipt with error `shutdown_drain_timeout`      |
 | New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
 | Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |

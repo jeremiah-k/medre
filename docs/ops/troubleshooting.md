@@ -6,24 +6,24 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 ## Failure Category Quick Reference
 
-| Category              | Exit code | Receipt/Outcome status                             | Retry?                     | Where to inspect                                 |
-| --------------------- | --------- | -------------------------------------------------- | -------------------------- | ------------------------------------------------ |
-| Config error          | 2         | None (no runtime)                                  | No                         | stderr, `medre config check`                     |
-| Build failure         | 3         | None (no delivery)                                 | No                         | `startup.build_failures`, logs                   |
-| Total startup failure | 4         | None (no delivery)                                 | No                         | `startup.boot_summary`, logs                     |
-| Degraded startup      | 0         | Partial                                            | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
-| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)                        | No                         | `medre inspect receipts`, RouteStats             |
-| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)                       | No                         | receipt lineage, adapter `diagnostics()`         |
-| Adapter transient     | 0         | `sent` (after retry) or `failed`                   | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
-| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)              | No                         | `capacity_rejections` counter, logs              |
-| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                       | No                         | delivery plan timestamps                         |
-| Shutdown rejection    | 0         | `suppressed` (delivery_rejected_shutdown)          | No                         | `outbound_failed` counter                        |
-| Replay capacity       | 0         | `error` (replay_capacity_exceeded)                 | No                         | `capacity_rejections` counter                    |
-| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)          | N/A (by design)            | receipt `replay_run_id`                          |
-| Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events | No                         | receipt `failure_kind`, `error` field            |
-| Loop prevented        | 0         | `suppressed` receipt persisted                     | No                         | `loop_prevented` counter, RouteStats             |
-| Degraded live health  | 0         | N/A                                                | No                         | `health.live_health.adapters[]`                  |
-| Failed live health    | 0         | N/A                                                | No                         | `health.live_health.adapters[]`, `.error`        |
+| Category              | Exit code | Receipt/Outcome status                                                                                                                    | Retry?                     | Where to inspect                                 |
+| --------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------ |
+| Config error          | 2         | None (no runtime)                                                                                                                         | No                         | stderr, `medre config check`                     |
+| Build failure         | 3         | None (no delivery)                                                                                                                        | No                         | `startup.build_failures`, logs                   |
+| Total startup failure | 4         | None (no delivery)                                                                                                                        | No                         | `startup.boot_summary`, logs                     |
+| Degraded startup      | 0         | Partial                                                                                                                                   | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
+| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)                                                                                                               | No                         | `medre inspect receipts`, RouteStats             |
+| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)                                                                                                              | No                         | receipt lineage, adapter `diagnostics()`         |
+| Adapter transient     | 0         | `sent` (after retry) or `failed`                                                                                                          | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
+| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)                                                                                                     | No                         | `capacity_rejections` counter, logs              |
+| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                                                                                                              | No                         | delivery plan timestamps                         |
+| Shutdown rejection    | 0         | `DeliveryReceipt`: `suppressed` (`failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` or `"delivery_rejected_shutdown"`) | No                         | `outbound_failed` counter                        |
+| Replay capacity       | 0         | `error` (replay_capacity_exceeded)                                                                                                        | No                         | `capacity_rejections` counter                    |
+| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)                                                                                                 | N/A (by design)            | receipt `replay_run_id`                          |
+| Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events                                                                                        | No                         | receipt `failure_kind`, `error` field            |
+| Loop prevented        | 0         | `suppressed` receipt persisted                                                                                                            | No                         | `loop_prevented` counter, RouteStats             |
+| Degraded live health  | 0         | N/A                                                                                                                                       | No                         | `health.live_health.adapters[]`                  |
+| Failed live health    | 0         | N/A                                                                                                                                       | No                         | `health.live_health.adapters[]`, `.error`        |
 
 ## Config Failure Drills
 
@@ -247,9 +247,9 @@ Fix: check the delivery plan's deadline configuration, adapter latency, and tran
 
 ### Delivery Rejected During Shutdown
 
-In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `delivery_rejected_shutdown`.
+In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`. New deliveries attempted after the capacity controller stops accepting (step 1 of shutdown) are rejected with the same `failure_kind` but `error="delivery_rejected_shutdown"`.
 
-Expected: `DeliveryReceipt`: `status == "suppressed"`, `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
+Expected: `DeliveryReceipt`: `status == "suppressed"`, `failure_kind == "shutdown_rejection"`, `error == "shutdown_drain_timeout"` (drain timeout) or `"delivery_rejected_shutdown"` (new delivery during shutdown). `outbound_failed` counter incremented.
 
 Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits. Non-terminal outbox rows survive shutdown as resumable work and are reclaimed on next startup.
 
@@ -260,6 +260,101 @@ Replay events in progress when shutdown begins are rejected.
 Expected: replay result: `status == "error"`, `error == "replay_rejected_shutdown"`.
 
 Fix: re-initiate replay after restart.
+
+### Shutdown Hangs (Adapter or Worker Does Not Stop)
+
+When the MEDRE process appears stuck during shutdown, the most likely cause is
+an adapter or background worker that does not respond to the stop signal within
+the configured timeout.
+
+#### What the runtime does automatically
+
+The runtime enforces a timeout (default 10 s) on every adapter stop call. If an
+adapter does not return within the deadline, the runtime records the failure,
+sets that adapter to `FAILED` state, and continues stopping the remaining
+adapters, pipeline, and storage. A `RuntimeShutdownError` is raised at the end
+with a summary of which adapters failed.
+
+The RetryWorker follows the same pattern: it gets a configurable grace period
+(default 10 seconds, sourced from `runtime.shutdown_timeout_seconds`) after
+receiving the shutdown signal. If it does not finish within its configured
+stop timeout, its background task is cancelled and a second bounded grace
+period (also `stop_timeout_seconds`) is applied.
+
+The RetryWorker stop timeout is wired from
+`config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML section,
+default `10`) — the same value that governs per-adapter stop deadlines.
+It is not a `[retry]` config field. The standalone `RetryWorker`
+constructor has its own default of `5.0` seconds, which only applies
+when constructing the worker outside `MedreApp`; the app-managed
+worker always uses the runtime config value above.
+
+If a RetryWorker task is cancellation-resistant (e.g. a storage call
+refuses to release), `stop()` returns within `2 * stop_timeout_seconds`
+and emits a `retry_abandoned` event. See
+`docs/dev/resource-lifecycle.md` for the full abandonment contract.
+
+#### How to diagnose a shutdown hang
+
+1. **Check the logs.** The runtime logs per-adapter stop progress at DEBUG
+   level. Look for entries like:
+   - `"Adapter <transport>.<id> stopping"` -- stop initiated
+   - `"Timeout stopping adapter <transport>.<id> after Xs, cancelling"` -- adapter hung past cooperative grace
+   - `"Adapter <transport>.<id> did not stop after cancel within Xs; abandoning"` -- adapter did not respond to cancel
+   - `"Cancelled while stopping adapter <transport>.<id>"` -- adapter cancelled by external cancellation
+   - `"RetryWorker task did not cancel within Xs; abandoning (_task is still referenced, state.abandoned=True)"` -- retry worker abandoned after cancel grace. No intermediate "cancelling" log; the polling loop moves directly from deadline expiry to `task.cancel()`.
+
+2. **Check the final error.** If the runtime raises `RuntimeShutdownError`,
+   the message lists each failed adapter or subsystem:
+
+   ```text
+   RuntimeShutdownError: Errors during shutdown; alpha: Timeout stopping adapter meshtastic.alpha after 10.0s
+   ```
+
+3. **Check adapter state after exit.** If the process eventually exits, the
+   evidence bundle or diagnostics output shows which adapters ended in `FAILED`
+   state rather than `STOPPED`.
+
+4. **Check for stuck in-flight deliveries.** If the drain phase times out,
+   abandoned deliveries are persisted as suppressed receipts:
+
+   ```sql
+   SELECT event_id, target_adapter, error, created_at
+   FROM delivery_receipts
+   WHERE failure_kind = 'shutdown_rejection'
+     AND error = 'shutdown_drain_timeout'
+   ORDER BY created_at DESC
+   LIMIT 20;
+   ```
+
+5. **Send a SIGABRT for a stack trace** if the process is completely
+   unresponsive (not just slow). Python dumps thread stacks to stderr on
+   SIGABRT. This helps identify which code path is blocked:
+
+   ```bash
+   kill -ABRT <pid>
+   ```
+
+#### Common causes
+
+| Symptom                                          | Likely cause                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Adapter times out on every shutdown              | Transport SDK connection is in a blocking call with no timeout                |
+| RetryWorker task may be cancelled then abandoned | Storage operation (claim/renew) is blocked or very slow                       |
+| Process never exits after `RuntimeShutdownError` | A non-daemon thread created by a third-party SDK is keeping the process alive |
+| Drain phase times out repeatedly                 | Slow or unresponsive adapter callbacks holding capacity semaphore             |
+
+#### Tuning shutdown timeouts
+
+```toml
+[runtime]
+shutdown_timeout_seconds = 15      # per-adapter stop deadline (default 10)
+shutdown_drain_timeout_seconds = 20  # in-flight work drain deadline (default 10)
+```
+
+Increasing these values gives adapters more time to clean up, but also makes
+shutdown slower. If an adapter genuinely cannot stop (hard lock in a C
+extension), no timeout value will help, and the process needs a `SIGKILL`.
 
 ## Loop Prevention
 
@@ -613,7 +708,7 @@ Lifecycle convergence diagnostics are deterministic and read-only. They never ch
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
 7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
-8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `delivery_rejected_shutdown`; non-terminal outbox items survive shutdown as resumable work.
+8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`; non-terminal outbox items survive shutdown as resumable work.
 
 ## See Also
 

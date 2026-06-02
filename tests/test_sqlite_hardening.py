@@ -7,6 +7,7 @@ decode fallback, write-batch atomicity, and plain-import scanner regex.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -101,6 +102,152 @@ class TestExecutorLifecycle:
         await s.close()
         assert s._executor is None
         assert s._closed is True
+
+    async def test_close_is_idempotent_repeated(self, tmp_path: Path) -> None:
+        """Calling close() many times is safe — no errors, no state drift."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        for _ in range(5):
+            await s.close()
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
+
+    async def test_executor_cleared_after_close(self, tmp_path: Path) -> None:
+        """close() must clear _executor after full shutdown (wait=True via asyncio.to_thread)."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        # Executor is created lazily — verify it exists on sync path.
+        if not s._use_aiosqlite:
+            # Force executor creation by submitting a task.
+            await s._run_in_thread(lambda: None)
+            assert s._executor is not None
+        await s.close()
+        assert s._executor is None
+
+    async def test_closed_flag_set_before_db_operations(self, tmp_path: Path) -> None:
+        """_closed must be True *before* the DB close() runs."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+
+        if not s._use_aiosqlite:
+            closed_during_close = False
+            real_db = s._db
+
+            class _InspectClose:
+                """Wrapper that checks _closed when close() is called."""
+
+                def close(self):
+                    nonlocal closed_during_close
+                    closed_during_close = s._closed
+                    real_db.close()
+
+            s._db = _InspectClose()
+            await s.close()
+            assert (
+                closed_during_close is True
+            ), "_closed should be True when db.close() is called"
+        else:
+            await s.close()
+
+    async def test_executor_cleared_even_if_db_close_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """If db.close() raises, executor must still be shut down and cleared.
+
+        For the sync executor path, failure is injected into db.close() to
+        prove the finally-block still clears the executor.  For the aiosqlite
+        path there is no executor to protect, so we close normally and
+        confirm the invariant holds — this avoids leaking the real aiosqlite
+        connection (which would cause a ResourceWarning).
+        """
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        assert s._executor is not None or s._use_aiosqlite
+
+        if s._use_aiosqlite:
+            # aiosqlite has no private executor — close normally and verify.
+            await s.close()
+            assert s._executor is None
+        else:
+            # Sync path — close the real connection ourselves, then install
+            # a mock whose close() raises to prove executor cleanup still
+            # happens in the finally-block.
+            real_db = s._db
+            real_db.close()
+
+            class _FailingConn:
+                def close(self):
+                    raise RuntimeError("simulated sync db.close failure")
+
+            s._db = _FailingConn()
+
+            with pytest.raises(RuntimeError, match="simulated sync db.close failure"):
+                await s.close()
+            assert s._executor is None
+
+    async def test_close_safe_when_db_is_none(self) -> None:
+        """close() on a never-initialized storage clears executor if present."""
+        s = SQLiteStorage(":memory:")
+        assert s._db is None
+        await s.close()
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
+
+    async def test_aiosqlite_close_survives_external_cancellation(
+        self, tmp_path: Path
+    ) -> None:
+        """When external CancelledError arrives during close(), the aiosqlite
+        connection still closes cleanly — no ResourceWarning, no leaked state.
+
+        Regression test: before the shield fix, a CancelledError delivered at
+        the ``await aiosqlite.close()`` checkpoint would abort the close
+        before aiosqlite's internal thread was joined, causing
+        ``ResourceWarning: ... was deleted before being closed``.
+        """
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        if not s._use_aiosqlite:
+            pytest.skip("aiosqlite not available — cancellation path is aiosqlite-only")
+
+        real_close = s._db.close
+        entered = asyncio.Event()
+        finished_real_close = asyncio.Event()
+
+        async def _slow_close() -> None:
+            entered.set()
+            # Hold the close open long enough for the cancel to arrive.
+            await asyncio.sleep(0.15)
+            await real_close()
+            finished_real_close.set()
+
+        s._db.close = _slow_close
+
+        # Start close() in a background task.
+        task = asyncio.create_task(s.close())
+
+        # Wait until the slow close has started, then give the event loop a
+        # tick so the shield await is definitely entered.
+        await entered.wait()
+        await asyncio.sleep(0)
+
+        # Cancel the outer close() task while the inner close is still running.
+        task.cancel()
+
+        # The shield catches the cancel, waits for the inner close to finish,
+        # then re-raises CancelledError to the caller.
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # The shield must wait for the inner aiosqlite close to actually finish —
+        # not just reach the boundary of the close.  This guards against future
+        # regressions where the shield is removed or bypassed.
+        assert finished_real_close.is_set(), "inner aiosqlite close never completed"
+        # Storage must be in a clean closed state.
+        assert s._executor is None
+        assert s._closed is True
+        assert s._db is None
 
 
 # ===================================================================

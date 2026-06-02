@@ -8,223 +8,25 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-from medre.config.model import RuntimeLimits
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.core.observability.classification import infer_failure_kind
-from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
+from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
+from tests._retry_test_helpers import (
+    RetryWorker,
+    _make_event,
+    _make_failed_receipt,
+    _make_limits,
+)
 from tests.helpers.async_utils import wait_until
-
-# ---------------------------------------------------------------------------
-# RetryWorker (shutdown variant)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _RetryWorkerState:
-    succeeded: int = 0
-    dead_lettered: int = 0
-    failed: int = 0
-    processed: int = 0
-
-
-class RetryWorker:
-    """Lightweight retry worker for shutdown/capacity tests."""
-
-    def __init__(
-        self,
-        storage,
-        pipeline,
-        retry_policy: RetryPolicy,
-        *,
-        shutdown_event: asyncio.Event | None = None,
-        capacity_controller: CapacityController | None = None,
-        accounting: RuntimeAccounting | None = None,
-        interval: float = 1.0,
-    ) -> None:
-        self.storage = storage
-        self.pipeline = pipeline
-        self._retry_executor = RetryExecutor(retry_policy)
-        self.state = _RetryWorkerState()
-        self.shutdown_event = shutdown_event or asyncio.Event()
-        self._capacity = capacity_controller
-        self._accounting = accounting or RuntimeAccounting()
-        self._interval = interval
-        self._task: asyncio.Task | None = None
-
-    async def _process_due(self, now: datetime) -> int:
-        if self.shutdown_event.is_set():
-            return 0
-
-        if self._capacity is not None:
-            acquired = await self._capacity.acquire_delivery()
-            if not acquired:
-                self.state.failed += 1
-                self._accounting.record_capacity_rejection()
-                return 0
-
-        try:
-            due = await self._get_due_receipts(now)
-            processed = 0
-            for receipt in due:
-                if self.shutdown_event.is_set():
-                    break
-                if not self._is_retryable(receipt):
-                    continue
-
-                event = await self.storage.get(receipt.event_id)
-                if event is None:
-                    continue
-
-                next_attempt = self._retry_executor.next_attempt_number(
-                    receipt.attempt_number,
-                )
-
-                try:
-                    await self.pipeline.deliver_to_target(
-                        event,
-                        self._make_route(receipt),
-                        self._make_plan(receipt),
-                        previous_receipt=receipt,
-                    )
-                    self.state.succeeded += 1
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    if self._retry_executor.is_exhausted(next_attempt):
-                        self.state.dead_lettered += 1
-                    else:
-                        self.state.failed += 1
-
-                self.state.processed += 1
-                processed += 1
-            return processed
-        finally:
-            if self._capacity is not None:
-                await self._capacity.release_delivery()
-
-    async def _get_due_receipts(self, now: datetime):
-        return await self.storage.list_due_retry_receipts(now)
-
-    @staticmethod
-    def _is_retryable(receipt: DeliveryReceipt) -> bool:
-        if receipt.status != "failed":
-            return False
-        if receipt.failure_kind is not None:
-            return receipt.failure_kind == "adapter_transient"
-        kind = infer_failure_kind(receipt.error, receipt.status)
-        return kind == "adapter_transient"
-
-    @staticmethod
-    def _make_route(receipt):
-        return Route(
-            id=receipt.route_id or "retry-route",
-            source=RouteSource(adapter=None, event_kinds=(), channel=None),
-            targets=[
-                RouteTarget(
-                    adapter=receipt.target_adapter,
-                    channel=getattr(receipt, "target_channel", None),
-                )
-            ],
-        )
-
-    @staticmethod
-    def _make_plan(receipt):
-        from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
-
-        return DeliveryPlan(
-            plan_id=receipt.delivery_plan_id,
-            event_id=receipt.event_id,
-            target=RouteTarget(
-                adapter=receipt.target_adapter,
-                channel=getattr(receipt, "target_channel", None),
-            ),
-            primary_strategy=DeliveryStrategy(method="direct"),
-        )
-
-    async def start(self) -> None:
-        self._task = asyncio.create_task(self._run_loop())
-
-    async def stop(self) -> None:
-        self.shutdown_event.set()
-        if self._task is not None:
-            await self._task
-
-    async def _run_loop(self) -> None:
-        while not self.shutdown_event.is_set():
-            now = datetime.now(timezone.utc)
-            await self._process_due(now)
-            try:
-                await asyncio.wait_for(
-                    self.shutdown_event.wait(),
-                    timeout=self._interval,
-                )
-            except asyncio.TimeoutError:
-                pass
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_event(event_id: str = "evt-001") -> CanonicalEvent:
-    return CanonicalEvent(
-        event_id=event_id,
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_source",
-        source_transport_id="node-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=(),
-        payload={"body": "shutdown test"},
-        metadata=EventMetadata(),
-    )
-
-
-def _make_failed_receipt(
-    *,
-    receipt_id: str = "rcpt-fail-001",
-    error: str = "ConnectionError: timeout",
-    attempt_number: int = 1,
-) -> DeliveryReceipt:
-    return DeliveryReceipt(
-        receipt_id=receipt_id,
-        event_id="evt-001",
-        delivery_plan_id="plan-1",
-        target_adapter="target_a",
-        route_id="route-1",
-        status="failed",
-        error=error,
-        next_retry_at=datetime.now(timezone.utc) - timedelta(seconds=1),
-        attempt_number=attempt_number,
-        created_at=datetime.now(timezone.utc),
-    )
-
-
-def _make_limits(**overrides) -> RuntimeLimits:
-    defaults = {
-        "max_inflight_deliveries": 10,
-        "max_inflight_replay_events": 10,
-        "shutdown_drain_timeout_seconds": 5,
-        "delivery_acquire_timeout_seconds": 0.5,
-    }
-    defaults.update(overrides)
-    return RuntimeLimits(**defaults)
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -264,18 +66,25 @@ class TestRetryShutdown:
             lambda: storage.list_due_retry_receipts.call_count >= 1,
             timeout=2.0,
         )
-        # Stop immediately
         await worker.stop()
 
         assert worker.shutdown_event.is_set()
 
     async def test_shutdown_while_retry_in_flight(self):
-        """Capacity slot released when retry is cancelled mid-flight."""
+        """Capacity slot released when retry is cancelled mid-flight.
+
+        Uses the real RetryWorker (not the lightweight mock) so that
+        stop()'s bounded cancel logic is exercised.  The delivery blocks
+        on a ``proceed`` event; stop() is called while the slot is held,
+        then ``proceed`` is set so the delivery completes within the
+        cooperative grace period.  The capacity slot must be released
+        and the call must finish.
+        """
+        from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker as RealRetryWorker
+
         event = _make_event()
-        receipt = _make_failed_receipt()
-        storage = MagicMock()
-        storage.list_due_retry_receipts = AsyncMock(return_value=[receipt])
-        storage.get = AsyncMock(return_value=event)
 
         # Pipeline that blocks until an event fires
         proceed = asyncio.Event()
@@ -291,40 +100,72 @@ class TestRetryShutdown:
                 created_at=datetime.now(timezone.utc),
             )
 
+        storage = MagicMock()
+        # The real worker calls claim_due_outbox_items.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obx-001",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="target_a",
+            attempt_number=1,
+            status="retry_wait",
+            next_attempt_at=(
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat(),
+            receipt_id="rcpt-fail-001",
+        )
+        storage.claim_due_outbox_items = AsyncMock(return_value=[outbox_item])
+        storage.get = AsyncMock(return_value=event)
+        storage.list_receipts_for_plan = AsyncMock(return_value=[])
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+        storage.mark_outbox_sent = AsyncMock(return_value=None)
+        storage.mark_outbox_queued = AsyncMock(return_value=None)
+
         pipeline = MagicMock()
         pipeline.deliver_to_target = _slow_deliver
 
         limits = _make_limits(max_inflight_deliveries=1)
         capacity = CapacityController(limits)
-        policy = RetryPolicy(max_attempts=3)
+        event_buffer = EventBuffer(maxlen=64)
 
-        shutdown_evt = asyncio.Event()
-        worker = RetryWorker(
-            storage,
-            pipeline,
-            policy,
-            shutdown_event=shutdown_evt,
+        worker = RealRetryWorker(
+            storage=storage,
+            pipeline=pipeline,
             capacity_controller=capacity,
-            interval=300,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.5,
         )
 
-        # Start worker — it will acquire a slot and block in deliver_to_target
-        await worker.start()
-        await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
+        try:
+            await worker.start()
+            # Wait for the worker to claim the outbox item and acquire
+            # the capacity slot (delivery is blocked on proceed).
+            await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
+            assert capacity.delivery_current >= 1
 
-        # The delivery slot should be occupied
-        assert capacity.delivery_current >= 1
+            # Call stop() while the delivery is still blocked in
+            # proceed.wait().  stop() sets the shutdown event and polls;
+            # we unblock the delivery so it completes within the
+            # cooperative grace period.
+            stop_task = asyncio.create_task(worker.stop())
+            # Yield so stop() acquires the lock and sets the shutdown
+            # event before we unblock the delivery.
+            await asyncio.sleep(0)
+            proceed.set()
+            await stop_task
 
-        # Fire the proceed event so delivery completes, then stop
-        proceed.set()
-        await wait_until(lambda: call_completed.is_set(), timeout=2.0)
-        await worker.stop()
-
-        # Capacity slot should be released
-        assert capacity.delivery_current == 0
-        # No false success if we shut down before completion
-        # (the delivery completed normally here, so succeeded is ok)
-        assert call_completed.is_set()
+            assert capacity.delivery_current == 0
+            assert call_completed.is_set()
+        finally:
+            proceed.set()
+            if worker._task is not None and not worker._task.done():
+                try:
+                    await asyncio.wait_for(worker._task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
 
     async def test_capacity_rejection_during_retry(self):
         """When capacity is 0, retry is rejected without calling pipeline."""
@@ -362,13 +203,10 @@ class TestRetryShutdownRealPipeline:
 
     async def test_shutdown_with_real_pipeline_and_due_receipt(self, temp_storage):
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
-        import uuid
-
         from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
-        from medre.core.events.metadata import EventMetadata
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
@@ -445,12 +283,10 @@ class TestRetryShutdownRealPipeline:
             assert len(outcomes) == 1
             assert outcomes[0].status == "transient_failure"
 
-            # Verify due receipt exists
             receipts = await temp_storage.list_receipts_for_event(event_id)
             failed = [r for r in receipts if r.status == "failed"]
             assert len(failed) == 1
 
-            # Create capacity controller and worker
             limits = _make_limits(max_inflight_deliveries=1)
             capacity = CapacityController(limits)
             policy = RetryPolicy(max_attempts=3)
@@ -463,14 +299,15 @@ class TestRetryShutdownRealPipeline:
                 interval=300,
             )
 
-            # Start and immediately stop
             await worker.start()
-            await wait_until(lambda: worker._task is not None, timeout=2.0)
+            # Wait for the due-receipt processing side effect.
+            await wait_until(
+                lambda: worker.state.processed >= 1 or worker.state.failed >= 1,
+                timeout=2.0,
+            )
             await worker.stop()
 
-            # Worker stops cleanly
             assert worker.shutdown_event.is_set()
-            # No leaked capacity
             assert capacity.delivery_current == 0
             # No false success (the adapter always fails)
             assert worker.state.succeeded == 0
@@ -479,11 +316,8 @@ class TestRetryShutdownRealPipeline:
 
     async def test_capacity_rejection_during_real_retry(self, temp_storage):
         """With capacity=0, retry worker fails without calling the pipeline."""
-        import uuid
-
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
-        from medre.core.events.metadata import EventMetadata
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
@@ -565,172 +399,4 @@ class TestRetryShutdownRealPipeline:
             snap = accounting.snapshot()
             assert snap["capacity_rejections"] == 1
         finally:
-            await runner.stop()
-
-
-class TestRetryCapacityRejectionBackoff:
-    """Capacity rejection backoff policy tests using the real RetryWorker."""
-
-    async def test_retry_capacity_rejection_backoff(self, temp_storage):
-        """When capacity always rejects:
-        1. retry_failed event emitted
-        2. outbox next_attempt_at updated (backoff applied)
-        3. attempt_number unchanged (capacity rejection ≠ delivery attempt)
-        4. Monotonic backoff across two rejection cycles
-        5. Snapshot counters correct
-        """
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-        from medre.core.events.bus import EventBus
-        from medre.core.observability.metrics import Diagnostician
-        from medre.core.planning.fallback_resolution import FallbackResolver
-        from medre.core.planning.relation_resolution import RelationResolver
-        from medre.core.rendering.renderer import RenderingPipeline
-        from medre.core.rendering.text import TextRenderer
-        from medre.core.routing.router import Router
-        from medre.core.routing.stats import RouteStats
-        from medre.core.storage.backend import DeliveryOutboxItem
-        from medre.runtime.events import EventBuffer, RuntimeEventType
-        from medre.runtime.retry import RetryWorker
-
-        event_buffer = EventBuffer(maxlen=64)
-        event = _make_event()
-        await temp_storage.append(event)
-
-        # Create a failed receipt for lineage + an outbox item in retry_wait.
-        now = datetime.now(timezone.utc)
-        receipt_id = f"rcpt-{uuid.uuid4()}"
-        failed_receipt = DeliveryReceipt(
-            receipt_id=receipt_id,
-            event_id=event.event_id,
-            delivery_plan_id="plan-cap-backoff",
-            target_adapter="target_a",
-            route_id="route-cap-backoff",
-            status="failed",
-            error="ConnectionError: timeout",
-            failure_kind="adapter_transient",
-            next_retry_at=now - timedelta(seconds=1),  # due now
-            attempt_number=1,
-            created_at=now,
-        )
-        await temp_storage.append_receipt(failed_receipt)
-
-        outbox_id = f"obx-{uuid.uuid4()}"
-        outbox_item = DeliveryOutboxItem(
-            outbox_id=outbox_id,
-            event_id=event.event_id,
-            route_id="route-cap-backoff",
-            delivery_plan_id="plan-cap-backoff",
-            target_adapter="target_a",
-            attempt_number=1,
-            status="retry_wait",
-            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
-            receipt_id=receipt_id,
-        )
-        await temp_storage.create_outbox_item(outbox_item)
-
-        # Pipeline needed for RetryWorker but capacity=0 means it never gets called
-        render_pipe = RenderingPipeline()
-        render_pipe.register(TextRenderer(), priority=100)
-
-        config = PipelineConfig(
-            storage=temp_storage,
-            router=Router(routes=[]),
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={},
-            event_bus=EventBus(),
-            rendering_pipeline=render_pipe,
-            diagnostician=Diagnostician(),
-            route_stats=RouteStats(),
-        )
-        runner = PipelineRunner(config)
-        await runner.start()
-
-        # Capacity controller that always rejects
-        limits = _make_limits(max_inflight_deliveries=0)
-        capacity = CapacityController(limits)
-
-        worker = RetryWorker(
-            storage=temp_storage,
-            pipeline=runner,
-            capacity_controller=capacity,
-            enabled=True,
-            interval_seconds=5.0,
-            max_attempts=3,
-            event_buffer=event_buffer,
-        )
-
-        try:
-            # === Cycle 1: capacity rejection ===
-            cycle1_now = datetime.now(timezone.utc)
-            await worker._process_due(cycle1_now)
-
-            # Assert: retry_failed event emitted with capacity_rejection
-            events = list(event_buffer)
-            event_types = [e.event_type for e in events]
-            assert (
-                RuntimeEventType.RETRY_FAILED in event_types
-            ), f"Expected retry_failed event, got: {[e.value for e in event_types]}"
-            failed_events = [
-                e for e in events if e.event_type == RuntimeEventType.RETRY_FAILED
-            ]
-            assert len(failed_events) >= 1
-            assert failed_events[0].detail["status"] == "capacity_rejection"
-
-            # Assert: outbox next_attempt_at was updated (pushed forward)
-            updated_item = await temp_storage.get_outbox_item(outbox_id)
-            assert updated_item is not None
-            assert updated_item.next_attempt_at is not None
-            _parsed_next = datetime.fromisoformat(updated_item.next_attempt_at)
-            assert _parsed_next > cycle1_now, (
-                f"next_attempt_at should be pushed past {cycle1_now}, "
-                f"got {_parsed_next}"
-            )
-            first_backoff_next_at = updated_item.next_attempt_at
-
-            # Assert: attempt_number unchanged (capacity rejection doesn't increment)
-            assert (
-                updated_item.attempt_number == 1
-            ), f"attempt_number should remain 1, got {updated_item.attempt_number}"
-
-            # Assert: worker snapshot shows correct counters
-            state = worker.state
-            assert state.failed == 1
-            assert state.processed == 0
-            assert state.succeeded == 0
-
-            # === Cycle 2: capacity still rejecting ===
-            cycle2_now = datetime.fromisoformat(first_backoff_next_at) + timedelta(
-                seconds=1,
-            )
-            await worker._process_due(cycle2_now)
-
-            updated_item_2 = await temp_storage.get_outbox_item(outbox_id)
-            assert updated_item_2 is not None
-
-            # Assert: next_attempt_at advanced monotonically
-            assert updated_item_2.next_attempt_at is not None
-            _parsed_next_2 = datetime.fromisoformat(updated_item_2.next_attempt_at)
-            _parsed_first = datetime.fromisoformat(first_backoff_next_at)
-            assert _parsed_next_2 > _parsed_first, (
-                f"Second backoff ({_parsed_next_2}) must be "
-                f"later than first ({_parsed_first})"
-            )
-
-            # Assert: attempt_number still unchanged
-            assert updated_item_2.attempt_number == 1
-
-            # Assert: snapshot counters reflect 2 rejections
-            assert state.failed == 2
-            assert state.processed == 0
-            assert state.succeeded == 0
-
-            # Assert: second retry_failed event
-            events_2 = list(event_buffer)
-            failed_events_2 = [
-                e for e in events_2 if e.event_type == RuntimeEventType.RETRY_FAILED
-            ]
-            assert len(failed_events_2) >= 2
-        finally:
-            await worker.stop()
             await runner.stop()

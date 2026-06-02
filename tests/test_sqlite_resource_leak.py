@@ -81,10 +81,18 @@ class TestSyncFallbackNormalClose:
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
 
+        # Drain unreachable objects (including zombie aiosqlite
+        # connections left over from earlier tests) BEFORE opening the
+        # recording context.  Otherwise their ``__del__`` finalizers
+        # would fire under the ``simplefilter("always", ResourceWarning)``
+        # filter and pollute the captured warnings.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             await storage.initialize()
             await storage.close()
+            assert storage._db is None
             del storage
             gc.collect()
 
@@ -107,11 +115,16 @@ class TestSyncFallbackNormalClose:
         del storage
         gc.collect()
 
+        # Drain unreachable objects before opening the recording
+        # context (see comment in test_initialize_and_close_no_resource_warning).
+        gc.collect()
+
         # Now open it read-only and verify no leak.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             ro = await SQLiteStorage.open_readonly(db_path)
             await ro.close()
+            assert ro._db is None
             del ro
             gc.collect()
 
@@ -140,6 +153,9 @@ class TestSyncFallbackFailureClose:
         """
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
+
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
@@ -178,6 +194,10 @@ class TestSyncFallbackFailureClose:
 
         # Re-open: verify_schema_version should raise StorageInitializationError.
         storage2 = SQLiteStorage(db_path=db_path)
+
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError):
@@ -200,6 +220,10 @@ class TestSyncFallbackFailureClose:
 
         # Attempt to open a non-existent file read-only (will fail at
         # the sqlite3.connect level with URI mode=ro).
+
+        # Drain unreachable objects before opening the recording context.
+        gc.collect()
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError, match="does not exist"):
@@ -253,3 +277,75 @@ class TestSyncOpenReadonlyRowFactoryFailure:
         )
 
         gc.collect()
+
+
+# ---------------------------------------------------------------------------
+# Tests: close() executor cleanup on sync-fallback path
+# ---------------------------------------------------------------------------
+
+
+class TestSyncFallbackExecutorCleanup:
+    """Sync fallback — executor is always cleaned up by close()."""
+
+    async def test_close_clears_executor_sync_path(self, tmp_path: Path) -> None:
+        """close() sets _executor to None and _db to None on the sync fallback path."""
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        assert storage._executor is not None  # sync path creates executor
+        await storage.close()
+        assert storage._executor is None
+        assert storage._closed is True
+        assert storage._db is None
+
+    async def test_executor_cleared_even_if_db_close_raises_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """If an exception occurs during DB close, executor is still shut down
+        and _db/_closed are restored for retry.
+
+        We simulate a failure in the close path by replacing _db with a mock
+        whose close() raises after the real connection is cleaned up.
+        """
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        assert storage._executor is not None
+
+        # Close the real connection ourselves, then install a mock that raises.
+        real_db = storage._db
+        real_db.close()
+
+        class _MockConn:
+            def close(self):
+                raise RuntimeError("simulated db close error")
+
+        mock_conn = _MockConn()
+        storage._db = mock_conn
+
+        with pytest.raises(RuntimeError, match="simulated db close error"):
+            await storage.close()
+
+        # Executor must still be cleared.
+        assert storage._executor is None
+        # _db and _closed are restored so a retry close() can succeed.
+        assert storage._db is mock_conn
+        assert storage._closed is False
+
+    async def test_close_with_none_db_clears_executor_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """close() cleans up executor even when _db is already None."""
+        db_path = _temp_db_path(tmp_path)
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        # Manually nil the db to simulate partial cleanup.  Close the
+        # real connection first so the sqlite3.Connection is not leaked.
+        real_db = storage._db
+        assert real_db is not None
+        real_db.close()
+        storage._db = None
+        assert storage._executor is not None
+        await storage.close()
+        assert storage._executor is None
+        assert storage._closed is True
