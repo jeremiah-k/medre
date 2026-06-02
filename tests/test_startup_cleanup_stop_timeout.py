@@ -193,6 +193,16 @@ class TestStartupCleanupStopTimeout:
         alpha = SlowStopOnStartFailure(adapter_id="alpha")
         # Beta: fast stop (FailingAdapter), start fails.
         beta = FailingAdapter(adapter_id="beta")
+        # Track beta.stop() since FailingAdapter doesn't track it internally.
+        beta_stop_called = False
+        _original_beta_stop = beta.stop
+
+        async def _tracked_beta_stop(timeout: float = 5.0) -> None:
+            nonlocal beta_stop_called
+            await _original_beta_stop(timeout)
+            beta_stop_called = True
+
+        beta.stop = _tracked_beta_stop
         app.adapters["alpha"] = alpha
         app.adapters["beta"] = beta
 
@@ -203,5 +213,6 @@ class TestStartupCleanupStopTimeout:
                 await app.start()
 
         assert alpha.stop_called
+        assert beta_stop_called, "beta stop() was not called"
         assert storage_called[0], "storage.close() did not complete"
         assert app.state == RuntimeState.FAILED

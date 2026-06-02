@@ -171,6 +171,7 @@ class RetryWorker:
         decide between ``_logger.info("RetryWorker stopped")`` and
         logging the failure.
         """
+        assert task.done(), "task must be done before finalization"
         counts = {
             "processed": self.state.processed,
             "succeeded": self.state.succeeded,
@@ -303,6 +304,10 @@ class RetryWorker:
         """
         async with self._stop_lock:
             if self._task is None:
+                return
+            if self.state.abandoned:
+                # A previous stop() already abandoned the worker; do not
+                # emit duplicate retry_stopped / retry_failed events.
                 return
             self._shutdown_event.set()
             loop = asyncio.get_running_loop()

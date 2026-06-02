@@ -8,8 +8,9 @@ test file can import the common pieces without duplication.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -112,6 +113,30 @@ def _build_app(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
 
 
 # ---------------------------------------------------------------------------
+# Shutdown timeout override
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _set_shutdown_timeout(app: MedreApp, timeout: float) -> Iterator[None]:
+    """Temporarily override *shutdown_timeout_seconds* on *app*.
+
+    Stores the original value, sets *timeout*, yields, then restores the
+    original — even if the body raises.
+
+    Uses ``object.__setattr__`` because ``RuntimeOptions`` is a frozen
+    dataclass; direct attribute assignment raises ``FrozenInstanceError``.
+    """
+    opts = app.config.runtime
+    original = opts.shutdown_timeout_seconds
+    object.__setattr__(opts, "shutdown_timeout_seconds", timeout)
+    try:
+        yield
+    finally:
+        object.__setattr__(opts, "shutdown_timeout_seconds", original)
+
+
+# ---------------------------------------------------------------------------
 # Tracking wrappers (reusable across test modules)
 # ---------------------------------------------------------------------------
 
@@ -119,10 +144,10 @@ def _build_app(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
 def _make_tracking_storage_close(app: MedreApp) -> list[bool]:
     """Wrap ``app.storage.close`` with a tracking flag.
 
-    Returns ``(storage_close_called_flag_id, sentinel)`` — the caller
-    should use the returned *mutable* container pattern.  Instead, this
-    helper returns the tracking closure and a mutable list ``[called]``
-    so callers don't need to duplicate the boilerplate.
+    Returns a mutable single-element list ``[called]``.  The flag is set
+    to ``True`` **before** awaiting the original close so that callers
+    can verify "cleanup was entered" even if the underlying close raises
+    or hangs.
 
     Usage::
 
@@ -135,8 +160,8 @@ def _make_tracking_storage_close(app: MedreApp) -> list[bool]:
     original_close = app.storage.close
 
     async def _tracking_close() -> None:
-        await original_close()
         called[0] = True
+        await original_close()
 
     app.storage.close = _tracking_close  # type: ignore[assignment]
     return called
@@ -145,14 +170,17 @@ def _make_tracking_storage_close(app: MedreApp) -> list[bool]:
 def _make_tracking_pipeline_stop(app: MedreApp) -> list[bool]:
     """Wrap ``app.pipeline_runner.stop`` with a tracking flag.
 
-    Returns ``[called]`` — a mutable single-element list.
+    Returns a mutable single-element list ``[called]``.  The flag is set
+    to ``True`` **before** awaiting the original stop so that callers
+    can verify "cleanup was entered" even if the underlying stop raises
+    or hangs.
     """
     called = [False]
     original_pipeline_stop = app.pipeline_runner.stop
 
     async def _tracking_pipeline_stop() -> None:
-        await original_pipeline_stop()
         called[0] = True
+        await original_pipeline_stop()
 
     app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
     return called

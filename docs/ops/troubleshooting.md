@@ -6,24 +6,24 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 ## Failure Category Quick Reference
 
-| Category              | Exit code | Receipt/Outcome status                                                                                  | Retry?                     | Where to inspect                                 |
-| --------------------- | --------- | ------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------ |
-| Config error          | 2         | None (no runtime)                                                                                       | No                         | stderr, `medre config check`                     |
-| Build failure         | 3         | None (no delivery)                                                                                      | No                         | `startup.build_failures`, logs                   |
-| Total startup failure | 4         | None (no delivery)                                                                                      | No                         | `startup.boot_summary`, logs                     |
-| Degraded startup      | 0         | Partial                                                                                                 | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
-| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)                                                                             | No                         | `medre inspect receipts`, RouteStats             |
-| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)                                                                            | No                         | receipt lineage, adapter `diagnostics()`         |
-| Adapter transient     | 0         | `sent` (after retry) or `failed`                                                                        | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
-| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)                                                                   | No                         | `capacity_rejections` counter, logs              |
-| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                                                                            | No                         | delivery plan timestamps                         |
-| Shutdown rejection    | 0         | `DeliveryReceipt`: `suppressed` (`failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"`) | No                         | `outbound_failed` counter                        |
-| Replay capacity       | 0         | `error` (replay_capacity_exceeded)                                                                      | No                         | `capacity_rejections` counter                    |
-| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)                                                               | N/A (by design)            | receipt `replay_run_id`                          |
-| Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events                                                      | No                         | receipt `failure_kind`, `error` field            |
-| Loop prevented        | 0         | `suppressed` receipt persisted                                                                          | No                         | `loop_prevented` counter, RouteStats             |
-| Degraded live health  | 0         | N/A                                                                                                     | No                         | `health.live_health.adapters[]`                  |
-| Failed live health    | 0         | N/A                                                                                                     | No                         | `health.live_health.adapters[]`, `.error`        |
+| Category              | Exit code | Receipt/Outcome status                                                                                                                    | Retry?                     | Where to inspect                                 |
+| --------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------ |
+| Config error          | 2         | None (no runtime)                                                                                                                         | No                         | stderr, `medre config check`                     |
+| Build failure         | 3         | None (no delivery)                                                                                                                        | No                         | `startup.build_failures`, logs                   |
+| Total startup failure | 4         | None (no delivery)                                                                                                                        | No                         | `startup.boot_summary`, logs                     |
+| Degraded startup      | 0         | Partial                                                                                                                                   | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
+| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)                                                                                                               | No                         | `medre inspect receipts`, RouteStats             |
+| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)                                                                                                              | No                         | receipt lineage, adapter `diagnostics()`         |
+| Adapter transient     | 0         | `sent` (after retry) or `failed`                                                                                                          | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
+| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)                                                                                                     | No                         | `capacity_rejections` counter, logs              |
+| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)                                                                                                              | No                         | delivery plan timestamps                         |
+| Shutdown rejection    | 0         | `DeliveryReceipt`: `suppressed` (`failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` or `"delivery_rejected_shutdown"`) | No                         | `outbound_failed` counter                        |
+| Replay capacity       | 0         | `error` (replay_capacity_exceeded)                                                                                                        | No                         | `capacity_rejections` counter                    |
+| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)                                                                                                 | N/A (by design)            | receipt `replay_run_id`                          |
+| Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events                                                                                        | No                         | receipt `failure_kind`, `error` field            |
+| Loop prevented        | 0         | `suppressed` receipt persisted                                                                                                            | No                         | `loop_prevented` counter, RouteStats             |
+| Degraded live health  | 0         | N/A                                                                                                                                       | No                         | `health.live_health.adapters[]`                  |
+| Failed live health    | 0         | N/A                                                                                                                                       | No                         | `health.live_health.adapters[]`, `.error`        |
 
 ## Config Failure Drills
 
@@ -247,9 +247,9 @@ Fix: check the delivery plan's deadline configuration, adapter latency, and tran
 
 ### Delivery Rejected During Shutdown
 
-In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`.
+In-flight adapter deliveries are drained up to `shutdown_drain_timeout_seconds`. Deliveries that do not complete within the drain period are abandoned with evidence persisted as `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`. New deliveries attempted after the capacity controller stops accepting (step 1 of shutdown) are rejected with the same `failure_kind` but `error="delivery_rejected_shutdown"`.
 
-Expected: `DeliveryReceipt`: `status == "suppressed"`, `failure_kind == "shutdown_rejection"`, `error == "shutdown_drain_timeout"`. `outbound_failed` counter incremented.
+Expected: `DeliveryReceipt`: `status == "suppressed"`, `failure_kind == "shutdown_rejection"`, `error == "shutdown_drain_timeout"` (drain timeout) or `"delivery_rejected_shutdown"` (new delivery during shutdown). `outbound_failed` counter incremented.
 
 Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits. Non-terminal outbox rows survive shutdown as resumable work and are reclaimed on next startup.
 

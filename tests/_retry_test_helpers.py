@@ -72,12 +72,15 @@ class RetryWorker:
         if self.shutdown_event.is_set():
             return 0
 
+        capacity_acquired = False
+
         if self._capacity is not None:
             acquired = await self._capacity.acquire_delivery()
             if not acquired:
                 self.state.failed += 1
                 self._accounting.record_capacity_rejection()
                 return 0
+            capacity_acquired = True
 
         try:
             due = await self._get_due_receipts(now)
@@ -120,7 +123,7 @@ class RetryWorker:
                 processed += 1
             return processed
         finally:
-            if self._capacity is not None:
+            if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
 
     async def _get_due_receipts(self, now: datetime):

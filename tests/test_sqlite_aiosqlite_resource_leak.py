@@ -237,6 +237,7 @@ class TestAiosqliteCloseShield:
         # The close_task was still awaited despite CancelledError.
         mock_conn.close.assert_awaited()
         assert storage._closed is True
+        assert storage._db is None
         gc.collect()
 
     async def test_aiosqlite_close_base_exception_awaits_task(
@@ -255,6 +256,8 @@ class TestAiosqliteCloseShield:
 
         # close_task should still have been awaited.
         mock_conn.close.assert_awaited()
+        # _db restored so a later close() can retry.
+        assert storage._db is mock_conn
         # _closed restored to False so retry is possible.
         assert storage._closed is False
         gc.collect()

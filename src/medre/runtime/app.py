@@ -151,7 +151,13 @@ def _outcome_from_task(
         return (default_outcome, None, False)
     if isinstance(exc, asyncio.TimeoutError):
         return ("timeout", exc, False)
-    return ("error", exc, False)
+    # exc is guaranteed non-None here (the early return above handles
+    # None), but guard defensively against a None exception argument.
+    return (
+        "error",
+        exc if exc is not None else RuntimeError("adapter stop failed"),
+        False,
+    )
 
 
 def _outcome_from_cancelled_task(
@@ -168,10 +174,10 @@ def _outcome_from_cancelled_task(
     Caller must have already confirmed ``task.done()``.
     """
     if task.cancelled():
-        return ("timeout", None, False)
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"), False)
     exc = task.exception()
     if exc is None:
-        return ("timeout", None, False)
+        return ("timeout", asyncio.TimeoutError("adapter stop timed out"), False)
     return ("timeout", exc, False)
 
 
@@ -837,10 +843,11 @@ class MedreApp:
             # pending cancellation so cleanup awaits can actually run,
             # then run the same cleanup as the ``Exception`` handler.
             # The cancellation is restored after cleanup so it propagates
-            # to the caller.  The ``except CancelledError`` branch MUST
-            # come first — Python evaluates except clauses in order, and
-            # ``asyncio.CancelledError`` is a ``BaseException`` (not an
-            # ``Exception``).
+            # to the caller.  ``except CancelledError`` appears first
+            # because Python evaluates except clauses in order.
+            # ``asyncio.CancelledError`` is a ``BaseException``, not an
+            # ``Exception``, so ``except Exception`` below cannot match
+            # it — the explicit ordering documents intent.
             #
             # The restore includes:
             #   _cleared                — cancellations drained by this handler
@@ -1111,7 +1118,14 @@ class MedreApp:
                 ):
                     _logger.info("In-flight work drained")
                     break
-                await asyncio.sleep(0.1)
+                try:
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError as c_exc:
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                    if _cancelled is None:
+                        _cancelled = c_exc
+                    _logger.debug("Cancelled during drain loop (deferred)")
+                    break
             else:
                 if drain_snap is None:
                     drain_snap = self._capacity_controller.snapshot()
@@ -1122,7 +1136,15 @@ class MedreApp:
                 )
                 # Persist structured abandonment evidence for in-flight
                 # deliveries that could not complete before the drain deadline.
-                await self._persist_drain_abandoned_evidence()
+                try:
+                    await self._persist_drain_abandoned_evidence()
+                except asyncio.CancelledError as c_exc:
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                    if _cancelled is None:
+                        _cancelled = c_exc
+                    _logger.debug(
+                        "Cancelled during drain abandoned evidence persist (deferred)"
+                    )
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -1246,6 +1268,11 @@ class MedreApp:
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped")
+        except asyncio.CancelledError as c_exc:
+            _deferred_cancel_count += _drain_pending_cancellations()
+            if _cancelled is None:
+                _cancelled = c_exc
+            _logger.debug("Cancelled while stopping pipeline runner (deferred)")
         except Exception as exc:
             _logger.error("Error stopping pipeline runner: %s", exc)
             errors.append(("pipeline", exc))
@@ -1255,6 +1282,11 @@ class MedreApp:
             try:
                 await self.storage.close()
                 _logger.info("Storage closed")
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug("Cancelled while closing storage (deferred)")
             except Exception as exc:
                 _logger.error("Error closing storage: %s", exc)
                 errors.append(("storage", exc))
@@ -1713,12 +1745,28 @@ class MedreApp:
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped during startup cleanup")
+        except asyncio.CancelledError as c_exc:
+            if _cancelled is None:
+                _cancelled = c_exc
+            _cleared_cancels += _drain_pending_cancellations()
+            _logger.debug(
+                "Cancelled while stopping pipeline runner during "
+                "startup cleanup (deferred)"
+            )
         except Exception as exc:
             _logger.error(
                 "Error stopping pipeline runner during startup cleanup: %s", exc
             )
 
-        await self._cleanup_storage_safely()
+        try:
+            await self._cleanup_storage_safely()
+        except asyncio.CancelledError as c_exc:
+            if _cancelled is None:
+                _cancelled = c_exc
+            _cleared_cancels += _drain_pending_cancellations()
+            _logger.debug(
+                "Cancelled during storage cleanup during " "startup cleanup (deferred)"
+            )
 
         # Restore the deferred cancellation count and re-raise so the
         # caller's cancellation propagates correctly.

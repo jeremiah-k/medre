@@ -8,9 +8,10 @@ cancellation drain allows subsequent adapter stops to run.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
 
@@ -172,9 +173,6 @@ class TestStartupCleanupDrainSites:
         """Two adapters that have started.  External CE arrives during the
         first adapter's cleanup stop.  The second adapter's stop must
         still run because the cancellation state is drained."""
-
-        import asyncio
-        from typing import Any
 
         class _StopOnCancel(AdapterContract):
             """stop() that yields to the event loop, allowing external

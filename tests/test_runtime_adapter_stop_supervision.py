@@ -13,20 +13,17 @@ from typing import Any
 
 import pytest
 
-from medre.config.model import (
-    AdapterConfigSet,
-    LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
-    RuntimeConfig,
-    RuntimeOptions,
-    StorageConfig,
-)
 from medre.config.paths import MedrePaths, resolve
 from medre.core.lifecycle.states import AdapterState
-from medre.runtime.app import MedreApp, RuntimeState
-from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.app import RuntimeState
 from medre.runtime.errors import RuntimeShutdownError
+from tests.helpers.startup_cleanup import (
+    _build_app,
+    _config_with_one_fake_adapter,
+    _config_with_two_fake_adapters,
+    _make_tracking_pipeline_stop,
+    _make_tracking_storage_close,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -45,48 +42,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
     return resolve()
-
-
-def _fake_matrix_config(adapter_id: str = "fake_matrix") -> MatrixRuntimeConfig:
-    return MatrixRuntimeConfig(
-        adapter_id=adapter_id,
-        enabled=True,
-        adapter_kind="fake",
-        config=None,
-    )
-
-
-def _fake_meshtastic_config(adapter_id: str = "fake_mesh") -> MeshtasticRuntimeConfig:
-    return MeshtasticRuntimeConfig(
-        adapter_id=adapter_id,
-        enabled=True,
-        adapter_kind="fake",
-        config=None,
-    )
-
-
-def _config_with_two_fake_adapters() -> RuntimeConfig:
-    return RuntimeConfig(
-        runtime=RuntimeOptions(name="test-adapter-stop-supervision"),
-        logging=LoggingConfig(level="DEBUG"),
-        storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(
-            matrix={"main": _fake_matrix_config()},
-            meshtastic={"main": _fake_meshtastic_config()},
-        ),
-    )
-
-
-def _config_with_one_fake_adapter() -> RuntimeConfig:
-    return RuntimeConfig(
-        runtime=RuntimeOptions(name="test-adapter-stop-supervision-single"),
-        storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(matrix={"main": _fake_matrix_config()}),
-    )
-
-
-def _build_app(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
-    return RuntimeBuilder(config=config, paths=paths).build()
 
 
 class _SlowStopAdapter:
@@ -210,15 +165,8 @@ class TestAdapterStopTimeoutSupervision:
         app.adapters[slow_id] = _SlowStopAdapter(app.adapters[slow_id])
 
         assert app.storage is not None
-        storage_close_called = False
-        original_close = app.storage.close
+        storage_close_called = _make_tracking_storage_close(app)
 
-        async def _tracking_close() -> None:
-            nonlocal storage_close_called
-            await original_close()
-            storage_close_called = True
-
-        app.storage.close = _tracking_close  # type: ignore[assignment]
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
@@ -227,7 +175,7 @@ class TestAdapterStopTimeoutSupervision:
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
-        assert storage_close_called, "storage.close() did not complete"
+        assert storage_close_called[0], "storage.close() did not complete"
 
     @pytest.mark.asyncio
     async def test_cancelled_error_on_started_adapter_stop_propagates(
@@ -241,7 +189,6 @@ class TestAdapterStopTimeoutSupervision:
 
         adapter_ids = sorted(app.adapters.keys())
         cancel_id = adapter_ids[0]
-        adapter_ids[1]
         app.adapters[cancel_id] = _CancelledStopAdapter(app.adapters[cancel_id])
 
         with pytest.raises(asyncio.CancelledError):
@@ -298,15 +245,7 @@ class TestAdapterStopTimeoutSupervision:
             app.adapters[adapter_id] = _SlowStopAdapter(app.adapters[adapter_id])
 
         assert app.storage is not None
-        storage_close_called = False
-        original_close = app.storage.close
-
-        async def _tracking_close() -> None:
-            nonlocal storage_close_called
-            await original_close()
-            storage_close_called = True
-
-        app.storage.close = _tracking_close  # type: ignore[assignment]
+        storage_close_called = _make_tracking_storage_close(app)
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
@@ -318,7 +257,7 @@ class TestAdapterStopTimeoutSupervision:
         assert all(
             state is AdapterState.FAILED for state in app.adapter_states.values()
         )
-        assert storage_close_called, "storage.close() did not complete"
+        assert storage_close_called[0], "storage.close() did not complete"
 
     @pytest.mark.asyncio
     async def test_pipeline_runner_stopped_after_adapter_timeouts(
@@ -331,15 +270,7 @@ class TestAdapterStopTimeoutSupervision:
         adapter_id = next(iter(app.adapters))
         app.adapters[adapter_id] = _SlowStopAdapter(app.adapters[adapter_id])
 
-        pipeline_stop_called = False
-        original_pipeline_stop = app.pipeline_runner.stop
-
-        async def _tracking_pipeline_stop() -> None:
-            nonlocal pipeline_stop_called
-            await original_pipeline_stop()
-            pipeline_stop_called = True
-
-        app.pipeline_runner.stop = _tracking_pipeline_stop  # type: ignore[assignment]
+        pipeline_stop_called = _make_tracking_pipeline_stop(app)
         object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 0.2)
 
         try:
@@ -348,7 +279,7 @@ class TestAdapterStopTimeoutSupervision:
         finally:
             object.__setattr__(app.config.runtime, "shutdown_timeout_seconds", 10)
 
-        assert pipeline_stop_called, "pipeline_runner.stop() did not complete"
+        assert pipeline_stop_called[0], "pipeline_runner.stop() did not complete"
 
     @pytest.mark.asyncio
     async def test_shutdown_error_includes_timeout_adapter_id(

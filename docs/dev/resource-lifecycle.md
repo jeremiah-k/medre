@@ -96,7 +96,7 @@ On first call:
    `CancelledError` would interrupt the close before aiosqlite's
    internal thread was joined, leaving the connection half-closed and
    triggering `ResourceWarning: <aiosqlite.core.Connection ...> was
-   deleted before being closed` in `__del__`. On any non-cancellation
+deleted before being closed` in `__del__`. On any non-cancellation
    failure during the shielded close, `self._db = db` and `_closed` are
    restored before the exception is re-raised so a later `close()` call
    can retry. The inner `await close_task` uses `except BaseException`
@@ -290,13 +290,15 @@ that arrives mid-stop.
 capacity until in-flight work reaches zero or the drain deadline expires. On
 timeout, abandoned deliveries get persisted as `DeliveryReceipt` with
 `status="suppressed"`, `failure_kind="shutdown_rejection"`,
-`error="shutdown_drain_timeout"`.
+`error="shutdown_drain_timeout"`. New deliveries rejected because
+shutdown is underway produce `error="delivery_rejected_shutdown"`
+with the same `failure_kind`.
 
 **Test boundaries.** Timeout supervision, cancellation handling, storage-close
 resilience, pipeline-stop resilience, reverse-stop-order preservation, and
 RuntimeShutdownError message content are covered in
 `tests/test_runtime_adapter_stop_supervision.py` and
-`tests/test_startup_cleanup_stop_supervision.py`. Both files use
+`tests/test_startup_cleanup_stop_timeout.py`. Both files use
 fake adapters with controlled stop timing. No live/hardware validation claims
 apply.
 
@@ -408,7 +410,7 @@ as one of: `graceful_stop`, `cancellation`, `adapter_failure`,
 | Test file                                        | Lines    | Covers                                                                                                       |
 | ------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------ |
 | `tests/test_runtime_adapter_stop_supervision.py` | 326      | Graceful shutdown: timeout, cancellation, ordering, error messages, storage/pipeline resilience              |
-| `tests/test_startup_cleanup_stop_supervision.py` | 424      | Startup failure cleanup: hung adapter stop, cancellation, multi-adapter cleanup, storage/pipeline resilience |
+| `tests/test_startup_cleanup_stop_timeout.py`     | 215      | Startup failure cleanup: hung adapter stop, cancellation, multi-adapter cleanup, storage/pipeline resilience |
 | `tests/test_retry_shutdown.py`                   | existing | RetryWorker stop idempotency, timeout-then-cancel, cooperative shutdown                                      |
 
 All test files are under the 1500-line limit.
