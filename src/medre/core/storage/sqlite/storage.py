@@ -362,7 +362,7 @@ class _SQLiteStorageBase:
         """
         # Mark closed defensively *before* any I/O so that concurrent
         # callers see the closed flag immediately and do not race.
-        if self._closed and self._db is None and self._executor is None:
+        if self._closed:
             return
         self._closed = True
 

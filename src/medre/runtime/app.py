@@ -1116,15 +1116,18 @@ class MedreApp:
             except asyncio.CancelledError as c_exc:
                 # External cancellation during the stop.  Defer until
                 # after pipeline + storage cleanup so the close still
-                # runs.
+                # runs.  Drain the cancellation so we can continue
+                # best-effort cleanup of remaining adapters.
+                _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
-                    "Cancelled while stopping adapter %s.%s",
+                    "Cancelled while stopping adapter %s.%s (deferred)",
                     transport,
                     adapter_id,
                 )
-                _cancelled = c_exc
-                break
+                if _cancelled is None:
+                    _cancelled = c_exc
+                continue
             if outcome == "stopped":
                 _logger.info("Adapter %s.%s stopped", transport, adapter_id)
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
@@ -1168,14 +1171,16 @@ class MedreApp:
                     timeout=float(timeout),
                 )
             except asyncio.CancelledError as c_exc:
+                _drain_pending_cancellations()
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
-                    "Cancelled while stopping never-started adapter %s.%s",
+                    "Cancelled while stopping never-started adapter %s.%s (deferred)",
                     transport,
                     adapter_id,
                 )
-                _cancelled = c_exc
-                break
+                if _cancelled is None:
+                    _cancelled = c_exc
+                continue
             if outcome == "stopped":
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(

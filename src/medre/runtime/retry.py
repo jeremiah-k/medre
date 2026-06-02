@@ -381,9 +381,9 @@ class RetryWorker:
           is emitted.  The worker reports its failure honestly instead
           of pretending to have stopped cleanly.
         * **Race after the deadline**: if the task happens to finish
-          between the deadline check and the second ``task.done()``
-          guard, the worker takes the clean-stop path so it does not
-          report a false abandonment.
+          between the deadline check and the loop exit, the worker
+          takes the clean-stop path so it does not report a false
+          abandonment.
 
         External cancellation of this helper is handled by
         :meth:`stop` (its only caller), which marks the worker
@@ -392,57 +392,43 @@ class RetryWorker:
         task.cancel()
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._stop_timeout
+        
         # Poll on a 10 ms cadence.  If the task is cancellation-
         # responsive it will finish within a few cycles; if it is
         # cancellation-resistant we will hit the deadline hard.
         while not task.done():
             if loop.time() >= deadline:
-                if task.done():
-                    # Race: task finished between the deadline check
-                    # and here.  Treat as cancel-grace completion
-                    # rather than false abandonment.  Surface a crash
-                    # here too — the task may have died during the
-                    # cancel grace rather than exiting cleanly.
-                    clean, exc = self._finalize_task_outcome(task)
-                    if not clean:
-                        raise exc  # type: ignore[misc]
-                    return
-                # Truly abandoned: the task is still alive after the
-                # cancel grace period.  Emit the warning *after* the
-                # race check so a task that finished in the narrow
-                # window between the deadline check and the race
-                # check does not produce a misleading "abandoning"
-                # log line.
-                _logger.warning(
-                    "RetryWorker task did not cancel within %.1fs; "
-                    "abandoning (_task is still referenced, "
-                    "state.abandoned=True)",
-                    self._stop_timeout,
-                )
-                # state.running is still True from start();
-                # intentionally not cleared to reflect the honest
-                # state of the still-alive task.
-                self.state.abandoned = True
-                self._emit(
-                    "retry_abandoned",
-                    {
-                        "stop_timeout_seconds": self._stop_timeout,
-                        "processed": self.state.processed,
-                        "succeeded": self.state.succeeded,
-                        "failed": self.state.failed,
-                        "dead_lettered": self.state.dead_lettered,
-                    },
-                )
-                return
+                break
             await asyncio.sleep(0.01)
-        # Loop exited because ``task.done()`` is true.  The task may
-        # have exited cleanly (the common case for a cooperative
-        # task that responded to ``task.cancel()``) or crashed
-        # during the cancel grace.  Inspect the outcome and emit the
-        # correct terminal event.
-        clean, exc = self._finalize_task_outcome(task)
-        if not clean:
-            raise exc  # type: ignore[misc]
+            
+        # Check AFTER the loop to correctly handle the race condition
+        # where the task finishes between the deadline check and the
+        # loop exit.
+        if task.done():
+            clean, exc = self._finalize_task_outcome(task)
+            if not clean:
+                raise exc  # type: ignore[misc]
+        else:
+            _logger.warning(
+                "RetryWorker task did not cancel within %.1fs; "
+                "abandoning (_task is still referenced, "
+                "state.abandoned=True)",
+                self._stop_timeout,
+            )
+            # state.running is still True from start();
+            # intentionally not cleared to reflect the honest
+            # state of the still-alive task.
+            self.state.abandoned = True
+            self._emit(
+                "retry_abandoned",
+                {
+                    "stop_timeout_seconds": self._stop_timeout,
+                    "processed": self.state.processed,
+                    "succeeded": self.state.succeeded,
+                    "failed": self.state.failed,
+                    "dead_lettered": self.state.dead_lettered,
+                },
+            )
 
     async def _run_loop(self) -> None:
         """Main polling loop."""
