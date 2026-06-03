@@ -300,18 +300,6 @@ class TestStatusVocabularyCoherence:
         assert (
             "frozenset" not in source
         ), "_OutboxMixin.create_outbox_item should not define local frozensets"
-        assert delivery_state.CLAIMABLE_OUTBOX_STATUSES == frozenset(
-            {"pending", "retry_wait"}
-        )
-        # The _outbox module must import from delivery_state, not define
-        # its own frozensets.  ``create_outbox_item`` is on the
-        # ``_OutboxMixin`` class, not the module directly.
-        import inspect
-
-        source = inspect.getsource(_OutboxMixin.create_outbox_item)
-        assert (
-            "frozenset" not in source
-        ), "_OutboxMixin.create_outbox_item should not define local frozensets"
 
     def test_delivery_ledger_terminal_subset_matches_canonical(self) -> None:
         """``delivery_ledger._TERMINAL_STATUSES`` is intentionally broader
@@ -580,11 +568,11 @@ class TestTopLevelConvergenceFieldsPopulated:
             is storage_data["lifecycle_convergence_report"]
         )
 
-        # Recovery fields must also be hoisted from sections.recovery.data.
-        recovery_data = bundle["sections"].get("recovery", {}).get("data")
-        if recovery_data is not None:
-            assert bundle["recovery_summary"] is recovery_data["recovery_summary"]
-            assert bundle["recovery_ledger"] is recovery_data["recovery_ledger"]
+        # In storage_path mode, recovery sections are not collected;
+        # top-level recovery fields must be None for schema consistency.
+        assert bundle["recovery_summary"] is None
+        assert bundle["recovery_ledger"] is None
+        assert "recovery" not in bundle["sections"]
 
     @pytest.mark.asyncio
     async def test_top_level_fields_global_view_when_no_event(

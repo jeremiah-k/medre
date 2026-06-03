@@ -552,6 +552,8 @@ def _build_storage_path_bundle(
         "lifecycle_convergence_report": _lifecycle_convergence_report,
         "medre_version": _get_version(),
         "orphan_report": _orphan_report,
+        "recovery_ledger": None,
+        "recovery_summary": None,
         "runtime_started": False,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,
