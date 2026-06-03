@@ -386,8 +386,8 @@ async def _collect_storage_data_from_backend(
             # delivery targets.  The pure analysis functions are event-
             # agnostic; we just feed them the full dataset.
             _GLOBAL_LIMIT = 10_000
-            all_receipts = await storage.list_all_receipts()
-            all_outbox = await storage.list_all_outbox_items()
+            all_receipts = await storage.list_all_receipts(limit=_GLOBAL_LIMIT)
+            all_outbox = await storage.list_all_outbox_items(limit=_GLOBAL_LIMIT)
 
             # Detect truncation: if either result set hit the default limit
             # the global view is partial and callers should be warned.

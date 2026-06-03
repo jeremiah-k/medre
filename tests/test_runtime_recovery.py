@@ -614,7 +614,7 @@ class TestStoragePersistenceSurvivesRestart:
             await s2.close()
 
     @pytest.mark.asyncio
-    async def test_memory_storage_does_not_persist(self, tmp_path: Path) -> None:
+    async def test_memory_storage_does_not_persist(self) -> None:
         """In-memory storage does NOT persist across instances."""
         s1 = SQLiteStorage(":memory:")
         await s1.initialize()

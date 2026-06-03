@@ -96,9 +96,7 @@ def _to_iso(value: Any) -> str | None:
 _TERMINAL_OUTBOX = TERMINAL_OUTBOX_STATUSES
 _NON_TERMINAL_OUTBOX = _OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
 # Suppressed and failed are receipt-only statuses (no outbox equivalent).
-_RECEIPT_ONLY_STATUSES = (
-    _RECEIPT_STATUSES - TERMINAL_OUTBOX_STATUSES - frozenset({"queued", "sent"})
-)
+_RECEIPT_ONLY_STATUSES = _RECEIPT_STATUSES - _OUTBOX_STATUSES
 
 
 def _retry_state_label(status: str, *, source: str = "outbox") -> str:

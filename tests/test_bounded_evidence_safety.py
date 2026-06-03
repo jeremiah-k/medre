@@ -8,9 +8,10 @@ exploding evidence output or corrupting state.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, cast
+from typing import Any, cast
 
 import pytest
 

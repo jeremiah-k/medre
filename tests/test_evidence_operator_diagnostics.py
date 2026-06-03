@@ -98,8 +98,8 @@ async def _build_db(
 ) -> None:
     """Create a SQLite DB with one event and arbitrary receipts."""
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         event = _make_event(event_id=event_id)
         await storage.append(event)
         for r in receipts:
