@@ -58,8 +58,8 @@
       "status": "passed",
       "error": null,
       "data": {
-        "event_count": 0,
-        "receipt_count": 0,
+        "event_count": 3,
+        "receipt_count": 5,
         "convergence_summary": {
           "evidence_bundle_ref": null,
           "orphan_count": null,

@@ -381,6 +381,47 @@ async def _collect_storage_data_from_backend(
                 data["orphan_report"] = _orphan_report.to_dict()
             # else: event not found — keep None, not an error for the section.
 
+        else:
+            # No event_id — produce a global convergence view across all
+            # delivery targets.  The pure analysis functions are event-
+            # agnostic; we just feed them the full dataset.
+            all_receipts = await storage.list_all_receipts()
+            all_outbox = await storage.list_outbox_items()
+
+            if all_receipts or all_outbox:
+                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                    build_lifecycle_convergence_findings as _build_lifecycle_findings,
+                )
+                from medre.core.diagnostics.convergence.lifecycle_report import (
+                    build_lifecycle_convergence_report_dict as _build_lifecycle_report,
+                )
+                from medre.core.diagnostics.convergence.orphans import (
+                    build_orphan_report as _build_orphan_report,
+                )
+                from medre.core.diagnostics.convergence.summary import (
+                    build_convergence_summary as _build_convergence_summary,
+                )
+
+                _lifecycle_findings = _build_lifecycle_findings(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["lifecycle_convergence_report"] = _build_lifecycle_report(
+                    _lifecycle_findings,
+                )
+
+                _convergence_summary = _build_convergence_summary(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["convergence_summary"] = _convergence_summary.to_dict()
+
+                _orphan_report = _build_orphan_report(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["orphan_report"] = _orphan_report.to_dict()
+
         # Optional replay-run receipts.
         if replay_run_id is not None:
             import json as _json

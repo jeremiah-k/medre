@@ -450,6 +450,17 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_all_receipts(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts in sequence order.
+
+        Ordered by ``sequence`` ascending for deterministic output.
+        """
+        ...
+
     # -- Counts -------------------------------------------------------------
 
     async def count_events(self) -> int:

@@ -1239,7 +1239,8 @@ class TestStorageSectionLifecycleConvergence:
     async def test_storage_section_no_event_lifecycle_report_null(
         self, tmp_path
     ) -> None:
-        """Without event_id, lifecycle_convergence_report stays None."""
+        """Without event_id and an empty database, lifecycle_convergence_report
+        stays None (no data to analyze)."""
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")

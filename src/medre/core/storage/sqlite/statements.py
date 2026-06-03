@@ -89,6 +89,11 @@ WHERE event_id = ?
 ORDER BY sequence ASC
 """
 
+_SELECT_ALL_RECEIPTS = """
+SELECT * FROM delivery_receipts
+ORDER BY sequence ASC
+"""
+
 _SELECT_NREFS_FOR_EVENT = """
 SELECT * FROM native_message_refs
 WHERE event_id = ?

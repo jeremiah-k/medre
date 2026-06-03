@@ -509,13 +509,12 @@ class TestTopLevelConvergenceFieldsPopulated:
         # Insert a minimal event and outbox item so convergence has data.
         from datetime import datetime, timezone
 
+        from medre.core.events.metadata import EventMetadata
         from medre.core.storage.backend import (
             CanonicalEvent,
             DeliveryOutboxItem,
             DeliveryReceipt,
         )
-
-        from medre.core.events.metadata import EventMetadata
 
         event = CanonicalEvent(
             event_id="evt_test_001",
@@ -581,21 +580,80 @@ class TestTopLevelConvergenceFieldsPopulated:
             is storage_data["lifecycle_convergence_report"]
         )
 
+        # Recovery fields must also be hoisted from sections.recovery.data.
+        recovery_data = bundle["sections"].get("recovery", {}).get("data")
+        if recovery_data is not None:
+            assert bundle["recovery_summary"] is recovery_data["recovery_summary"]
+            assert bundle["recovery_ledger"] is recovery_data["recovery_ledger"]
+
     @pytest.mark.asyncio
-    async def test_top_level_fields_null_when_no_event(self, tmp_path: Path) -> None:
-        """When no ``event_id`` is provided, the three per-event
-        diagnostics fields must be absent or ``None`` at the top level."""
+    async def test_top_level_fields_global_view_when_no_event(
+        self, tmp_path: Path
+    ) -> None:
+        """When no ``event_id`` is provided, convergence fields expose a
+        global storage-wide view (not ``None``) when storage exists and
+        contains data.  They are ``None`` only when the storage section
+        is absent (e.g. config-error path, missing database)."""
         from medre.core.storage.sqlite.storage import SQLiteStorage
         from medre.runtime.evidence._bundle import collect_evidence_bundle
 
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
         await storage.initialize()
+
+        # Insert a minimal event + outbox + receipt so convergence has data.
+        from datetime import datetime, timezone
+
+        from medre.core.events.metadata import EventMetadata
+        from medre.core.storage.backend import (
+            CanonicalEvent,
+            DeliveryOutboxItem,
+            DeliveryReceipt,
+        )
+
+        event = CanonicalEvent(
+            event_id="evt_global_001",
+            event_kind="text",
+            schema_version=1,
+            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            source_adapter="bot",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+        )
+        await storage.append(event)
+
+        outbox = DeliveryOutboxItem(
+            outbox_id="obx_g001",
+            event_id="evt_global_001",
+            route_id="route-001",
+            delivery_plan_id="plan_001",
+            target_adapter="radio",
+            target_channel="chan_a",
+            status="sent",
+            attempt_number=1,
+        )
+        await storage.create_outbox_item(outbox)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt_g001",
+            event_id="evt_global_001",
+            delivery_plan_id="plan_001",
+            target_adapter="radio",
+            target_channel="chan_a",
+            status="sent",
+            attempt_number=1,
+        )
+        await storage.append_receipt(receipt)
         await storage.close()
 
         bundle = await collect_evidence_bundle(storage_path=str(db))
 
-        # The contract is: present and None when no event_id is in scope.
+        # Convergence fields must be populated with the global view.
         for key in (
             "convergence_summary",
             "orphan_report",
@@ -603,5 +661,40 @@ class TestTopLevelConvergenceFieldsPopulated:
         ):
             assert key in bundle, f"{key} must be present at top level"
             assert (
-                bundle[key] is None
-            ), f"{key} must be None when no event_id, got {bundle[key]!r}"
+                bundle[key] is not None
+            ), f"{key} must be populated with global view when storage has data, got None"
+
+        # Top-level fields must be reference-identical to section data.
+        storage_data = bundle["sections"]["storage"]["data"]
+        assert bundle["convergence_summary"] is storage_data["convergence_summary"]
+        assert bundle["orphan_report"] is storage_data["orphan_report"]
+        assert (
+            bundle["lifecycle_convergence_report"]
+            is storage_data["lifecycle_convergence_report"]
+        )
+
+        # Recovery fields must also be hoisted.
+        recovery_data = bundle["sections"].get("recovery", {}).get("data")
+        if recovery_data is not None:
+            assert bundle["recovery_summary"] is recovery_data["recovery_summary"]
+            assert bundle["recovery_ledger"] is recovery_data["recovery_ledger"]
+
+    @pytest.mark.asyncio
+    async def test_top_level_fields_none_when_storage_absent(self) -> None:
+        """Convergence and recovery fields must be ``None`` when the
+        storage section is absent (config-error path)."""
+        from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+        bundle = await collect_evidence_bundle(
+            config_path="/nonexistent/path/that/does/not/exist.toml"
+        )
+        assert bundle["status"] == "error"
+
+        for key in (
+            "convergence_summary",
+            "orphan_report",
+            "lifecycle_convergence_report",
+            "recovery_summary",
+            "recovery_ledger",
+        ):
+            assert bundle[key] is None, f"{key} must be None when storage absent"
