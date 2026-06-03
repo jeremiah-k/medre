@@ -202,7 +202,9 @@ class TestExecutorLifecycle:
                 ):
                     await s.close()
             finally:
-                # Ensure cleanup even if pytest.raises doesn't match.
+                # The first close() raised but still cleared the executor.
+                # Set _db = None so the cleanup close doesn't re-raise.
+                s._db = None
                 await s.close()
             assert s._executor is None
 

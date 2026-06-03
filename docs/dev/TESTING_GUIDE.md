@@ -49,7 +49,7 @@ PytestUnraisableExceptionWarning: Exception ignored in: <sqlite3.Connection ...>
 Any code that calls `sqlite3.connect()` directly must guarantee `.close()` is
 called, regardless of how the function exits.
 
-### BAD
+### Bad: unclosed connection
 
 ```python
 def query_schema(path):
@@ -59,7 +59,7 @@ def query_schema(path):
     # conn never closed; ResourceWarning on Python 3.13+
 ```
 
-### GOOD
+### Good: context manager
 
 ```python
 from contextlib import closing
@@ -94,7 +94,7 @@ obligation to call `close()`. `open_readonly()` is an async classmethod factory
 called as `store = await SQLiteStorage.open_readonly(path)`, not an instance
 method.
 
-### BAD
+### Bad: unclosed storage
 
 ```python
 async def test_storage_append():
@@ -161,7 +161,7 @@ Python 3.13, if storage cleanup is pending when `SystemExit` propagates, the
 interpreter can garbage-collect unclosed sqlite connections before their
 `finally` blocks run, producing `ResourceWarning`.
 
-### BAD
+### Bad: sys.exit before close
 
 ```python
 async def handle_command(args):
@@ -173,7 +173,7 @@ async def handle_command(args):
     await store.close()
 ```
 
-### GOOD
+### Good: defer exit with try/finally
 
 ```python
 async def handle_command(args):
@@ -218,7 +218,7 @@ This project uses `asyncio_mode = "auto"` (see
 [testing.md](testing.md#asyncio_mode--auto)). Write async tests as `async def`
 and `await` directly.
 
-### BAD
+### Bad: asyncio.run inside pytest-asyncio
 
 ```python
 class TestStorage(unittest.TestCase):
@@ -226,7 +226,7 @@ class TestStorage(unittest.TestCase):
         asyncio.run(self._async_append_and_get())  # creates conflicting loop
 ```
 
-### GOOD
+### Good: native async def
 
 ```python
 async def test_append_and_get(tmp_path):
