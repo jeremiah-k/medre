@@ -147,6 +147,87 @@ def _derive_shutdown_evidence_from_snapshot(
 
 
 # ---------------------------------------------------------------------------
+# Built-app lifecycle cleanup
+# ---------------------------------------------------------------------------
+
+
+async def _manual_cleanup_built_app(app: Any) -> None:
+    """Stop adapters and close storage for a built-but-never-started app.
+
+    ``MedreApp.stop()`` is a no-op when the app is in ``INITIALIZED`` state,
+    so we release adapter and storage resources directly.  All cleanup is
+    best-effort; errors are suppressed so the original section error is
+    preserved.
+    """
+    for adapter in app.adapters.values():
+        try:
+            await adapter.stop(timeout=2.0)
+        except Exception:
+            pass  # best-effort
+    if hasattr(app, "storage") and app.storage is not None:
+        try:
+            await app.storage.close()
+        except Exception:
+            pass  # best-effort
+
+
+async def _cleanup_built_app(
+    app: Any,
+    *,
+    started: bool,
+    startup_failed: bool = False,
+) -> None:
+    """Clean up a built ``MedreApp`` after evidence collection.
+
+    Centralises the cleanup logic shared by
+    :func:`_collect_diagnostics_snapshot` and :func:`_collect_live_health`
+    so that no code-path can accidentally skip resource release.
+
+    Parameters
+    ----------
+    app:
+        The built ``MedreApp`` instance, or ``None`` (no-op).
+    started:
+        ``True`` when ``app.start()`` completed successfully — use
+        ``await app.stop()`` for a graceful shutdown.
+    startup_failed:
+        ``True`` when ``app.start()`` was attempted but raised.
+        ``MedreApp.start()`` already performs ``_start_failure_cleanup()``
+        (stops adapters, pipeline runner, and closes storage) before
+        transitioning to ``FAILED``.  When the app is in ``FAILED`` state
+        we skip redundant manual cleanup; if the state is unexpectedly
+        not ``FAILED`` we fall back to manual cleanup as a safety net.
+    """
+    if app is None:
+        return
+
+    if started:
+        # Normal path: app started successfully → graceful shutdown.
+        try:
+            await app.stop()
+        except Exception as exc:
+            _logger.warning("Error during evidence app shutdown: %s", exc)
+    elif startup_failed:
+        # app.start() raised — it already ran _start_failure_cleanup()
+        # which stops adapters and closes storage before setting FAILED.
+        # app.state is a public property (RuntimeState enum).
+        if app.state.value != "failed":
+            # Defensive fallback: if start() somehow didn't reach its
+            # cleanup (e.g. a CancelledError drained before cleanup),
+            # perform manual cleanup as a safety net.
+            _logger.debug(
+                "App state after startup failure is %s (expected 'failed'); "
+                "performing manual adapter/storage cleanup",
+                app.state.value,
+            )
+            await _manual_cleanup_built_app(app)
+    else:
+        # Never started — app.stop() is a no-op (INITIALIZED state),
+        # so manually stop adapters and close storage.
+        await _manual_cleanup_built_app(app)
+
+
+# ---------------------------------------------------------------------------
 # Diagnostics snapshot
 # ---------------------------------------------------------------------------
 
@@ -199,22 +280,9 @@ async def _collect_diagnostics_snapshot(
 
         return _section_ok(snapshot)
     finally:
-        # Always clean up adapter and storage resources after build —
-        # covers no-adapters early return, snapshot error, and normal
-        # success.  ``app.stop()`` is a no-op when the app was never
-        # started (state is INITIALIZED), so we close adapters and
-        # storage explicitly.
-        if app is not None:
-            for _adapter in app.adapters.values():
-                try:
-                    await _adapter.stop(timeout=2.0)
-                except Exception:
-                    pass  # best-effort
-            if hasattr(app, "storage") and app.storage is not None:
-                try:
-                    await app.storage.close()
-                except Exception:
-                    pass  # best-effort
+        # Never started — manual cleanup stops adapters and closes
+        # storage since app.stop() is a no-op in INITIALIZED state.
+        await _cleanup_built_app(app, started=False)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +309,7 @@ async def _collect_live_health(
 
     app = None
     app_started = False
+    startup_failed = False
     try:
         try:
             builder = RuntimeBuilder(config, paths)
@@ -257,6 +326,7 @@ async def _collect_live_health(
             await app.start()
             app_started = True
         except Exception as exc:
+            startup_failed = True
             return _section_error(f"Runtime startup failed: {exc}")
 
         try:
@@ -279,24 +349,6 @@ async def _collect_live_health(
         except Exception as exc:
             return _section_partial(None, f"Live refresh error (health/outbox): {exc}")
     finally:
-        if app is not None:
-            if app_started:
-                try:
-                    await app.stop()
-                except Exception as exc:
-                    _logger.warning(
-                        "Error during evidence live-health shutdown: %s", exc
-                    )
-            else:
-                # Built but never started — clean up adapters and storage
-                # directly since app.stop() would be a no-op.
-                for _adapter in app.adapters.values():
-                    try:
-                        await _adapter.stop(timeout=2.0)
-                    except Exception:
-                        pass  # best-effort
-                if hasattr(app, "storage") and app.storage is not None:
-                    try:
-                        await app.storage.close()
-                    except Exception:
-                        pass  # best-effort
+        await _cleanup_built_app(
+            app, started=app_started, startup_failed=startup_failed
+        )
