@@ -466,16 +466,7 @@ def build_retry_outbox_summary(
         counts[st] = counts.get(st, 0) + 1
 
     # Ensure all known outbox statuses are present (even if zero).
-    for st in (
-        "pending",
-        "in_progress",
-        "queued",
-        "retry_wait",
-        "sent",
-        "dead_lettered",
-        "cancelled",
-        "abandoned",
-    ):
+    for st in sorted(_OUTBOX_STATUSES):
         counts.setdefault(st, 0)
 
     # Receipt-only status counts (suppressed, failed without outbox).
