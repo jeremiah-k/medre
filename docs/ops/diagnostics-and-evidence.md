@@ -638,7 +638,7 @@ No Matrix transport beyond Docker localhost has been validated. No Meshtastic, M
 
 ## Convergence Diagnostics
 
-The evidence bundle includes a `convergence_summary` for each event that classifies every delivery target's state by cross-referencing outbox and receipt statuses.
+The evidence bundle includes a `convergence_summary` that classifies every delivery target's state by cross-referencing outbox and receipt statuses. When collected with an `event_id`, the summary is event-scoped; without, it provides the global view across all delivery targets.
 
 ### Reading Convergence Output
 
@@ -718,7 +718,7 @@ All findings are detection-only. No automatic repair occurs.
 
 ## Lifecycle Convergence Findings
 
-The evidence bundle also includes a `lifecycle_convergence_report` for each event. This report contains specific findings about contradictions between outbox and receipt state machines, retry metadata problems, stalled plans, and sequence anomalies. It is separate from the `convergence_summary` (which gives overall target health) and the `orphan_report` (which detects broken lineage).
+The evidence bundle also includes a `lifecycle_convergence_report`. When collected with an `event_id`, the report is event-scoped; without, it provides the global view across all delivery targets. This report contains specific findings about contradictions between outbox and receipt state machines, retry metadata problems, stalled plans, and sequence anomalies. It is separate from the `convergence_summary` (which gives overall target health) and the `orphan_report` (which detects broken lineage).
 
 ### Reading Lifecycle Convergence Output
 

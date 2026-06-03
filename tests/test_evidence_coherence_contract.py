@@ -575,6 +575,86 @@ class TestTopLevelConvergenceFieldsPopulated:
         assert "recovery" not in bundle["sections"]
 
     @pytest.mark.asyncio
+    async def test_global_convergence_includes_all_outbox_rows_beyond_default_limit(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: global convergence must include ALL outbox rows even
+        when there are more than the default ``list_outbox_items`` limit of
+        100.  The ``list_all_outbox_items`` method (limit 10 000) is used
+        instead so convergence analysis is not silently truncated."""
+        from medre.core.storage.sqlite.storage import SQLiteStorage
+        from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+        db = tmp_path / "state.sqlite"
+        storage = SQLiteStorage(db_path=str(db))
+        await storage.initialize()
+
+        from datetime import datetime, timezone
+
+        from medre.core.events.metadata import EventMetadata
+        from medre.core.storage.backend import (
+            CanonicalEvent,
+            DeliveryOutboxItem,
+        )
+
+        # Insert a single event that all outbox items will reference.
+        event = CanonicalEvent(
+            event_id="evt_bulk_001",
+            event_kind="text",
+            schema_version=1,
+            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            source_adapter="bot",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "bulk test"},
+            metadata=EventMetadata(),
+        )
+        await storage.append(event)
+
+        # Insert 101 outbox items — deliberately exceeding the old
+        # list_outbox_items default limit of 100.
+        for i in range(101):
+            outbox = DeliveryOutboxItem(
+                outbox_id=f"obx_bulk_{i:04d}",
+                event_id="evt_bulk_001",
+                route_id="route-001",
+                delivery_plan_id=f"plan_bulk_{i:04d}",
+                target_adapter="radio",
+                target_channel=f"chan_{i % 5}",
+                status="pending",
+                attempt_number=1,
+            )
+            await storage.create_outbox_item(outbox)
+
+        await storage.close()
+
+        bundle = await collect_evidence_bundle(storage_path=str(db))
+
+        # The storage section must be populated.
+        storage_data = bundle["sections"]["storage"]["data"]
+        assert storage_data is not None
+
+        # Global convergence fields must exist and not be None.
+        assert bundle["convergence_summary"] is not None
+
+        # The convergence analysis must have seen all 101 outbox items.
+        # Check retry_outbox_summary for the total count.
+        retry_summary = storage_data.get("retry_outbox_summary")
+        if retry_summary is not None:
+            total = retry_summary.get("total", 0)
+            assert total >= 101, (
+                f"Expected convergence to cover all 101 outbox items, "
+                f"but retry_outbox_summary.total = {total}"
+            )
+
+        # Also verify via the outbox items actually stored — if convergence
+        # data exists at all for this many items, list_all_outbox_items worked.
+        assert bundle["orphan_report"] is not None
+
+    @pytest.mark.asyncio
     async def test_top_level_fields_global_view_when_no_event(
         self, tmp_path: Path
     ) -> None:

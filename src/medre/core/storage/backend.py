@@ -571,6 +571,24 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_all_outbox_items(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all delivery outbox items in creation order for global analysis.
+
+        Used for global convergence and diagnostic analysis across all
+        events and delivery plans.  Results are ordered by ``created_at``
+        ascending for deterministic output.
+
+        The default limit (10,000) is higher than the standard query
+        limit (100) to accommodate typical operational databases.
+        Callers working with larger databases should use explicit
+        pagination via ``limit`` and ``offset``.
+        """
+        ...
+
     async def list_outbox_items_for_event(
         self,
         event_id: str,

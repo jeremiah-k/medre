@@ -181,6 +181,12 @@ async def _collect_diagnostics_snapshot(
         monotonic_fn=_fixed_mono,
     )
 
+    # Clean up adapter resources to avoid ResourceWarnings.
+    try:
+        await app.stop()
+    except Exception:
+        pass  # best-effort cleanup; snapshot already captured
+
     # Derive adapter status evidence from snapshot + config.
     snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(snapshot, config)
 

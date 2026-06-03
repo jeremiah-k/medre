@@ -346,6 +346,22 @@ class _OutboxMixin:
         rows = await self._read_all(sql, tuple(params))
         return [_row_to_outbox_item(r) for r in rows]
 
+    async def list_all_outbox_items(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all delivery outbox items in creation order.
+
+        Ordered by ``created_at`` ascending for deterministic output.
+        Useful for global convergence analysis across all events.
+        """
+        rows = await self._read_all(
+            "SELECT * FROM delivery_outbox ORDER BY created_at ASC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        return [_row_to_outbox_item(r) for r in rows]
+
     async def list_outbox_items_for_event(
         self,
         event_id: str,

@@ -386,7 +386,7 @@ async def _collect_storage_data_from_backend(
             # delivery targets.  The pure analysis functions are event-
             # agnostic; we just feed them the full dataset.
             all_receipts = await storage.list_all_receipts()
-            all_outbox = await storage.list_outbox_items()
+            all_outbox = await storage.list_all_outbox_items()
 
             if all_receipts or all_outbox:
                 from medre.core.diagnostics.convergence.lifecycle_convergence import (
@@ -526,10 +526,9 @@ def _build_storage_path_bundle(
     """Assemble the top-level bundle dict for ``--storage-path`` mode."""
     overall = _compute_overall_status(sections)
 
-    # -- Extract per-event convergence surfaces from storage data ----------
-    # These mirror the per-event fields on the core EvidenceBundle struct
-    # and are populated when an event_id is provided.  See
-    # docs/spec/diagnostics-evidence.md §21-23.
+    # -- Extract convergence surfaces from storage data --------------------
+    # These are event-scoped when event_id is provided, otherwise the
+    # global storage-wide view.  See docs/spec/diagnostics-evidence.md §21-23.
     _convergence_summary: dict[str, Any] | None = None
     _orphan_report: dict[str, Any] | None = None
     _lifecycle_convergence_report: dict[str, Any] | None = None
