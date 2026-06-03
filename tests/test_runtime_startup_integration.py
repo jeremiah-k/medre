@@ -43,18 +43,20 @@ class TestStorageSchemaVersion:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
         await storage.initialize()
+        try:
+            # Read the schema version directly.
+            conn = sqlite3.connect(db_path)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
+                ).fetchone()
+            finally:
+                conn.close()
 
-        # Read the schema version directly.
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        conn.close()
-
-        assert row is not None
-        assert int(row[0]) == _EXPECTED_SCHEMA_VERSION
-
-        await storage.close()
+            assert row is not None
+            assert int(row[0]) == _EXPECTED_SCHEMA_VERSION
+        finally:
+            await storage.close()
 
     @pytest.mark.asyncio
     async def test_matching_version_succeeds(self, tmp_path: Path) -> None:
@@ -64,12 +66,18 @@ class TestStorageSchemaVersion:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
         await storage.initialize()
-        await storage.close()
+        try:
+            pass  # Just verify init succeeds.
+        finally:
+            await storage.close()
 
         # Re-open — should succeed without error.
         storage2 = SQLiteStorage(db_path)
         await storage2.initialize()
-        await storage2.close()
+        try:
+            pass  # Just verify re-init succeeds.
+        finally:
+            await storage2.close()
 
     @pytest.mark.asyncio
     async def test_version_mismatch_raises(self, tmp_path: Path) -> None:
@@ -85,17 +93,23 @@ class TestStorageSchemaVersion:
 
         # Tamper with the schema version.
         conn = sqlite3.connect(db_path)
-        conn.execute(
-            "UPDATE _medre_schema_meta SET value = ? WHERE key = 'schema_version'",
-            (str(_EXPECTED_SCHEMA_VERSION + 99),),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "UPDATE _medre_schema_meta SET value = ? WHERE key = 'schema_version'",
+                (str(_EXPECTED_SCHEMA_VERSION + 99),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
         storage2 = SQLiteStorage(db_path)
-        with pytest.raises(StorageInitializationError, match="schema version mismatch"):
-            await storage2.initialize()
-        await storage2.close()
+        try:
+            with pytest.raises(
+                StorageInitializationError, match="schema version mismatch"
+            ):
+                await storage2.initialize()
+        finally:
+            await storage2.close()
 
     @pytest.mark.asyncio
     async def test_count_events_on_fresh_db(self, tmp_path: Path) -> None:
@@ -105,9 +119,11 @@ class TestStorageSchemaVersion:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
         await storage.initialize()
-        count = await storage.count_events()
-        assert count == 0
-        await storage.close()
+        try:
+            count = await storage.count_events()
+            assert count == 0
+        finally:
+            await storage.close()
 
 
 # ---------------------------------------------------------------------------

@@ -810,25 +810,25 @@ class TestPolicyDenialReasonInTrace:
         # Re-open storage to read receipts for trace assembly.
         storage2 = SQLiteStorage(db_path)
         await storage2.initialize()
+        try:
+            stored_event = await storage2.get("denial-trace-001")
+            assert stored_event is not None
 
-        stored_event = await storage2.get("denial-trace-001")
-        assert stored_event is not None
+            receipts = await storage2.list_receipts_for_event("denial-trace-001")
+            assert len(receipts) == 1
+            assert receipts[0].status == "suppressed"
+            assert receipts[0].failure_kind == "policy_suppressed"
+            # Denial reason is in the stored receipt's error field.
+            assert "channel_not_allowed" in (receipts[0].error or "")
 
-        receipts = await storage2.list_receipts_for_event("denial-trace-001")
-        assert len(receipts) == 1
-        assert receipts[0].status == "suppressed"
-        assert receipts[0].failure_kind == "policy_suppressed"
-        # Denial reason is in the stored receipt's error field.
-        assert "channel_not_allowed" in (receipts[0].error or "")
-
-        # Assemble trace timeline and verify denial reason survives.
-        timeline = assemble_event_timeline(stored_event, receipts, [], [])
-        receipt_entry = next(e for e in timeline if e["entry_type"] == "receipt")
-        error_in_trace = receipt_entry["data"].get("error")
-        assert error_in_trace is not None
-        assert "channel_not_allowed" in error_in_trace
-
-        await storage2.close()
+            # Assemble trace timeline and verify denial reason survives.
+            timeline = assemble_event_timeline(stored_event, receipts, [], [])
+            receipt_entry = next(e for e in timeline if e["entry_type"] == "receipt")
+            error_in_trace = receipt_entry["data"].get("error")
+            assert error_in_trace is not None
+            assert "channel_not_allowed" in error_in_trace
+        finally:
+            await storage2.close()
 
         # Also verify denial reason survives in evidence bundle.
         report = await collect_evidence_bundle(

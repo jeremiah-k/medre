@@ -736,19 +736,23 @@ class TestReplayAfterRestart:
         # Session 1: write events.
         s1 = SQLiteStorage(db_path)
         await s1.initialize()
-        for i in range(3):
-            await s1.append(_make_minimal_event(f"evt-replay-{i:03d}"))
-        assert await s1.count_events() == 3
-        await s1.close()
+        try:
+            for i in range(3):
+                await s1.append(_make_minimal_event(f"evt-replay-{i:03d}"))
+            assert await s1.count_events() == 3
+        finally:
+            await s1.close()
 
         # Session 2: verify events survived.
         s2 = SQLiteStorage(db_path)
         await s2.initialize()
-        assert await s2.count_events() == 3
-        evt = await s2.get("evt-replay-001")
-        assert evt is not None
-        assert evt.event_id == "evt-replay-001"
-        await s2.close()
+        try:
+            assert await s2.count_events() == 3
+            evt = await s2.get("evt-replay-001")
+            assert evt is not None
+            assert evt.event_id == "evt-replay-001"
+        finally:
+            await s2.close()
 
     @pytest.mark.asyncio
     async def test_replay_available_after_runtime_restart(

@@ -299,11 +299,13 @@ async def _build_db(
     """Create a SQLite DB with one event and arbitrary receipts."""
     storage = SQLiteStorage(db_path)
     await storage.initialize()
-    event = _make_event(event_id=event_id)
-    await storage.append(event)
-    for r in receipts:
-        await storage.append_receipt(r)
-    await storage.close()
+    try:
+        event = _make_event(event_id=event_id)
+        await storage.append(event)
+        for r in receipts:
+            await storage.append_receipt(r)
+    finally:
+        await storage.close()
 
 
 async def _get_incident_summary(

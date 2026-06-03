@@ -490,56 +490,57 @@ class TestTopLevelConvergenceFieldsPopulated:
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
         await storage.initialize()
+        try:
+            # Insert a minimal event and outbox item so convergence has data.
+            from datetime import datetime, timezone
 
-        # Insert a minimal event and outbox item so convergence has data.
-        from datetime import datetime, timezone
+            from medre.core.events.metadata import EventMetadata
+            from medre.core.storage.backend import (
+                CanonicalEvent,
+                DeliveryOutboxItem,
+                DeliveryReceipt,
+            )
 
-        from medre.core.events.metadata import EventMetadata
-        from medre.core.storage.backend import (
-            CanonicalEvent,
-            DeliveryOutboxItem,
-            DeliveryReceipt,
-        )
+            event = CanonicalEvent(
+                event_id="evt_test_001",
+                event_kind="text",
+                schema_version=1,
+                timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                source_adapter="bot",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "hello"},
+                metadata=EventMetadata(),
+            )
+            await storage.append(event)
 
-        event = CanonicalEvent(
-            event_id="evt_test_001",
-            event_kind="text",
-            schema_version=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            source_adapter="bot",
-            source_transport_id="node-1",
-            source_channel_id=None,
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "hello"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
+            outbox = DeliveryOutboxItem(
+                outbox_id="obx_001",
+                event_id="evt_test_001",
+                route_id="route-001",
+                delivery_plan_id="plan_001",
+                target_adapter="radio",
+                target_channel="chan_a",
+                status="sent",
+                attempt_number=1,
+            )
+            await storage.create_outbox_item(outbox)
 
-        outbox = DeliveryOutboxItem(
-            outbox_id="obx_001",
-            event_id="evt_test_001",
-            route_id="route-001",
-            delivery_plan_id="plan_001",
-            target_adapter="radio",
-            target_channel="chan_a",
-            status="sent",
-            attempt_number=1,
-        )
-        await storage.create_outbox_item(outbox)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt_001",
-            event_id="evt_test_001",
-            delivery_plan_id="plan_001",
-            target_adapter="radio",
-            target_channel="chan_a",
-            status="sent",
-            attempt_number=1,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt_001",
+                event_id="evt_test_001",
+                delivery_plan_id="plan_001",
+                target_adapter="radio",
+                target_channel="chan_a",
+                status="sent",
+                attempt_number=1,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         bundle = await collect_evidence_bundle(
             storage_path=str(db), event_id="evt_test_001"
@@ -585,48 +586,48 @@ class TestTopLevelConvergenceFieldsPopulated:
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
         await storage.initialize()
+        try:
+            from datetime import datetime, timezone
 
-        from datetime import datetime, timezone
-
-        from medre.core.events.metadata import EventMetadata
-        from medre.core.storage.backend import (
-            CanonicalEvent,
-            DeliveryOutboxItem,
-        )
-
-        # Insert a single event that all outbox items will reference.
-        event = CanonicalEvent(
-            event_id="evt_bulk_001",
-            event_kind="text",
-            schema_version=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            source_adapter="bot",
-            source_transport_id="node-1",
-            source_channel_id=None,
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "bulk test"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-
-        # Insert 101 outbox items — deliberately exceeding the old
-        # list_outbox_items default limit of 100.
-        for i in range(101):
-            outbox = DeliveryOutboxItem(
-                outbox_id=f"obx_bulk_{i:04d}",
-                event_id="evt_bulk_001",
-                route_id="route-001",
-                delivery_plan_id=f"plan_bulk_{i:04d}",
-                target_adapter="radio",
-                target_channel=f"chan_{i % 5}",
-                status="pending",
-                attempt_number=1,
+            from medre.core.events.metadata import EventMetadata
+            from medre.core.storage.backend import (
+                CanonicalEvent,
+                DeliveryOutboxItem,
             )
-            await storage.create_outbox_item(outbox)
 
-        await storage.close()
+            # Insert a single event that all outbox items will reference.
+            event = CanonicalEvent(
+                event_id="evt_bulk_001",
+                event_kind="text",
+                schema_version=1,
+                timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                source_adapter="bot",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "bulk test"},
+                metadata=EventMetadata(),
+            )
+            await storage.append(event)
+
+            # Insert 101 outbox items — deliberately exceeding the old
+            # list_outbox_items default limit of 100.
+            for i in range(101):
+                outbox = DeliveryOutboxItem(
+                    outbox_id=f"obx_bulk_{i:04d}",
+                    event_id="evt_bulk_001",
+                    route_id="route-001",
+                    delivery_plan_id=f"plan_bulk_{i:04d}",
+                    target_adapter="radio",
+                    target_channel=f"chan_{i % 5}",
+                    status="pending",
+                    attempt_number=1,
+                )
+                await storage.create_outbox_item(outbox)
+        finally:
+            await storage.close()
 
         bundle = await collect_evidence_bundle(storage_path=str(db))
 
@@ -661,56 +662,57 @@ class TestTopLevelConvergenceFieldsPopulated:
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
         await storage.initialize()
+        try:
+            # Insert a minimal event + outbox + receipt so convergence has data.
+            from datetime import datetime, timezone
 
-        # Insert a minimal event + outbox + receipt so convergence has data.
-        from datetime import datetime, timezone
+            from medre.core.events.metadata import EventMetadata
+            from medre.core.storage.backend import (
+                CanonicalEvent,
+                DeliveryOutboxItem,
+                DeliveryReceipt,
+            )
 
-        from medre.core.events.metadata import EventMetadata
-        from medre.core.storage.backend import (
-            CanonicalEvent,
-            DeliveryOutboxItem,
-            DeliveryReceipt,
-        )
+            event = CanonicalEvent(
+                event_id="evt_global_001",
+                event_kind="text",
+                schema_version=1,
+                timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                source_adapter="bot",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "hello"},
+                metadata=EventMetadata(),
+            )
+            await storage.append(event)
 
-        event = CanonicalEvent(
-            event_id="evt_global_001",
-            event_kind="text",
-            schema_version=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            source_adapter="bot",
-            source_transport_id="node-1",
-            source_channel_id=None,
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "hello"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
+            outbox = DeliveryOutboxItem(
+                outbox_id="obx_g001",
+                event_id="evt_global_001",
+                route_id="route-001",
+                delivery_plan_id="plan_001",
+                target_adapter="radio",
+                target_channel="chan_a",
+                status="sent",
+                attempt_number=1,
+            )
+            await storage.create_outbox_item(outbox)
 
-        outbox = DeliveryOutboxItem(
-            outbox_id="obx_g001",
-            event_id="evt_global_001",
-            route_id="route-001",
-            delivery_plan_id="plan_001",
-            target_adapter="radio",
-            target_channel="chan_a",
-            status="sent",
-            attempt_number=1,
-        )
-        await storage.create_outbox_item(outbox)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt_g001",
-            event_id="evt_global_001",
-            delivery_plan_id="plan_001",
-            target_adapter="radio",
-            target_channel="chan_a",
-            status="sent",
-            attempt_number=1,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt_g001",
+                event_id="evt_global_001",
+                delivery_plan_id="plan_001",
+                target_adapter="radio",
+                target_channel="chan_a",
+                status="sent",
+                attempt_number=1,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         bundle = await collect_evidence_bundle(storage_path=str(db))
 

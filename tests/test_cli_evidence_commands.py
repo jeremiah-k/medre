@@ -50,55 +50,55 @@ def _seed_inspect_db(
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)
         await storage.initialize()
-
-        event = CanonicalEvent(
-            event_id=event_id,
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-            source_adapter=source_adapter,
-            source_transport_id="test-transport",
-            source_channel_id="ch-inspect",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "inspect test message"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-
-        receipt_kwargs: dict = dict(
-            sequence=1,
-            receipt_id="rcpt-inspect-1",
-            event_id=event_id,
-            delivery_plan_id="plan-inspect-1",
-            target_adapter="dest_adapter",
-            route_id="route-inspect",
-            status="sent",
-            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
-        )
-        if replay_run_id is not None:
-            receipt_kwargs["source"] = "replay"
-            receipt_kwargs["replay_run_id"] = replay_run_id
-
-        await storage.append_receipt(DeliveryReceipt(**receipt_kwargs))
-
-        if native_adapter is not None and native_message_id is not None:
-            await storage.store_native_ref(
-                NativeMessageRef(
-                    id="nref-inspect-1",
-                    event_id=event_id,
-                    adapter=native_adapter,
-                    native_channel_id=native_channel_id,
-                    native_message_id=native_message_id,
-                    native_thread_id=None,
-                    native_relation_id=None,
-                    direction="outbound",
-                    created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-                )
+        try:
+            event = CanonicalEvent(
+                event_id=event_id,
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+                source_adapter=source_adapter,
+                source_transport_id="test-transport",
+                source_channel_id="ch-inspect",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "inspect test message"},
+                metadata=EventMetadata(),
             )
+            await storage.append(event)
 
-        await storage.close()
+            receipt_kwargs: dict = dict(
+                sequence=1,
+                receipt_id="rcpt-inspect-1",
+                event_id=event_id,
+                delivery_plan_id="plan-inspect-1",
+                target_adapter="dest_adapter",
+                route_id="route-inspect",
+                status="sent",
+                created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+            )
+            if replay_run_id is not None:
+                receipt_kwargs["source"] = "replay"
+                receipt_kwargs["replay_run_id"] = replay_run_id
+
+            await storage.append_receipt(DeliveryReceipt(**receipt_kwargs))
+
+            if native_adapter is not None and native_message_id is not None:
+                await storage.store_native_ref(
+                    NativeMessageRef(
+                        id="nref-inspect-1",
+                        event_id=event_id,
+                        adapter=native_adapter,
+                        native_channel_id=native_channel_id,
+                        native_message_id=native_message_id,
+                        native_thread_id=None,
+                        native_relation_id=None,
+                        direction="outbound",
+                        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+                    )
+                )
+        finally:
+            await storage.close()
 
     asyncio.run(_seed())
 

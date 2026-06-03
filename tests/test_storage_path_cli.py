@@ -76,52 +76,53 @@ def _seed_db(
     async def _go() -> None:
         storage = SQLiteStorage(db_path)
         await storage.initialize()
-
-        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-        event = CanonicalEvent(
-            event_id=event_id,
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=ts,
-            source_adapter="test_adapter",
-            source_transport_id="test-transport",
-            source_channel_id="ch-sp",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "storage-path test"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-
-        await storage.store_native_ref(
-            NativeMessageRef(
-                id="nref-sp-1",
+        try:
+            ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+            event = CanonicalEvent(
                 event_id=event_id,
-                adapter="matrix",
-                native_channel_id="!room:test",
-                native_message_id="$sp-msg-1",
-                native_thread_id=None,
-                native_relation_id=None,
-                direction="outbound",
-                created_at=ts,
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=ts,
+                source_adapter="test_adapter",
+                source_transport_id="test-transport",
+                source_channel_id="ch-sp",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "storage-path test"},
+                metadata=EventMetadata(),
             )
-        )
+            await storage.append(event)
 
-        rcpt_kwargs: dict[str, Any] = dict(
-            receipt_id="rcpt-sp-1",
-            event_id=event_id,
-            delivery_plan_id="plan-sp-1",
-            target_adapter="dest_adapter",
-            status="sent",
-            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
-        )
-        if replay_run_id is not None:
-            rcpt_kwargs["source"] = "replay"
-            rcpt_kwargs["replay_run_id"] = replay_run_id
+            await storage.store_native_ref(
+                NativeMessageRef(
+                    id="nref-sp-1",
+                    event_id=event_id,
+                    adapter="matrix",
+                    native_channel_id="!room:test",
+                    native_message_id="$sp-msg-1",
+                    native_thread_id=None,
+                    native_relation_id=None,
+                    direction="outbound",
+                    created_at=ts,
+                )
+            )
 
-        await storage.append_receipt(DeliveryReceipt(**rcpt_kwargs))
-        await storage.close()
+            rcpt_kwargs: dict[str, Any] = dict(
+                receipt_id="rcpt-sp-1",
+                event_id=event_id,
+                delivery_plan_id="plan-sp-1",
+                target_adapter="dest_adapter",
+                status="sent",
+                created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+            )
+            if replay_run_id is not None:
+                rcpt_kwargs["source"] = "replay"
+                rcpt_kwargs["replay_run_id"] = replay_run_id
+
+            await storage.append_receipt(DeliveryReceipt(**rcpt_kwargs))
+        finally:
+            await storage.close()
 
     asyncio.run(_go())
 
@@ -875,9 +876,11 @@ class TestInvalidDBShape:
         """A SQLite file with wrong tables produces actionable error and nonzero exit."""
         bad_db = tmp_path / "wrong_tables.db"
         conn = sqlite3.connect(str(bad_db))
-        conn.execute("CREATE TABLE foo (id INTEGER PRIMARY KEY)")
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("CREATE TABLE foo (id INTEGER PRIMARY KEY)")
+            conn.commit()
+        finally:
+            conn.close()
 
         code, _, stderr = _run_cli_exit(
             "inspect",

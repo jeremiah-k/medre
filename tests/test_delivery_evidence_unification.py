@@ -239,37 +239,37 @@ async def _make_populated_db_with_suppressed(
 
     storage = SQLiteStorage(db_path)
     await storage.initialize()
+    try:
+        event = CanonicalEvent(
+            event_id=event_id,
+            event_kind=EventKind.MESSAGE_TEXT,
+            schema_version=1,
+            timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            source_adapter="main",
+            source_transport_id="matrix",
+            source_channel_id="!room:test",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "suppressed evidence test"},
+            metadata=EventMetadata(),
+        )
+        await storage.append(event)
 
-    event = CanonicalEvent(
-        event_id=event_id,
-        event_kind=EventKind.MESSAGE_TEXT,
-        schema_version=1,
-        timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
-        source_adapter="main",
-        source_transport_id="matrix",
-        source_channel_id="!room:test",
-        parent_event_id=None,
-        lineage=(),
-        relations=(),
-        payload={"text": "suppressed evidence test"},
-        metadata=EventMetadata(),
-    )
-    await storage.append(event)
-
-    receipt = DeliveryReceipt(
-        receipt_id="rcpt-supp-001",
-        event_id=event_id,
-        delivery_plan_id="dp-supp-001",
-        target_adapter="radio",
-        status="suppressed",
-        source="live",
-        failure_kind=failure_kind,
-        error=error,
-        created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
-    )
-    await storage.append_receipt(receipt)
-
-    await storage.close()
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-supp-001",
+            event_id=event_id,
+            delivery_plan_id="dp-supp-001",
+            target_adapter="radio",
+            status="suppressed",
+            source="live",
+            failure_kind=failure_kind,
+            error=error,
+            created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+        )
+        await storage.append_receipt(receipt)
+    finally:
+        await storage.close()
     return event_id
 
 
