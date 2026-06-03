@@ -228,8 +228,8 @@ The `collect_evidence_bundle()` function assembles a comprehensive evidence bund
 | `shutdown_evidence`            | `dict or None` | Shutdown state evidence derived from runtime snapshot. `None` when storage-only mode.                                                                                                                                                                     |
 | `convergence_summary`          | `dict or None` | Per-event convergence diagnostics summary derived from delivery receipts and outbox items (see § 21). When collected with an `event_id`, per-event; without, the global view across all delivery targets. `None` only when the storage section is absent. |
 | `orphan_report`                | `dict or None` | Per-event orphan/invalid-lineage report derived from delivery receipts and outbox items (see § 21.8). When collected with an `event_id`, per-event; without, the global view across all delivery targets. `None` only when the storage section is absent. |
-| `recovery_summary`             | `dict or None` | Per-event recovery ownership summary derived from outbox state (see § 22).                                                                                                                                                                                |
-| `recovery_ledger`              | `dict or None` | Per-event startup recovery ledger with ownership actions (see § 22).                                                                                                                                                                                      |
+| `recovery_summary`             | `dict or None` | Startup-scoped recovery ownership summary hoisted from `sections.recovery.data.recovery_summary` (see § 22).                                                                                                                                              |
+| `recovery_ledger`              | `dict or None` | Startup-scoped recovery ledger hoisted from `sections.recovery.data.recovery_ledger` (see § 22).                                                                                                                                                          |
 | `lifecycle_convergence_report` | `dict or None` | Per-event lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans) (see § 23).                                                                                                                                 |
 
 The five diagnostics fields fall into two groups with different scoping rules:
@@ -244,13 +244,14 @@ The dual-location pattern exists for operator convenience — the top-level keys
 
 Each section follows the pattern `{"status": str, "error": str or None, "data": Any or None}`.
 
-| Section                | Statuses                             | Semantics                                                                    |
-| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
-| `config_summary`       | `"passed"`, `"error"`                | Loaded config metadata, adapter counts, route counts.                        |
-| `route_validation`     | `"passed"`, `"partial"`, `"error"`   | Route eligibility validation results.                                        |
-| `diagnostics_snapshot` | `"passed"`, `"error"`                | Build-time diagnostics snapshot (no runtime start).                          |
-| `live_health`          | `"passed"`, `"partial"`, `"skipped"` | Live adapter health after `refresh_live_health()`. Skipped unless requested. |
-| `storage`              | `"passed"`, `"partial"`, `"error"`   | Storage backend evidence: receipts, incident summaries, outbox state.        |
+| Section                | Statuses                                        | Semantics                                                                    |
+| ---------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| `config_summary`       | `"passed"`, `"error"`                           | Loaded config metadata, adapter counts, route counts.                        |
+| `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                        |
+| `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                          |
+| `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested. |
+| `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, incident summaries, outbox state.        |
+| `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                      |
 
 Status computation:
 

@@ -455,9 +455,16 @@ class StorageBackend(Protocol):
         limit: int = 10_000,
         offset: int = 0,
     ) -> list[DeliveryReceipt]:
-        """Return all delivery receipts in sequence order.
+        """Return all delivery receipts in sequence order for global analysis.
 
-        Ordered by ``sequence`` ascending for deterministic output.
+        Used for global convergence and diagnostic analysis across all
+        events and delivery plans.  Results are ordered by ``sequence``
+        ascending for deterministic output.
+
+        The default limit (10,000) is higher than the standard query
+        limit (1,000) to accommodate typical operational databases.
+        Callers working with larger databases should use explicit
+        pagination via ``limit`` and ``offset``.
         """
         ...
 

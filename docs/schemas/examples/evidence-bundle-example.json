@@ -92,7 +92,7 @@
               "latest_attempt_number": 2,
               "severity": "degraded",
               "warnings": [
-                "Latest receipt failed but outbox is retry_waiting — retry scheduled"
+                "Latest receipt failed but outbox is retry_wait — retry scheduled"
               ]
             }
           ],
@@ -269,7 +269,7 @@
         "latest_attempt_number": 2,
         "severity": "degraded",
         "warnings": [
-          "Latest receipt failed but outbox is retry_waiting — retry scheduled"
+          "Latest receipt failed but outbox is retry_wait — retry scheduled"
         ]
       }
     ],
