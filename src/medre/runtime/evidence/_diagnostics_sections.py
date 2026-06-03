@@ -181,11 +181,19 @@ async def _collect_diagnostics_snapshot(
         monotonic_fn=_fixed_mono,
     )
 
-    # Clean up adapter resources to avoid ResourceWarnings.
-    try:
-        await app.stop()
-    except Exception:
-        pass  # best-effort cleanup; snapshot already captured
+    # Clean up adapter and storage resources to avoid ResourceWarnings.
+    # ``app.stop()`` is a no-op when the app was never started (state is
+    # INITIALIZED), so we must close adapters and storage explicitly.
+    for _adapter in app.adapters.values():
+        try:
+            await _adapter.stop(timeout=2.0)
+        except Exception:
+            pass  # best-effort
+    if hasattr(app, "storage") and app.storage is not None:
+        try:
+            await app.storage.close()
+        except Exception:
+            pass  # best-effort
 
     # Derive adapter status evidence from snapshot + config.
     snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(snapshot, config)
@@ -232,6 +240,11 @@ async def _collect_live_health(
     try:
         await app.start()
     except Exception as exc:
+        # Best-effort cleanup of built (but not started) resources.
+        try:
+            await app.stop()
+        except Exception:
+            pass
         return _section_error(f"Runtime startup failed: {exc}")
 
     try:

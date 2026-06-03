@@ -518,10 +518,8 @@ class _OutboxMixin:
                 ]
             )
         elif new_status in (TERMINAL_OUTBOX_STATUSES - {"sent"}):
-            # Clear next_attempt_at is handled above; also clear
-            # failure_kind_detail which is not caller-specified for
-            # these terminal transitions.  Keep failure_kind and
-            # error_summary as callers pass meaningful values.
+            # "sent" is terminal but happy-path; clear failure metadata
+            # only for error terminals (dead_lettered, cancelled, abandoned).
             if failure_kind_detail is None:
                 sets.append("failure_kind_detail = NULL")
         if new_status in ("queued", "sent", "retry_wait"):

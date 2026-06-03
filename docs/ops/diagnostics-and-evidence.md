@@ -851,7 +851,7 @@ Gaps may indicate lost receipts or concurrent delivery attempts. Check whether r
 
 The evidence bundle exposes three distinct convergence/diagnostic surfaces. Each answers a different question:
 
-| Surface                        | Answers                                                                     | Scope per event                                                                                                                 |
+| Surface                        | Answers                                                                     | Scope                                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and latest receipt status.                      |
 | `orphan_report`                | "Are there broken lineages or recovery anomalies?"                          | Orphaned records, invalid parent chains, and four recovery-convergence finding kinds.                                           |

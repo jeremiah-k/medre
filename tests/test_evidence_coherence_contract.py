@@ -639,20 +639,16 @@ class TestTopLevelConvergenceFieldsPopulated:
 
         # Global convergence fields must exist and not be None.
         assert bundle["convergence_summary"] is not None
+        assert bundle["orphan_report"] is not None
 
         # The convergence analysis must have seen all 101 outbox items.
-        # Check retry_outbox_summary for the total count.
-        retry_summary = storage_data.get("retry_outbox_summary")
-        if retry_summary is not None:
-            total = retry_summary.get("total", 0)
-            assert total >= 101, (
-                f"Expected convergence to cover all 101 outbox items, "
-                f"but retry_outbox_summary.total = {total}"
-            )
-
-        # Also verify via the outbox items actually stored — if convergence
-        # data exists at all for this many items, list_all_outbox_items worked.
-        assert bundle["orphan_report"] is not None
+        # convergence_summary.total_targets counts unique delivery targets
+        # from outbox items — it must equal the number of inserted items.
+        total_targets = bundle["convergence_summary"].get("total_targets", 0)
+        assert total_targets == 101, (
+            f"Expected convergence to cover all 101 outbox items, "
+            f"but convergence_summary.total_targets = {total_targets}"
+        )
 
     @pytest.mark.asyncio
     async def test_top_level_fields_global_view_when_no_event(
