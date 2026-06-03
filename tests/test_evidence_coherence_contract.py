@@ -515,6 +515,8 @@ class TestTopLevelConvergenceFieldsPopulated:
             DeliveryReceipt,
         )
 
+        from medre.core.events.metadata import EventMetadata
+
         event = CanonicalEvent(
             event_id="evt_test_001",
             event_kind="text",
@@ -527,7 +529,7 @@ class TestTopLevelConvergenceFieldsPopulated:
             lineage=(),
             relations=(),
             payload={"text": "hello"},
-            metadata={},
+            metadata=EventMetadata(),
         )
         await storage.append(event)
 
