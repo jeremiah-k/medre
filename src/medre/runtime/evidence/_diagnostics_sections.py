@@ -175,25 +175,30 @@ async def _collect_diagnostics_snapshot(
             f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
         )
 
-    snapshot = build_runtime_snapshot(
-        app,
-        now_fn=_fixed_now,
-        monotonic_fn=_fixed_mono,
-    )
-
-    # Clean up adapter and storage resources to avoid ResourceWarnings.
-    # ``app.stop()`` is a no-op when the app was never started (state is
-    # INITIALIZED), so we must close adapters and storage explicitly.
-    for _adapter in app.adapters.values():
-        try:
-            await _adapter.stop(timeout=2.0)
-        except Exception:
-            pass  # best-effort
-    if hasattr(app, "storage") and app.storage is not None:
-        try:
-            await app.storage.close()
-        except Exception:
-            pass  # best-effort
+    snapshot: dict[str, Any] | None = None
+    try:
+        snapshot = build_runtime_snapshot(
+            app,
+            now_fn=_fixed_now,
+            monotonic_fn=_fixed_mono,
+        )
+    except Exception as exc:
+        return _section_error(f"Runtime snapshot error: {exc}")
+    finally:
+        # Always clean up adapter and storage resources — even on
+        # snapshot failure.  ``app.stop()`` is a no-op when the app
+        # was never started (state is INITIALIZED), so we must close
+        # adapters and storage explicitly.
+        for _adapter in app.adapters.values():
+            try:
+                await _adapter.stop(timeout=2.0)
+            except Exception:
+                pass  # best-effort
+        if hasattr(app, "storage") and app.storage is not None:
+            try:
+                await app.storage.close()
+            except Exception:
+                pass  # best-effort
 
     # Derive adapter status evidence from snapshot + config.
     snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(snapshot, config)
