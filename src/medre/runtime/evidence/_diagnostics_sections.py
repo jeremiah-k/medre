@@ -164,49 +164,57 @@ async def _collect_diagnostics_snapshot(
 
     from medre.runtime.builder import RuntimeBuilder
 
+    app = None
     try:
-        builder = RuntimeBuilder(config, paths)
-        app = builder.build()
-    except Exception as exc:
-        return _section_error(f"Runtime build error: {exc}")
+        try:
+            builder = RuntimeBuilder(config, paths)
+            app = builder.build()
+        except Exception as exc:
+            return _section_error(f"Runtime build error: {exc}")
 
-    if not app.adapters:
-        return _section_error(
-            f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
+        if not app.adapters:
+            return _section_error(
+                f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
+            )
+
+        snapshot: dict[str, Any] | None = None
+        try:
+            snapshot = build_runtime_snapshot(
+                app,
+                now_fn=_fixed_now,
+                monotonic_fn=_fixed_mono,
+            )
+        except Exception as exc:
+            return _section_error(f"Runtime snapshot error: {exc}")
+
+        # Derive adapter status evidence from snapshot + config.
+        snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(
+            snapshot, config
         )
 
-    snapshot: dict[str, Any] | None = None
-    try:
-        snapshot = build_runtime_snapshot(
-            app,
-            now_fn=_fixed_now,
-            monotonic_fn=_fixed_mono,
+        # Derive shutdown evidence from snapshot.
+        snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(
+            snapshot
         )
-    except Exception as exc:
-        return _section_error(f"Runtime snapshot error: {exc}")
+
+        return _section_ok(snapshot)
     finally:
-        # Always clean up adapter and storage resources — even on
-        # snapshot failure.  ``app.stop()`` is a no-op when the app
-        # was never started (state is INITIALIZED), so we must close
-        # adapters and storage explicitly.
-        for _adapter in app.adapters.values():
-            try:
-                await _adapter.stop(timeout=2.0)
-            except Exception:
-                pass  # best-effort
-        if hasattr(app, "storage") and app.storage is not None:
-            try:
-                await app.storage.close()
-            except Exception:
-                pass  # best-effort
-
-    # Derive adapter status evidence from snapshot + config.
-    snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(snapshot, config)
-
-    # Derive shutdown evidence from snapshot.
-    snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(snapshot)
-
-    return _section_ok(snapshot)
+        # Always clean up adapter and storage resources after build —
+        # covers no-adapters early return, snapshot error, and normal
+        # success.  ``app.stop()`` is a no-op when the app was never
+        # started (state is INITIALIZED), so we close adapters and
+        # storage explicitly.
+        if app is not None:
+            for _adapter in app.adapters.values():
+                try:
+                    await _adapter.stop(timeout=2.0)
+                except Exception:
+                    pass  # best-effort
+            if hasattr(app, "storage") and app.storage is not None:
+                try:
+                    await app.storage.close()
+                except Exception:
+                    pass  # best-effort
 
 
 # ---------------------------------------------------------------------------
@@ -231,48 +239,64 @@ async def _collect_live_health(
 
     from medre.runtime.builder import RuntimeBuilder
 
+    app = None
+    app_started = False
     try:
-        builder = RuntimeBuilder(config, paths)
-        app = builder.build()
-    except Exception as exc:
-        return _section_error(f"Runtime build error: {exc}")
-
-    if not app.adapters:
-        return _section_error(
-            f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
-        )
-
-    try:
-        await app.start()
-    except Exception as exc:
-        # Best-effort cleanup of built (but not started) resources.
         try:
-            await app.stop()
-        except Exception:
-            pass
-        return _section_error(f"Runtime startup failed: {exc}")
-
-    try:
-        await app.refresh_live_health()
-        await app.refresh_outbox_state_from_storage()
-        snapshot = build_runtime_snapshot(app)
-
-        # Derive adapter status evidence from snapshot + config.
-        snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(
-            snapshot,
-            config,
-        )
-
-        # Derive shutdown evidence from snapshot.
-        snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(
-            snapshot
-        )
-
-        return _section_ok(snapshot)
-    except Exception as exc:
-        return _section_partial(None, f"Live refresh error (health/outbox): {exc}")
-    finally:
-        try:
-            await app.stop()
+            builder = RuntimeBuilder(config, paths)
+            app = builder.build()
         except Exception as exc:
-            _logger.warning("Error during evidence live-health shutdown: %s", exc)
+            return _section_error(f"Runtime build error: {exc}")
+
+        if not app.adapters:
+            return _section_error(
+                f"All {len(app.build_failures)} enabled adapter(s) failed to construct"
+            )
+
+        try:
+            await app.start()
+            app_started = True
+        except Exception as exc:
+            return _section_error(f"Runtime startup failed: {exc}")
+
+        try:
+            await app.refresh_live_health()
+            await app.refresh_outbox_state_from_storage()
+            snapshot = build_runtime_snapshot(app)
+
+            # Derive adapter status evidence from snapshot + config.
+            snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(
+                snapshot,
+                config,
+            )
+
+            # Derive shutdown evidence from snapshot.
+            snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(
+                snapshot
+            )
+
+            return _section_ok(snapshot)
+        except Exception as exc:
+            return _section_partial(None, f"Live refresh error (health/outbox): {exc}")
+    finally:
+        if app is not None:
+            if app_started:
+                try:
+                    await app.stop()
+                except Exception as exc:
+                    _logger.warning(
+                        "Error during evidence live-health shutdown: %s", exc
+                    )
+            else:
+                # Built but never started — clean up adapters and storage
+                # directly since app.stop() would be a no-op.
+                for _adapter in app.adapters.values():
+                    try:
+                        await _adapter.stop(timeout=2.0)
+                    except Exception:
+                        pass  # best-effort
+                if hasattr(app, "storage") and app.storage is not None:
+                    try:
+                        await app.storage.close()
+                    except Exception:
+                        pass  # best-effort

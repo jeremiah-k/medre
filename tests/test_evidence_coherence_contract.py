@@ -159,21 +159,18 @@ class TestRuntimeDictValidatesAgainstSchema:
         bundle = await collect_evidence_bundle(storage_path=str(db))
         self._assert_validates(bundle, schema)
 
-    def test_config_error_bundle_validates(self, schema: dict[str, Any]) -> None:
+    @pytest.mark.asyncio
+    async def test_config_error_bundle_validates(self, schema: dict[str, Any]) -> None:
         """When config loading fails outright, ``collect_evidence_bundle``
         returns an error bundle.  This bundle must still satisfy the
         schema (it's the canonical 'config error' operator surface)."""
-        import asyncio
-
         from medre.runtime.evidence._bundle import collect_evidence_bundle
 
         # Call the real function with a path that will fail config loading.
         # This ensures the test stays in sync with the actual error shape
         # — if the function's error branch changes, this test catches it.
-        bundle = asyncio.run(
-            collect_evidence_bundle(
-                config_path="/nonexistent/path/that/does/not/exist.toml"
-            )
+        bundle = await collect_evidence_bundle(
+            config_path="/nonexistent/path/that/does/not/exist.toml"
         )
         assert bundle["status"] == "error"
         self._assert_validates(bundle, schema)
