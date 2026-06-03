@@ -98,7 +98,7 @@
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ShutdownEvidence" }]
     },
     "convergence_summary": {
-      "description": "When collected with an event_id, event-scoped; without, the storage-wide global view. Derived from delivery receipts and outbox items. None when storage is absent/unavailable or no delivery data matches the query.",
+      "description": "When collected with an event_id, event-scoped; without, the storage-wide global view. Derived from delivery receipts and outbox items. None when storage is absent/unavailable or no delivery data matches the query. When global results are partial due to the default 10 000-record query limit, the storage section data includes a convergence_truncated_warning string.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ConvergenceSummary" }]
     },
     "orphan_report": {
@@ -366,7 +366,7 @@
     },
     "ConvergenceSummary": {
       "title": "ConvergenceSummary",
-      "description": "Aggregate convergence summary across all delivery targets for a single event.",
+      "description": "Aggregate convergence summary. When collected with an event_id, scoped to that event's delivery targets; without, a storage-wide global summary across all targets. Null when storage is absent/unavailable or no delivery data matches.",
       "type": "object",
       "properties": {
         "evidence_bundle_ref": {

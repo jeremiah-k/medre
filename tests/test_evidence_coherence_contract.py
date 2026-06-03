@@ -736,11 +736,12 @@ class TestTopLevelConvergenceFieldsPopulated:
             is storage_data["lifecycle_convergence_report"]
         )
 
-        # Recovery fields must also be hoisted.
+        # Recovery fields must also be hoisted.  In storage_path mode
+        # recovery section is not collected, so all recovery fields are None.
         recovery_data = bundle["sections"].get("recovery", {}).get("data")
-        if recovery_data is not None:
-            assert bundle["recovery_summary"] is recovery_data["recovery_summary"]
-            assert bundle["recovery_ledger"] is recovery_data["recovery_ledger"]
+        assert recovery_data is None
+        assert bundle["recovery_summary"] is None
+        assert bundle["recovery_ledger"] is None
 
     @pytest.mark.asyncio
     async def test_top_level_fields_none_when_storage_absent(self) -> None:

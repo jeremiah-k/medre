@@ -273,18 +273,18 @@ async def _collect_diagnostics_snapshot(
                 now_fn=_fixed_now,
                 monotonic_fn=_fixed_mono,
             )
+
+            # Derive adapter status evidence from snapshot + config.
+            snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(
+                snapshot, config
+            )
+
+            # Derive shutdown evidence from snapshot.
+            snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(
+                snapshot
+            )
         except Exception as exc:
             return _section_error(f"Runtime snapshot error: {exc}")
-
-        # Derive adapter status evidence from snapshot + config.
-        snapshot["adapter_status"] = _derive_adapter_status_from_snapshot(
-            snapshot, config
-        )
-
-        # Derive shutdown evidence from snapshot.
-        snapshot["shutdown_evidence"] = _derive_shutdown_evidence_from_snapshot(
-            snapshot
-        )
 
         return _section_ok(snapshot)
     finally:

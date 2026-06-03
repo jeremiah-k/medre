@@ -385,8 +385,29 @@ async def _collect_storage_data_from_backend(
             # No event_id — produce a global convergence view across all
             # delivery targets.  The pure analysis functions are event-
             # agnostic; we just feed them the full dataset.
+            _GLOBAL_LIMIT = 10_000
             all_receipts = await storage.list_all_receipts()
             all_outbox = await storage.list_all_outbox_items()
+
+            # Detect truncation: if either result set hit the default limit
+            # the global view is partial and callers should be warned.
+            _truncated_receipts = len(all_receipts) >= _GLOBAL_LIMIT
+            _truncated_outbox = len(all_outbox) >= _GLOBAL_LIMIT
+            if _truncated_receipts or _truncated_outbox:
+                _truncated_parts: list[str] = []
+                if _truncated_receipts:
+                    _truncated_parts.append(
+                        f"receipts ({len(all_receipts)} >= {_GLOBAL_LIMIT})"
+                    )
+                if _truncated_outbox:
+                    _truncated_parts.append(
+                        f"outbox items ({len(all_outbox)} >= {_GLOBAL_LIMIT})"
+                    )
+                data["convergence_truncated_warning"] = (
+                    "Global convergence data may be incomplete — "
+                    f"default query limit reached for: {', '.join(_truncated_parts)}. "
+                    "Results represent a partial view."
+                )
 
             if all_receipts or all_outbox:
                 from medre.core.diagnostics.convergence.lifecycle_convergence import (
@@ -464,6 +485,11 @@ async def _collect_storage_section(
 
     Never creates or mutates the database file.  Missing/invalid storage
     produces a partial or skipped section.
+
+    When no ``event_id`` is provided, global convergence queries default to
+    a 10 000-record limit per table.  If that limit is reached, the returned
+    data includes a ``convergence_truncated_warning`` string indicating the
+    results are partial.
     """
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
