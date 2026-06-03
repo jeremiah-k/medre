@@ -480,7 +480,8 @@ class TestDocsNoExactlyOnce:
         """adapter.py source must not claim exactly-once."""
         import medre.adapters.matrix.adapter as mod
 
-        source = open(mod.__file__).read().lower()
+        with open(mod.__file__, encoding="utf-8") as f:
+            source = f.read().lower()
         assert "exactly-once" not in source
         assert "exactly once" not in source
 

@@ -7,10 +7,8 @@ fixtures, and adapter context helpers used across all test modules.
 from __future__ import annotations
 
 import asyncio
-import gc
 import logging
 import os
-import socket
 import sys
 import tempfile
 from contextlib import suppress
@@ -35,79 +33,6 @@ from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.matrix import build_mock_nio_module
-
-
-# ---------------------------------------------------------------------------
-# Event-loop close resilience for pytest-asyncio teardown
-# ---------------------------------------------------------------------------
-#
-# pytest-asyncio (``asyncio_mode = "auto"`` + function-scoped loops)
-# tears down the event loop's internal file descriptors (wakeup fd set
-# to -1) before ``loop.close()`` runs.  This causes close() to raise
-# EBADF, leaving ``_closed == False``.  When GC later calls __del__,
-# the loop appears unclosed and emits a ResourceWarning — a false
-# alarm since all OS resources have already been released.
-#
-# Patch ``close()`` to succeed when the internal fds are already
-# invalid.  The loop's resources ARE released; we just need to
-# tell the loop it's closed so __del__ won't warn.
-
-_original_loop_close = asyncio.BaseEventLoop.close
-
-
-def _resilient_close(self: asyncio.BaseEventLoop) -> None:
-    try:
-        _original_loop_close(self)
-    except (OSError, ValueError):
-        # Internal fds already torn down by pytest-asyncio — the
-        # loop's OS resources are released but _closed was never
-        # set.  Mark it closed so __del__ won't warn.
-        self._closed = True  # type: ignore[attr-defined]
-
-
-# Monkey-patch BaseEventLoop.close so that when pytest-asyncio has
-# already torn down the loop's internal fds (wakeup fd set to -1),
-# close() still succeeds — marking _closed = True — rather than
-# raising EBADF and leaving the loop in an "unclosed" state that
-# triggers ResourceWarning from __del__.
-asyncio.BaseEventLoop.close = _resilient_close  # type: ignore[method-assign]
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    """Register a cleanup that closes detached sockets and drains the
-    warning deque *before* the unraisableexception plugin's cleanup.
-
-    add_cleanup executes in LIFO order.  Conftest pytest_configure runs
-    after built-in plugins, so our callback is last on the stack and
-    runs first — draining the deque before collect_unraisable() processes it.
-    """
-
-    def _cleanup_sockets_and_drain() -> None:
-        socks: list[socket.socket] = [
-            o
-            for o in gc.get_objects()
-            if isinstance(o, socket.socket) and not o._closed
-        ]
-        for sock in socks:
-            with suppress(OSError):
-                sock.close()
-
-        gc.collect()
-
-        from _pytest.unraisableexception import unraisable_exceptions
-
-        try:
-            stash = config.stash[unraisable_exceptions]
-        except KeyError:
-            return
-        for _ in range(len(stash)):
-            try:
-                stash.pop()
-            except IndexError:
-                break
-
-    config.add_cleanup(_cleanup_sockets_and_drain)
-
 
 # ---------------------------------------------------------------------------
 # Event fixtures

@@ -612,7 +612,11 @@ class TestNoAdapterImports:
         # The diagnostic_contract module itself should not have caused any
         # adapter modules to be imported.  (They might be imported by other
         # test fixtures, but we check the module's own __dict__ refs.)
-        mod_source = open(mod.__file__).read() if mod.__file__ else ""
+        if mod.__file__:
+            with open(mod.__file__, encoding="utf-8") as f:
+                mod_source = f.read()
+        else:
+            mod_source = ""
         assert "medre.adapters" not in mod_source
         assert "from medre.adapters" not in mod_source
         assert "import medre.adapters" not in mod_source
