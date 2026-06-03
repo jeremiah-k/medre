@@ -210,22 +210,29 @@ When a collection exceeds its cap, entries beyond the cap (sorted for adapters/r
 
 The `collect_evidence_bundle()` function assembles a comprehensive evidence bundle with the following top-level shape:
 
-| Key                 | Type           | Semantics                                                                                                                               |
-| ------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`    | `int`          | Currently `1`. Frozen during pre-release.                                                                                               |
-| `status`            | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                  |
-| `sections`          | `dict`         | Per-section evidence data (see § 7.1).                                                                                                  |
-| `errors`            | `list[str]`    | Accumulated error strings from section collection.                                                                                      |
-| `limitations`       | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                         |
-| `collected_at`      | `str`          | ISO 8601 timestamp of collection.                                                                                                       |
-| `generated_at`      | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                |
-| `command`           | `str`          | Always `"evidence"`.                                                                                                                    |
-| `config_source`     | `str or None`  | Config discovery source. `None` when config loading fails.                                                                              |
-| `medre_version`     | `str`          | MEDRE package version string.                                                                                                           |
-| `runtime_started`   | `bool`         | Whether the runtime was started during evidence collection.                                                                             |
-| `evidence_tier`     | `str`          | Machine-readable evidence provenance tier (see § 8). One of `"synthetic"`, `"conformance"`, `"docker"`, `"live_service"`, `"hardware"`. |
-| `adapter_status`    | `list or None` | Per-adapter status evidence derived from runtime snapshot (see § 18). `None` when storage-only mode.                                    |
-| `shutdown_evidence` | `dict or None` | Shutdown state evidence derived from runtime snapshot. `None` when storage-only mode.                                                   |
+| Key                            | Type           | Semantics                                                                                                                               |
+| ------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`               | `int`          | Currently `1`. Frozen during pre-release.                                                                                               |
+| `status`                       | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                  |
+| `sections`                     | `dict`         | Per-section evidence data (see § 7.1).                                                                                                  |
+| `errors`                       | `list[str]`    | Accumulated error strings from section collection.                                                                                      |
+| `limitations`                  | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                         |
+| `collected_at`                 | `str`          | ISO 8601 timestamp of collection.                                                                                                       |
+| `generated_at`                 | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                |
+| `command`                      | `str`          | Always `"evidence"`.                                                                                                                    |
+| `config_source`                | `str or None`  | Config discovery source. `None` when config loading fails.                                                                              |
+| `medre_version`                | `str`          | MEDRE package version string.                                                                                                           |
+| `runtime_started`              | `bool`         | Whether the runtime was started during evidence collection.                                                                             |
+| `evidence_tier`                | `str`          | Machine-readable evidence provenance tier (see § 8). One of `"synthetic"`, `"conformance"`, `"docker"`, `"live_service"`, `"hardware"`. |
+| `adapter_status`               | `list or None` | Per-adapter status evidence derived from runtime snapshot (see § 18). `None` when storage-only mode.                                    |
+| `shutdown_evidence`            | `dict or None` | Shutdown state evidence derived from runtime snapshot. `None` when storage-only mode.                                                   |
+| `convergence_summary`          | `dict or None` | Per-event convergence diagnostics summary derived from delivery receipts and outbox items (see § 21). `None` when no event is in scope. |
+| `orphan_report`                | `dict or None` | Per-event orphan/invalid-lineage report derived from delivery receipts and outbox items (see § 21.8). `None` when no event is in scope. |
+| `recovery_summary`             | `dict or None` | Per-event recovery ownership summary derived from outbox state (see § 22).                                                              |
+| `recovery_ledger`              | `dict or None` | Per-event startup recovery ledger with ownership actions (see § 22).                                                                    |
+| `lifecycle_convergence_report` | `dict or None` | Per-event lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans) (see § 23).               |
+
+The five per-event diagnostics fields (`convergence_summary`, `orphan_report`, `recovery_summary`, `recovery_ledger`, `lifecycle_convergence_report`) are hoisted from their respective section data to the top level when the bundle is collected with an `event_id`. When no event is in scope (e.g. `medre evidence` without `--event`), all five are `None`. When an event is in scope, the values at top level are reference-identical to the corresponding fields in `sections.storage.data` (or `sections.recovery.data` for recovery fields). This dual-location pattern is for operator convenience — the top-level keys provide direct access without drilling into sections.
 
 ### 7.1 Sections
 

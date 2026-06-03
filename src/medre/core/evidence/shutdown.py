@@ -44,6 +44,13 @@ import enum
 from dataclasses import dataclass, fields
 from typing import Any, Mapping, Sequence
 
+from medre.core.engine.pipeline.delivery_state import (
+    OUTBOX_STATUSES as _OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
+    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
+)
+
 __all__ = [
     "OutboxShutdownClassification",
     "ShutdownEvidence",
@@ -78,17 +85,14 @@ class ShutdownStatus(str, enum.Enum):
 # ---------------------------------------------------------------------------
 # Pending outbox statuses
 # ---------------------------------------------------------------------------
-
-_PENDING_OUTBOX_STATUSES: frozenset[str] = frozenset(
-    {"pending", "retry_wait", "queued", "in_progress"}
-)
-"""Outbox statuses that indicate work has not completed.
-
-Items with these statuses at shutdown time represent pending work that
-was **not** processed before the runtime stopped.  The evidence model
-reports these honestly as ``shutdown_pending`` rather than claiming they
-were cancelled.
-"""
+# Canonical source: medre.core.engine.pipeline.delivery_state.  This set
+# is "all outbox statuses that are not terminal" — items with these
+# statuses at shutdown time represent pending work that was **not**
+# processed before the runtime stopped.  The evidence model reports these
+# honestly as ``shutdown_pending`` rather than claiming they were
+# cancelled.  Drift is detected by
+# tests/test_evidence_coherence_contract.py.
+_PENDING_OUTBOX_STATUSES: frozenset[str] = _OUTBOX_STATUSES - _TERMINAL_OUTBOX_STATUSES
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +525,9 @@ def build_shutdown_evidence(
 # Source of truth for outbox status vocabularies and terminal sets:
 # ``medre.core.engine.pipeline.delivery_state.OUTBOX_STATUSES`` and
 # ``TERMINAL_OUTBOX_STATUSES``.  The mapping below is a static snapshot
-# kept local so this module stays leaf-level (no medre imports).
+# of per-status classification metadata.  Vocabulary sets are imported
+# from delivery_state at the top of this module; only the human-readable
+# classification tuples and per-status reasons are kept local.
 
 
 #: Resumable outbox statuses and their shutdown classifications.

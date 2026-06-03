@@ -202,16 +202,32 @@ async def collect_evidence_bundle(
         _recovery_summary = recovery_data.get("recovery_summary")
         _recovery_ledger = recovery_data.get("recovery_ledger")
 
+    # -- Extract per-event convergence surfaces from storage data ----------
+    # These mirror the per-event fields on the core EvidenceBundle struct
+    # and are populated when an event_id is provided to the runtime
+    # bundle collection.  See docs/spec/diagnostics-evidence.md §21-23.
+    _convergence_summary: dict[str, Any] | None = None
+    _orphan_report: dict[str, Any] | None = None
+    _lifecycle_convergence_report: dict[str, Any] | None = None
+    storage_data = sections.get("storage", {}).get("data")
+    if storage_data is not None:
+        _convergence_summary = storage_data.get("convergence_summary")
+        _orphan_report = storage_data.get("orphan_report")
+        _lifecycle_convergence_report = storage_data.get("lifecycle_convergence_report")
+
     return {
         "adapter_status": _adapter_status,
         "collected_at": _now().isoformat(),
         "command": "evidence",
         "config_source": source.value,
+        "convergence_summary": _convergence_summary,
         "errors": errors,
         "evidence_tier": evidence_tier,
         "generated_at": _now().isoformat(),
         "limitations": _LIMITATIONS,
+        "lifecycle_convergence_report": _lifecycle_convergence_report,
         "medre_version": _get_version(),
+        "orphan_report": _orphan_report,
         "recovery_ledger": _recovery_ledger,
         "recovery_summary": _recovery_summary,
         "runtime_started": runtime_started,

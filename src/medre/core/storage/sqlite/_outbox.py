@@ -6,6 +6,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
+from medre.core.engine.pipeline.delivery_state import (
+    CLAIMABLE_OUTBOX_STATUSES,
+    TERMINAL_OUTBOX_STATUSES,
+)
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
@@ -46,8 +50,8 @@ class _OutboxMixin:
         If the INSERT still fails with a UNIQUE constraint violation
         (extreme edge case), the existing row is re-read and returned.
         """
-        _terminal = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
-        _reclaimable = frozenset({"pending", "retry_wait"})
+        _terminal = TERMINAL_OUTBOX_STATUSES
+        _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 

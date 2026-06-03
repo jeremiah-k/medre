@@ -131,8 +131,70 @@
     }
   },
   "shutdown_evidence": null,
-  "convergence_summary": null,
-  "orphan_report": null,
+  "convergence_summary": {
+    "evidence_bundle_ref": null,
+    "orphan_count": null,
+    "severity_counts": {
+      "safe": 1,
+      "degraded": 1,
+      "inconsistent": 0
+    },
+    "targets": [
+      {
+        "delivery_plan_id": "plan-1",
+        "target_adapter": "radio",
+        "target_channel": "chan_a",
+        "outbox_id": "obx_001",
+        "outbox_status": "sent",
+        "latest_receipt_status": "sent",
+        "latest_receipt_id": "rcpt_001",
+        "latest_attempt_number": 1,
+        "severity": "safe",
+        "warnings": []
+      },
+      {
+        "delivery_plan_id": "plan-1",
+        "target_adapter": "radio",
+        "target_channel": "chan_b",
+        "outbox_id": "obx_002",
+        "outbox_status": "retry_wait",
+        "latest_receipt_status": "failed",
+        "latest_receipt_id": "rcpt_002",
+        "latest_attempt_number": 2,
+        "severity": "degraded",
+        "warnings": [
+          "Latest receipt failed but outbox is retry_waiting — retry scheduled"
+        ]
+      }
+    ],
+    "total_targets": 2,
+    "warnings": [],
+    "worst_severity": "degraded"
+  },
+  "orphan_report": {
+    "findings": [
+      {
+        "kind": "orphaned_parent_receipt",
+        "severity": "inconsistent",
+        "record_id": "rcpt_003",
+        "record_type": "receipt",
+        "details": "Receipt rcpt_003 references parent rcpt_999 which does not exist",
+        "extra": {
+          "receipt_id": "rcpt_003",
+          "parent_receipt_id": "rcpt_999",
+          "delivery_plan_id": "plan-1"
+        }
+      }
+    ],
+    "total_findings": 1,
+    "severity_counts": {
+      "safe": 0,
+      "degraded": 0,
+      "inconsistent": 1
+    },
+    "worst_severity": "inconsistent",
+    "summary": "1 inconsistent finding: receipt lineage broken"
+  },
   "recovery_summary": {
     "abandoned_items": 0,
     "by_source": { "snapshot_diagnostics": 3 },

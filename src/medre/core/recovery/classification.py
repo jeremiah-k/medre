@@ -17,18 +17,21 @@ __all__ = ["classify_startup_reclamation"]
 # ---------------------------------------------------------------------------
 # Status classification sets
 # ---------------------------------------------------------------------------
+# Canonical source: medre.core.engine.pipeline.delivery_state.  Re-exported
+# here as the internal status-classification sets used by the per-item
+# reclamation classifier.  Drift is detected by
+# tests/test_evidence_coherence_contract.py.
 
-# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers
-_TERMINAL_STATUSES: frozenset[str] = frozenset(
-    {"sent", "dead_lettered", "cancelled", "abandoned"}
+from medre.core.engine.pipeline.delivery_state import (
+    OUTBOX_STATUSES as _OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
+    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
 )
 
-_NON_TERMINAL_STATUSES: frozenset[str] = frozenset(
-    {"pending", "retry_wait", "in_progress", "queued"}
-)
-
-
-_ALL_KNOWN_STATUSES: frozenset[str] = _TERMINAL_STATUSES | _NON_TERMINAL_STATUSES
+_TERMINAL_STATUSES: frozenset[str] = _TERMINAL_OUTBOX_STATUSES
+_NON_TERMINAL_STATUSES: frozenset[str] = _OUTBOX_STATUSES - _TERMINAL_OUTBOX_STATUSES
+_ALL_KNOWN_STATUSES: frozenset[str] = _OUTBOX_STATUSES
 
 
 # ---------------------------------------------------------------------------

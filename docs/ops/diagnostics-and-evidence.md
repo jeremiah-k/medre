@@ -847,6 +847,89 @@ Gaps may indicate lost receipts or concurrent delivery attempts. Check whether r
 - No automatic repair occurs. All findings are for operator inspection only.
 - Findings follow the `LifecycleConvergenceFinding` JSON Schema type with a closed `kind` enum. Each finding includes `kind`, `severity`, `record_id`, `record_type`, `details`, and `extra` fields.
 
+## Convergence Surfaces Overview
+
+The evidence bundle exposes three distinct convergence/diagnostic surfaces. Each answers a different question:
+
+| Surface                        | Answers                                                                     | Scope per event                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and latest receipt status.                      |
+| `orphan_report`                | "Are there broken lineages or recovery anomalies?"                          | Orphaned records, invalid parent chains, and four recovery-convergence finding kinds.                                           |
+| `lifecycle_convergence_report` | "What specific lifecycle contradictions exist between outbox and receipts?" | Nine specific finding kinds covering status mismatches, retry anomalies, stalled plans, sequence gaps, and attempt regressions. |
+
+These surfaces are complementary, not redundant. Start with `convergence_summary.worst_severity` to triage. If `inconsistent`, check `lifecycle_convergence_report.findings` for the specific contradiction. If `orphan_report.total_findings > 0`, check whether lineages or recovery ownership are broken.
+
+All three surfaces are detection-only. None of them repair state, block startup, or change worker behavior.
+
+## Recovery Ownership Evidence
+
+The evidence bundle includes `recovery_summary` and `recovery_ledger` fields that document what happened to outbox items at startup recovery time. This is an accountability mechanism — it makes startup recovery behavior observable and provably race-safe.
+
+### Recovery Ownership Statuses
+
+Every outbox item is classified into exactly one recovery ownership status:
+
+| Status                 | What it means                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `recoverable`          | Non-terminal and not yet claimed for recovery.                                               |
+| `claimed_for_recovery` | Moved to `in_progress` with a recovery context (lease set, worker identity assigned).        |
+| `reclaimed`            | Previously in a resumable state (`pending` or `retry_wait`) and has been reclaimed.          |
+| `abandoned`            | Previously `in_progress` but recovery was abandoned (e.g. drain timeout).                    |
+| `unrecoverable`        | Terminal status — does not require recovery.                                                 |
+| `skipped`              | Retry-eligible with future `next_attempt_at`, or `in_progress` with active lease — deferred. |
+
+### Recovery Sources
+
+Each ownership action carries a `recovery_source`:
+
+| Source                  | When it fires                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `startup_recovery`      | Outbox item reclaimed during runtime startup by the `RetryWorker` at boot.                       |
+| `retry_worker_recovery` | Outbox item reclaimed during steady-state retry polling by the `RetryWorker`.                    |
+| `snapshot_diagnostics`  | Diagnostic classification from stored snapshots — no runtime startup occurred, no live recovery. |
+| `replay_execution`      | Reserved for future replay recovery. Not currently produced.                                     |
+
+### Snapshot vs. Real Recovery — Important Distinction
+
+Recovery evidence exists at three semantic levels that **operators should never conflate**:
+
+1. **Actual startup recovery**: Tied to a real runtime startup cycle. Uses a real `recovery_run_id` from `BootSummary`. Produced by the runtime recovery path during boot. This is the only level that reflects genuine startup reclamation.
+
+2. **Runtime evidence-bundle snapshot diagnostics**: Built from a storage snapshot at collection time. Uses a snapshot-scoped `recovery_run_id`. This is a **diagnostic reconstruction**, not proof that a startup recovery cycle occurred. The snapshot reflects outbox state as observed, not a live recovery transaction.
+
+3. **Per-event recovery diagnostics**: Built from an event-scoped outbox snapshot by the `EvidenceCollector`. Uses `recovery_run_id=None` because the per-event collector has no `BootSummary` access. This is **classification only**, not proof of startup recovery.
+
+**Operators should not interpret snapshot-derived `recovery_summary` and `recovery_ledger` values as proof that startup recovery actually ran.** They reflect stored outbox state at the time the snapshot was taken. The `recovery_source` field tells you which level produced each action:
+
+- Actions with `recovery_source="snapshot_diagnostics"` are diagnostic reconstructions.
+- Actions with `recovery_source="startup_recovery"` or `"retry_worker_recovery"` are from real runtime reclamation.
+- The per-event collector always produces `"snapshot_diagnostics"` because it has no startup context.
+
+### Reading Recovery Evidence
+
+The `recovery_summary` has these fields to check:
+
+| Field                 | What to look for                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `total_items`         | Total outbox items examined.                                                                               |
+| `consistency_valid`   | Must be `true` — invariants hold (sum of categories equals total).                                         |
+| `by_source`           | Count per `recovery_source`. If all are `"snapshot_diagnostics"`, this is a snapshot, not a real recovery. |
+| `recoverable_items`   | Items available for reclaim at next startup.                                                               |
+| `unrecoverable_items` | Terminal items (no recovery needed).                                                                       |
+
+The `recovery_ledger` provides per-item detail. Each action has `ownership_action`, `prior_status`, `recovered_status`, `recovery_source`, and a human-readable `reason`.
+
+### Recovery Convergence Findings
+
+Four finding kinds extend the convergence diagnostics for recovery-specific anomalies. They appear in the `orphan_report`:
+
+| Finding Kind               | Severity       | What it means                                                                                  |
+| -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| `recovered_not_progressed` | `degraded`     | Outbox was recovered but latest receipt hasn't progressed since the previous shutdown.         |
+| `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox is terminal but latest receipt is non-terminal.                                         |
+| `reclaimed_then_orphaned`  | `inconsistent` | Outbox was recovered but its `event_id` is absent from the known event catalogue.              |
+
 ## See Also
 
 - [recovery-and-replay.md](recovery-and-replay.md) — crash recovery, orphan detection, replay modes

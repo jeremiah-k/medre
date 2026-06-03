@@ -28,6 +28,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable
 
+from medre.core.engine.pipeline.delivery_state import (
+    OUTBOX_STATUSES as _OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
+    RECEIPT_STATUSES as _RECEIPT_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
+    TERMINAL_OUTBOX_STATUSES,
+)
 from medre.core.evidence.failure_taxonomy import (
     derive_failure_kind_detail,
     resolve_taxon,
@@ -80,10 +89,16 @@ def _to_iso(value: Any) -> str | None:
 # Retry-state label derivation
 # ---------------------------------------------------------------------------
 
-# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers
-_TERMINAL_OUTBOX = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
-_NON_TERMINAL_OUTBOX = frozenset({"pending", "in_progress", "queued", "retry_wait"})
-_RECEIPT_ONLY_STATUSES = frozenset({"suppressed", "failed"})
+# NOTE: Canonical status vocab constants live in
+# medre.core.engine.pipeline.delivery_state.  Re-exported here under
+# the internal names used throughout this module.  Drift is detected by
+# tests/test_evidence_coherence_contract.py.
+_TERMINAL_OUTBOX = TERMINAL_OUTBOX_STATUSES
+_NON_TERMINAL_OUTBOX = _OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
+# Suppressed and failed are receipt-only statuses (no outbox equivalent).
+_RECEIPT_ONLY_STATUSES = (
+    _RECEIPT_STATUSES - TERMINAL_OUTBOX_STATUSES - frozenset({"queued", "sent"})
+)
 
 
 def _retry_state_label(status: str, *, source: str = "outbox") -> str:
