@@ -571,22 +571,7 @@ async def _collect_storage_path_bundle(
         storage = await SQLiteStorage.open_readonly(storage_path)
     except Exception as exc:
         sections["storage"] = _section_partial(
-            {
-                "db_exists": True,
-                "db_path": storage_path,
-                "event": None,
-                "event_count": None,
-                "native_refs_for_event": None,
-                "receipt_count": None,
-                "replay_run_receipts": None,
-                "timeline": None,
-                "replay_timeline": None,
-                "delivery_outcome_ledger": None,
-                "retry_outbox_summary": None,
-                "lifecycle_convergence_report": None,
-                "convergence_summary": None,
-                "orphan_report": None,
-            },
+            _empty_storage_data(storage_path, db_exists=True),
             f"Cannot open database read-only: {exc}",
         )
         errors.append(sections["storage"]["error"])

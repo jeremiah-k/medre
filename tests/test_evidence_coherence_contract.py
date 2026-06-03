@@ -98,13 +98,10 @@ class TestExampleValidatesAgainstSchema:
         even if some are ``null``.  This keeps the example a faithful
         template for operators who want to see the full shape."""
         example = _load_json(_EXAMPLE_PATH)
-        optional_keys = {
-            "convergence_summary",
-            "orphan_report",
-            "recovery_summary",
-            "recovery_ledger",
-            "lifecycle_convergence_report",
-        }
+        schema = _load_json(_SCHEMA_PATH)
+        optional_keys = set(schema.get("properties", {}).keys()) - set(
+            schema.get("required", ())
+        )
         missing = optional_keys - set(example.keys())
         assert not missing, f"example missing optional keys: {sorted(missing)}"
 
@@ -596,14 +593,13 @@ class TestTopLevelConvergenceFieldsPopulated:
 
         bundle = await collect_evidence_bundle(storage_path=str(db))
 
-        # The fields may be absent or None when no event is in scope.
-        # The schema treats both as valid (the fields are optional).
+        # The contract is: present and None when no event_id is in scope.
         for key in (
             "convergence_summary",
             "orphan_report",
             "lifecycle_convergence_report",
         ):
-            value = bundle.get(key)
+            assert key in bundle, f"{key} must be present at top level"
             assert (
-                value is None
-            ), f"{key} must be None or absent at top level when no event_id, got {value!r}"
+                bundle[key] is None
+            ), f"{key} must be None when no event_id, got {bundle[key]!r}"

@@ -232,7 +232,13 @@ The `collect_evidence_bundle()` function assembles a comprehensive evidence bund
 | `recovery_ledger`              | `dict or None` | Per-event startup recovery ledger with ownership actions (see § 22).                                                                    |
 | `lifecycle_convergence_report` | `dict or None` | Per-event lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans) (see § 23).               |
 
-The five per-event diagnostics fields (`convergence_summary`, `orphan_report`, `recovery_summary`, `recovery_ledger`, `lifecycle_convergence_report`) are hoisted from their respective section data to the top level when the bundle is collected with an `event_id`. When no event is in scope (e.g. `medre evidence` without `--event`), all five are `None`. When an event is in scope, the values at top level are reference-identical to the corresponding fields in `sections.storage.data` (or `sections.recovery.data` for recovery fields). This dual-location pattern is for operator convenience — the top-level keys provide direct access without drilling into sections.
+The five diagnostics fields fall into two groups with different scoping rules:
+
+- **Event-scoped (storage-derived):** `convergence_summary`, `orphan_report`, `lifecycle_convergence_report` are hoisted from `sections.storage.data`. When the bundle is collected with an `event_id`, the hoisted values are per-event (a single target set, single event's lineage). When collected without an `event_id` (e.g. `medre evidence` without `--event`), they carry the global view across all delivery targets in the storage backend. They are `None` only when the storage section is absent or could not be collected (e.g. config-error path, missing database).
+
+- **Startup-scoped (recovery-derived):** `recovery_summary`, `recovery_ledger` are hoisted from `sections.recovery.data`. These describe the outcome of the most recent startup recovery pass — they are not event-scoped. They are `None` only when the recovery section is absent (e.g. config-error path or storage-only mode).
+
+The dual-location pattern exists for operator convenience — the top-level keys provide direct access without drilling into sections. When both locations are present, the top-level value is reference-identical to the corresponding field in `sections.storage.data` or `sections.recovery.data`.
 
 ### 7.1 Sections
 
