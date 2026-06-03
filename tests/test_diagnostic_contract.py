@@ -616,7 +616,14 @@ class TestNoAdapterImports:
             with open(mod.__file__, encoding="utf-8") as f:
                 mod_source = f.read()
         else:
-            mod_source = ""
+            import inspect
+
+            try:
+                mod_source = inspect.getsource(mod)
+            except Exception as exc:
+                raise AssertionError(
+                    f"Cannot retrieve source for {mod.__name__}: {exc}"
+                ) from exc
         assert "medre.adapters" not in mod_source
         assert "from medre.adapters" not in mod_source
         assert "import medre.adapters" not in mod_source

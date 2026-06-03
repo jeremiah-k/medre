@@ -388,10 +388,12 @@ class TestReplayStorageReadConsistency:
         """Storage with 3 events ready for replay tests; cleaned up after test."""
         db_path = str(tmp_path / "replay_consistency.db")
         storage = await _create_storage(db_path)
-        for i in range(3):
-            await storage.append(_make_event(event_id=f"evt-replay-{i}"))
-        yield storage
-        await storage.close()
+        try:
+            for i in range(3):
+                await storage.append(_make_event(event_id=f"evt-replay-{i}"))
+            yield storage
+        finally:
+            await storage.close()
 
     async def test_strict_replay_does_not_mutate_event_count(
         self, seeded_storage: SQLiteStorage

@@ -193,6 +193,30 @@ class TestRuntimeDictValidatesAgainstSchema:
         bundle = await collect_evidence_bundle(config_path=str(config_path))
         self._assert_validates(bundle, schema)
 
+    @pytest.mark.asyncio
+    async def test_config_backed_recovery_hoisting(self) -> None:
+        """When config-backed mode produces a recovery section, the
+        top-level ``recovery_summary`` and ``recovery_ledger`` must be
+        reference-identical to the values in ``sections.recovery.data``."""
+        from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+        config_path = _ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"
+        if not config_path.exists():
+            pytest.skip("fake-bridge-smoke.toml not available")
+
+        bundle = await collect_evidence_bundle(config_path=str(config_path))
+
+        # Recovery section may be skipped (e.g., memory backend) so only
+        # assert the hoisting contract when the section is present.
+        recovery_data = bundle["sections"].get("recovery", {}).get("data")
+        if recovery_data is not None:
+            assert bundle["recovery_summary"] is recovery_data.get(
+                "recovery_summary"
+            ), "recovery_summary must be reference-identical to section data"
+            assert bundle["recovery_ledger"] is recovery_data.get(
+                "recovery_ledger"
+            ), "recovery_ledger must be reference-identical to section data"
+
 
 # ===========================================================================
 # 3. Status vocabulary coherence
@@ -325,6 +349,14 @@ class TestStatusVocabularyCoherence:
             - frozenset({"queued", "sent"})
         )
         assert retry_outbox._RECEIPT_ONLY_STATUSES == expected
+        # Lock the intended final literals so the test catches future
+        # vocabulary changes that would silently broaden the set.
+        assert retry_outbox._RECEIPT_ONLY_STATUSES == frozenset(
+            {"failed", "suppressed"}
+        ), (
+            "_RECEIPT_ONLY_STATUSES must be exactly {failed, suppressed}; "
+            "if this changes, update the literal assertion intentionally"
+        )
 
 
 # ===========================================================================

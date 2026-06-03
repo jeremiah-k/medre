@@ -414,7 +414,7 @@ class _OutboxMixin:
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
         # SQLite doesn't support RETURNING with ORIGIN in all configurations,
         # so we select first, then update by outbox_id.
-        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 – claimable_ph is only ? placeholders, values parameterized
+        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - claimable_ph is only ? placeholders, values parameterized
         rows = await self._read_all(
             _claim_sql,
             (*claimable_params, now, stale_cutoff, now, now, limit),
@@ -727,7 +727,7 @@ class _OutboxMixin:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
         terminal_holders = ",".join("?" for _ in TERMINAL_OUTBOX_STATUSES)
-        _release_sql = f"UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status NOT IN ({terminal_holders})"  # nosec B608 – terminal_holders is only ? placeholders, values parameterized
+        _release_sql = f"UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status NOT IN ({terminal_holders})"  # nosec B608 - terminal_holders is only ? placeholders, values parameterized
         await self._write(
             _release_sql,
             (

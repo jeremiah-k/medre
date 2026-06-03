@@ -168,7 +168,7 @@ class _ReceiptMixin:
         Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
-            f"{_SELECT_ALL_RECEIPTS.strip()} LIMIT ? OFFSET ?",  # nosec B608 – _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
+            f"{_SELECT_ALL_RECEIPTS.strip()} LIMIT ? OFFSET ?",  # nosec B608 - _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
             (limit, offset),
         )
         return [_row_to_receipt(r) for r in rows]
