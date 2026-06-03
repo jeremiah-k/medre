@@ -152,16 +152,21 @@ def _derive_shutdown_evidence_from_snapshot(
 
 
 async def _manual_cleanup_built_app(app: Any) -> None:
-    """Stop adapters and close storage for a built-but-never-started app.
+    """Stop adapters, pipeline runner, and close storage for a never-started app.
 
     ``MedreApp.stop()`` is a no-op when the app is in ``INITIALIZED`` state,
-    so we release adapter and storage resources directly.  All cleanup is
-    best-effort; errors are suppressed so the original section error is
-    preserved.
+    so we release adapter, pipeline runner, and storage resources directly.
+    All cleanup is best-effort; errors are suppressed so the original
+    section error is preserved.
     """
     for adapter in app.adapters.values():
         try:
             await adapter.stop(timeout=2.0)
+        except Exception:
+            pass  # best-effort
+    if hasattr(app, "pipeline_runner") and app.pipeline_runner is not None:
+        try:
+            await app.pipeline_runner.stop()
         except Exception:
             pass  # best-effort
     if hasattr(app, "storage") and app.storage is not None:
@@ -192,11 +197,14 @@ async def _cleanup_built_app(
         ``await app.stop()`` for a graceful shutdown.
     startup_failed:
         ``True`` when ``app.start()`` was attempted but raised.
-        ``MedreApp.start()`` already performs ``_start_failure_cleanup()``
-        (stops adapters, pipeline runner, and closes storage) before
-        transitioning to ``FAILED``.  When the app is in ``FAILED`` state
-        we skip redundant manual cleanup; if the state is unexpectedly
-        not ``FAILED`` we fall back to manual cleanup as a safety net.
+        ``MedreApp.start()`` **may** have already run partial or full
+        cleanup via ``_start_failure_cleanup()``, but certain early
+        failure paths (e.g. storage initialisation or pipeline runner
+        startup) set ``FAILED`` without cleaning up pipeline runner,
+        adapters, or storage.  We therefore always call ``app.stop()``
+        which is safe for ``FAILED`` / ``STARTING`` states and performs
+        comprehensive cleanup (adapters, pipeline runner, storage).
+        ``stop()`` is also idempotent for already-cleaned resources.
     """
     if app is None:
         return
@@ -208,22 +216,22 @@ async def _cleanup_built_app(
         except Exception as exc:
             _logger.warning("Error during evidence app shutdown: %s", exc)
     elif startup_failed:
-        # app.start() raised — it already ran _start_failure_cleanup()
-        # which stops adapters and closes storage before setting FAILED.
-        # app.state is a public property (RuntimeState enum).
-        if app.state.value != "failed":
-            # Defensive fallback: if start() somehow didn't reach its
-            # cleanup (e.g. a CancelledError drained before cleanup),
-            # perform manual cleanup as a safety net.
-            _logger.debug(
-                "App state after startup failure is %s (expected 'failed'); "
-                "performing manual adapter/storage cleanup",
-                app.state.value,
+        # app.start() raised — use app.stop() for comprehensive cleanup.
+        # start() may have set FAILED early (e.g. storage init, pipeline
+        # runner failure) without running _start_failure_cleanup(), so we
+        # cannot assume any cleanup was done.  app.stop() is safe for
+        # FAILED and STARTING states and handles adapters, pipeline
+        # runner, and storage.  It is also idempotent for resources that
+        # _start_failure_cleanup() already released.
+        try:
+            await app.stop()
+        except Exception as exc:
+            _logger.warning(
+                "Error during evidence app startup-failure cleanup: %s", exc
             )
-            await _manual_cleanup_built_app(app)
     else:
         # Never started — app.stop() is a no-op (INITIALIZED state),
-        # so manually stop adapters and close storage.
+        # so manually stop adapters, pipeline runner, and close storage.
         await _manual_cleanup_built_app(app)
 
 
