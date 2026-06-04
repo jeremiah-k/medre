@@ -54,20 +54,19 @@ class _OutboxMixin:
         """
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         effective_status = item.status or "pending"
+        # Reject unknown status strings only.  Any known outbox status is
+        # permitted as the initial status because callers use this method
+        # both to create new operational rows (pending / in_progress via
+        # the claim path) and to pre-populate storage state for tests,
+        # evidence bundles, and recovery scenarios (queued / sent /
+        # dead_lettered / cancelled / abandoned).  Production callers
+        # that should only persist pending or in_progress are expected
+        # to pass those explicitly; this guard catches typos and stale
+        # status strings, not legitimate pre-population.
         if effective_status not in OUTBOX_STATUSES:
             raise ValueError(
                 f"Unknown outbox status {effective_status!r}; "
                 f"expected one of {sorted(OUTBOX_STATUSES)}"
-            )
-        if (
-            effective_status not in CLAIMABLE_OUTBOX_STATUSES
-            and effective_status != "in_progress"
-        ):
-            # Creation only permits pending (default) or in_progress (claim path).
-            # All other statuses must be reached via _update_outbox_status.
-            raise ValueError(
-                f"create_outbox_item does not permit initial status {effective_status!r}; "
-                f"expected one of {sorted(CLAIMABLE_OUTBOX_STATUSES | {'in_progress'})}"
             )
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})

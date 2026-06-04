@@ -304,13 +304,17 @@ class TestOutboxTerminalStates:
 
 
 class TestOutboxReclaim:
-    """Verify outbox reclaim is idempotent for terminal items."""
+    """Verify outbox reclaim semantics for terminal and active items."""
 
-    async def test_outbox_reclaim_is_idempotent(
+    async def test_terminal_existing_row_returned_unchanged_on_recreate(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Creating an outbox item, marking it terminal, then creating
-        again with the same key should remove the old row and insert new."""
+        again with the same key tuple returns the existing terminal
+        row unchanged.  Terminal rows are immutable for lifecycle
+        purposes; a new delivery after terminal state must use a new
+        attempt identity (new ``outbox_id`` AND/OR new
+        ``delivery_plan_id`` / ``attempt_number``)."""
         item1 = _make_outbox_item(
             outbox_id="obox-reclaim-1",
             event_id="evt-reclaim",
@@ -333,8 +337,9 @@ class TestOutboxReclaim:
         assert fetched is not None
         assert fetched.status == "dead_lettered"
 
-        # Reclaim: create a new item with the same key tuple.
-        # The old terminal row should be deleted and a new one inserted.
+        # Attempt to "reclaim" by creating a new item with the same
+        # key tuple (same delivery_plan_id, target_adapter, target_channel,
+        # attempt_number).  The terminal row is returned unchanged.
         item2 = _make_outbox_item(
             outbox_id="obox-reclaim-2",
             event_id="evt-reclaim",
@@ -343,16 +348,15 @@ class TestOutboxReclaim:
         )
         created2 = await temp_storage.create_outbox_item(item2)
 
-        # The old row should no longer exist.
+        # The "old" terminal row is preserved (not deleted).
         old = await temp_storage.get_outbox_item("obox-reclaim-1")
-        assert (
-            old is None
-        ), "Old terminal outbox item should have been deleted on reclaim"
+        assert old is not None, "Terminal row must be preserved, not deleted"
+        assert old.status == "dead_lettered"
 
-        # The new row should exist.
-        new = await temp_storage.get_outbox_item(created2.outbox_id)
-        assert new is not None
-        assert new.status == "in_progress"
+        # create_outbox_item returns the existing terminal row, not the
+        # new item's id.  item2.outbox_id was never inserted.
+        assert created2.outbox_id == "obox-reclaim-1"
+        assert created2.status == "dead_lettered"
 
 
 class TestOutboxStatusTransitionsMatchCode:

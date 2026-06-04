@@ -120,11 +120,15 @@ class TestIdempotentCreate:
         created2 = await temp_storage.create_outbox_item(item2)
         assert created1.outbox_id != created2.outbox_id
 
-    async def test_recreate_after_terminal_allows_new_row(
+    async def test_recreate_after_terminal_returns_existing_terminal_row(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """After an item reaches a terminal status, creating a new item
-        with the same key tuple should succeed (re-delivery)."""
+        with the same key tuple returns the existing terminal row
+        unchanged.  Terminal rows are immutable for lifecycle purposes;
+        a new delivery after terminal state must use a new attempt
+        identity (new ``delivery_plan_id`` and/or ``attempt_number``)
+        so it does not collide with the terminal row's key."""
         # Create, claim (pending -> in_progress), then mark dead_lettered.
         item1 = _make_outbox_item(
             delivery_plan_id="plan-recreate",
@@ -142,22 +146,22 @@ class TestIdempotentCreate:
             created1.outbox_id, failure_kind="adapter_permanent"
         )
 
-        # Re-create with same key tuple.
+        # Re-create with same key tuple.  The terminal row is returned
+        # unchanged; no new row is inserted.
         item2 = _make_outbox_item(
             delivery_plan_id="plan-recreate",
             target_channel="ch-r1",
         )
         created2 = await temp_storage.create_outbox_item(item2)
 
-        # Should succeed with a NEW outbox_id (terminal row was deleted).
-        assert created2.outbox_id == item2.outbox_id
-        assert created2.outbox_id != created1.outbox_id
-        assert created2.status == "pending"
+        assert created2.outbox_id == created1.outbox_id
+        assert created2.status == "dead_lettered"
 
-    async def test_recreate_after_sent_allows_new_row(
+    async def test_recreate_after_sent_returns_existing_terminal_row(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """After an item is marked sent (terminal), re-creation should succeed."""
+        """After an item is marked sent (terminal), re-creation with the
+        same key tuple returns the existing terminal row unchanged."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-recreate-sent",
             target_channel="ch-rs",
@@ -177,8 +181,8 @@ class TestIdempotentCreate:
             target_channel="ch-rs",
         )
         created2 = await temp_storage.create_outbox_item(item2)
-        assert created2.outbox_id == item2.outbox_id
-        assert created2.outbox_id != created1.outbox_id
+        assert created2.outbox_id == created1.outbox_id
+        assert created2.status == "sent"
 
 
 # ===================================================================
