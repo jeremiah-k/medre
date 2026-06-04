@@ -70,7 +70,7 @@ class TestAtomicCreateOutboxItem:
             lease_seconds=30,
             limit=10,
         )
-        assert len(claimed) >= 1
+        assert len(claimed) == 1
         await temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
 
         # Re-create with same key tuple but new outbox_id
@@ -213,7 +213,7 @@ class TestCreateOutboxNoSteal:
             lease_seconds=300,
             limit=10,
         )
-        assert len(claimed) >= 1
+        assert len(claimed) == 1
         original_oid = created1.outbox_id
 
         # Try to create a new item with same key tuple but different outbox_id
@@ -255,7 +255,7 @@ class TestCreateOutboxNoSteal:
             lease_seconds=300,
             limit=10,
         )
-        assert len(claimed) >= 1
+        assert len(claimed) == 1
         await temp_storage.mark_outbox_queued(created1.outbox_id)
         original_oid = created1.outbox_id
 
@@ -323,7 +323,7 @@ class TestCreateOutboxNoSteal:
             lease_seconds=30,
             limit=10,
         )
-        assert len(claimed) >= 1
+        assert len(claimed) == 1
         oid = claimed[0].outbox_id
         await temp_storage.mark_outbox_retry_wait(
             oid,

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import (
+    AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
 )
@@ -49,8 +50,22 @@ class _FallbackResolverWithRetry(FallbackResolver):
     def __init__(self, retry_policy: RetryPolicy) -> None:
         self._retry_policy = retry_policy
 
-    def resolve_fallback(self, event, target, capabilities, **kwargs):  # type: ignore[override]
-        plan = super().resolve_fallback(event, target, capabilities, **kwargs)
+    def resolve_fallback(
+        self,
+        event: CanonicalEvent,
+        target: RouteTarget,
+        capabilities: AdapterCapabilities,
+        *,
+        route_id: str | None = None,
+        target_index: int | None = None,
+    ) -> DeliveryPlan:
+        plan = super().resolve_fallback(
+            event,
+            target,
+            capabilities,
+            route_id=route_id,
+            target_index=target_index,
+        )
         from dataclasses import replace
 
         return replace(plan, retry_policy=self._retry_policy)

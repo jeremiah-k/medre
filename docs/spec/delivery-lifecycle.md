@@ -25,14 +25,14 @@ decisions made by higher layers.
 
 ### 1.1 Authority Stack (highest to lowest)
 
-| Role                 | Layer                                         | Responsibility                                                                                                                                |
-| -------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Internal code source | `delivery_state.py`                           | Defines closed status vocabularies, transition tables, classification sets. Executable authority for what the runtime uses at runtime.        |
-| Normative spec       | [state-machines.md](state-machines.md)        | Human-readable normative specification of receipt and outbox state machines. Authoritative for understanding machine behavior and invariants. |
-| —                    | `delivery_receipts` table (SQLite)            | Append-only evidence trail. Immutable after creation. Authoritative record of what happened.                                                  |
-| —                    | `delivery_outbox` table (SQLite)              | Mutable operational state. Tracks current work. Secondary to receipts for audit.                                                              |
-| —                    | Adapters                                      | Fact emitters. Report delivery outcomes to the pipeline. They do not own lifecycle state.                                                     |
-| —                    | Projections, convergence diagnostics, reports | Derived views. Read-only computations over receipts and outbox. They do not define state.                                                     |
+| Role                 | Layer                                         | Responsibility                                                                                                                                         |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Internal code source | `delivery_state.py`                           | Defines closed status vocabularies, transition tables, classification sets. Executable authority for runtime status vocabularies and transition logic. |
+| Normative spec       | [state-machines.md](state-machines.md)        | Human-readable normative specification of receipt and outbox state machines. Authoritative for understanding machine behavior and invariants.          |
+| —                    | `delivery_receipts` table (SQLite)            | Append-only evidence trail. Immutable after creation. Authoritative record of what happened.                                                           |
+| —                    | `delivery_outbox` table (SQLite)              | Mutable operational state. Tracks current work. Secondary to receipts for audit.                                                                       |
+| —                    | Adapters                                      | Fact emitters. Report delivery outcomes to the pipeline. They do not own lifecycle state.                                                              |
+| —                    | Projections, convergence diagnostics, reports | Derived views. Read-only computations over receipts and outbox. They do not define state.                                                              |
 
 ### 1.2 Authority Rules
 

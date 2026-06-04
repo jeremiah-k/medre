@@ -104,7 +104,7 @@ class TestStaleQueuedReclaim:
             lease_seconds=300,
             limit=10,
         )
-        assert len(claimed) >= 1
+        assert len(claimed) == 1
         oid = [c for c in claimed if c.delivery_plan_id == plan_id][0].outbox_id
         await storage.mark_outbox_queued(oid)
 

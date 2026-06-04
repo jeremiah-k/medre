@@ -17,7 +17,7 @@ async def _create_in_progress(storage: SQLiteStorage, plan_id: str) -> str:
         lease_seconds=300,
         limit=10,
     )
-    assert len(claimed) >= 1
+    assert len(claimed) == 1
     return claimed[0].outbox_id
 
 
