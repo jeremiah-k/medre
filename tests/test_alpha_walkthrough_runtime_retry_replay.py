@@ -116,7 +116,7 @@ class TestAlphaRetryScenario:
 
         class _FallbackWithRetry(_BaseFallback):
             def resolve_fallback(
-                self, event, target, capabilities, **kwargs
+                self, event, target, capabilities, **kwargs: object
             ) -> DeliveryPlan:
                 plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = RetryPolicy(max_attempts=3)

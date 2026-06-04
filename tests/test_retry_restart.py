@@ -222,7 +222,7 @@ class _FallbackResolverWithRetry(FallbackResolver):
         event: CanonicalEvent,
         target: RouteTarget,
         capabilities: AdapterCapabilities,
-        **kwargs,
+        **kwargs: object,
     ) -> DeliveryPlan:
         plan = super().resolve_fallback(event, target, capabilities, **kwargs)
         plan.retry_policy = self._retry_policy

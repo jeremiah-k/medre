@@ -3,6 +3,7 @@ terminal replacement, no-steal guarantees for in_progress/queued rows."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -43,13 +44,11 @@ class TestAtomicCreateOutboxItem:
     async def test_concurrent_create_same_active_key_returns_one_row(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """Two creates with identical non-terminal key return the same row."""
+        """Two concurrent creates with identical non-terminal key return the same row."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-atomic-1",
             target_channel="ch-atomic",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
-
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
             event_id=item1.event_id,
@@ -59,7 +58,10 @@ class TestAtomicCreateOutboxItem:
             target_channel="ch-atomic",
             attempt_number=1,
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created1, created2 = await asyncio.gather(
+            temp_storage.create_outbox_item(item1),
+            temp_storage.create_outbox_item(item2),
+        )
 
         # Both returns point to the same row
         assert created1.outbox_id == created2.outbox_id

@@ -2,8 +2,9 @@
 
 Compact developer reference for auditing lifecycle status vocabulary,
 consistency across surfaces, and classification correctness. This doc
-complements the normative spec at `docs/spec/state-machines.md` and
-`docs/spec/routing-delivery.md`.
+complements the normative lifecycle authority spec at
+`docs/spec/delivery-lifecycle.md` (with supporting details in
+`docs/spec/state-machines.md` and `docs/spec/routing-delivery.md`).
 
 ## Canonical Status Vocabularies
 
