@@ -685,11 +685,15 @@ class StorageBackend(Protocol):
         failure_kind: str | None = None,
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
         Only transitions from ``in_progress`` or ``retry_wait``.
         No-op if already terminal.
+
+        When *attempt_number* is provided, it is persisted on the outbox
+        row so that the terminal state records the final attempt count.
         """
         ...
 
@@ -741,7 +745,8 @@ class StorageBackend(Protocol):
 
         Clears ``locked_at``, ``lease_until``, and ``worker_id`` and sets
         ``status`` to *release_status* (default ``"pending"``).
-        Only succeeds when the current ``worker_id`` matches.
+        Only succeeds when the current ``worker_id`` matches **and** the
+        row status is ``in_progress``.
         """
         ...
 

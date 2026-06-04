@@ -56,8 +56,8 @@ class _FallbackResolverWithRetry(FallbackResolver):
     def __init__(self, retry_policy: RetryPolicy) -> None:
         self._retry_policy = retry_policy
 
-    def resolve_fallback(self, event, target, capabilities):  # type: ignore[override]
-        plan = super().resolve_fallback(event, target, capabilities)
+    def resolve_fallback(self, event, target, capabilities, **kwargs):  # type: ignore[override]
+        plan = super().resolve_fallback(event, target, capabilities, **kwargs)
         from dataclasses import replace
 
         return replace(plan, retry_policy=self._retry_policy)

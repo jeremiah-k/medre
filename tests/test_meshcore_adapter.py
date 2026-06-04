@@ -533,18 +533,18 @@ class TestHonestDeliverySemantics:
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        assert delivery.metadata["delivery_status"] == "local_accepted"
+        assert delivery.metadata["adapter_status"] == "local_accepted"
         # delivery_note is a top-level field on AdapterDeliveryResult, not in metadata
         assert isinstance(delivery.delivery_note, str)
         assert delivery.delivery_note != ""
 
     async def test_fake_adapter_no_false_delivery_claim(self) -> None:
-        """delivery_status must not say 'delivered' or 'confirmed'."""
+        """adapter_status must not say 'delivered' or 'confirmed'."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        status = delivery.metadata["delivery_status"]
+        status = delivery.metadata["adapter_status"]
         assert status not in ("delivered", "confirmed", "acknowledged")
 
     async def test_real_adapter_fake_mode_delivery_is_none(self) -> None:
@@ -596,7 +596,7 @@ class TestHonestDeliverySemantics:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert delivery.native_message_id == "pkt-42"
-        assert delivery.metadata["delivery_status"] == "local_accepted"
+        assert delivery.metadata["adapter_status"] == "local_accepted"
 
         await fake_session.stop()
 

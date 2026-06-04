@@ -57,8 +57,6 @@ from medre.core.planning.delivery_plan import (
     DeliveryOutcome,
     DeliveryPlan,
     RetryPolicy,
-    delivery_target_identity,
-    stable_delivery_plan_id,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_enricher import RelationEnricher
@@ -900,15 +898,10 @@ class PipelineRunner:
                     event,
                     target,
                     capabilities,
-                )
-                plan.route_id = route.id
-                plan.target_identity = delivery_target_identity(target)
-                plan.plan_id = stable_delivery_plan_id(
-                    event.event_id,
-                    target,
                     route_id=route.id,
                     target_index=target_index,
                 )
+                plan.route_id = route.id
                 # Attach route-level retry policy if configured.
                 retry_policy = self._config.route_retry_policies.get(route.id)
                 if retry_policy is not None:

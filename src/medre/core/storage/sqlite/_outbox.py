@@ -622,10 +622,13 @@ class _OutboxMixin:
         failure_kind: str | None = None,
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
         Only transitions from ``in_progress`` or ``retry_wait``.
+        When *attempt_number* is provided, it is persisted on the outbox
+        row so the terminal state records the final attempt count.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -635,6 +638,7 @@ class _OutboxMixin:
                 "retry_wait",
             ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
+            attempt_number=attempt_number,
             failure_kind=failure_kind,
             failure_kind_detail=failure_kind_detail,
             error_summary=error_summary,
@@ -721,13 +725,14 @@ class _OutboxMixin:
         """Release a claim on an outbox item, restoring the caller-specified status.
 
         Clears locked_at, lease_until, worker_id and sets status to
-        *release_status*.  Only succeeds when the current worker_id matches.
+        *release_status*.  Only succeeds when the current worker_id matches
+        **and** the row is ``in_progress``.  Rows in any other status are
+        left unchanged — only an actively-claimed item can be released.
         """
         if release_status not in CLAIMABLE_OUTBOX_STATUSES:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
-        terminal_holders = ",".join("?" for _ in TERMINAL_OUTBOX_STATUSES)
-        _release_sql = f"UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status NOT IN ({terminal_holders})"  # nosec B608 - terminal_holders is only ? placeholders, values parameterized
+        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'"  # nosec B608 - status is hardcoded literal
         await self._write(
             _release_sql,
             (
@@ -735,7 +740,6 @@ class _OutboxMixin:
                 _now_iso(),
                 outbox_id,
                 worker_id,
-                *TERMINAL_OUTBOX_STATUSES,
             ),
         )
 

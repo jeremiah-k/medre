@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.core.contracts.adapter import AdapterContext
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
@@ -221,9 +221,10 @@ class _FallbackResolverWithRetry(FallbackResolver):
         self,
         event: CanonicalEvent,
         target: RouteTarget,
-        capabilities: dict,
+        capabilities: AdapterCapabilities,
+        **kwargs,
     ) -> DeliveryPlan:
-        plan = super().resolve_fallback(event, target, capabilities)
+        plan = super().resolve_fallback(event, target, capabilities, **kwargs)
         plan.retry_policy = self._retry_policy
         return plan
 

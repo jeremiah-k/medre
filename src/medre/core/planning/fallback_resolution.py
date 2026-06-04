@@ -49,6 +49,9 @@ class FallbackResolver:
         event: CanonicalEvent,
         target: RouteTarget,
         capabilities: AdapterCapabilities,
+        *,
+        route_id: str | None = None,
+        target_index: int | None = None,
     ) -> DeliveryPlan:
         """Produce a delivery plan, downgrading if the target lacks support.
 
@@ -60,6 +63,14 @@ class FallbackResolver:
             The resolved route target.
         capabilities:
             The adapter's declared :class:`AdapterCapabilities`.
+        route_id:
+            Optional route identifier forwarded to
+            :func:`~medre.core.planning.delivery_plan.stable_delivery_plan_id`
+            so the initial plan identity matches the deterministic routed
+            identity.
+        target_index:
+            Optional positional index of *target* within its route,
+            forwarded to :func:`stable_delivery_plan_id`.
 
         Returns
         -------
@@ -76,7 +87,12 @@ class FallbackResolver:
         target_identity = delivery_target_identity(target)
 
         return DeliveryPlan(
-            plan_id=stable_delivery_plan_id(event.event_id, target),
+            plan_id=stable_delivery_plan_id(
+                event.event_id,
+                target,
+                route_id=route_id,
+                target_index=target_index,
+            ),
             event_id=event.event_id,
             target=target,
             primary_strategy=strategy,

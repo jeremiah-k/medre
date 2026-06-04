@@ -49,8 +49,8 @@ class _FallbackResolverWithRetry(FallbackResolver):
     def __init__(self, retry_policy: RetryPolicy) -> None:
         self._retry_policy = retry_policy
 
-    def resolve_fallback(self, event, target, capabilities):  # type: ignore[override]
-        plan = super().resolve_fallback(event, target, capabilities)
+    def resolve_fallback(self, event, target, capabilities, **kwargs):  # type: ignore[override]
+        plan = super().resolve_fallback(event, target, capabilities, **kwargs)
         from dataclasses import replace
 
         return replace(plan, retry_policy=self._retry_policy)
@@ -1022,9 +1022,9 @@ class TestRetryWorkerReconstruction:
         plan: DeliveryPlan = call_args.kwargs["plan"]
 
         # Destination preserved
-        assert plan.target.destination is not None, (
-            "Retry must reconstruct RouteTarget.destination from outbox metadata"
-        )
+        assert (
+            plan.target.destination is not None
+        ), "Retry must reconstruct RouteTarget.destination from outbox metadata"
         assert plan.target.destination.kind == "lxmf_destination"
         assert plan.target.destination.destination_hash == "hash_xyz123"
         assert plan.target.destination.destination_name == "MeshNode C"

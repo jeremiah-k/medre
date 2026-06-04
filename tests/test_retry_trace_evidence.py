@@ -323,8 +323,8 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(self, event, target, capabilities, **kwargs):
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 
@@ -555,8 +555,8 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(self, event, target, capabilities, **kwargs):
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 
@@ -712,8 +712,8 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(self, event, target, capabilities, **kwargs):
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 

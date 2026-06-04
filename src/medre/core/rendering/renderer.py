@@ -59,14 +59,10 @@ if TYPE_CHECKING:
 
 #: Well-known delivery strategy method values, matching
 #: :attr:`~medre.core.planning.delivery_plan.DeliveryStrategy.method`.
-DeliveryStrategyMethod = Literal[
-    "direct",
-    "fallback_text",
-    "skip",
-    "propagated",
-    "opportunistic",
-    "paper",
-]
+#: Re-exported from the planning layer to avoid duplicate Literal definitions.
+from medre.core.planning.delivery_plan import (  # noqa: F401 – re-export
+    DeliveryStrategyMethod,
+)
 
 #: Capability level for renderer discrimination.  Renderers preserve
 #: these semantics — ``"native"`` for full platform-native rendering,
