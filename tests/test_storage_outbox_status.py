@@ -458,9 +458,20 @@ class TestAllowedFromAlignment:
     """Verify that the allowed_from tuples in each mark method match the
     OUTBOX_TRANSITIONS table exactly.
 
+    Covers the six ``mark_outbox_*`` methods with explicit ``allowed_from``
+    tuples: ``mark_outbox_sent``, ``mark_outbox_queued``,
+    ``mark_outbox_retry_wait``, ``mark_outbox_dead_lettered``,
+    ``mark_outbox_cancelled``, ``mark_outbox_abandoned``.
+
     For each target status, the mark method's allowed_from must equal the
     set of source statuses that list the target in their outgoing set
     in OUTBOX_TRANSITIONS.
+
+    Note: ``pending`` and ``in_progress`` are excluded as *targets* from
+    this parametrised list because they have no dedicated ``mark_outbox_*``
+    method — ``pending`` is set by ``create_outbox_item`` and ``in_progress``
+    by ``claim_due_outbox_items`` (SQL-path transitions, not mark methods).
+    See ``test_no_mark_method_for_pending_or_in_progress`` below.
     """
 
     @staticmethod
@@ -493,3 +504,35 @@ class TestAllowedFromAlignment:
             f"allowed_from for {target!r} ({sorted(actual_sources)}) "
             f"does not match OUTBOX_TRANSITIONS sources ({sorted(expected_sources)})"
         )
+
+    def test_no_mark_method_for_pending_or_in_progress(self) -> None:
+        """``pending`` and ``in_progress`` are not targets of any
+        ``mark_outbox_*`` method.
+
+        They are entered via dedicated SQL paths rather than mark methods:
+        ``pending`` by ``create_outbox_item`` (INSERT) and ``in_progress``
+        by ``claim_due_outbox_items`` (atomic UPDATE with lease acquisition).
+
+        ``in_progress`` *is* a source for several mark methods (see the
+        parametrised cases above), but it is never a destination of one.
+        ``pending`` similarly only appears as a source (for ``cancelled``
+        and ``abandoned``).
+        """
+        # Verify that OUTBOX_TRANSITIONS lists them only as sources,
+        # never as targets reachable via mark methods.
+        mark_targets = {
+            "sent",
+            "queued",
+            "retry_wait",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+        }
+        excluded_targets = {"pending", "in_progress"}
+        # The excluded targets must not appear in the mark target set.
+        assert excluded_targets.isdisjoint(mark_targets)
+        # They must still be valid sources in OUTBOX_TRANSITIONS.
+        for status in excluded_targets:
+            assert (
+                status in OUTBOX_TRANSITIONS
+            ), f"{status!r} missing from OUTBOX_TRANSITIONS"

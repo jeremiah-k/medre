@@ -31,6 +31,11 @@ class _ReceiptMixin:
         receipt rows are never updated or deleted.  The ``delivery_status``
         view projects the latest receipt as a ``MAX(sequence)`` aggregation.
 
+        Empty-string ``target_channel`` values are normalised to ``None``
+        (SQL NULL) before insertion.  The ``delivery_status`` view uses
+        ``COALESCE(target_channel, '')`` so that NULL and empty-string
+        channels are treated identically in grouping.
+
         Raises :class:`ValueError` if ``receipt.status`` is not a known
         receipt status (not in ``RECEIPT_STATUSES``).
         """
