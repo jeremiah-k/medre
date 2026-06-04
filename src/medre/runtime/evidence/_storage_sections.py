@@ -43,6 +43,7 @@ def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
         "db_path": db_path,
         "event": None,
         "event_count": None,
+        "incident_summary": None,
         "native_refs_for_event": None,
         "receipt_count": None,
         "replay_run_receipts": None,

@@ -174,7 +174,14 @@ class TestExecutorLifecycle:
         """
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
-        assert s._executor is not None or s._use_aiosqlite
+
+        if not s._use_aiosqlite:
+            # Sync executor is lazy — force creation via _run_in_thread so the
+            # precondition check below is meaningful.
+            await s._run_in_thread(lambda: None)
+            assert s._executor is not None
+        else:
+            assert s._executor is None
 
         if s._use_aiosqlite:
             # aiosqlite has no private executor — close normally and verify.

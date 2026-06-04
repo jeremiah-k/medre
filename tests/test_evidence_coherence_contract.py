@@ -439,7 +439,9 @@ class TestSchemaEnumsMatchCode:
 
         code_statuses = {member.value for member in ShutdownStatus}
         schema = _load_json(_SCHEMA_PATH)
-        schema_statuses = set(_schema_enums(schema, "ShutdownEvidence"))
+        schema_statuses = set(
+            _schema_enums(schema, "ShutdownEvidence", prop_name="shutdown_status")
+        )
         assert code_statuses == schema_statuses
 
 
