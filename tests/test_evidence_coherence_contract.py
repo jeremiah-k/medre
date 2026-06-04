@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -802,6 +803,63 @@ class TestTopLevelConvergenceFieldsPopulated:
 # ===========================================================================
 
 
+def _make_receipt_row(index: int) -> SimpleNamespace:
+    """Create a deterministic receipt row for global convergence truncation tests."""
+    return SimpleNamespace(
+        receipt_id=f"rcpt_{index:05d}",
+        event_id=f"evt_{index % 100}",
+        delivery_plan_id=f"plan_{index:05d}",
+        target_adapter="radio",
+        target_channel=f"ch_{index % 10}",
+        route_id="route_1",
+        status="sent",
+        error=None,
+        failure_kind=None,
+        adapter_message_id=None,
+        next_retry_at=None,
+        attempt_number=1,
+        sequence=index,
+        parent_receipt_id=None,
+        source="live",
+        replay_run_id=None,
+        retry_max_attempts=None,
+        retry_backoff_base=None,
+        retry_max_delay=None,
+        retry_jitter=None,
+        rendering_evidence=None,
+        created_at="2026-01-01T00:00:00Z",
+    )
+
+
+def _make_outbox_row(index: int) -> SimpleNamespace:
+    """Create a deterministic outbox row for global convergence truncation tests."""
+    return SimpleNamespace(
+        outbox_id=f"obx_{index:05d}",
+        event_id=f"evt_{index % 100}",
+        route_id="route_1",
+        delivery_plan_id=f"plan_{index:05d}",
+        target_adapter="radio",
+        target_channel=f"ch_{index % 10}",
+        target_address=None,
+        attempt_number=1,
+        status="pending",
+        failure_kind=None,
+        failure_kind_detail=None,
+        next_attempt_at=None,
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+        last_attempt_at=None,
+        locked_at=None,
+        lease_until=None,
+        worker_id=None,
+        payload_hash=None,
+        receipt_id=None,
+        parent_receipt_id=None,
+        error_summary=None,
+        metadata=None,
+    )
+
+
 class TestGlobalConvergenceTruncation:
     """When global convergence queries hit the 10 000-row limit the
     storage section must report ``status == "partial"`` and include
@@ -822,20 +880,8 @@ class TestGlobalConvergenceTruncation:
         storage.list_all_receipts = AsyncMock(return_value=[])
 
         # 10 000 distinct outbox items — exactly at the cap.
-        def _make_outbox_mock(index: int) -> AsyncMock:
-            outbox = AsyncMock()
-            outbox.outbox_id = f"obx_cap_{index:05d}"
-            outbox.event_id = f"evt_{index % 100}"
-            outbox.route_id = "route_1"
-            outbox.delivery_plan_id = f"plan_{index:05d}"
-            outbox.target_adapter = "radio"
-            outbox.target_channel = f"ch_{index % 10}"
-            outbox.status = "pending"
-            outbox.attempt_number = 1
-            return outbox
-
         storage.list_all_outbox_items = AsyncMock(
-            return_value=[_make_outbox_mock(i) for i in range(10_000)]
+            return_value=[_make_outbox_row(i) for i in range(10_000)]
         )
 
         result = await _collect_storage_data_from_backend(
@@ -863,19 +909,8 @@ class TestGlobalConvergenceTruncation:
         storage.list_all_outbox_items = AsyncMock(return_value=[])
 
         # 10 000 distinct receipt mocks — exactly at the cap.
-        def _make_receipt_mock(index: int) -> AsyncMock:
-            rcpt = AsyncMock()
-            rcpt.receipt_id = f"rcpt_cap_{index:05d}"
-            rcpt.event_id = f"evt_{index % 100}"
-            rcpt.delivery_plan_id = f"plan_{index:05d}"
-            rcpt.target_adapter = "radio"
-            rcpt.target_channel = f"ch_{index % 10}"
-            rcpt.status = "sent"
-            rcpt.attempt_number = 1
-            return rcpt
-
         storage.list_all_receipts = AsyncMock(
-            return_value=[_make_receipt_mock(i) for i in range(10_000)]
+            return_value=[_make_receipt_row(i) for i in range(10_000)]
         )
 
         result = await _collect_storage_data_from_backend(
@@ -899,35 +934,12 @@ class TestGlobalConvergenceTruncation:
         storage.count_events = AsyncMock(return_value=1)
         storage.count_receipts = AsyncMock(return_value=10_000)
 
-        def _make_receipt_mock(index: int) -> AsyncMock:
-            rcpt = AsyncMock()
-            rcpt.receipt_id = f"rcpt_both_{index:05d}"
-            rcpt.event_id = f"evt_{index % 100}"
-            rcpt.delivery_plan_id = f"plan_{index:05d}"
-            rcpt.target_adapter = "radio"
-            rcpt.target_channel = f"ch_{index % 10}"
-            rcpt.status = "sent"
-            rcpt.attempt_number = 1
-            return rcpt
-
         storage.list_all_receipts = AsyncMock(
-            return_value=[_make_receipt_mock(i) for i in range(10_000)]
+            return_value=[_make_receipt_row(i) for i in range(10_000)]
         )
 
-        def _make_outbox_mock(index: int) -> AsyncMock:
-            outbox = AsyncMock()
-            outbox.outbox_id = f"obx_both_{index:05d}"
-            outbox.event_id = f"evt_{index % 100}"
-            outbox.route_id = "route_1"
-            outbox.delivery_plan_id = f"plan_{index:05d}"
-            outbox.target_adapter = "radio"
-            outbox.target_channel = f"ch_{index % 10}"
-            outbox.status = "pending"
-            outbox.attempt_number = 1
-            return outbox
-
         storage.list_all_outbox_items = AsyncMock(
-            return_value=[_make_outbox_mock(i) for i in range(10_000)]
+            return_value=[_make_outbox_row(i) for i in range(10_000)]
         )
 
         result = await _collect_storage_data_from_backend(
