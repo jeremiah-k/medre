@@ -10,32 +10,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.storage import SQLiteStorage
-
-
-def _make_outbox_item(
-    delivery_plan_id: str = "plan-1",
-    target_adapter: str = "fake_presentation",
-    target_channel: str | None = "ch-0",
-    attempt_number: int = 1,
-    status: str = "pending",
-    next_attempt_at: str | None = None,
-) -> DeliveryOutboxItem:
-    """Build a minimal DeliveryOutboxItem for tests."""
-    return DeliveryOutboxItem(
-        outbox_id=f"obox-{uuid.uuid4()}",
-        event_id="evt-1",
-        route_id="route-1",
-        delivery_plan_id=delivery_plan_id,
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        attempt_number=attempt_number,
-        status=status,
-        next_attempt_at=next_attempt_at,
-    )
-
+from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
 # ===================================================================
 # Async transaction rollback
@@ -59,6 +36,11 @@ class TestAsyncTransactionRollback:
 
         # Now force a failure inside the aiosqlite path by making execute
         # raise after the BEGIN.  We patch at the storage layer.
+        # Intentional direct monkeypatch of ``temp_storage._db.execute``.
+        # This test verifies the aiosqlite transaction rollback contract
+        # (BEGIN ... failure ... connection still usable).  No production
+        # hook should be added for this prerelease cleanup — direct patching
+        # is the smallest change that exercises the rollback path.
         if not temp_storage._use_aiosqlite:
             # Sync path uses threading.Lock and _sync_atomic_create_outbox
             # which already has proper rollback via BaseException handler.

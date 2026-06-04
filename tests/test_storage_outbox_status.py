@@ -3,32 +3,22 @@ transitions, queued lease semantics, and terminal state protection."""
 
 from __future__ import annotations
 
-import uuid
-
-from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
 
-def _make_outbox_item(
-    delivery_plan_id: str = "plan-1",
-    target_adapter: str = "fake_presentation",
-    target_channel: str | None = "ch-0",
-    attempt_number: int = 1,
-    status: str = "pending",
-    next_attempt_at: str | None = None,
-) -> DeliveryOutboxItem:
-    """Build a minimal DeliveryOutboxItem for tests."""
-    return DeliveryOutboxItem(
-        outbox_id=f"obox-{uuid.uuid4()}",
-        event_id="evt-1",
-        route_id="route-1",
-        delivery_plan_id=delivery_plan_id,
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        attempt_number=attempt_number,
-        status=status,
-        next_attempt_at=next_attempt_at,
+async def _create_in_progress(storage: SQLiteStorage, plan_id: str) -> str:
+    """Create a pending item, claim it to in_progress, return outbox_id."""
+    item = _make_outbox_item(delivery_plan_id=plan_id)
+    await storage.create_outbox_item(item)
+    claimed = await storage.claim_due_outbox_items(
+        now="2026-01-01T00:00:00",
+        worker_id="worker-1",
+        lease_seconds=300,
+        limit=10,
     )
+    assert len(claimed) >= 1
+    return claimed[0].outbox_id
 
 
 # ===================================================================
@@ -176,19 +166,6 @@ class TestStatusTransitionGuards:
         created = await storage.create_outbox_item(item)
         return created.outbox_id
 
-    async def _create_in_progress(self, storage: SQLiteStorage, plan_id: str) -> str:
-        """Create a pending item, claim it to in_progress, return outbox_id."""
-        item = _make_outbox_item(delivery_plan_id=plan_id)
-        await storage.create_outbox_item(item)
-        claimed = await storage.claim_due_outbox_items(
-            now="2026-01-01T00:00:00",
-            worker_id="worker-1",
-            lease_seconds=300,
-            limit=10,
-        )
-        assert len(claimed) >= 1
-        return claimed[0].outbox_id
-
     async def test_pending_cannot_be_marked_sent_directly(
         self, temp_storage: SQLiteStorage
     ) -> None:
@@ -203,7 +180,7 @@ class TestStatusTransitionGuards:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """retry_wait -> queued is not an allowed transition."""
-        oid = await self._create_in_progress(temp_storage, "plan-guard-rw2q")
+        oid = await _create_in_progress(temp_storage, "plan-guard-rw2q")
         await temp_storage.mark_outbox_retry_wait(
             oid,
             next_attempt_at="2026-01-01T01:00:00",
@@ -221,7 +198,7 @@ class TestStatusTransitionGuards:
 
     async def test_queued_can_be_marked_sent(self, temp_storage: SQLiteStorage) -> None:
         """in_progress -> queued -> sent should work."""
-        oid = await self._create_in_progress(temp_storage, "plan-guard-q2s")
+        oid = await _create_in_progress(temp_storage, "plan-guard-q2s")
         await temp_storage.mark_outbox_queued(oid, receipt_id="rcpt-q2s")
         item = await temp_storage.get_outbox_item(oid)
         assert item is not None
@@ -235,7 +212,7 @@ class TestStatusTransitionGuards:
     async def test_in_progress_can_transition_to_queued(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        oid = await self._create_in_progress(temp_storage, "plan-guard-ip2q")
+        oid = await _create_in_progress(temp_storage, "plan-guard-ip2q")
         await temp_storage.mark_outbox_queued(oid)
         item = await temp_storage.get_outbox_item(oid)
         assert item is not None
@@ -244,7 +221,7 @@ class TestStatusTransitionGuards:
     async def test_in_progress_can_transition_to_sent(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        oid = await self._create_in_progress(temp_storage, "plan-guard-ip2s")
+        oid = await _create_in_progress(temp_storage, "plan-guard-ip2s")
         await temp_storage.mark_outbox_sent(oid)
         item = await temp_storage.get_outbox_item(oid)
         assert item is not None
@@ -253,7 +230,7 @@ class TestStatusTransitionGuards:
     async def test_in_progress_can_transition_to_retry_wait(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        oid = await self._create_in_progress(temp_storage, "plan-guard-ip2rw")
+        oid = await _create_in_progress(temp_storage, "plan-guard-ip2rw")
         await temp_storage.mark_outbox_retry_wait(
             oid,
             next_attempt_at="2026-01-01T01:00:00",
@@ -266,7 +243,7 @@ class TestStatusTransitionGuards:
     async def test_in_progress_can_transition_to_dead_lettered(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        oid = await self._create_in_progress(temp_storage, "plan-guard-ip2dl")
+        oid = await _create_in_progress(temp_storage, "plan-guard-ip2dl")
         await temp_storage.mark_outbox_dead_lettered(
             oid, failure_kind="adapter_permanent"
         )
@@ -282,7 +259,7 @@ class TestStatusTransitionGuards:
 
         for ts_idx, terminal in enumerate(terminal_statuses):
             # Create in_progress then transition to terminal
-            oid = await self._create_in_progress(
+            oid = await _create_in_progress(
                 temp_storage, f"plan-guard-term-{terminal}-{ts_idx}"
             )
             if terminal == "sent":
@@ -320,24 +297,11 @@ class TestQueuedLeaseSemantics:
     """Verify that marking queued clears lease fields and that queued items
     are not claimable."""
 
-    async def _create_in_progress(self, storage: SQLiteStorage, plan_id: str) -> str:
-        """Create pending, claim to in_progress, return outbox_id."""
-        item = _make_outbox_item(delivery_plan_id=plan_id)
-        await storage.create_outbox_item(item)
-        claimed = await storage.claim_due_outbox_items(
-            now="2026-01-01T00:00:00",
-            worker_id="worker-1",
-            lease_seconds=300,
-            limit=10,
-        )
-        assert len(claimed) >= 1
-        return claimed[0].outbox_id
-
     async def test_mark_queued_clears_lease_fields(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Transitioning in_progress -> queued clears all lease fields."""
-        oid = await self._create_in_progress(temp_storage, "plan-lease-clear")
+        oid = await _create_in_progress(temp_storage, "plan-lease-clear")
 
         # Verify lease fields are set after claim
         item = await temp_storage.get_outbox_item(oid)
@@ -362,7 +326,7 @@ class TestQueuedLeaseSemantics:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """A queued item should not be returned by claim_due_outbox_items."""
-        oid = await self._create_in_progress(temp_storage, "plan-lease-noclaim")
+        oid = await _create_in_progress(temp_storage, "plan-lease-noclaim")
         await temp_storage.mark_outbox_queued(oid)
 
         now = "2026-01-01T00:00:00"
@@ -376,7 +340,7 @@ class TestQueuedLeaseSemantics:
     ) -> None:
         """in_progress -> queued -> sent transitions correctly and clears
         lease fields."""
-        oid = await self._create_in_progress(temp_storage, "plan-lease-q2s")
+        oid = await _create_in_progress(temp_storage, "plan-lease-q2s")
         await temp_storage.mark_outbox_queued(oid)
         await temp_storage.mark_outbox_sent(oid, receipt_id="rcpt-final")
 

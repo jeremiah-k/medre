@@ -50,15 +50,8 @@ def _read(path: Path) -> str:
 
 
 def _extract_backtick_statuses(text: str) -> set[str]:
-    """Extract all backtick-wrapped tokens that look like status values.
-
-    Matches ``word_like_tokens`` (lowercase, underscores, digits) inside
-    backticks.  Filters out obvious non-status patterns like constant
-    names (ALL_CAPS) and file paths (containing slashes or dots).
-    """
-    raw = set(re.findall(r"`([a-z][a-z0-9_]*)`", text))
-    # Exclude constant-like names (ALL CAPS with underscores)
-    return {s for s in raw if not re.match(r"^[A-Z][A-Z0-9_]+$", s)}
+    """Extract all backtick-wrapped tokens matching ``[a-z][a-z0-9_]*``."""
+    return set(re.findall(r"`([a-z][a-z0-9_]*)`", text))
 
 
 def _adapter_py_files() -> list[Path]:
@@ -184,28 +177,6 @@ class TestDocumentExistence:
 class TestReceiptStatusAlignment:
     """Receipt statuses in spec docs must align with ``RECEIPT_STATUSES``."""
 
-    @pytest.fixture(scope="class")
-    def spec_receipt_statuses(self) -> set[str]:
-        """Receipt statuses mentioned in spec documents."""
-        statuses: set[str] = set()
-        for path in (DELIVERY_LIFECYCLE_MD, STATE_MACHINES_MD):
-            if path.exists():
-                statuses |= _extract_backtick_statuses(path.read_text("utf-8"))
-        # Filter to only known receipt-status-like values from the spec.
-        # The receipt statuses are a closed set; we intersect with known
-        # code values and also check for specific individual statuses.
-        return statuses
-
-    def test_all_code_receipt_statuses_in_spec(self) -> None:
-        """Every status in RECEIPT_STATUSES must appear in the spec docs."""
-        content = _read(DELIVERY_LIFECYCLE_MD) + "\n" + _read(STATE_MACHINES_MD)
-        _extract_backtick_statuses(content)
-        for status in RECEIPT_STATUSES:
-            assert f"`{status}`" in content, (
-                f"Receipt status '{status}' from RECEIPT_STATUSES "
-                f"not found in spec documents"
-            )
-
     def test_receipt_status_table_mentions_all(self) -> None:
         """delivery-lifecycle.md §2.1 must list every RECEIPT_STATUSES value."""
         content = _read(DELIVERY_LIFECYCLE_MD)
@@ -218,15 +189,6 @@ class TestReceiptStatusAlignment:
 
 class TestOutboxStatusAlignment:
     """Outbox statuses in spec docs must align with ``OUTBOX_STATUSES``."""
-
-    def test_all_code_outbox_statuses_in_spec(self) -> None:
-        """Every status in OUTBOX_STATUSES must appear in the spec docs."""
-        content = _read(DELIVERY_LIFECYCLE_MD) + "\n" + _read(STATE_MACHINES_MD)
-        for status in OUTBOX_STATUSES:
-            assert f"`{status}`" in content, (
-                f"Outbox status '{status}' from OUTBOX_STATUSES "
-                f"not found in spec documents"
-            )
 
     def test_outbox_status_table_mentions_all(self) -> None:
         """delivery-lifecycle.md §2.1 must list every OUTBOX_STATUSES value."""

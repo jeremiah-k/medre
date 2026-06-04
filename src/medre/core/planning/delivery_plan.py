@@ -36,9 +36,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 #: Planning-layer closed vocabulary for delivery strategy methods.
-#: This is the authoritative definition consumed by the rendering layer
-#: (see ``medre.core.rendering.renderer.DeliveryStrategyMethod`` for the
-#: rendering-layer mirror).
+#: This is the authoritative definition; re-exported by the rendering layer
+#: as ``medre.core.rendering.renderer.DeliveryStrategyMethod``.
 DeliveryStrategyMethod = Literal[
     "direct",
     "fallback_text",
