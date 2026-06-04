@@ -153,7 +153,7 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
                     )
                 )
             for i in range(3):
-                await storage.create_outbox_item(
+                created = await storage.create_outbox_item(
                     DeliveryOutboxItem(
                         outbox_id=f"obx-retry-{i}",
                         event_id=f"evt-retry-{i}",
@@ -161,8 +161,14 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
                         delivery_plan_id=f"plan-retry-{i}",
                         target_adapter="adapter_auth",
                         attempt_number=2,
-                        status="retry_wait",
+                        status="in_progress",
                     )
+                )
+                await storage.mark_outbox_retry_wait(
+                    created.outbox_id,
+                    next_attempt_at="2026-01-01T00:00:00",
+                    failure_kind="adapter_transient",
+                    error_summary="Transient failure",
                 )
 
             # Build a real MedreApp with storage and a retry worker mock.

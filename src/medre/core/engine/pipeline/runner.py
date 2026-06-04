@@ -1345,11 +1345,34 @@ class PipelineRunner:
             # The outbox is created AFTER route/policy/loop/capacity acceptance
             # and BEFORE the adapter delivery attempt, so that pending work
             # survives a crash between this point and the receipt commit.
-            _outbox_id, _outbox_created, _pipeline_worker = (
+            _outbox_id, _outbox_created, _pipeline_worker, _skip_reason = (
                 await self._create_outbox_for_delivery(
                     event, route, route_plan, target, adapter_id
                 )
             )
+
+            # If the pipeline does not own the outbox row (terminal / active
+            # / queued / other worker), skip delivery entirely.
+            if _skip_reason is not None:
+                # Release the capacity slot acquired earlier, if any.
+                if self._capacity_controller is not None:
+                    try:
+                        await self._capacity_controller.release_delivery()
+                    except Exception:
+                        self._log.exception("Failed to release capacity on outbox-ownership skip")
+                elapsed = (time.monotonic() - t0) * 1000.0
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    status="skipped",
+                    failure_kind=DeliveryFailureKind.OUTBOX_NOT_OWNED,
+                    receipt=None,
+                    error=f"outbox row not owned: {_skip_reason}",
+                    duration_ms=elapsed,
+                )
 
             # ── Phase 3.75: Lease renewal background task ────────────
 
@@ -1574,12 +1597,21 @@ class PipelineRunner:
         route_plan: DeliveryPlan,
         target: RouteTarget,
         adapter_name: str,
-    ) -> tuple[str | None, bool, str]:
+    ) -> tuple[str | None, bool, str, str | None]:
         """Create a durable outbox item tracking a delivery attempt.
 
-        Returns ``(outbox_id, outbox_created, pipeline_worker)``.
+        Returns ``(outbox_id, outbox_created, pipeline_worker, skip_reason)``.
         On failure the outbox_id is ``None`` and ``outbox_created`` is
         ``False`` — the pipeline continues without outbox tracking.
+
+        *skip_reason* is ``None`` when the pipeline owns the row (status
+        ``"in_progress"`` with matching worker_id).  Otherwise it is set to
+        a descriptive string:
+
+        * ``"terminal:<status>"`` — row is in a terminal state.
+        * ``"active:queued"`` — row is queued (owned by another worker).
+        * ``"active:other_worker:<id>"`` — row is in_progress but owned by
+          another worker.
         """
         outbox_id: str | None = None
         outbox_created: bool = False
@@ -1617,10 +1649,47 @@ class PipelineRunner:
             )
             created = await self._config.storage.create_outbox_item(outbox_item)
             outbox_id = created.outbox_id
+            outbox_created = True
+
+            # Ownership check — must run BEFORE we update pipeline_worker
+            # so that we compare the persisted worker_id against the
+            # pipeline's own worker_id (not the overridden value).
+            skip_reason: str | None = None
+            TERMINAL_STATUSES = {"sent", "dead_lettered", "cancelled", "abandoned"}
+            if created.status in TERMINAL_STATUSES:
+                skip_reason = f"terminal:{created.status}"
+                self._log.info(
+                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
+                    event.event_id,
+                    adapter_name,
+                    created.outbox_id,
+                    created.status,
+                )
+            elif created.status == "queued":
+                skip_reason = "active:queued"
+                self._log.info(
+                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=queued (active, not stealing)",
+                    event.event_id,
+                    adapter_name,
+                    created.outbox_id,
+                )
+            elif (
+                created.status == "in_progress" and created.worker_id != pipeline_worker
+            ):
+                skip_reason = f"active:other_worker:{created.worker_id!r}"
+                self._log.info(
+                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s owner=%s (active, not stealing)",
+                    event.event_id,
+                    adapter_name,
+                    created.outbox_id,
+                    created.worker_id,
+                )
+
             # create_outbox_item may return an existing non-terminal row;
             # always use the persisted owner for lease renewals.
             pipeline_worker = created.worker_id or pipeline_worker
-            outbox_created = True
+
+            return outbox_id, outbox_created, pipeline_worker, skip_reason
         except Exception:
             self._log.exception(
                 "Failed to create outbox item for event_id=%s adapter=%s",
@@ -1628,7 +1697,7 @@ class PipelineRunner:
                 adapter_name,
             )
             # Non-fatal: pipeline continues without outbox tracking.
-        return outbox_id, outbox_created, pipeline_worker
+        return outbox_id, outbox_created, pipeline_worker, None
 
     def _start_outbox_lease_renewal(
         self,

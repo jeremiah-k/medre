@@ -40,6 +40,7 @@ PERMANENT_KINDS: frozenset[str] = frozenset(
         "planner_failure",
         "loop_suppressed",
         "policy_suppressed",
+        "outbox_not_owned",
     }
 )
 """Failure kinds that are permanent and unlikely to succeed on retry."""
@@ -88,6 +89,9 @@ def infer_failure_kind(error: str | None, status: str) -> str:
     # dead_lettered implies retries exhausted — was transient
     if status == "dead_lettered":
         return "adapter_transient"
+    # Outbox ownership skip
+    if "outbox_not_owned" in err or "outbox row not owned" in err:
+        return "outbox_not_owned"
     # Default: permanent for unclassifiable failures
     if error:
         return "adapter_permanent"

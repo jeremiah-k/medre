@@ -525,6 +525,7 @@ class TestDeliveryFailureKind:
             "LOOP_SUPPRESSED",
             "POLICY_SUPPRESSED",
             "CAPABILITY_SUPPRESSED",
+            "OUTBOX_NOT_OWNED",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -544,6 +545,7 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.LOOP_SUPPRESSED,
             DeliveryFailureKind.POLICY_SUPPRESSED,
             DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+            DeliveryFailureKind.OUTBOX_NOT_OWNED,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"

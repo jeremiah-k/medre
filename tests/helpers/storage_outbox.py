@@ -4,14 +4,24 @@ Centralises the ``_make_outbox_item`` factory that was previously duplicated
 across the split storage outbox test modules.  Defaults match the original
 in-test factories byte-for-byte.
 
-This helper is a pure factory — it does NOT validate ``status``.  The
+This helper is a **pure factory** — it does NOT validate ``status``.  The
 production ``create_outbox_item()`` enforces that only ``pending`` and
 ``in_progress`` are accepted as initial statuses.  Tests that need a row
 in another status (queued, sent, retry_wait, dead_lettered, cancelled,
-abandoned) for property assertions (``is_claimable``, ``is_terminal``)
-or for reaching through transition methods should construct the item
-freely and then either call the appropriate ``mark_outbox_*`` method or
-bypass ``create_outbox_item()`` entirely (e.g., for pure property tests).
+abandoned) may construct the item freely via this helper and then call the
+appropriate ``mark_outbox_*`` transition method.
+
+**When bypassing ``create_outbox_item()`` is acceptable:**
+
+- Pure property / unit tests that check read-only predicates
+  (``is_claimable``, ``is_terminal``, etc.) without exercising storage.
+
+**When bypassing ``create_outbox_item()`` is NOT acceptable:**
+
+- Behaviour tests that verify the storage lifecycle — reclaim,
+  transition, or finalization flows.  These must go through
+  ``create_outbox_item()`` so the production validation gate is
+  exercised end-to-end.
 """
 
 from __future__ import annotations

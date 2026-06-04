@@ -304,6 +304,10 @@ class DeliveryFailureKind(Enum):
         Target adapter does not support the event kind or required
         delivery features (e.g. reactions unsupported, no attachment
         capability).  Not retryable.
+    OUTBOX_NOT_OWNED:
+        The outbox row already exists in a terminal or active state
+        owned by another worker.  The pipeline must not attempt
+        adapter delivery or lease renewal.  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -317,6 +321,7 @@ class DeliveryFailureKind(Enum):
     LOOP_SUPPRESSED = "loop_suppressed"
     POLICY_SUPPRESSED = "policy_suppressed"
     CAPABILITY_SUPPRESSED = "capability_suppressed"
+    OUTBOX_NOT_OWNED = "outbox_not_owned"
 
     @property
     def is_retryable(self) -> bool:

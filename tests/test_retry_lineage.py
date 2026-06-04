@@ -972,12 +972,18 @@ class TestRetryWorkerReconstruction:
             delivery_plan_id=plan_id,
             target_adapter="dest_adapter",
             target_channel="ch-1",
-            status="retry_wait",
+            status="in_progress",
             attempt_number=1,
             next_attempt_at=now - timedelta(seconds=1),
             metadata=outbox_metadata,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        created = await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
+            failure_kind="adapter_transient",
+            error_summary="Retry scheduled",
+        )
 
         # -- Create a failed receipt for lineage ------------------------------
         receipt = DeliveryReceipt(
