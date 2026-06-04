@@ -579,8 +579,8 @@ class StorageBackend(Protocol):
         """Return all delivery outbox items in creation order for global analysis.
 
         Used for global convergence and diagnostic analysis across all
-        events and delivery plans.  Results are ordered by ``created_at``
-        ascending for deterministic output.
+        events and delivery plans.  Results are ordered by
+        ``created_at ASC, outbox_id ASC`` for deterministic output.
 
         The default limit (10,000) is higher than the standard query
         limit (100) to accommodate typical operational databases.

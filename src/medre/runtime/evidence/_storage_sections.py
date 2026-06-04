@@ -49,6 +49,7 @@ def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
         "lifecycle_convergence_report": None,
         "convergence_summary": None,
         "orphan_report": None,
+        "convergence_truncated_warning": None,
     }
 
 
@@ -69,6 +70,7 @@ async def _collect_storage_data_from_backend(
     import medre.runtime.timeline as _timeline
 
     data: dict[str, Any] = _empty_storage_data(db_path, db_exists=True)
+    _truncation_warning: str | None = None
 
     try:
         # Counts.
@@ -389,7 +391,7 @@ async def _collect_storage_data_from_backend(
             all_receipts = await storage.list_all_receipts(limit=_GLOBAL_LIMIT)
             all_outbox = await storage.list_all_outbox_items(limit=_GLOBAL_LIMIT)
 
-            # Detect truncation: if either result set hit the default limit
+            # Detect truncation: if either result set hit the query limit
             # the global view is partial and callers should be warned.
             _truncated_receipts = len(all_receipts) >= _GLOBAL_LIMIT
             _truncated_outbox = len(all_outbox) >= _GLOBAL_LIMIT
@@ -403,11 +405,12 @@ async def _collect_storage_data_from_backend(
                     _truncated_parts.append(
                         f"outbox items ({len(all_outbox)} >= {_GLOBAL_LIMIT})"
                     )
-                data["convergence_truncated_warning"] = (
+                _truncation_warning = (
                     "Global convergence data may be incomplete — "
                     f"default query limit reached for: {', '.join(_truncated_parts)}. "
                     "Results represent a partial view."
                 )
+                data["convergence_truncated_warning"] = _truncation_warning
 
             if all_receipts or all_outbox:
                 from medre.core.diagnostics.convergence.lifecycle_convergence import (
@@ -464,6 +467,10 @@ async def _collect_storage_data_from_backend(
         # If event was requested but not found, report partial.
         if event_id is not None and data["event"] is None:
             return _section_partial(data, f"Event {event_id!r} not found in storage")
+
+        # Global convergence hit the query limit — section is partial.
+        if _truncation_warning is not None:
+            return _section_partial(data, _truncation_warning)
 
         return _section_ok(data)
     except Exception as exc:

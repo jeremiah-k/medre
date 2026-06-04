@@ -353,11 +353,11 @@ class _OutboxMixin:
     ) -> list[DeliveryOutboxItem]:
         """Return all delivery outbox items in creation order.
 
-        Ordered by ``created_at`` ascending for deterministic output.
-        Useful for global convergence analysis across all events.
+        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
+        output.  Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
-            "SELECT * FROM delivery_outbox ORDER BY created_at ASC LIMIT ? OFFSET ?",
+            "SELECT * FROM delivery_outbox ORDER BY created_at ASC, outbox_id ASC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         return [_row_to_outbox_item(r) for r in rows]

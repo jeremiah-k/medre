@@ -794,3 +794,70 @@ class TestTopLevelConvergenceFieldsPopulated:
             "recovery_ledger",
         ):
             assert bundle[key] is None, f"{key} must be None when storage absent"
+
+
+# ===========================================================================
+# 6. Global convergence truncation
+# ===========================================================================
+
+
+class TestGlobalConvergenceTruncation:
+    """When global convergence queries hit the 10 000-row limit the
+    storage section must report ``status == "partial"`` and include
+    ``convergence_truncated_warning`` in the data."""
+
+    @pytest.mark.asyncio
+    async def test_truncation_warning_when_outbox_hits_cap(self) -> None:
+        """When outbox items reach the 10 000 limit the section is partial."""
+        from unittest.mock import AsyncMock
+
+        from medre.runtime.evidence._storage_sections import (
+            _collect_storage_data_from_backend,
+        )
+
+        storage = AsyncMock()
+        storage.count_events = AsyncMock(return_value=1)
+        storage.count_receipts = AsyncMock(return_value=0)
+        storage.list_all_receipts = AsyncMock(return_value=[])
+        # 10 000 outbox items — exactly at the cap.
+        _outbox = AsyncMock()
+        _outbox.outbox_id = "obx_cap"
+        _outbox.event_id = "evt_1"
+        _outbox.route_id = "route_1"
+        _outbox.delivery_plan_id = "plan_1"
+        _outbox.target_adapter = "radio"
+        _outbox.target_channel = "ch"
+        _outbox.status = "pending"
+        _outbox.attempt_number = 1
+        storage.list_all_outbox_items = AsyncMock(return_value=[_outbox] * 10_000)
+
+        result = await _collect_storage_data_from_backend(
+            storage, db_path="/test.db", event_id=None, replay_run_id=None
+        )
+        assert (
+            result["status"] == "partial"
+        ), f"Expected partial when outbox hits cap, got {result['status']}"
+        assert result["data"] is not None
+        assert "convergence_truncated_warning" in result["data"]
+        assert "outbox items" in result["data"]["convergence_truncated_warning"]
+
+    @pytest.mark.asyncio
+    async def test_no_warning_for_small_dataset(self) -> None:
+        """Small datasets produce status == "passed" with no truncation warning."""
+        from unittest.mock import AsyncMock
+
+        from medre.runtime.evidence._storage_sections import (
+            _collect_storage_data_from_backend,
+        )
+
+        storage = AsyncMock()
+        storage.count_events = AsyncMock(return_value=1)
+        storage.count_receipts = AsyncMock(return_value=0)
+        storage.list_all_receipts = AsyncMock(return_value=[])
+        storage.list_all_outbox_items = AsyncMock(return_value=[])
+
+        result = await _collect_storage_data_from_backend(
+            storage, db_path="/test.db", event_id=None, replay_run_id=None
+        )
+        assert result["status"] == "passed"
+        assert result["data"]["convergence_truncated_warning"] is None

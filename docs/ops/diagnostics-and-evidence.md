@@ -638,7 +638,7 @@ No Matrix transport beyond Docker localhost has been validated. No Meshtastic, M
 
 ## Convergence Diagnostics
 
-The evidence bundle includes a `convergence_summary` that classifies every delivery target's state by cross-referencing outbox and receipt statuses. When collected with an `event_id`, the summary is event-scoped; without, it provides the global view across all delivery targets.
+The evidence bundle includes a `convergence_summary` that classifies every delivery target's state by cross-referencing outbox and receipt statuses. When collected with an `event_id`, the summary is event-scoped; without, it provides the global view across all delivery targets. Global convergence is bounded at 10 000 receipts and 10 000 outbox rows. When either cap is reached, the storage section status is `"partial"` and the section data includes a `convergence_truncated_warning` string. Treat capped global evidence as incomplete — some delivery targets may be missing from the analysis.
 
 ### Reading Convergence Output
 
