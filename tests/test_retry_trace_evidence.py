@@ -305,7 +305,7 @@ class TestRetryTraceEvidence:
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
-        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
         from medre.core.planning.fallback_resolution import (
             FallbackResolver as _BaseFallback,
         )
@@ -323,8 +323,10 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(
+                self, event, target, capabilities, **kwargs: object
+            ) -> DeliveryPlan:
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 
@@ -537,7 +539,7 @@ class TestRetryTraceEvidence:
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
-        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
         from medre.core.planning.fallback_resolution import (
             FallbackResolver as _BaseFallback,
         )
@@ -555,8 +557,10 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(
+                self, event, target, capabilities, **kwargs: object
+            ) -> DeliveryPlan:
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 
@@ -695,7 +699,7 @@ class TestRetryTraceEvidence:
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
-        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
         from medre.core.planning.fallback_resolution import (
             FallbackResolver as _BaseFallback,
         )
@@ -712,8 +716,10 @@ class TestRetryTraceEvidence:
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
                 self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(
+                self, event, target, capabilities, **kwargs: object
+            ) -> DeliveryPlan:
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 plan.retry_policy = self._retry_policy
                 return plan
 

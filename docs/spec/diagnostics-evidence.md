@@ -816,22 +816,30 @@ The derivation logic groups receipts and outbox items by composite key `(deliver
 
 Each ledger entry contains:
 
-| Field                | Source                                      | Semantics                                         |
-| -------------------- | ------------------------------------------- | ------------------------------------------------- |
-| `event_id`           | Receipt                                     | The canonical event being delivered.              |
-| `delivery_plan_id`   | Receipt                                     | Deterministic plan ID for this delivery target.   |
-| `route_id`           | Receipt                                     | Which route configuration triggered delivery.     |
-| `target_adapter`     | Receipt                                     | Target adapter for delivery.                      |
-| `target_channel`     | Receipt                                     | Target channel on the adapter.                    |
-| `source`             | Receipt                                     | `"live"`, `"retry"`, or `"replay"`.               |
-| `replay_run_id`      | Receipt                                     | Replay run identifier, or `None` for live.        |
-| `status`             | Receipt (highest `attempt_number`)          | Current delivery status.                          |
-| `failure_kind`       | Receipt                                     | Failure classification, if applicable.            |
-| `attempt_number`     | Receipt                                     | Number of delivery attempts for this target.      |
-| `next_retry_at`      | Receipt                                     | Scheduled retry time, or `None`.                  |
-| `capability_level`   | Derived from `rendering_evidence` / `error` | Capability decision for this delivery.            |
-| `delivery_strategy`  | Derived from `rendering_evidence` / `error` | Strategy used (direct, fallback_text, skip).      |
-| `suppression_reason` | Derived from `error`                        | Human-readable suppression reason, if applicable. |
+| Field                    | Source                                                   | Semantics                                                                                                             |
+| ------------------------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `delivery_plan_id`       | Receipt                                                  | Deterministic plan ID for this delivery target.                                                                       |
+| `event_id`               | Receipt                                                  | The canonical event being delivered.                                                                                  |
+| `route_id`               | Receipt                                                  | Which route configuration triggered delivery.                                                                         |
+| `target_adapter`         | Receipt                                                  | Target adapter for delivery.                                                                                          |
+| `target_channel`         | Receipt                                                  | Target channel on the adapter.                                                                                        |
+| `delivery_strategy`      | Derived from `rendering_evidence` / `error`              | Strategy used (direct, fallback_text, skip).                                                                          |
+| `capability_field`       | Derived from `error`                                     | Capability field name that triggered suppression, or `None`.                                                          |
+| `capability_level`       | Derived from `rendering_evidence` / `error`              | Capability decision for this delivery.                                                                                |
+| `suppression_reason`     | Derived from `error`                                     | Human-readable suppression reason, if applicable.                                                                     |
+| `final_status`           | Receipt (highest `attempt_number`)                       | Terminal delivery status.                                                                                             |
+| `attempt_number`         | Receipt                                                  | Number of delivery attempts for this target.                                                                          |
+| `retry_state`            | Derived from `status` / `next_retry_at` / `failure_kind` | Derived display label: `"terminal"`, `"retryable"`, `"active"`, or `"unknown"`. Not an authoritative lifecycle state. |
+| `failure_kind`           | Receipt                                                  | Failure classification, if applicable.                                                                                |
+| `failure_taxon`          | Derived via `resolve_taxon()`                            | Resolved failure taxon, or `None`.                                                                                    |
+| `failure_taxon_category` | Derived via `taxon_category()`                           | Category of the resolved failure taxon, or `None`.                                                                    |
+| `source`                 | Receipt                                                  | `"live"`, `"retry"`, or `"replay"`.                                                                                   |
+| `replay_run_id`          | Receipt                                                  | Replay run identifier, or `None` for live.                                                                            |
+| `receipt_ids`            | Collected from all grouped records                       | Sorted list of all receipt IDs in the group.                                                                          |
+| `outbox_id`              | Outbox item                                              | Outbox row ID, if an outbox record was present, or `None`.                                                            |
+| `adapter_message_id`     | Receipt                                                  | Transport-layer message ID assigned by the adapter, or `None`.                                                        |
+| `next_retry_at`          | Receipt                                                  | Scheduled retry time (ISO-8601), or `None`.                                                                           |
+| `error`                  | Receipt / outbox `error_summary`                         | Error text from receipt or outbox error summary, or `None`.                                                           |
 
 ### 19.4 No Additional Storage Required
 

@@ -35,6 +35,18 @@ if TYPE_CHECKING:
 # Delivery strategy
 # ---------------------------------------------------------------------------
 
+#: Planning-layer closed vocabulary for delivery strategy methods.
+#: This is the authoritative definition; re-exported by the rendering layer
+#: as ``medre.core.rendering.renderer.DeliveryStrategyMethod``.
+DeliveryStrategyMethod = Literal[
+    "direct",
+    "fallback_text",
+    "skip",
+    "propagated",
+    "opportunistic",
+    "paper",
+]
+
 
 @dataclass(frozen=True)
 class DeliveryStrategy:
@@ -70,7 +82,7 @@ class DeliveryStrategy:
         Per-attempt timeout in seconds.
     """
 
-    method: str
+    method: DeliveryStrategyMethod
     max_retries: int = 3
     timeout_seconds: float = 30.0
 

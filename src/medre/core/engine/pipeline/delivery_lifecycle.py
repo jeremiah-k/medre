@@ -864,6 +864,9 @@ class DeliveryLifecycleService:
                 attempt: int | None = (
                     receipt.attempt_number if receipt is not None else None
                 )
+                # NOTE: attempt_number=None when receipt is unavailable preserves
+                # the existing outbox attempt value (storage default) rather than
+                # overwriting it with an inferred value.
                 error_summary: str | None = error[:512] if error else None
                 if failure_kind_val.is_retryable:
                     if retry_policy is None:
@@ -873,6 +876,7 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
+                            attempt_number=attempt,
                         )
                     elif receipt is not None and receipt.next_retry_at is None:
                         # Receipt exists but next_retry_at is None despite
@@ -885,6 +889,7 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
+                            attempt_number=attempt,
                         )
                     elif receipt is not None and receipt.next_retry_at is not None:
                         # Receipt has a persisted next_retry_at - reuse it
@@ -922,6 +927,7 @@ class DeliveryLifecycleService:
                         receipt_id=receipt_ref_id,
                         failure_kind=failure_kind_val.value,
                         error_summary=error_summary,
+                        attempt_number=attempt,
                     )
         except Exception:
             self._log.exception(

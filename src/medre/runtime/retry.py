@@ -777,6 +777,7 @@ class RetryWorker:
                     item.outbox_id,
                     receipt_id=_dl_receipt_id,
                     failure_kind="retry_exhausted",
+                    attempt_number=item.attempt_number + 1,
                 )
                 self._emit(
                     "retry_dead_lettered",
@@ -835,6 +836,7 @@ class RetryWorker:
                         await self._storage.mark_outbox_dead_lettered(
                             item.outbox_id,
                             failure_kind=_actual_kind,
+                            attempt_number=next_attempt,
                         )
                         self.state.dead_lettered += 1
                         self._emit(

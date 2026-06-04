@@ -10,7 +10,9 @@ Design constraints
 ------------------
 * **No storage schema changes** — reads existing record fields only.
 * **No runtime imports** — depends only on
-  :mod:`medre.core.evidence.failure_taxonomy` and standard library.
+  :mod:`medre.core.evidence.failure_taxonomy`,
+  :mod:`medre.core.engine.pipeline.delivery_state` (leaf-level constants),
+  and standard library.
 * **Pure functions** — no I/O, no state mutation, no side effects.
 * **JSON-safe** — all output values survive ``json.dumps`` round-trips.
 
@@ -27,6 +29,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from medre.core.engine.pipeline.delivery_state import (
+    OUTBOX_STATUSES,
+    TERMINAL_OUTBOX_STATUSES,
+    TERMINAL_RECEIPT_STATUSES,
+)
 from medre.core.evidence.failure_taxonomy import (
     resolve_taxon,
     taxon_category,
@@ -175,10 +182,13 @@ def _derive_capability_fields(
 
 # NOTE: Intentionally broader than convergence helpers — covers both outbox
 # and receipt terminal statuses for retry-state derivation (includes "suppressed").
-_TERMINAL_STATUSES = frozenset(
-    {"sent", "dead_lettered", "suppressed", "cancelled", "abandoned"}
+_TERMINAL_STATUSES: frozenset[str] = (
+    TERMINAL_OUTBOX_STATUSES | TERMINAL_RECEIPT_STATUSES
 )
-_ACTIVE_STATUSES = frozenset({"pending", "in_progress", "queued", "retry_wait"})
+# Derived from canonical outbox lifecycle constants: the set of outbox statuses
+# that are NOT terminal.  Equivalent to {"pending", "in_progress", "queued",
+# "retry_wait"} but kept in sync automatically when statuses are added.
+_ACTIVE_STATUSES: frozenset[str] = OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
 
 
 def _derive_retry_state(
@@ -190,6 +200,13 @@ def _derive_retry_state(
 
     Returns one of: ``"terminal"``, ``"retryable"``, ``"active"``,
     ``"unknown"``.
+
+    **These return values are derived display labels, not authoritative
+    lifecycle states.**  They are computed from persisted outbox/receipt
+    status strings and retry-scheduling metadata for evidence reporting
+    purposes only.  Pipeline state transitions must use the canonical
+    constants and helpers in
+    :mod:`~medre.core.engine.pipeline.delivery_state`.
     """
     if status in _TERMINAL_STATUSES:
         return "terminal"

@@ -427,7 +427,7 @@ class MeshCoreAdapter(AdapterContract):
             ),
             metadata=MappingProxyType(
                 {
-                    "delivery_status": "local_accepted",
+                    "adapter_status": "local_accepted",
                 }
             ),
         )

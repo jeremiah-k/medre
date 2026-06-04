@@ -748,8 +748,10 @@ class TestDeliveryFailureClassification:
         class ExpiredDeadlineResolver(FallbackResolver):
             """Fallback resolver that always returns an expired deadline."""
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(
+                self, event, target, capabilities, **kwargs: object
+            ) -> DeliveryPlan:
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 return DeliveryPlan(
                     plan_id=plan.plan_id,
                     event_id=plan.event_id,
@@ -834,8 +836,10 @@ class TestDeadLetter:
         class OneAttemptResolver(FallbackResolver):
             """Fallback resolver that limits delivery to one attempt."""
 
-            def resolve_fallback(self, event, target, capabilities):
-                plan = super().resolve_fallback(event, target, capabilities)
+            def resolve_fallback(
+                self, event, target, capabilities, **kwargs: object
+            ) -> DeliveryPlan:
+                plan = super().resolve_fallback(event, target, capabilities, **kwargs)
                 return DeliveryPlan(
                     plan_id=plan.plan_id,
                     event_id=plan.event_id,

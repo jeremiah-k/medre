@@ -363,7 +363,7 @@ class FakeMeshCoreAdapter(AdapterContract):
             delivery_note="fake adapter — simulated local acceptance",
             metadata=MappingProxyType(
                 {
-                    "delivery_status": "local_accepted",
+                    "adapter_status": "local_accepted",
                 }
             ),
         )
