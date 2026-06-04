@@ -134,6 +134,10 @@ class TestSchemaShapeValidation:
                         metadata TEXT NOT NULL DEFAULT '{}',
                         depth INTEGER NOT NULL DEFAULT 0,
                         trace_id TEXT,
+                        source_native_adapter TEXT,
+                        source_native_channel_id TEXT,
+                        source_native_message_id TEXT,
+                        source_native_thread_id TEXT,
                         created_at TEXT NOT NULL
                     );
                     CREATE TABLE IF NOT EXISTS event_relations (
@@ -561,6 +565,10 @@ class TestOpenReadonly:
                         metadata TEXT NOT NULL DEFAULT '{}',
                         depth INTEGER NOT NULL DEFAULT 0,
                         trace_id TEXT,
+                        source_native_adapter TEXT,
+                        source_native_channel_id TEXT,
+                        source_native_message_id TEXT,
+                        source_native_thread_id TEXT,
                         created_at TEXT NOT NULL
                     );
                     CREATE TABLE event_relations (

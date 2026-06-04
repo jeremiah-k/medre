@@ -31,7 +31,6 @@ This module pins the contract that keeps these surfaces from drifting:
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -481,7 +480,7 @@ class TestCoreEvidenceBundleContract:
         # We rely on the field-default immutability contract: trying to
         # assign a new value to a field on a frozen instance raises.
         bundle = EvidenceBundle(event_id="x")
-        with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
+        with pytest.raises(AttributeError):
             bundle.event_id = "y"  # type: ignore[misc]
 
     def test_to_dict_returns_all_fields(self) -> None:
@@ -819,17 +818,23 @@ class TestGlobalConvergenceTruncation:
         storage.count_events = AsyncMock(return_value=1)
         storage.count_receipts = AsyncMock(return_value=0)
         storage.list_all_receipts = AsyncMock(return_value=[])
-        # 10 000 outbox items — exactly at the cap.
-        _outbox = AsyncMock()
-        _outbox.outbox_id = "obx_cap"
-        _outbox.event_id = "evt_1"
-        _outbox.route_id = "route_1"
-        _outbox.delivery_plan_id = "plan_1"
-        _outbox.target_adapter = "radio"
-        _outbox.target_channel = "ch"
-        _outbox.status = "pending"
-        _outbox.attempt_number = 1
-        storage.list_all_outbox_items = AsyncMock(return_value=[_outbox] * 10_000)
+
+        # 10 000 distinct outbox items — exactly at the cap.
+        def _make_outbox_mock(index: int) -> AsyncMock:
+            outbox = AsyncMock()
+            outbox.outbox_id = f"obx_cap_{index:05d}"
+            outbox.event_id = f"evt_{index % 100}"
+            outbox.route_id = "route_1"
+            outbox.delivery_plan_id = f"plan_{index:05d}"
+            outbox.target_adapter = "radio"
+            outbox.target_channel = f"ch_{index % 10}"
+            outbox.status = "pending"
+            outbox.attempt_number = 1
+            return outbox
+
+        storage.list_all_outbox_items = AsyncMock(
+            return_value=[_make_outbox_mock(i) for i in range(10_000)]
+        )
 
         result = await _collect_storage_data_from_backend(
             storage, db_path="/test.db", event_id=None, replay_run_id=None
@@ -840,6 +845,44 @@ class TestGlobalConvergenceTruncation:
         assert result["data"] is not None
         assert "convergence_truncated_warning" in result["data"]
         assert "outbox items" in result["data"]["convergence_truncated_warning"]
+
+    @pytest.mark.asyncio
+    async def test_truncation_warning_when_receipts_hits_cap(self) -> None:
+        """When receipts reach the 10 000 limit the section is partial."""
+        from unittest.mock import AsyncMock
+
+        from medre.runtime.evidence._storage_sections import (
+            _collect_storage_data_from_backend,
+        )
+
+        storage = AsyncMock()
+        storage.count_events = AsyncMock(return_value=1)
+        storage.count_receipts = AsyncMock(return_value=10_000)
+        storage.list_all_outbox_items = AsyncMock(return_value=[])
+
+        # 10 000 distinct receipt mocks — exactly at the cap.
+        def _make_receipt_mock(index: int) -> AsyncMock:
+            rcpt = AsyncMock()
+            rcpt.receipt_id = f"rcpt_cap_{index:05d}"
+            rcpt.event_id = f"evt_{index % 100}"
+            rcpt.delivery_plan_id = f"plan_{index:05d}"
+            rcpt.target_adapter = "radio"
+            rcpt.target_channel = f"ch_{index % 10}"
+            rcpt.status = "sent"
+            rcpt.attempt_number = 1
+            return rcpt
+
+        storage.list_all_receipts = AsyncMock(
+            return_value=[_make_receipt_mock(i) for i in range(10_000)]
+        )
+
+        result = await _collect_storage_data_from_backend(
+            storage, db_path="/test.db", event_id=None, replay_run_id=None
+        )
+        assert result["status"] == "partial"
+        assert result["data"] is not None
+        assert "convergence_truncated_warning" in result["data"]
+        assert "receipts" in result["data"]["convergence_truncated_warning"]
 
     @pytest.mark.asyncio
     async def test_no_warning_for_small_dataset(self) -> None:

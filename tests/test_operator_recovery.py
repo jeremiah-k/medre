@@ -735,8 +735,8 @@ class TestReplayAfterRestart:
 
         # Session 1: write events.
         s1 = SQLiteStorage(db_path)
-        await s1.initialize()
         try:
+            await s1.initialize()
             for i in range(3):
                 await s1.append(_make_minimal_event(f"evt-replay-{i:03d}"))
             assert await s1.count_events() == 3
@@ -745,8 +745,8 @@ class TestReplayAfterRestart:
 
         # Session 2: verify events survived.
         s2 = SQLiteStorage(db_path)
-        await s2.initialize()
         try:
+            await s2.initialize()
             assert await s2.count_events() == 3
             evt = await s2.get("evt-replay-001")
             assert evt is not None

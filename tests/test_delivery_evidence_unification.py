@@ -238,8 +238,8 @@ async def _make_populated_db_with_suppressed(
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         event = CanonicalEvent(
             event_id=event_id,
             event_kind=EventKind.MESSAGE_TEXT,

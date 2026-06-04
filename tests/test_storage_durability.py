@@ -290,8 +290,13 @@ class TestSchemaVersionLifecycle:
             )
 
         s2 = SQLiteStorage(db_path)
-        with pytest.raises(StorageInitializationError, match="schema version mismatch"):
-            await s2.initialize()
+        try:
+            with pytest.raises(
+                StorageInitializationError, match="schema version mismatch"
+            ):
+                await s2.initialize()
+        finally:
+            await s2.close()
 
     async def test_schema_version_non_integer_raises(self, tmp_path: Path) -> None:
         """A non-integer schema version raises StorageInitializationError."""
@@ -303,8 +308,11 @@ class TestSchemaVersionLifecycle:
             )
 
         s2 = SQLiteStorage(db_path)
-        with pytest.raises(StorageInitializationError, match="not an integer"):
-            await s2.initialize()
+        try:
+            with pytest.raises(StorageInitializationError, match="not an integer"):
+                await s2.initialize()
+        finally:
+            await s2.close()
 
 
 # ===================================================================

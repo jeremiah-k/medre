@@ -446,8 +446,8 @@ class TestReplayAfterRestart:
 
         # First instance: store an event.
         storage1 = SQLiteStorage(db_path)
-        await storage1.initialize()
         try:
+            await storage1.initialize()
             event = _make_minimal_event("evt-persist-001")
             await storage1.append(event)
             count1 = await storage1.count_events()
@@ -457,8 +457,8 @@ class TestReplayAfterRestart:
 
         # Second instance: verify event survived.
         storage2 = SQLiteStorage(db_path)
-        await storage2.initialize()
         try:
+            await storage2.initialize()
             count2 = await storage2.count_events()
             assert count2 == 1
         finally:
@@ -572,8 +572,8 @@ class TestStoragePersistenceSurvivesRestart:
 
         # Session 1: write event.
         s1 = SQLiteStorage(db_path)
-        await s1.initialize()
         try:
+            await s1.initialize()
             evt = _make_minimal_event("evt-restart-001")
             await s1.append(evt)
         finally:
@@ -581,8 +581,8 @@ class TestStoragePersistenceSurvivesRestart:
 
         # Session 2: read event.
         s2 = SQLiteStorage(db_path)
-        await s2.initialize()
         try:
+            await s2.initialize()
             retrieved = await s2.get("evt-restart-001")
             assert retrieved is not None
             assert retrieved.event_id == "evt-restart-001"
@@ -598,8 +598,8 @@ class TestStoragePersistenceSurvivesRestart:
         db_path = str(tmp_path / "multi_restart.db")
 
         s1 = SQLiteStorage(db_path)
-        await s1.initialize()
         try:
+            await s1.initialize()
             for i in range(5):
                 await s1.append(_make_minimal_event(f"evt-multi-{i:03d}"))
             assert await s1.count_events() == 5
@@ -607,8 +607,8 @@ class TestStoragePersistenceSurvivesRestart:
             await s1.close()
 
         s2 = SQLiteStorage(db_path)
-        await s2.initialize()
         try:
+            await s2.initialize()
             assert await s2.count_events() == 5
         finally:
             await s2.close()
@@ -617,16 +617,16 @@ class TestStoragePersistenceSurvivesRestart:
     async def test_memory_storage_does_not_persist(self) -> None:
         """In-memory storage does NOT persist across instances."""
         s1 = SQLiteStorage(":memory:")
-        await s1.initialize()
         try:
+            await s1.initialize()
             await s1.append(_make_minimal_event("evt-mem-001"))
             assert await s1.count_events() == 1
         finally:
             await s1.close()
 
         s2 = SQLiteStorage(":memory:")
-        await s2.initialize()
         try:
+            await s2.initialize()
             assert await s2.count_events() == 0
         finally:
             await s2.close()

@@ -3,17 +3,23 @@
   "collected_at": "2026-05-27T12:00:00Z",
   "command": "evidence",
   "config_source": "file",
+  "convergence_summary": null,
   "errors": [],
   "evidence_tier": "synthetic",
   "generated_at": "2026-05-27T12:00:02Z",
+  "lifecycle_convergence_report": null,
   "limitations": [
     "Evidence is a point-in-time snapshot, not continuous monitoring",
     "Diagnostics snapshot reflects build-time state unless --include-refresh-health is used",
     "Storage section requires an existing initialised database",
     "Fake adapters report synthetic health, not real transport connectivity",
-    "No sustained throughput, reconnection resilience, or load evidence"
+    "No sustained throughput, reconnection resilience, or load evidence",
+    "Global convergence queries are bounded at 10,000 receipts and 10,000 outbox rows per call"
   ],
   "medre_version": "0.1.0",
+  "orphan_report": null,
+  "recovery_ledger": null,
+  "recovery_summary": null,
   "runtime_started": false,
   "schema_version": 1,
   "sections": {
