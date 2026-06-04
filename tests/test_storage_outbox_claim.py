@@ -82,8 +82,13 @@ class TestClaimDueItems:
         assert claimed2[0].worker_id == "worker-2"
 
     async def test_claim_skips_sent_items(self, temp_storage: SQLiteStorage) -> None:
-        sent_item = _make_outbox_item(delivery_plan_id="plan-sent-skip", status="sent")
-        await temp_storage.create_outbox_item(sent_item)
+        # Reach "sent" via pending → claim → mark_sent (Pattern A).
+        item = _make_outbox_item(delivery_plan_id="plan-sent-skip")
+        await temp_storage.create_outbox_item(item)
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_sent(item.outbox_id, receipt_id="rcpt-sent")
 
         pending_item = _make_outbox_item(delivery_plan_id="plan-pending-claim")
         await temp_storage.create_outbox_item(pending_item)
@@ -133,10 +138,19 @@ class TestReleaseClaim:
     ) -> None:
         item = _make_outbox_item(
             delivery_plan_id="plan-rel-rw",
-            status="retry_wait",
-            next_attempt_at="2026-01-01T00:05:00",
         )
-        await temp_storage.create_outbox_item(item)
+        created = await temp_storage.create_outbox_item(item)
+        # Reach retry_wait via pending → claim → mark_retry_wait.
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w0", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at="2026-01-01T00:05:00",
+            failure_kind="adapter_transient",
+            error_summary="Transient failure",
+        )
+        # Re-claim: claim clears next_attempt_at.
         claimed = await temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:05:00",
             worker_id="worker-1",
@@ -146,7 +160,7 @@ class TestReleaseClaim:
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
 
-        # Claim clears next_attempt_at; release restores status to
+        # Claim cleared next_attempt_at; release restores status to
         # retry_wait but does not recover the original next_attempt_at
         # (the claim consumed it).
         await temp_storage.release_outbox_claim(
@@ -250,10 +264,18 @@ class TestClaimClearsNextAttemptAt:
         it cleared after being claimed."""
         item = _make_outbox_item(
             delivery_plan_id="plan-clear-naa",
-            status="retry_wait",
-            next_attempt_at="2026-01-01T00:05:00",
         )
-        await temp_storage.create_outbox_item(item)
+        created = await temp_storage.create_outbox_item(item)
+        # Reach retry_wait via pending → claim → mark_retry_wait.
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w0", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at="2026-01-01T00:05:00",
+            failure_kind="adapter_transient",
+            error_summary="Transient failure",
+        )
 
         claimed = await temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:05:00",

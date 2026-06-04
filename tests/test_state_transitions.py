@@ -6,7 +6,7 @@ Validates that:
 - Receipts are append-only (immutable once persisted).
 - Failed → dead_lettered transition preserves parent_receipt_id linkage.
 - Outbox terminal states are correctly identified.
-- Outbox reclaim is idempotent for terminal items.
+- Terminal outbox rows are returned unchanged on recreate.
 - Outbox status transitions match storage method contracts.
 - Outbox transitions drive receipt creation, not the reverse.
 """
@@ -398,7 +398,7 @@ class TestOutboxStatusTransitionsMatchCode:
                     "mark_outbox_cancelled",
                 },
             ),
-            # Terminal statuses: only create_outbox_item can reclaim them.
+            # Terminal statuses: no outgoing transitions; rows are immutable.
             ("sent", set()),
             ("dead_lettered", set()),
             ("cancelled", set()),
@@ -418,9 +418,9 @@ class TestOutboxStatusTransitionsMatchCode:
         # All methods that can change outbox state.
 
         # For terminal statuses, no transition method applies directly.
-        # They can only be reclaimed via create_outbox_item (which deletes
-        # and re-inserts), but that's not a status transition *from*
-        # the terminal status — it's a row replacement.
+        # Terminal rows are returned unchanged by create_outbox_item().
+        # A new delivery after terminal state must use a new attempt
+        # identity (new delivery_plan_id and/or attempt_number).
         if not expected_methods:
             return
 

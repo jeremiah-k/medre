@@ -558,10 +558,15 @@ class TestTopLevelConvergenceFieldsPopulated:
                 delivery_plan_id="plan_001",
                 target_adapter="radio",
                 target_channel="chan_a",
-                status="sent",
+                status="pending",
                 attempt_number=1,
             )
             await storage.create_outbox_item(outbox)
+            # Reach "sent" via pending → claim → mark_sent (Pattern A).
+            await storage.claim_due_outbox_items(
+                now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+            )
+            await storage.mark_outbox_sent("obx_001", receipt_id="rcpt_obx_001")
 
             receipt = DeliveryReceipt(
                 receipt_id="rcpt_001",
@@ -730,10 +735,15 @@ class TestTopLevelConvergenceFieldsPopulated:
                 delivery_plan_id="plan_001",
                 target_adapter="radio",
                 target_channel="chan_a",
-                status="sent",
+                status="pending",
                 attempt_number=1,
             )
             await storage.create_outbox_item(outbox)
+            # Reach "sent" via pending → claim → mark_sent (Pattern A).
+            await storage.claim_due_outbox_items(
+                now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+            )
+            await storage.mark_outbox_sent("obx_g001", receipt_id="rcpt_obx_g001")
 
             receipt = DeliveryReceipt(
                 receipt_id="rcpt_g001",

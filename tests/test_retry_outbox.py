@@ -14,11 +14,14 @@ def _make_outbox_item(
     delivery_plan_id: str = "plan-retry-1",
     target_adapter: str = "fake_presentation",
     target_channel: str | None = "ch-0",
-    status: str = "retry_wait",
+    status: str = "pending",
     next_attempt_at: str | None = None,
     attempt_number: int = 1,
 ) -> DeliveryOutboxItem:
-    """Build a minimal outbox item for retry tests."""
+    """Build a minimal outbox item for retry tests.  Default status is
+    ``pending``; other statuses (retry_wait, sent, dead_lettered, etc.)
+    must be reached through ``mark_outbox_*`` transition methods, not
+    by passing the status here."""
     return DeliveryOutboxItem(
         outbox_id=f"obox-{uuid.uuid4()}",
         event_id="evt-retry-1",
@@ -41,17 +44,25 @@ class TestDueOutboxRetry:
         """A retry_wait item past its next_attempt_at should be claimable."""
         item = _make_outbox_item(
             delivery_plan_id="plan-due-1",
-            status="retry_wait",
-            next_attempt_at="2025-01-01T00:00:00",
         )
-        await temp_storage.create_outbox_item(item)
+        created = await temp_storage.create_outbox_item(item)
+        # Reach retry_wait via pending → claim → mark_retry_wait.
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at="2025-01-01T00:00:00",
+            failure_kind="adapter_transient",
+            error_summary="Connection timeout",
+        )
 
         now = "2026-01-01T00:00:00"
         claimed = await temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 1
-        assert claimed[0].outbox_id == item.outbox_id
+        assert claimed[0].outbox_id == created.outbox_id
         assert claimed[0].status == "in_progress"
 
     async def test_not_due_retry_wait_not_claimable(
@@ -61,10 +72,18 @@ class TestDueOutboxRetry:
         future = "2099-01-01T00:00:00"
         item = _make_outbox_item(
             delivery_plan_id="plan-not-due-1",
-            status="retry_wait",
-            next_attempt_at=future,
         )
-        await temp_storage.create_outbox_item(item)
+        created = await temp_storage.create_outbox_item(item)
+        # Reach retry_wait via pending → claim → mark_retry_wait.
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at=future,
+            failure_kind="adapter_transient",
+            error_summary="Not yet due",
+        )
 
         now = "2026-01-01T00:00:00"
         claimed = await temp_storage.claim_due_outbox_items(
@@ -113,12 +132,21 @@ class TestRetryExhaustion:
         """A retry_wait item can be marked dead_lettered."""
         item = _make_outbox_item(
             delivery_plan_id="plan-exhaust-1",
-            status="retry_wait",
-            next_attempt_at="2025-01-01T00:00:00",
             attempt_number=3,
         )
-        await temp_storage.create_outbox_item(item)
+        created = await temp_storage.create_outbox_item(item)
+        # Reach retry_wait via pending → claim → mark_retry_wait.
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at="2025-01-01T00:00:00",
+            failure_kind="adapter_transient",
+            error_summary="Transient failure",
+        )
 
+        # Now claim again (item is due) so we can mark dead_lettered.
         now = "2026-01-01T00:00:00"
         claimed = await temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
@@ -194,10 +222,18 @@ class TestRestartVisibility:
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-restart-due",
-                status="retry_wait",
-                next_attempt_at="2025-01-01T00:00:00",
             )
-            await storage.create_outbox_item(item)
+            created = await storage.create_outbox_item(item)
+            # Reach retry_wait via pending → claim → mark_retry_wait.
+            await storage.claim_due_outbox_items(
+                now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+            )
+            await storage.mark_outbox_retry_wait(
+                created.outbox_id,
+                next_attempt_at="2025-01-01T00:00:00",
+                failure_kind="adapter_transient",
+                error_summary="Transient failure",
+            )
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -234,9 +270,13 @@ class TestRestartVisibility:
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-restart-dl",
-                status="dead_lettered",
             )
             await storage.create_outbox_item(item)
+            # Reach "dead_lettered" via pending → claim → mark_dead_lettered (Pattern B).
+            await storage.claim_due_outbox_items(
+                now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
+            )
+            await storage.mark_outbox_dead_lettered(item.outbox_id, failure_kind="test")
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -272,10 +312,12 @@ class TestRestartVisibility:
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-ambiguous-msh",
-                status="queued",
+                status="in_progress",
                 target_adapter="meshtastic",
             )
             await storage.create_outbox_item(item)
+            # Reach "queued" via in_progress → mark_queued (Pattern C).
+            await storage.mark_outbox_queued(item.outbox_id)
 
             # Re-open: queued item is visible.
             storage2 = SQLiteStorage(db_path=db_path)

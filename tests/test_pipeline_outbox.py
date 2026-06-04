@@ -625,9 +625,14 @@ class TestLeaseRenewal:
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
-            status="sent",
+            status="pending",
         )
         await temp_storage.create_outbox_item(item)
+        # Transition to sent via claim → mark_sent (Pattern A).
+        await temp_storage.claim_due_outbox_items(
+            now=now.isoformat(), worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_sent("obox-sent-001", receipt_id="rcpt-sent")
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
         result = await temp_storage.renew_outbox_lease(
@@ -841,7 +846,6 @@ class TestTargetedOutboxLookupRegression:
 
         # -- 1. Create 15 noise outbox items (queued + in_progress) --------
         for i in range(15):
-            noise_status = "queued" if i % 2 == 0 else "in_progress"
             noise_item = DeliveryOutboxItem(
                 outbox_id=f"obox-noise-{i:03d}",
                 event_id=f"evt-noise-{i:03d}",
@@ -849,11 +853,15 @@ class TestTargetedOutboxLookupRegression:
                 delivery_plan_id=f"plan-noise-{i:03d}",
                 target_adapter=f"adapter-noise-{i:03d}",
                 target_channel=f"ch-noise-{i:03d}",
-                status=noise_status,
+                status="in_progress",
             )
             await temp_storage.create_outbox_item(noise_item)
+            if i % 2 == 0:
+                # Reach "queued" via in_progress → mark_queued (Pattern C).
+                await temp_storage.mark_outbox_queued(f"obox-noise-{i:03d}")
 
         # -- 2. Create the matching outbox item (queued) --------------------
+        # Reach "queued" via in_progress → mark_queued (Pattern C).
         target_item = DeliveryOutboxItem(
             outbox_id="obox-target-regression",
             event_id=TARGET_EVENT_ID,
@@ -861,9 +869,10 @@ class TestTargetedOutboxLookupRegression:
             delivery_plan_id=TARGET_PLAN_ID,
             target_adapter=TARGET_ADAPTER,
             target_channel=TARGET_CHANNEL,
-            status="queued",
+            status="in_progress",
         )
         await temp_storage.create_outbox_item(target_item)
+        await temp_storage.mark_outbox_queued("obox-target-regression")
 
         # -- 3. Create a "queued" receipt so _append_queued_to_sent_receipt
         #         can find it and inherit plan/route context. ---------------

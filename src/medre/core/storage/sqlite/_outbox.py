@@ -31,20 +31,26 @@ class _OutboxMixin:
     """
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
-        """Create a new outbox item.
+        """Create a new outbox item, or reclaim an existing pending/retry_wait row.
 
-        Checks for an existing item with the same key tuple
-        ``(delivery_plan_id, target_adapter, target_channel, attempt_number)``
-        before inserting.  If an existing item has a **reclaimable** status
-        (``pending`` or ``retry_wait``), it is reclaimed: its ``status``,
-        ``worker_id``, ``locked_at``, and ``lease_until`` are updated to
-        match the new item's values so the caller always receives a
-        properly-claimed row.  If the existing item is **active**
-        (``in_progress`` or ``queued``), it is returned unchanged — active
-        work is never stolen.  If the existing item is **terminal**, it is
-        returned unchanged — terminal rows are immutable for lifecycle
-        purposes; a new delivery after terminal state must use a new
-        attempt identity.
+        Production lifecycle policy:
+          - New rows may be created only as ``pending`` (default) or
+            ``in_progress`` (pipeline claim path).
+          - Existing ``pending`` or ``retry_wait`` rows are reclaimed —
+            their ``status``, ``worker_id``, ``locked_at``, ``lease_until``,
+            and ``next_attempt_at`` are updated to match the new item's
+            values.  Reclaim may only transition the existing row to
+            ``pending`` or ``in_progress`` (per the initial-status
+            restriction above); the reclaim itself does not bypass the
+            ``allowed_from`` guards of dedicated transition methods
+            because the only statuses reachable here are pending and
+            in_progress, both of which the reclaim path already targets.
+          - Existing ``in_progress`` or ``queued`` rows are returned
+            unchanged — active work is never stolen.
+          - Existing terminal rows are returned unchanged — terminal
+            rows are immutable for lifecycle purposes; a new delivery
+            after terminal state must use a new attempt identity (new
+            ``delivery_plan_id`` and/or new ``attempt_number``).
 
         The entire SELECT + UPDATE/INSERT runs inside a single
         ``BEGIN IMMEDIATE`` transaction so that two concurrent callers
@@ -54,19 +60,19 @@ class _OutboxMixin:
         """
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         effective_status = item.status or "pending"
-        # Reject unknown status strings only.  Any known outbox status is
-        # permitted as the initial status because callers use this method
-        # both to create new operational rows (pending / in_progress via
-        # the claim path) and to pre-populate storage state for tests,
-        # evidence bundles, and recovery scenarios (queued / sent /
-        # dead_lettered / cancelled / abandoned).  Production callers
-        # that should only persist pending or in_progress are expected
-        # to pass those explicitly; this guard catches typos and stale
-        # status strings, not legitimate pre-population.
-        if effective_status not in OUTBOX_STATUSES:
+        # Production lifecycle authority: only pending (default durable
+        # work) and in_progress (pipeline claim path) may be the initial
+        # status.  All other statuses must be reached through explicit
+        # transition methods (mark_outbox_queued, mark_outbox_sent,
+        # mark_outbox_retry_wait, mark_outbox_dead_lettered,
+        # mark_outbox_cancelled, mark_outbox_abandoned).  This guard
+        # prevents tests and evidence-bundle seeding from creating
+        # terminal or in-flight rows directly through the production
+        # storage API.
+        if effective_status not in {"pending", "in_progress"}:
             raise ValueError(
-                f"Unknown outbox status {effective_status!r}; "
-                f"expected one of {sorted(OUTBOX_STATUSES)}"
+                f"create_outbox_item does not permit initial status {effective_status!r}; "
+                f"expected one of ['pending', 'in_progress']"
             )
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
@@ -129,6 +135,7 @@ class _OutboxMixin:
                     if row is not None:
                         existing = dict(row)
                         if existing["status"] in _reclaimable:
+                            # Reclaim is safe under the new policy: effective_status is pending or in_progress.
                             # Re-claim: update status, worker, and lease
                             # so the pipeline always gets an in_progress
                             # row with a valid lease for finalization.

@@ -765,9 +765,13 @@ Receipt rows are append-only; the latest receipt for a delivery chain determines
 
 ### 9.3 Idempotent Create with Reclaim
 
-Creating an item with the same key tuple `(delivery_plan_id, target_adapter, target_channel, attempt_number)` when a non-terminal row already exists does **not** return the existing row unchanged. The existing row is **reclaimed**: its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. This ensures the caller always receives a properly-claimed operational row suitable for finalization.
+Creating an outbox item requires its initial status to be either `pending` (default durable work) or `in_progress` (pipeline claim path). All other statuses must be reached through the dedicated `mark_outbox_*` transition methods, never through `create_outbox_item()`.
 
-When the existing row is terminal, it is returned unchanged. Terminal rows are immutable for lifecycle purposes; a new delivery after terminal state MUST use a new attempt identity (new `delivery_plan_id` and/or new `attempt_number`) and a new outbox row.
+When creating an item with the same key tuple `(delivery_plan_id, target_adapter, target_channel, attempt_number)`:
+
+- **Existing row reclaimable** (`pending` or `retry_wait`): the existing row is **reclaimed** — its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. `next_attempt_at` is cleared. The caller always receives a properly-claimed operational row suitable for finalization.
+- **Existing row active** (`in_progress` or `queued`): the existing row is returned **unchanged**. Active work is never stolen by a concurrent creator.
+- **Existing row terminal** (`sent`, `dead_lettered`, `cancelled`, `abandoned`): the existing row is returned **unchanged**. Terminal rows are immutable for lifecycle purposes; a new delivery after terminal state MUST use a new attempt identity (new `delivery_plan_id` and/or new `attempt_number`) and a new outbox row.
 
 ### 9.4 Stale Queued Reclaim
 

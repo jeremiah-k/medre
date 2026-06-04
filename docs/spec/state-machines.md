@@ -206,6 +206,7 @@ The outbox state machine has eight statuses:
 
 | From          | To              | Method                        | Condition                                                                                               |
 | ------------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| —             | `pending`       | `create_outbox_item()`        | Default durable work creation                                                                           |
 | —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot                                                                           |
 | `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance                                                                          |
 | `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery                                                                  |
