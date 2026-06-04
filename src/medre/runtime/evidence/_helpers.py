@@ -40,6 +40,7 @@ _LIMITATIONS: list[str] = [
     "Storage section requires an existing initialised database",
     "Fake adapters report synthetic health, not real transport connectivity",
     "No sustained throughput, reconnection resilience, or load evidence",
+    "Global convergence queries are bounded at 10,000 receipts and 10,000 outbox rows per call",
 ]
 
 # ---------------------------------------------------------------------------

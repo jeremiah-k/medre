@@ -75,8 +75,8 @@ def _seed_db(
 
     async def _go() -> None:
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
             event = CanonicalEvent(
                 event_id=event_id,

@@ -570,8 +570,8 @@ class TestStorageOnlyOperationalEvidence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = make_storage_event(event_id="ev-integ-001")
             await storage.append(event)
 
@@ -604,8 +604,8 @@ class TestStorageOnlyOperationalEvidence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = make_storage_event(event_id="ev-integ-002")
             await storage.append(event)
 
@@ -975,8 +975,8 @@ class TestStorageSectionOutboxItems:
 
         db_path = str(tmp_path / "test_outbox.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = make_storage_event(event_id="evt-outbox-integ")
             await storage.append(event)
 
@@ -1172,8 +1172,8 @@ class TestStorageSectionLifecycleConvergence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = make_storage_event(event_id="ev-lc-001")
             await storage.append(event)
 
@@ -1212,8 +1212,8 @@ class TestStorageSectionLifecycleConvergence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = make_storage_event(event_id="ev-lc-clean")
             await storage.append(event)
 

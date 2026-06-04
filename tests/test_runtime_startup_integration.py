@@ -42,8 +42,8 @@ class TestStorageSchemaVersion:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Read the schema version directly.
             conn = sqlite3.connect(db_path)
             try:
@@ -65,16 +65,16 @@ class TestStorageSchemaVersion:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             pass  # Just verify init succeeds.
         finally:
             await storage.close()
 
         # Re-open — should succeed without error.
         storage2 = SQLiteStorage(db_path)
-        await storage2.initialize()
         try:
+            await storage2.initialize()
             pass  # Just verify re-init succeeds.
         finally:
             await storage2.close()
@@ -118,8 +118,8 @@ class TestStorageSchemaVersion:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             count = await storage.count_events()
             assert count == 0
         finally:

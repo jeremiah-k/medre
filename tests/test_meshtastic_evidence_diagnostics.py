@@ -227,9 +227,9 @@ class TestEvidenceBundleWithMeshtasticAdapter:
 
         db_path = str(tmp_path / "mesh_events.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
 
         try:
+            await storage.initialize()
             event = CanonicalEvent(
                 event_id="mesh-evt-001",
                 event_kind="message.created",

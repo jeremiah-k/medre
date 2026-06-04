@@ -20,6 +20,10 @@ from ._helpers import (
     _section_skipped,
 )
 
+# Default limit for global convergence queries.  Must match the storage
+# protocol defaults in backend.py (list_all_receipts, list_all_outbox_items).
+_GLOBAL_CONVERGENCE_LIMIT = 10_000
+
 # ---------------------------------------------------------------------------
 # Shared storage data collector
 # ---------------------------------------------------------------------------
@@ -387,23 +391,26 @@ async def _collect_storage_data_from_backend(
             # No event_id — produce a global convergence view across all
             # delivery targets.  The pure analysis functions are event-
             # agnostic; we just feed them the full dataset.
-            _GLOBAL_LIMIT = 10_000
-            all_receipts = await storage.list_all_receipts(limit=_GLOBAL_LIMIT)
-            all_outbox = await storage.list_all_outbox_items(limit=_GLOBAL_LIMIT)
+            all_receipts = await storage.list_all_receipts(
+                limit=_GLOBAL_CONVERGENCE_LIMIT
+            )
+            all_outbox = await storage.list_all_outbox_items(
+                limit=_GLOBAL_CONVERGENCE_LIMIT
+            )
 
             # Detect truncation: if either result set hit the query limit
             # the global view is partial and callers should be warned.
-            _truncated_receipts = len(all_receipts) >= _GLOBAL_LIMIT
-            _truncated_outbox = len(all_outbox) >= _GLOBAL_LIMIT
+            _truncated_receipts = len(all_receipts) >= _GLOBAL_CONVERGENCE_LIMIT
+            _truncated_outbox = len(all_outbox) >= _GLOBAL_CONVERGENCE_LIMIT
             if _truncated_receipts or _truncated_outbox:
                 _truncated_parts: list[str] = []
                 if _truncated_receipts:
                     _truncated_parts.append(
-                        f"receipts ({len(all_receipts)} >= {_GLOBAL_LIMIT})"
+                        f"receipts ({len(all_receipts)} >= {_GLOBAL_CONVERGENCE_LIMIT})"
                     )
                 if _truncated_outbox:
                     _truncated_parts.append(
-                        f"outbox items ({len(all_outbox)} >= {_GLOBAL_LIMIT})"
+                        f"outbox items ({len(all_outbox)} >= {_GLOBAL_CONVERGENCE_LIMIT})"
                     )
                 _truncation_warning = (
                     "Global convergence data may be incomplete — "

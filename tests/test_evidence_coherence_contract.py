@@ -520,8 +520,8 @@ class TestTopLevelConvergenceFieldsPopulated:
         # collect the bundle with event_id.
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Insert a minimal event and outbox item so convergence has data.
             from datetime import datetime, timezone
 
@@ -616,8 +616,8 @@ class TestTopLevelConvergenceFieldsPopulated:
 
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
-        await storage.initialize()
         try:
+            await storage.initialize()
             from datetime import datetime, timezone
 
             from medre.core.events.metadata import EventMetadata
@@ -692,8 +692,8 @@ class TestTopLevelConvergenceFieldsPopulated:
 
         db = tmp_path / "state.sqlite"
         storage = SQLiteStorage(db_path=str(db))
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Insert a minimal event + outbox + receipt so convergence has data.
             from datetime import datetime, timezone
 
@@ -883,6 +883,59 @@ class TestGlobalConvergenceTruncation:
         assert result["data"] is not None
         assert "convergence_truncated_warning" in result["data"]
         assert "receipts" in result["data"]["convergence_truncated_warning"]
+
+    @pytest.mark.asyncio
+    async def test_truncation_warning_when_both_hit_cap(self) -> None:
+        """When receipts AND outbox both hit 10k the warning mentions both."""
+        from unittest.mock import AsyncMock
+
+        from medre.runtime.evidence._storage_sections import (
+            _collect_storage_data_from_backend,
+        )
+
+        storage = AsyncMock()
+        storage.count_events = AsyncMock(return_value=1)
+        storage.count_receipts = AsyncMock(return_value=10_000)
+
+        def _make_receipt_mock(index: int) -> AsyncMock:
+            rcpt = AsyncMock()
+            rcpt.receipt_id = f"rcpt_both_{index:05d}"
+            rcpt.event_id = f"evt_{index % 100}"
+            rcpt.delivery_plan_id = f"plan_{index:05d}"
+            rcpt.target_adapter = "radio"
+            rcpt.target_channel = f"ch_{index % 10}"
+            rcpt.status = "sent"
+            rcpt.attempt_number = 1
+            return rcpt
+
+        storage.list_all_receipts = AsyncMock(
+            return_value=[_make_receipt_mock(i) for i in range(10_000)]
+        )
+
+        def _make_outbox_mock(index: int) -> AsyncMock:
+            outbox = AsyncMock()
+            outbox.outbox_id = f"obx_both_{index:05d}"
+            outbox.event_id = f"evt_{index % 100}"
+            outbox.route_id = "route_1"
+            outbox.delivery_plan_id = f"plan_{index:05d}"
+            outbox.target_adapter = "radio"
+            outbox.target_channel = f"ch_{index % 10}"
+            outbox.status = "pending"
+            outbox.attempt_number = 1
+            return outbox
+
+        storage.list_all_outbox_items = AsyncMock(
+            return_value=[_make_outbox_mock(i) for i in range(10_000)]
+        )
+
+        result = await _collect_storage_data_from_backend(
+            storage, db_path="/test.db", event_id=None, replay_run_id=None
+        )
+        assert result["status"] == "partial"
+        assert result["data"] is not None
+        warning = result["data"]["convergence_truncated_warning"]
+        assert "receipts" in warning
+        assert "outbox items" in warning
 
     @pytest.mark.asyncio
     async def test_no_warning_for_small_dataset(self) -> None:

@@ -49,8 +49,8 @@ def _seed_inspect_db(
 
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = CanonicalEvent(
                 event_id=event_id,
                 event_kind="message.created",

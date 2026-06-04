@@ -274,8 +274,8 @@ async def test_replay_live_interleaving_stable() -> None:
         db_path = f.name
     try:
         temp_storage = SQLiteStorage(db_path=db_path)
-        await temp_storage.initialize()
         try:
+            await temp_storage.initialize()
             event_id = "evt-interleave-001"
             event = _make_event(event_id)
             await temp_storage.append(event)

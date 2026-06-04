@@ -78,8 +78,8 @@ class TestAlphaReplayDryRunCLI:
 
         async def _check() -> None:
             storage = SQLiteStorage(db_path=str(db_path))
-            await storage.initialize()
             try:
+                await storage.initialize()
                 receipts = await storage.list_receipts_for_event(event_id)
                 replay_receipts = [r for r in receipts if r.source == "replay"]
                 assert len(replay_receipts) == 0, (
@@ -149,8 +149,8 @@ class TestAlphaReplayBestEffortCLI:
 
         async def _check() -> None:
             storage = SQLiteStorage(db_path=str(db_path))
-            await storage.initialize()
             try:
+                await storage.initialize()
                 receipts = await storage.list_receipts_for_event(event_id)
                 replay_receipts = [r for r in receipts if r.source == "replay"]
                 assert (

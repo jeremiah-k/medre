@@ -144,16 +144,16 @@ class TestCrossReferenceInvariants:
             db = f.name
         try:
             s = SQLiteStorage(db_path=db)
-            await s.initialize()
             try:
+                await s.initialize()
                 for i in range(4):
                     await s.append(_evt(eid=f"or-evt-{i}"))
                     await s.append_receipt(_rcpt(f"or-rcpt-{i}", f"or-evt-{i}"))
             finally:
                 await s.close()
             s2 = SQLiteStorage(db_path=db)
-            await s2.initialize()
             try:
+                await s2.initialize()
                 eids = await _all_eids(s2)
                 for row in await _all_rcpts(s2):
                     assert row["event_id"] in eids
@@ -167,16 +167,16 @@ class TestCrossReferenceInvariants:
             db = f.name
         try:
             s = SQLiteStorage(db_path=db)
-            await s.initialize()
             try:
+                await s.initialize()
                 for i in range(3):
                     await s.append(_evt(eid=f"onr-evt-{i}"))
                     await s.store_native_ref(_nref(f"onr-{i}", f"onr-evt-{i}"))
             finally:
                 await s.close()
             s2 = SQLiteStorage(db_path=db)
-            await s2.initialize()
             try:
+                await s2.initialize()
                 eids = await _all_eids(s2)
                 for row in await _all_nrefs(s2):
                     assert row["event_id"] in eids
@@ -295,8 +295,8 @@ class TestOrderingInvariants:
             db = f.name
         try:
             s = SQLiteStorage(db_path=db)
-            await s.initialize()
             try:
+                await s.initialize()
                 for i in range(6):
                     await s.append(_evt(eid=f"ord-evt-{i}"))
                     await s.append_receipt(_rcpt(f"ord-rcpt-{i}", f"ord-evt-{i}"))
@@ -304,8 +304,8 @@ class TestOrderingInvariants:
             finally:
                 await s.close()
             s2 = SQLiteStorage(db_path=db)
-            await s2.initialize()
             try:
+                await s2.initialize()
                 order2 = [r["receipt_id"] for r in await _all_rcpts(s2)]
             finally:
                 await s2.close()
@@ -492,8 +492,8 @@ class TestReplayLineageInvariants:
             db = f.name
         try:
             s = SQLiteStorage(db_path=db)
-            await s.initialize()
             try:
+                await s.initialize()
                 for i in range(3):
                     await s.append(_evt(eid=f"srv-evt-{i}"))
                     await s.append_receipt(
@@ -507,8 +507,8 @@ class TestReplayLineageInvariants:
             finally:
                 await s.close()
             s2 = SQLiteStorage(db_path=db)
-            await s2.initialize()
             try:
+                await s2.initialize()
                 rcpts = await s2.list_receipts_by_replay_run("run-srv")
                 assert len(rcpts) == 3
                 for r in rcpts:

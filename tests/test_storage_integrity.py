@@ -178,6 +178,32 @@ class TestSchemaShapeValidation:
                         parent_receipt_id TEXT,
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS delivery_outbox (
+                        outbox_id TEXT PRIMARY KEY,
+                        event_id TEXT NOT NULL,
+                        route_id TEXT NOT NULL DEFAULT '',
+                        delivery_plan_id TEXT NOT NULL,
+                        target_adapter TEXT NOT NULL,
+                        target_channel TEXT,
+                        target_address TEXT,
+                        attempt_number INTEGER NOT NULL DEFAULT 1,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        failure_kind TEXT,
+                        failure_kind_detail TEXT,
+                        next_attempt_at TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_attempt_at TEXT,
+                        locked_at TEXT,
+                        lease_until TEXT,
+                        worker_id TEXT,
+                        payload_hash TEXT,
+                        receipt_id TEXT,
+                        parent_receipt_id TEXT,
+                        error_summary TEXT,
+                        metadata TEXT NOT NULL DEFAULT '{}',
+                        UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
+                    );
                     CREATE TABLE IF NOT EXISTS plugin_state (
                         plugin_id TEXT NOT NULL,
                         key TEXT NOT NULL,
@@ -275,6 +301,32 @@ class TestSchemaShapeValidation:
                         attempt_number INTEGER NOT NULL DEFAULT 1,
                         parent_receipt_id TEXT,
                         created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS delivery_outbox (
+                        outbox_id TEXT PRIMARY KEY,
+                        event_id TEXT NOT NULL,
+                        route_id TEXT NOT NULL DEFAULT '',
+                        delivery_plan_id TEXT NOT NULL,
+                        target_adapter TEXT NOT NULL,
+                        target_channel TEXT,
+                        target_address TEXT,
+                        attempt_number INTEGER NOT NULL DEFAULT 1,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        failure_kind TEXT,
+                        failure_kind_detail TEXT,
+                        next_attempt_at TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_attempt_at TEXT,
+                        locked_at TEXT,
+                        lease_until TEXT,
+                        worker_id TEXT,
+                        payload_hash TEXT,
+                        receipt_id TEXT,
+                        parent_receipt_id TEXT,
+                        error_summary TEXT,
+                        metadata TEXT NOT NULL DEFAULT '{}',
+                        UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
                     );
                     CREATE TABLE IF NOT EXISTS plugin_state (
                         plugin_id TEXT NOT NULL,

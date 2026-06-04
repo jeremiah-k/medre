@@ -95,16 +95,18 @@ async def _collect_recovery_section(
         # Query all outbox items for recovery analysis using pagination
         # to avoid truncation on large databases.
         all_items: list[Any] = []
-        _page_size = 1000
+        _RECOVERY_PAGE_SIZE = 1_000
         _offset = 0
         while True:
-            page = await storage.list_all_outbox_items(limit=_page_size, offset=_offset)
+            page = await storage.list_all_outbox_items(
+                limit=_RECOVERY_PAGE_SIZE, offset=_offset
+            )
             if not page:
                 break
             all_items.extend(page)
-            if len(page) < _page_size:
+            if len(page) < _RECOVERY_PAGE_SIZE:
                 break
-            _offset += _page_size
+            _offset += _RECOVERY_PAGE_SIZE
 
         # Generate collection-scoped recovery_run_id.
         collection_ts = datetime.now(timezone.utc)

@@ -107,8 +107,8 @@ class TestAlphaSmokeInspectTrace:
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event_id = smoke_report["event_id"]
             receipts = await storage.list_receipts_for_event(event_id)
             assert len(receipts) >= 1
@@ -129,8 +129,8 @@ class TestAlphaSmokeInspectTrace:
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event_id = smoke_report["event_id"]
             timeline = await assemble_event_timeline(storage, event_id)
             assert timeline is not None
@@ -151,8 +151,8 @@ class TestAlphaSmokeInspectTrace:
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         storage = SQLiteStorage(db_path=storage_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             summary = await assemble_storage_summary(storage)
             assert summary["event_count"] >= 1
             assert summary["receipt_count"] >= 1

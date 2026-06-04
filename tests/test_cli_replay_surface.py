@@ -318,8 +318,8 @@ class TestCLIReplayBestEffortJSON:
         # Verify replay receipts in storage directly.
         async def _check() -> None:
             storage = SQLiteStorage(db_path=str(db_path))
-            await storage.initialize()
             try:
+                await storage.initialize()
                 receipts = await storage.list_receipts_for_event(event_id)
                 replay_receipts = [r for r in receipts if r.source == "replay"]
                 assert len(replay_receipts) >= 1, (
@@ -699,8 +699,8 @@ class TestCLIReplayBestEffortReceiptEvidence:
 
         async def _check() -> None:
             storage = SQLiteStorage(db_path=str(db_path))
-            await storage.initialize()
             try:
+                await storage.initialize()
                 receipts = await storage.list_receipts_for_event(event_id)
                 replay_receipts = [r for r in receipts if r.source == "replay"]
                 assert len(replay_receipts) >= 1
@@ -748,8 +748,8 @@ class TestCLIReplayBestEffortReceiptEvidence:
 
         async def _check() -> None:
             storage = SQLiteStorage(db_path=str(db_path))
-            await storage.initialize()
             try:
+                await storage.initialize()
                 receipts = await storage.list_receipts_for_event(event_id)
                 replay_receipts = [r for r in receipts if r.source == "replay"]
                 assert len(replay_receipts) >= 1

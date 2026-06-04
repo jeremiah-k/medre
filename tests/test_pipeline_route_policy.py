@@ -809,8 +809,8 @@ class TestPolicyDenialReasonInTrace:
 
         # Re-open storage to read receipts for trace assembly.
         storage2 = SQLiteStorage(db_path)
-        await storage2.initialize()
         try:
+            await storage2.initialize()
             stored_event = await storage2.get("denial-trace-001")
             assert stored_event is not None
 

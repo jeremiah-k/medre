@@ -59,8 +59,8 @@ def _make_bridge_route() -> Route:
 @asynccontextmanager
 async def _open_storage() -> AsyncGenerator[SQLiteStorage, None]:
     storage = SQLiteStorage(":memory:")
-    await storage.initialize()
     try:
+        await storage.initialize()
         yield storage
     finally:
         await storage.close()

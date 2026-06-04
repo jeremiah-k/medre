@@ -441,8 +441,8 @@ class TestRuntimeStoragePathTier:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             event = CanonicalEvent(
                 event_id="ev-tier-test-001",
                 event_kind=EventKind.MESSAGE_TEXT,

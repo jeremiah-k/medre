@@ -79,8 +79,8 @@ class TestExecutorLifecycle:
     async def test_executor_created_lazily_on_sync_path(self, tmp_path: Path) -> None:
         """Executor is created on first _run_in_thread (sync fallback path)."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
         try:
+            await s.initialize()
             # If _use_aiosqlite is False, executor should have been created.
             if not s._use_aiosqlite:
                 assert s._executor is not None
@@ -99,8 +99,8 @@ class TestExecutorLifecycle:
     async def test_close_sets_executor_none(self, tmp_path: Path) -> None:
         """close() must set _executor to None and _closed to True."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
         try:
+            await s.initialize()
             assert s._closed is False
         finally:
             await s.close()
@@ -110,8 +110,8 @@ class TestExecutorLifecycle:
     async def test_close_is_idempotent_repeated(self, tmp_path: Path) -> None:
         """Calling close() many times is safe — no errors, no state drift."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
         try:
+            await s.initialize()
             pass  # No assertion before close — just test idempotency.
         finally:
             for _ in range(5):
@@ -123,8 +123,8 @@ class TestExecutorLifecycle:
     async def test_executor_cleared_after_close(self, tmp_path: Path) -> None:
         """close() must clear _executor after full shutdown (wait=True via asyncio.to_thread)."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
         try:
+            await s.initialize()
             # Executor is created lazily — verify it exists on sync path.
             if not s._use_aiosqlite:
                 # Force executor creation by submitting a task.
@@ -137,8 +137,8 @@ class TestExecutorLifecycle:
     async def test_closed_flag_set_before_db_operations(self, tmp_path: Path) -> None:
         """_closed must be True *before* the DB close() runs."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
         try:
+            await s.initialize()
             if not s._use_aiosqlite:
                 closed_during_close = False
                 real_db = s._db

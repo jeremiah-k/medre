@@ -176,8 +176,8 @@ class TestDrainAbandonedEvidencePersistence:
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         verify_storage = SQLiteStorage(db_path)
-        await verify_storage.initialize()
         try:
+            await verify_storage.initialize()
             receipts = await verify_storage.list_receipts_for_event(event.event_id)
             assert len(receipts) >= 1, (
                 f"Expected at least 1 receipt for {event.event_id}, "
@@ -288,8 +288,8 @@ class TestDrainAbandonedEvidencePersistence:
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         verify_storage = SQLiteStorage(db_path)
-        await verify_storage.initialize()
         try:
+            await verify_storage.initialize()
             receipts = await verify_storage.list_receipts_for_event(event.event_id)
             assert len(receipts) >= 1
 

@@ -100,8 +100,8 @@ def _make_receipt(
 async def _open_storage(db_path: str) -> AsyncGenerator[SQLiteStorage, None]:
     """Create, initialize, and yield a SQLiteStorage; close on cleanup."""
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         yield storage
     finally:
         await storage.close()
@@ -368,8 +368,8 @@ class TestCloseLifecycleSafety:
             await storage.close()
 
         # Reinitialize the same storage instance.
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Data from before close is still there.
             assert await storage.count_events() == 1
             retrieved = await storage.get("evt-before")
@@ -681,16 +681,16 @@ class TestProcessLocalVsDurableSemantics:
     async def test_memory_db_is_process_local(self) -> None:
         """In-memory DB data does not survive new instance (process-local)."""
         s1 = SQLiteStorage(":memory:")
-        await s1.initialize()
         try:
+            await s1.initialize()
             await s1.append(_make_event(event_id="evt-mem"))
             assert await s1.count_events() == 1
         finally:
             await s1.close()
 
         s2 = SQLiteStorage(":memory:")
-        await s2.initialize()
         try:
+            await s2.initialize()
             assert await s2.count_events() == 0
         finally:
             await s2.close()

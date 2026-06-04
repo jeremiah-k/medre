@@ -111,8 +111,8 @@ def _seed_db(db_path: str) -> str:
 
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
         try:
+            await storage.initialize()
             await storage.append(_make_event())
             await storage.append_receipt(_make_receipt())
             await storage.store_native_ref(_make_native_ref())
