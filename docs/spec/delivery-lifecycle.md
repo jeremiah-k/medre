@@ -25,28 +25,28 @@ decisions made by higher layers.
 
 ### 1.1 Authority Stack (highest to lowest)
 
-| Priority | Layer                                         | Role                                                                                                  |
-| -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1        | `delivery_state.py`                           | Internal code source. Defines closed status vocabularies, transition tables, and classification sets. |
-| 2        | [state-machines.md](state-machines.md)        | Normative machine specification. Human-readable rendering of receipt and outbox state machines.       |
-| 3        | `delivery_receipts` table (SQLite)            | Append-only evidence trail. Immutable after creation. Authoritative record of what happened.          |
-| 4        | `delivery_outbox` table (SQLite)              | Mutable operational state. Tracks current work. Secondary to receipts for audit.                      |
-| 5        | Adapters                                      | Fact emitters. Report delivery outcomes to the pipeline. They do not own lifecycle state.             |
-| 6        | Projections, convergence diagnostics, reports | Derived views. Read-only computations over receipts and outbox. They do not define state.             |
+| Role | Layer                                         | Responsibility                                                                                                  |
+| ---- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Internal code source | `delivery_state.py`                           | Defines closed status vocabularies, transition tables, classification sets. Executable authority for what the runtime uses at runtime. |
+| Normative spec | [state-machines.md](state-machines.md)        | Human-readable normative specification of receipt and outbox state machines. Authoritative for understanding machine behavior and invariants.       |
+| —      | `delivery_receipts` table (SQLite)            | Append-only evidence trail. Immutable after creation. Authoritative record of what happened.          |
+| —      | `delivery_outbox` table (SQLite)              | Mutable operational state. Tracks current work. Secondary to receipts for audit.                      |
+| —      | Adapters                                      | Fact emitters. Report delivery outcomes to the pipeline. They do not own lifecycle state.             |
+| —      | Projections, convergence diagnostics, reports | Derived views. Read-only computations over receipts and outbox. They do not define state.             |
 
 ### 1.2 Authority Rules
 
-1. `delivery_state.py` is the single internal code source for status vocabularies,
-   terminal sets, claimable sets, accepted-outcome sets, and observed transition
-   tables. No other module defines status strings independently.
+1. `delivery_state.py` is the internal executable source for closed status vocabularies,
+   terminal/claimable/accepted classification sets, and observed transition
+   tables. No other module defines status strings independently. The runtime reads these
+   constants at startup and enforces them at runtime.
 2. [state-machines.md](state-machines.md) is the normative human-readable
-   specification of the receipt and outbox state machines. When code and spec
-   conflict, [state-machines.md](state-machines.md) takes precedence.
+   specification of the receipt and outbox state machines. When `delivery_state.py` and
+   [state-machines.md](state-machines.md) conflict, that is a defect requiring
+   reconciliation of both sources in the same change. Neither silently overrides the other.
 3. The `delivery_receipts` table is the authoritative evidence trail. No
    component MAY rewrite, update, or delete a receipt row after creation.
-4. The `delivery_outbox` table is mutable operational state. Outbox rows MAY be
-   transitioned, reclaimed, or replaced for terminal statuses. Outbox state is
-   secondary to receipt evidence for audit purposes.
+4. The `delivery_outbox` table is mutable operational state for non-terminal rows. Terminal outbox rows (`sent`, `dead_lettered`, `cancelled`, `abandoned`) MUST NOT be transitioned or reclaimed. If future work needs another delivery after a terminal state, it must create new evidence / a new attempt / a new outbox row — it MUST NOT mutate the terminal row.
 5. Adapters emit facts (`sent`, `enqueued`, errors). They do not own lifecycle
    state and MUST NOT be treated as lifecycle authorities.
 6. Projections, views, convergence diagnostics, and report dicts are derived.
@@ -93,11 +93,16 @@ time. They do not introduce new states:
 
 ### 2.3 Closure Constraint
 
-No MEDRE component MAY define, produce, or consume a status string that does
-not appear in one of the authoritative vocabularies in §2.1. If a status is
-needed that does not exist in the current vocabularies, it MUST be added to
-`delivery_state.py` first, then reflected in
-[state-machines.md](state-machines.md), and then surfaced in consuming code.
+No MEDRE component responsible for delivery lifecycle state transitions MAY define, produce, or consume a **delivery lifecycle status string** that does not appear in one of the authoritative vocabularies in §2.1. The authoritative delivery lifecycle statuses are:
+
+- receipt statuses
+- outbox statuses
+- outcome statuses
+- adapter `delivery_status` values
+
+Derived/report/operator vocabularies (such as convergence severity, health status, operator status, retry_state display labels, report enrichment fields, and recovery ownership classifications) are allowed when they are documented as non-authoritative and MUST NOT be used to drive lifecycle state transitions.
+
+If a new delivery lifecycle status is needed, it MUST be added to `delivery_state.py` first, then reflected in [state-machines.md](state-machines.md), and then surfaced in consuming code.
 
 ---
 
@@ -143,7 +148,7 @@ operator inspection. See [state-machines.md](state-machines.md) §1.4.
 Outbox rows are mutable operational state. They track current work in progress
 and MAY be transitioned through the statuses defined in
 [state-machines.md](state-machines.md) §2. Outbox rows in terminal statuses
-MAY be reclaimed or replaced. The `delivery_receipts` table preserves the full
+MUST NOT be transitioned or reclaimed; they are immutable for lifecycle purposes. The `delivery_receipts` table preserves the full
 evidence trail independently of outbox lifecycle. See
 [state-machines.md](state-machines.md) §2.4.
 
@@ -270,9 +275,9 @@ MUST NOT be presented as proof of delivery. See
 
 ## 8. Cross-Reference Index
 
-This document normatively references the following specifications. When their
-content conflicts with this document, the referenced specification takes
-precedence for its own domain.
+This document normatively references the following specifications. Conflicts
+between this document and any referenced specification are defects requiring
+reconciliation in the same change. Neither document silently overrides the other.
 
 | Document                                           | Domain                                                                                       |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |

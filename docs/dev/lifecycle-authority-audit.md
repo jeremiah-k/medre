@@ -93,47 +93,16 @@ The pipeline maps adapter `delivery_status` to receipt status: `"sent"` maps to 
 
 When adding new adapter-level status evidence fields, name them `adapter_status` or `adapter_*` to keep the namespace clear. Do not introduce `delivery_status` in metadata dicts or evidence bundles as a synonym for receipt status.
 
-## Tests to Run
+## Related Validation Surfaces
 
-Run these before and after any lifecycle vocabulary change:
+When auditing or modifying lifecycle vocabulary, these files are the most relevant validation surfaces:
 
-```bash
-# Core vocabulary and transition tests
-pytest tests/test_delivery_state.py -v
-
-# Lifecycle conformance
-pytest tests/conformance/test_delivery_lifecycle_conformance.py -v
-
-# Storage receipt and delivery_status projection
-pytest tests/test_storage_receipts.py tests/test_storage_receipt_delivery.py -v
-
-# Recovery conformance
-pytest tests/conformance/test_recovery_conformance.py -v
-
-# Adapter status evidence
-pytest tests/test_adapter_status_evidence.py -v
-
-# Retry worker and outbox lifecycle
-pytest tests/test_retry_worker_outcomes.py tests/test_retry_outbox.py -v
-
-# End-to-end delivery lifecycle
-pytest tests/test_end_to_end.py -v
-
-# Lifecycle-specific tests
-pytest tests/lifecycle/ -v
-
-# Documentation lifecycle authority audit tests
-pytest tests/test_docs_lifecycle_authority.py -v
-
-# Capability conformance
-pytest tests/test_capability_conformance.py -v
-```
-
-Quick smoke test for vocabulary consistency:
-
-```bash
-pytest tests/test_delivery_state.py tests/test_docs_lifecycle_authority.py -v --tb=short
-```
+- `tests/test_delivery_state.py` — vocabulary frozensets, classification sets, transition tables
+- `tests/test_docs_lifecycle_authority.py` — docs/code vocabulary alignment, adapter metadata naming
+- `tests/conformance/test_delivery_lifecycle_conformance.py` — delivery lifecycle contract behavior
+- `tests/conformance/test_recovery_conformance.py` — recovery classification and ownership
+- `tests/test_storage_receipts.py` and split outbox test files — receipt/outbox storage behavior
+- Adapter parity tests — adapter `delivery_status` and metadata key naming
 
 ## Deferred Refactors
 
