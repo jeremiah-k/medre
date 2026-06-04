@@ -1296,7 +1296,7 @@ class TestUnknownReceiptStatusRejected:
             status="totally_invalid",  # type: ignore[arg-type]
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Unknown receipt status"):
             await temp_storage.append_receipt(receipt)
 
         # Count receipts after — must be unchanged.
