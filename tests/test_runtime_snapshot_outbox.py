@@ -88,8 +88,8 @@ class TestStorageBackedOutboxRefresh:
 
         db_path = tmp_path / "test_refresh.db"
         storage = SQLiteStorage(str(db_path))
-        await storage.initialize()
         try:
+            await storage.initialize()
             for i in range(3):
                 await storage.create_outbox_item(
                     DeliveryOutboxItem(
@@ -138,8 +138,8 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
         # Real storage with outbox rows.
         db_path = tmp_path / "test_authority.db"
         storage = SQLiteStorage(str(db_path))
-        await storage.initialize()
         try:
+            await storage.initialize()
             for i in range(5):
                 await storage.create_outbox_item(
                     DeliveryOutboxItem(

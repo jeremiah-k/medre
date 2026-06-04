@@ -17,6 +17,8 @@ No source modifications — these tests verify existing guarantees.
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, cast
@@ -94,8 +96,23 @@ def _make_receipt(
     )
 
 
+@asynccontextmanager
+async def _open_storage(db_path: str) -> AsyncGenerator[SQLiteStorage, None]:
+    """Create, initialize, and yield a SQLiteStorage; close on cleanup."""
+    storage = SQLiteStorage(db_path)
+    try:
+        await storage.initialize()
+        yield storage
+    finally:
+        await storage.close()
+
+
 async def _create_storage(db_path: str) -> SQLiteStorage:
-    """Create and initialize a SQLiteStorage at the given path."""
+    """Create and initialize a SQLiteStorage at the given path.
+
+    Prefer ``_open_storage`` for exception-safe cleanup; this helper is
+    retained only for call sites that need the bare instance.
+    """
     storage = SQLiteStorage(db_path)
     await storage.initialize()
     return storage
@@ -114,95 +131,87 @@ class TestRepeatedOpenCloseLifecycle:
         db_path = str(tmp_path / "lifecycle.db")
 
         for cycle in range(3):
-            storage = await _create_storage(db_path)
-            evt = _make_event(event_id=f"evt-cycle-{cycle}")
-            await storage.append(evt)
-            assert await storage.count_events() == cycle + 1
-            await storage.close()
+            async with _open_storage(db_path) as storage:
+                evt = _make_event(event_id=f"evt-cycle-{cycle}")
+                await storage.append(evt)
+                assert await storage.count_events() == cycle + 1
 
         # Verify cumulative total after all cycles.
-        storage = await _create_storage(db_path)
-        assert await storage.count_events() == 3
-        for i in range(3):
-            retrieved = await storage.get(f"evt-cycle-{i}")
-            assert retrieved is not None
-        await storage.close()
+        async with _open_storage(db_path) as storage:
+            assert await storage.count_events() == 3
+            for i in range(3):
+                retrieved = await storage.get(f"evt-cycle-{i}")
+                assert retrieved is not None
 
     async def test_native_refs_persist_across_reopen(self, tmp_path: Path) -> None:
         """Native refs from earlier sessions remain resolvable after reopen."""
         db_path = str(tmp_path / "nref_lifecycle.db")
 
         # Cycle 1: store event + native ref.
-        s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-nref-1"))
-        ref = NativeMessageRef(
-            id="nref-1",
-            event_id="evt-nref-1",
-            adapter="adapter_a",
-            native_channel_id="ch-1",
-            native_message_id="msg-1",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="inbound",
-        )
-        await s1.store_native_ref(ref)
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1.append(_make_event(event_id="evt-nref-1"))
+            ref = NativeMessageRef(
+                id="nref-1",
+                event_id="evt-nref-1",
+                adapter="adapter_a",
+                native_channel_id="ch-1",
+                native_message_id="msg-1",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+            )
+            await s1.store_native_ref(ref)
 
         # Cycle 2: verify + add another ref.
-        s2 = await _create_storage(db_path)
-        resolved = await s2.resolve_native_ref("adapter_a", "ch-1", "msg-1")
-        assert resolved == "evt-nref-1"
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            resolved = await s2.resolve_native_ref("adapter_a", "ch-1", "msg-1")
+            assert resolved == "evt-nref-1"
 
     async def test_receipts_accumulate_across_reopen(self, tmp_path: Path) -> None:
         """Receipts from earlier sessions are still readable after reopen."""
         db_path = str(tmp_path / "rcpt_lifecycle.db")
 
         # Cycle 1: event + receipt.
-        s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-rcpt-1"))
-        await s1.append_receipt(
-            _make_receipt(receipt_id="rcpt-1", event_id="evt-rcpt-1")
-        )
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1.append(_make_event(event_id="evt-rcpt-1"))
+            await s1.append_receipt(
+                _make_receipt(receipt_id="rcpt-1", event_id="evt-rcpt-1")
+            )
 
         # Cycle 2: add another receipt for the same plan.
-        s2 = await _create_storage(db_path)
-        await s2.append_receipt(
-            _make_receipt(
-                receipt_id="rcpt-2",
-                event_id="evt-rcpt-1",
-                status="sent",
-                attempt_number=2,
-                delivery_plan_id="plan-1",
+        async with _open_storage(db_path) as s2:
+            await s2.append_receipt(
+                _make_receipt(
+                    receipt_id="rcpt-2",
+                    event_id="evt-rcpt-1",
+                    status="sent",
+                    attempt_number=2,
+                    delivery_plan_id="plan-1",
+                )
             )
-        )
-        status = await s2.delivery_status("plan-1", "adapter_x")
-        assert status is not None
-        assert status.receipt_id == "rcpt-2"
-        await s2.close()
+            status = await s2.delivery_status("plan-1", "adapter_x")
+            assert status is not None
+            assert status.receipt_id == "rcpt-2"
 
     async def test_relations_persist_across_reopen(self, tmp_path: Path) -> None:
         """Relations stored in one session survive close and reopen."""
         db_path = str(tmp_path / "rel_lifecycle.db")
 
-        s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-rel-1"))
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="target-1",
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        )
-        await s1.store_relation("evt-rel-1", rel)
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1.append(_make_event(event_id="evt-rel-1"))
+            rel = EventRelation(
+                relation_type="reply",
+                target_event_id="target-1",
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            )
+            await s1.store_relation("evt-rel-1", rel)
 
-        s2 = await _create_storage(db_path)
-        rels = await s2.list_relations("evt-rel-1")
-        assert len(rels) == 1
-        assert rels[0].relation_type == "reply"
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            rels = await s2.list_relations("evt-rel-1")
+            assert len(rels) == 1
+            assert rels[0].relation_type == "reply"
 
 
 # ===================================================================
@@ -216,39 +225,30 @@ class TestWALModeAndJournalSemantics:
     async def test_wal_mode_enabled_after_init(self, tmp_path: Path) -> None:
         """After initialize(), PRAGMA journal_mode returns 'wal'."""
         db_path = str(tmp_path / "wal_test.db")
-        storage = await _create_storage(db_path)
-        try:
+        async with _open_storage(db_path) as storage:
             row = await storage._read_one("PRAGMA journal_mode")
             assert row is not None
             assert row[list(row.keys())[0]] == "wal"
-        finally:
-            await storage.close()
 
     async def test_wal_mode_persists_across_reopen(self, tmp_path: Path) -> None:
         """WAL mode is preserved when the database is reopened."""
         db_path = str(tmp_path / "wal_persist.db")
-        s1 = await _create_storage(db_path)
-        await s1.close()
+        async with _open_storage(db_path):
+            pass
 
-        s2 = await _create_storage(db_path)
-        try:
+        async with _open_storage(db_path) as s2:
             row = await s2._read_one("PRAGMA journal_mode")
             assert row is not None
             assert row[list(row.keys())[0]] == "wal"
-        finally:
-            await s2.close()
 
     async def test_wal_mode_file_db_not_memory(self, tmp_path: Path) -> None:
         """File-based DB uses WAL; memory DB may not (and that is fine)."""
         db_path = str(tmp_path / "wal_file.db")
-        file_storage = await _create_storage(db_path)
-        try:
+        async with _open_storage(db_path) as file_storage:
             row = await file_storage._read_one("PRAGMA journal_mode")
             assert row is not None
             mode = row[list(row.keys())[0]]
             assert mode == "wal"
-        finally:
-            await file_storage.close()
 
 
 # ===================================================================
@@ -262,54 +262,57 @@ class TestSchemaVersionLifecycle:
     async def test_fresh_db_stamps_schema_version(self, tmp_path: Path) -> None:
         """A new database gets the current schema version stamped."""
         db_path = str(tmp_path / "schema_fresh.db")
-        storage = await _create_storage(db_path)
-        try:
+        async with _open_storage(db_path) as storage:
             row = await storage._read_one(
                 "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
             )
             assert row is not None
             assert row["value"] == "1"
-        finally:
-            await storage.close()
 
     async def test_schema_version_preserved_across_reopen(self, tmp_path: Path) -> None:
         """Schema version survives close and reopen without error."""
         db_path = str(tmp_path / "schema_reopen.db")
-        s1 = await _create_storage(db_path)
-        await s1.close()
+        async with _open_storage(db_path):
+            pass
 
         # Reopen should succeed — version matches.
-        s2 = await _create_storage(db_path)
-        await s2.close()
+        async with _open_storage(db_path):
+            pass
 
     async def test_schema_version_mismatch_raises(self, tmp_path: Path) -> None:
         """A mismatched schema version raises StorageInitializationError."""
         db_path = str(tmp_path / "schema_mismatch.db")
 
         # Initialize and manually corrupt the version.
-        s1 = await _create_storage(db_path)
-        await s1._write(
-            "UPDATE _medre_schema_meta SET value = '99' WHERE key = 'schema_version'"
-        )
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1._write(
+                "UPDATE _medre_schema_meta SET value = '99' WHERE key = 'schema_version'"
+            )
 
         s2 = SQLiteStorage(db_path)
-        with pytest.raises(StorageInitializationError, match="schema version mismatch"):
-            await s2.initialize()
+        try:
+            with pytest.raises(
+                StorageInitializationError, match="schema version mismatch"
+            ):
+                await s2.initialize()
+        finally:
+            await s2.close()
 
     async def test_schema_version_non_integer_raises(self, tmp_path: Path) -> None:
         """A non-integer schema version raises StorageInitializationError."""
         db_path = str(tmp_path / "schema_garbage.db")
 
-        s1 = await _create_storage(db_path)
-        await s1._write(
-            "UPDATE _medre_schema_meta SET value = 'not_a_number' WHERE key = 'schema_version'"
-        )
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1._write(
+                "UPDATE _medre_schema_meta SET value = 'not_a_number' WHERE key = 'schema_version'"
+            )
 
         s2 = SQLiteStorage(db_path)
-        with pytest.raises(StorageInitializationError, match="not an integer"):
-            await s2.initialize()
+        try:
+            with pytest.raises(StorageInitializationError, match="not an integer"):
+                await s2.initialize()
+        finally:
+            await s2.close()
 
 
 # ===================================================================
@@ -324,7 +327,10 @@ class TestCloseLifecycleSafety:
         """Calling close() multiple times does not raise."""
         db_path = str(tmp_path / "idem_close.db")
         storage = await _create_storage(db_path)
-        await storage.close()
+        try:
+            pass  # No assertions before close — just testing idempotent close.
+        finally:
+            await storage.close()
         # Second and third close are safe.
         await storage.close()
         await storage.close()
@@ -338,7 +344,10 @@ class TestCloseLifecycleSafety:
         """Operations on a closed storage raise StorageInitializationError."""
         db_path = str(tmp_path / "post_close.db")
         storage = await _create_storage(db_path)
-        await storage.close()
+        try:
+            pass  # No assertions before close.
+        finally:
+            await storage.close()
 
         with pytest.raises(StorageInitializationError):
             await storage.get("any-id")
@@ -353,19 +362,23 @@ class TestCloseLifecycleSafety:
         """A closed storage can be re-initialized and used again."""
         db_path = str(tmp_path / "reinit.db")
         storage = await _create_storage(db_path)
-        await storage.append(_make_event(event_id="evt-before"))
-        await storage.close()
+        try:
+            await storage.append(_make_event(event_id="evt-before"))
+        finally:
+            await storage.close()
 
         # Reinitialize the same storage instance.
-        await storage.initialize()
-        # Data from before close is still there.
-        assert await storage.count_events() == 1
-        retrieved = await storage.get("evt-before")
-        assert retrieved is not None
-        # Can append more.
-        await storage.append(_make_event(event_id="evt-after"))
-        assert await storage.count_events() == 2
-        await storage.close()
+        try:
+            await storage.initialize()
+            # Data from before close is still there.
+            assert await storage.count_events() == 1
+            retrieved = await storage.get("evt-before")
+            assert retrieved is not None
+            # Can append more.
+            await storage.append(_make_event(event_id="evt-after"))
+            assert await storage.count_events() == 2
+        finally:
+            await storage.close()
 
 
 # ===================================================================
@@ -377,13 +390,18 @@ class TestReplayStorageReadConsistency:
     """Replay reads do not mutate storage state."""
 
     @pytest.fixture()
-    async def seeded_storage(self, tmp_path: Path) -> SQLiteStorage:
-        """Storage with 3 events ready for replay tests."""
+    async def seeded_storage(
+        self, tmp_path: Path
+    ) -> AsyncGenerator[SQLiteStorage, None]:
+        """Storage with 3 events ready for replay tests; cleaned up after test."""
         db_path = str(tmp_path / "replay_consistency.db")
         storage = await _create_storage(db_path)
-        for i in range(3):
-            await storage.append(_make_event(event_id=f"evt-replay-{i}"))
-        return storage
+        try:
+            for i in range(3):
+                await storage.append(_make_event(event_id=f"evt-replay-{i}"))
+            yield storage
+        finally:
+            await storage.close()
 
     async def test_strict_replay_does_not_mutate_event_count(
         self, seeded_storage: SQLiteStorage
@@ -400,7 +418,6 @@ class TestReplayStorageReadConsistency:
 
         count_after = await seeded_storage.count_events()
         assert count_after == count_before
-        await seeded_storage.close()
 
     async def test_dry_run_replay_does_not_mutate_event_count(
         self, seeded_storage: SQLiteStorage
@@ -418,7 +435,6 @@ class TestReplayStorageReadConsistency:
 
         count_after = await seeded_storage.count_events()
         assert count_after == count_before
-        await seeded_storage.close()
 
     async def test_replay_reads_historical_events_from_previous_session(
         self, tmp_path: Path
@@ -427,20 +443,18 @@ class TestReplayStorageReadConsistency:
         db_path = str(tmp_path / "replay_historical.db")
 
         # Session 1: store events.
-        s1 = await _create_storage(db_path)
-        for i in range(5):
-            await s1.append(_make_event(event_id=f"evt-hist-{i}"))
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            for i in range(5):
+                await s1.append(_make_event(event_id=f"evt-hist-{i}"))
 
         # Session 2: replay should see all 5 events.
-        s2 = await _create_storage(db_path)
-        engine = ReplayEngine(storage=cast(StorageBackend, s2), pipeline=None)
-        request = ReplayRequest(mode=ReplayMode.STRICT)
-        results = [r async for r in engine.replay(request)]
-        assert len(results) == 5
-        result_ids = {r.event_id for r in results}
-        assert result_ids == {f"evt-hist-{i}" for i in range(5)}
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            engine = ReplayEngine(storage=cast(StorageBackend, s2), pipeline=None)
+            request = ReplayRequest(mode=ReplayMode.STRICT)
+            results = [r async for r in engine.replay(request)]
+            assert len(results) == 5
+            result_ids = {r.event_id for r in results}
+            assert result_ids == {f"evt-hist-{i}" for i in range(5)}
 
 
 # ===================================================================
@@ -460,39 +474,37 @@ class TestInterruptedLifecycle:
         db_path = str(tmp_path / "no_close.db")
 
         s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-no-close"))
-        # Explicitly do NOT call close() — simulate interrupted lifecycle.
-        # Release the connection by letting it go out of scope.
-        # For testing, we do call close since Python GC is non-deterministic,
-        # but the point is: data is committed before close.
-        count = await s1.count_events()
-        assert count == 1
-        await s1.close()
+        try:
+            await s1.append(_make_event(event_id="evt-no-close"))
+            # Explicitly do NOT call close() — simulate interrupted lifecycle.
+            # Release the connection by letting it go out of scope.
+            # For testing, we do call close since Python GC is non-deterministic,
+            # but the point is: data is committed before close.
+            count = await s1.count_events()
+            assert count == 1
+        finally:
+            await s1.close()
 
-        s2 = await _create_storage(db_path)
-        assert await s2.count_events() == 1
-        retrieved = await s2.get("evt-no-close")
-        assert retrieved is not None
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            assert await s2.count_events() == 1
+            retrieved = await s2.get("evt-no-close")
+            assert retrieved is not None
 
     async def test_concurrent_appends_all_durable(self, tmp_path: Path) -> None:
         """Multiple events appended sequentially are all durable after close."""
         db_path = str(tmp_path / "many_events.db")
-        storage = await _create_storage(db_path)
+        async with _open_storage(db_path) as storage:
+            for i in range(50):
+                await storage.append(_make_event(event_id=f"evt-many-{i:03d}"))
 
-        for i in range(50):
-            await storage.append(_make_event(event_id=f"evt-many-{i:03d}"))
-
-        assert await storage.count_events() == 50
-        await storage.close()
+            assert await storage.count_events() == 50
 
         # Reopen and verify all 50.
-        s2 = await _create_storage(db_path)
-        assert await s2.count_events() == 50
-        for i in range(50):
-            retrieved = await s2.get(f"evt-many-{i:03d}")
-            assert retrieved is not None, f"Missing evt-many-{i:03d}"
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            assert await s2.count_events() == 50
+            for i in range(50):
+                retrieved = await s2.get(f"evt-many-{i:03d}")
+                assert retrieved is not None, f"Missing evt-many-{i:03d}"
 
 
 # ===================================================================
@@ -571,8 +583,10 @@ class TestStorageCloseOnStartupFailure:
         """After storage.close(), the internal connection is None."""
         db_path = str(tmp_path / "conn_none.db")
         storage = await _create_storage(db_path)
-        assert storage._db is not None
-        await storage.close()
+        try:
+            assert storage._db is not None
+        finally:
+            await storage.close()
         assert storage._db is None
 
     async def test_storage_double_close_leaves_connection_none(
@@ -581,7 +595,10 @@ class TestStorageCloseOnStartupFailure:
         """Double close does not resurrect the connection."""
         db_path = str(tmp_path / "double_close.db")
         storage = await _create_storage(db_path)
-        await storage.close()
+        try:
+            pass  # No assertions before close.
+        finally:
+            await storage.close()
         assert storage._db is None
         await storage.close()
         assert storage._db is None
@@ -599,66 +616,58 @@ class TestFileBasedDurability:
         """The database file exists on disk after initialize()."""
         db_path = str(tmp_path / "created.db")
         assert not os.path.exists(db_path)
-        storage = await _create_storage(db_path)
-        assert os.path.exists(db_path)
-        await storage.close()
+        async with _open_storage(db_path):
+            assert os.path.exists(db_path)
 
     async def test_db_file_persists_after_close(self, tmp_path: Path) -> None:
         """The database file remains on disk after close()."""
         db_path = str(tmp_path / "persists.db")
-        storage = await _create_storage(db_path)
-        await storage.append(_make_event())
-        await storage.close()
+        async with _open_storage(db_path) as storage:
+            await storage.append(_make_event())
         assert os.path.exists(db_path)
 
     async def test_large_batch_close_reopen(self, tmp_path: Path) -> None:
         """100 events survive close/reopen and are all individually retrievable."""
         db_path = str(tmp_path / "large_batch.db")
-        storage = await _create_storage(db_path)
+        async with _open_storage(db_path) as storage:
+            for i in range(100):
+                await storage.append(_make_event(event_id=f"evt-batch-{i:04d}"))
+            assert await storage.count_events() == 100
 
-        for i in range(100):
-            await storage.append(_make_event(event_id=f"evt-batch-{i:04d}"))
-
-        assert await storage.count_events() == 100
-        await storage.close()
-
-        s2 = await _create_storage(db_path)
-        assert await s2.count_events() == 100
-        # Spot-check first, middle, last.
-        for idx in (0, 49, 99):
-            retrieved = await s2.get(f"evt-batch-{idx:04d}")
-            assert retrieved is not None, f"Missing evt-batch-{idx:04d}"
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            assert await s2.count_events() == 100
+            # Spot-check first, middle, last.
+            for idx in (0, 49, 99):
+                retrieved = await s2.get(f"evt-batch-{idx:04d}")
+                assert retrieved is not None, f"Missing evt-batch-{idx:04d}"
 
     async def test_query_preserves_order_across_reopen(self, tmp_path: Path) -> None:
         """Timestamp-ordered query results are consistent after reopen."""
         db_path = str(tmp_path / "order_reopen.db")
         base = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
 
-        s1 = await _create_storage(db_path)
-        for i in range(5):
-            evt = CanonicalEvent(
-                event_id=f"evt-ord-{i}",
-                event_kind="message.created",
-                schema_version=1,
-                timestamp=base.replace(hour=i),
-                source_adapter="fake_transport",
-                source_transport_id="node-1",
-                source_channel_id="ch-0",
-                parent_event_id=None,
-                lineage=(),
-                relations=(),
-                payload={"text": f"msg-{i}"},
-                metadata=EventMetadata(),
-            )
-            await s1.append(evt)
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            for i in range(5):
+                evt = CanonicalEvent(
+                    event_id=f"evt-ord-{i}",
+                    event_kind="message.created",
+                    schema_version=1,
+                    timestamp=base.replace(hour=i),
+                    source_adapter="fake_transport",
+                    source_transport_id="node-1",
+                    source_channel_id="ch-0",
+                    parent_event_id=None,
+                    lineage=(),
+                    relations=(),
+                    payload={"text": f"msg-{i}"},
+                    metadata=EventMetadata(),
+                )
+                await s1.append(evt)
 
-        s2 = await _create_storage(db_path)
-        filt = EventFilter(limit=100)
-        results = [e async for e in s2.query(filt)]
-        assert [e.event_id for e in results] == [f"evt-ord-{i}" for i in range(5)]
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            filt = EventFilter(limit=100)
+            results = [e async for e in s2.query(filt)]
+            assert [e.event_id for e in results] == [f"evt-ord-{i}" for i in range(5)]
 
 
 # ===================================================================
@@ -672,29 +681,31 @@ class TestProcessLocalVsDurableSemantics:
     async def test_memory_db_is_process_local(self) -> None:
         """In-memory DB data does not survive new instance (process-local)."""
         s1 = SQLiteStorage(":memory:")
-        await s1.initialize()
-        await s1.append(_make_event(event_id="evt-mem"))
-        assert await s1.count_events() == 1
-        await s1.close()
+        try:
+            await s1.initialize()
+            await s1.append(_make_event(event_id="evt-mem"))
+            assert await s1.count_events() == 1
+        finally:
+            await s1.close()
 
         s2 = SQLiteStorage(":memory:")
-        await s2.initialize()
-        assert await s2.count_events() == 0
-        await s2.close()
+        try:
+            await s2.initialize()
+            assert await s2.count_events() == 0
+        finally:
+            await s2.close()
 
     async def test_file_db_is_durable(self, tmp_path: Path) -> None:
         """File-based DB data survives process restart (durable)."""
         db_path = str(tmp_path / "durable.db")
-        s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-durable"))
-        assert await s1.count_events() == 1
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1.append(_make_event(event_id="evt-durable"))
+            assert await s1.count_events() == 1
 
-        s2 = await _create_storage(db_path)
-        assert await s2.count_events() == 1
-        retrieved = await s2.get("evt-durable")
-        assert retrieved is not None
-        await s2.close()
+        async with _open_storage(db_path) as s2:
+            assert await s2.count_events() == 1
+            retrieved = await s2.get("evt-durable")
+            assert retrieved is not None
 
     async def test_wal_checkpoint_on_close(self, tmp_path: Path) -> None:
         """Data written in WAL mode is readable by a fresh connection after close.
@@ -703,19 +714,20 @@ class TestProcessLocalVsDurableSemantics:
         contains all committed data — not just the WAL file.
         """
         db_path = str(tmp_path / "wal_checkpoint.db")
-        s1 = await _create_storage(db_path)
-        await s1.append(_make_event(event_id="evt-chkpt"))
-        await s1.close()
+        async with _open_storage(db_path) as s1:
+            await s1.append(_make_event(event_id="evt-chkpt"))
 
         # Open with a raw sqlite3 connection to verify data is in the main file.
         import sqlite3
 
         raw = sqlite3.connect(db_path)
-        raw.row_factory = sqlite3.Row
-        row = raw.execute(
-            "SELECT event_id FROM canonical_events WHERE event_id = ?",
-            ("evt-chkpt",),
-        ).fetchone()
-        raw.close()
+        try:
+            raw.row_factory = sqlite3.Row
+            row = raw.execute(
+                "SELECT event_id FROM canonical_events WHERE event_id = ?",
+                ("evt-chkpt",),
+            ).fetchone()
+        finally:
+            raw.close()
         assert row is not None
         assert row["event_id"] == "evt-chkpt"

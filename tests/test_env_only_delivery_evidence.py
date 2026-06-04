@@ -99,8 +99,8 @@ async def test_evidence_receipt_has_route_id(tmp_path: Path) -> None:
     """Evidence storage section includes receipt with route_id and target metadata."""
     db_path = str(tmp_path / "delivery_evidence.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await _seed(storage)
 
         section = await _collect_storage_data_from_backend(
@@ -172,8 +172,8 @@ async def test_evidence_and_trace_agree_on_delivery_metadata(tmp_path: Path) -> 
     """Evidence storage section and trace timeline agree on all delivery metadata."""
     db_path = str(tmp_path / "delivery_agree.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await _seed(storage)
 
         # -- Evidence (via storage) --
@@ -251,8 +251,8 @@ async def test_receipt_attempt_number_in_both(tmp_path: Path) -> None:
     # -- Evidence (via storage) --
     db_path = str(tmp_path / "delivery_attempt.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await storage.append(_make_event())
         await storage.append_receipt(receipt)
         await storage.store_native_ref(nref)
@@ -308,8 +308,8 @@ async def test_native_ref_canonical_keys_in_evidence_and_trace(tmp_path: Path) -
     # -- Evidence --
     db_path = str(tmp_path / "delivery_nref_keys.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await storage.append(event)
         await storage.append_receipt(receipt)
         await storage.store_native_ref(nref)

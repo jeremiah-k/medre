@@ -211,9 +211,9 @@ class TestEvidenceBundleWithMatrixAdapter:
 
         db_path = str(tmp_path / "matrix_events.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
 
         try:
+            await storage.initialize()
             # Store a Matrix-shaped event
             event = CanonicalEvent(
                 event_id="mx-evt-001",

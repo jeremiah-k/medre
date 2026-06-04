@@ -98,11 +98,11 @@
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ShutdownEvidence" }]
     },
     "convergence_summary": {
-      "description": "Per-event convergence diagnostics summary derived from delivery receipts and outbox items, or null.",
+      "description": "When collected with an event_id, event-scoped; without, the storage-wide global view. Derived from delivery receipts and outbox items. None when storage is absent/unavailable or no delivery data matches the query. When global results are partial due to the default 10 000-record query limit, the storage section data includes a convergence_truncated_warning string.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ConvergenceSummary" }]
     },
     "orphan_report": {
-      "description": "Per-event orphan/invalid-lineage report derived from delivery receipts and outbox items, or null.",
+      "description": "When collected with an event_id, event-scoped; without, the storage-wide global view. Derived from delivery receipts and outbox items. None when storage is absent/unavailable or no delivery data matches the query.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/OrphanReport" }]
     },
     "recovery_summary": {
@@ -114,7 +114,7 @@
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/StartupRecoveryLedger" }]
     },
     "lifecycle_convergence_report": {
-      "description": "Per-event lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans), or null.",
+      "description": "When collected with an event_id, event-scoped; without, the storage-wide global view. Lifecycle delivery convergence findings (receipt/outbox mismatches, retry anomalies, stalled plans). None when storage is absent/unavailable or no delivery data matches the query.",
       "oneOf": [
         { "type": "null" },
         { "$ref": "#/$defs/LifecycleConvergenceReport" }
@@ -131,11 +131,16 @@
     "collected_at",
     "command",
     "config_source",
+    "convergence_summary",
     "errors",
     "evidence_tier",
     "generated_at",
+    "lifecycle_convergence_report",
     "limitations",
     "medre_version",
+    "orphan_report",
+    "recovery_ledger",
+    "recovery_summary",
     "runtime_started",
     "schema_version",
     "sections",
@@ -366,7 +371,7 @@
     },
     "ConvergenceSummary": {
       "title": "ConvergenceSummary",
-      "description": "Aggregate convergence summary across all delivery targets for a single event.",
+      "description": "Aggregate convergence summary. When collected with an event_id, scoped to that event's delivery targets; without, a storage-wide global summary across all targets. Null when storage is absent/unavailable or no delivery data matches.",
       "type": "object",
       "properties": {
         "evidence_bundle_ref": {

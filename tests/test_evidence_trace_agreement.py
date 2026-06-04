@@ -100,8 +100,8 @@ async def test_evidence_native_refs_match_trace(tmp_path: Path) -> None:
     """Evidence bundle native refs and trace timeline native_ref entries agree on keys."""
     db_path = str(tmp_path / "agree_trace.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await _seed(storage)
 
         # -- Trace timeline (raw entries) --
@@ -208,8 +208,8 @@ async def test_evidence_commands_reference_existing_cli_names(
     """Evidence bundle incident_summary.commands reference real CLI command names."""
     db_path = str(tmp_path / "agree_cmds.db")
     storage = SQLiteStorage(db_path)
-    await storage.initialize()
     try:
+        await storage.initialize()
         await _seed(storage)
 
         section = await _collect_storage_data_from_backend(

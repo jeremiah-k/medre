@@ -6,6 +6,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
+from medre.core.engine.pipeline.delivery_state import (
+    CLAIMABLE_OUTBOX_STATUSES,
+    TERMINAL_OUTBOX_STATUSES,
+)
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
@@ -46,8 +50,8 @@ class _OutboxMixin:
         If the INSERT still fails with a UNIQUE constraint violation
         (extreme edge case), the existing row is re-read and returned.
         """
-        _terminal = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
-        _reclaimable = frozenset({"pending", "retry_wait"})
+        _terminal = TERMINAL_OUTBOX_STATUSES
+        _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
@@ -82,7 +86,7 @@ class _OutboxMixin:
             item.target_channel or None,
             item.target_address,
             item.attempt_number,
-            item.status or "pending",
+            item.status or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
             item.failure_kind,
             item.failure_kind_detail,
             _ensure_iso(item.next_attempt_at),
@@ -123,7 +127,8 @@ class _OutboxMixin:
                                        next_attempt_at = NULL
                                    WHERE outbox_id = ?""",
                                 (
-                                    item.status or "pending",
+                                    item.status
+                                    or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
                                     item.worker_id,
                                     _ensure_iso(item.locked_at),
                                     _ensure_iso(item.lease_until),
@@ -182,7 +187,8 @@ class _OutboxMixin:
                     insert_params,
                     _terminal,
                     _reclaimable,
-                    reclaim_status=item.status or "pending",
+                    reclaim_status=item.status
+                    or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
                     reclaim_worker_id=item.worker_id,
                     reclaim_locked_at=_ensure_iso(item.locked_at),
                     reclaim_lease_until=_ensure_iso(item.lease_until),
@@ -209,7 +215,7 @@ class _OutboxMixin:
         terminal: frozenset[str],
         reclaimable: frozenset[str],
         *,
-        reclaim_status: str = "pending",
+        reclaim_status: str = "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
         reclaim_worker_id: str | None = None,
         reclaim_locked_at: str | None = None,
         reclaim_lease_until: str | None = None,
@@ -340,6 +346,22 @@ class _OutboxMixin:
         rows = await self._read_all(sql, tuple(params))
         return [_row_to_outbox_item(r) for r in rows]
 
+    async def list_all_outbox_items(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all delivery outbox items in creation order.
+
+        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
+        output.  Useful for global convergence analysis across all events.
+        """
+        rows = await self._read_all(
+            "SELECT * FROM delivery_outbox ORDER BY created_at ASC, outbox_id ASC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        return [_row_to_outbox_item(r) for r in rows]
+
     async def list_outbox_items_for_event(
         self,
         event_id: str,
@@ -387,19 +409,15 @@ class _OutboxMixin:
         stale_cutoff = (
             datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
         ).isoformat()
+        claimable_ph = ",".join("?" for _ in CLAIMABLE_OUTBOX_STATUSES)
+        claimable_params = tuple(CLAIMABLE_OUTBOX_STATUSES)
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
         # SQLite doesn't support RETURNING with ORIGIN in all configurations,
         # so we select first, then update by outbox_id.
+        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - claimable_ph is only ? placeholders, values parameterized
         rows = await self._read_all(
-            """SELECT * FROM delivery_outbox
-               WHERE (status IN ('pending', 'retry_wait')
-                      OR (status = 'in_progress' AND lease_until <= ?)
-                      OR (status = 'queued' AND updated_at <= ?))
-                 AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-                 AND (lease_until IS NULL OR lease_until <= ?)
-               ORDER BY next_attempt_at ASC, created_at ASC
-               LIMIT ?""",
-            (now, stale_cutoff, now, now, limit),
+            _claim_sql,
+            (*claimable_params, now, stale_cutoff, now, now, limit),
         )
         if not rows:
             return []
@@ -415,11 +433,21 @@ class _OutboxMixin:
                     updated_at = ?,
                     next_attempt_at = NULL
                 WHERE outbox_id IN ({placeholders})
-                  AND (status IN ('pending', 'retry_wait')
+                  AND (status IN ({claimable_ph})
                        OR (status = 'in_progress' AND lease_until <= ?)
                        OR (status = 'queued' AND updated_at <= ?))
                   AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
-            (now, lease_until, worker_id, now, *outbox_ids, now, stale_cutoff, now),
+            (
+                now,
+                lease_until,
+                worker_id,
+                now,
+                *outbox_ids,
+                *claimable_params,
+                now,
+                stale_cutoff,
+                now,
+            ),
         )
 
         # Re-read to get the updated rows (some may have been claimed by
@@ -489,33 +517,26 @@ class _OutboxMixin:
                     "error_summary = NULL",
                 ]
             )
-        elif new_status in ("dead_lettered", "cancelled", "abandoned"):
-            # Clear next_attempt_at is handled above; also clear
-            # failure_kind_detail which is not caller-specified for
-            # these terminal transitions.  Keep failure_kind and
-            # error_summary as callers pass meaningful values.
+        elif new_status in (TERMINAL_OUTBOX_STATUSES - {"sent"}):
+            # "sent" is terminal but happy-path; clear failure metadata
+            # only for error terminals (dead_lettered, cancelled, abandoned).
             if failure_kind_detail is None:
                 sets.append("failure_kind_detail = NULL")
         if new_status in ("queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
-        if new_status in (
-            "sent",
-            "dead_lettered",
-            "cancelled",
-            "abandoned",
-            "retry_wait",
-            "queued",
-        ):
+        if new_status in (TERMINAL_OUTBOX_STATUSES | {"queued", "retry_wait"}):
             sets.append("locked_at = NULL")
             sets.append("lease_until = NULL")
             sets.append("worker_id = NULL")
 
+        terminal_holders = ",".join("?" for _ in TERMINAL_OUTBOX_STATUSES)
         where_clauses = [
             "outbox_id = ?",
-            "status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')",
+            f"status NOT IN ({terminal_holders})",
         ]
         params.append(outbox_id)
+        params.extend(TERMINAL_OUTBOX_STATUSES)
         if allowed_from is not None:
             holders = ",".join("?" for _ in allowed_from)
             where_clauses.append(f"status IN ({holders})")
@@ -541,7 +562,10 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "sent",
-            allowed_from=("in_progress", "queued"),
+            allowed_from=(
+                "in_progress",
+                "queued",
+            ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             attempt_number=attempt_number,
         )
@@ -559,7 +583,7 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "queued",
-            allowed_from=("in_progress",),
+            allowed_from=("in_progress",),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             attempt_number=attempt_number,
         )
@@ -582,7 +606,7 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "retry_wait",
-            allowed_from=("in_progress",),
+            allowed_from=("in_progress",),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             attempt_number=attempt_number,
             failure_kind=failure_kind,
@@ -606,7 +630,10 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "dead_lettered",
-            allowed_from=("in_progress", "retry_wait"),
+            allowed_from=(
+                "in_progress",
+                "retry_wait",
+            ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             failure_kind=failure_kind,
             failure_kind_detail=failure_kind_detail,
@@ -626,7 +653,12 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "cancelled",
-            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            allowed_from=(
+                "pending",
+                "in_progress",
+                "retry_wait",
+                "queued",
+            ),  # transition guard — intentionally literal
             error_summary=error_summary,
         )
 
@@ -643,7 +675,12 @@ class _OutboxMixin:
         await self._update_outbox_status(
             outbox_id,
             "abandoned",
-            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            allowed_from=(
+                "pending",
+                "in_progress",
+                "retry_wait",
+                "queued",
+            ),  # transition guard — intentionally literal
             error_summary=error_summary,
         )
 
@@ -679,27 +716,27 @@ class _OutboxMixin:
         outbox_id: str,
         worker_id: str,
         *,
-        release_status: str = "pending",
+        release_status: str = "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
     ) -> None:
         """Release a claim on an outbox item, restoring the caller-specified status.
 
         Clears locked_at, lease_until, worker_id and sets status to
         *release_status*.  Only succeeds when the current worker_id matches.
         """
-        _allowed_release_statuses = {
-            "pending",
-            "retry_wait",
-        }
-        if release_status not in _allowed_release_statuses:
+        if release_status not in CLAIMABLE_OUTBOX_STATUSES:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
+        terminal_holders = ",".join("?" for _ in TERMINAL_OUTBOX_STATUSES)
+        _release_sql = f"UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status NOT IN ({terminal_holders})"  # nosec B608 - terminal_holders is only ? placeholders, values parameterized
         await self._write(
-            """UPDATE delivery_outbox
-               SET locked_at = NULL, lease_until = NULL, worker_id = NULL,
-                   status = ?, updated_at = ?
-               WHERE outbox_id = ? AND worker_id = ?
-                 AND status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')""",
-            (release_status, _now_iso(), outbox_id, worker_id),
+            _release_sql,
+            (
+                release_status,
+                _now_iso(),
+                outbox_id,
+                worker_id,
+                *TERMINAL_OUTBOX_STATUSES,
+            ),
         )
 
     async def count_outbox_by_status(self) -> dict[str, int]:

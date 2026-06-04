@@ -175,15 +175,19 @@ class TestBindMountStatePersistence:
         db.parent.mkdir(parents=True, exist_ok=True)
         # Write a minimal SQLite database
         conn = sqlite3.connect(str(db))
-        conn.execute("CREATE TABLE t (x TEXT)")
-        conn.execute("INSERT INTO t VALUES ('hello')")
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("CREATE TABLE t (x TEXT)")
+            conn.execute("INSERT INTO t VALUES ('hello')")
+            conn.commit()
+        finally:
+            conn.close()
 
         paths2 = resolve()
         conn2 = sqlite3.connect(str(paths2.database_path))
-        rows = conn2.execute("SELECT x FROM t").fetchall()
-        conn2.close()
+        try:
+            rows = conn2.execute("SELECT x FROM t").fetchall()
+        finally:
+            conn2.close()
         assert rows == [("hello",)]
 
     def test_adapter_state_survives_reresolution(
@@ -241,18 +245,22 @@ class TestSQLitePersistence:
 
         # Write data directly to the SQLite file (simulates previous run)
         conn = sqlite3.connect(str(paths.database_path))
-        conn.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
-        conn.execute("INSERT INTO kv VALUES ('test', 'value')")
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
+            conn.execute("INSERT INTO kv VALUES ('test', 'value')")
+            conn.commit()
+        finally:
+            conn.close()
 
         # Simulate container restart: rebuild app with same paths
         _build_and_ensure_dirs(config, paths)
 
         # Data must still be there
         conn2 = sqlite3.connect(str(paths.database_path))
-        rows = conn2.execute("SELECT v FROM kv WHERE k = 'test'").fetchall()
-        conn2.close()
+        try:
+            rows = conn2.execute("SELECT v FROM kv WHERE k = 'test'").fetchall()
+        finally:
+            conn2.close()
         assert rows == [("value",)]
 
     def test_sqlite_wal_mode_compatible(
@@ -267,9 +275,11 @@ class TestSQLitePersistence:
         paths.database_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(str(paths.database_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        conn.close()
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            conn.close()
         assert mode == "wal"
 
 

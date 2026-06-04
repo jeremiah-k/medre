@@ -35,14 +35,27 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Status vocabulary constants (mirrors delivery_state.py — leaf module, no import)
+# Status vocabulary constants (canonical source: delivery_state.py)
 # ---------------------------------------------------------------------------
+# The delivery state module is the authoritative source of truth for
+# receipt and outbox status vocabularies.  Convergence diagnostics are
+# read-only consumers — they must classify records by status without
+# redefining the vocabulary.  Re-exporting the canonical frozensets
+# here (under their internal names) preserves the package-private API
+# while making drift detectable by
+# ``tests/test_evidence_coherence_contract.py``.
 
-_TERMINAL_RECEIPT = frozenset({"sent", "dead_lettered", "suppressed"})
-_NON_TERMINAL_RECEIPT = frozenset({"queued", "failed"})
+from medre.core.engine.pipeline.delivery_state import (
+    OUTBOX_STATUSES,
+    RECEIPT_STATUSES,
+    TERMINAL_OUTBOX_STATUSES,
+    TERMINAL_RECEIPT_STATUSES,
+)
 
-_TERMINAL_OUTBOX = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
-_NON_TERMINAL_OUTBOX = frozenset({"pending", "in_progress", "queued", "retry_wait"})
+_TERMINAL_RECEIPT = TERMINAL_RECEIPT_STATUSES
+_NON_TERMINAL_RECEIPT = RECEIPT_STATUSES - TERMINAL_RECEIPT_STATUSES
+_TERMINAL_OUTBOX = TERMINAL_OUTBOX_STATUSES
+_NON_TERMINAL_OUTBOX = OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
 
 
 # ---------------------------------------------------------------------------

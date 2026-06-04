@@ -272,52 +272,53 @@ async def test_replay_live_interleaving_stable() -> None:
     # Use our own temp storage so we can safely close/reopen/unlink
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
-    temp_storage = SQLiteStorage(db_path=db_path)
-    await temp_storage.initialize()
-
     try:
-        event_id = "evt-interleave-001"
-        event = _make_event(event_id)
-        await temp_storage.append(event)
+        temp_storage = SQLiteStorage(db_path=db_path)
+        try:
+            await temp_storage.initialize()
+            event_id = "evt-interleave-001"
+            event = _make_event(event_id)
+            await temp_storage.append(event)
 
-        replay_run_id = uuid.uuid4().hex[:16]
+            replay_run_id = uuid.uuid4().hex[:16]
 
-        # Phase 1: 3 live receipts
-        for i in range(3):
-            r = _make_receipt(event_id, f"live-a-{i}", source="live")
-            await temp_storage.append_receipt(r)
+            # Phase 1: 3 live receipts
+            for i in range(3):
+                r = _make_receipt(event_id, f"live-a-{i}", source="live")
+                await temp_storage.append_receipt(r)
 
-        # Phase 2: 2 replay receipts
-        for i in range(2):
-            r = _make_receipt(
-                event_id,
-                f"replay-b-{i}",
-                source="replay",
-                replay_run_id=replay_run_id,
-            )
-            await temp_storage.append_receipt(r)
+            # Phase 2: 2 replay receipts
+            for i in range(2):
+                r = _make_receipt(
+                    event_id,
+                    f"replay-b-{i}",
+                    source="replay",
+                    replay_run_id=replay_run_id,
+                )
+                await temp_storage.append_receipt(r)
 
-        # Phase 3: 2 more live receipts
-        for i in range(2):
-            r = _make_receipt(event_id, f"live-c-{i}", source="live")
-            await temp_storage.append_receipt(r)
+            # Phase 3: 2 more live receipts
+            for i in range(2):
+                r = _make_receipt(event_id, f"live-c-{i}", source="live")
+                await temp_storage.append_receipt(r)
 
-        receipts = await temp_storage.list_receipts_for_event(event_id)
-        total = 3 + 2 + 2
-        assert len(receipts) == total, f"Expected {total} receipts, got {len(receipts)}"
+            receipts = await temp_storage.list_receipts_for_event(event_id)
+            total = 3 + 2 + 2
+            assert (
+                len(receipts) == total
+            ), f"Expected {total} receipts, got {len(receipts)}"
 
-        # Verify ordering: sequence ascending (insertion order preserved)
-        seqs = [r.sequence for r in receipts]
-        assert seqs == sorted(seqs)
+            # Verify ordering: sequence ascending (insertion order preserved)
+            seqs = [r.sequence for r in receipts]
+            assert seqs == sorted(seqs)
 
-        # Verify source breakdown in order
-        sources = [r.source for r in receipts]
-        assert sources[:3] == ["live", "live", "live"]
-        assert sources[3:5] == ["replay", "replay"]
-        assert sources[5:] == ["live", "live"]
-
-        # Close current storage
-        await temp_storage.close()
+            # Verify source breakdown in order
+            sources = [r.source for r in receipts]
+            assert sources[:3] == ["live", "live", "live"]
+            assert sources[3:5] == ["replay", "replay"]
+            assert sources[5:] == ["live", "live"]
+        finally:
+            await temp_storage.close()
 
         # Reopen and verify same order
         storage2 = await _open_fresh_storage(db_path)

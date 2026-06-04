@@ -304,8 +304,8 @@ class TestEnvOnlyEvidence:
     ) -> None:
         """assemble_event_timeline works with env-only event/receipts/native_refs."""
         storage = SQLiteStorage(seeded_env_only_db)
-        await storage.initialize()
         try:
+            await storage.initialize()
             tl = await assemble_event_timeline(storage, _EVENT_ID)
             assert tl is not None, "Timeline should not be None for seeded event"
 
@@ -356,8 +356,8 @@ class TestEnvOnlyEvidence:
     ) -> None:
         """Event IDs agree between evidence bundle storage and trace timeline."""
         storage = SQLiteStorage(seeded_env_only_db)
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Evidence side.
             section = await _collect_storage_data_from_backend(
                 storage,
@@ -420,8 +420,8 @@ class TestEnvOnlyEvidence:
         """Evidence bundle native refs and trace timeline native_ref entries
         agree on adapter, channel, message_id, direction."""
         storage = SQLiteStorage(seeded_env_only_db)
-        await storage.initialize()
         try:
+            await storage.initialize()
             # Evidence side.
             section = await _collect_storage_data_from_backend(
                 storage,

@@ -9,6 +9,7 @@ from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
     _INSERT_RECEIPT,
+    _SELECT_ALL_RECEIPTS,
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
     _SELECT_RECEIPTS_FOR_EVENT,
     _SELECT_RECEIPTS_FOR_PLAN,
@@ -153,6 +154,22 @@ class _ReceiptMixin:
         rows = await self._read_all(
             _SELECT_RECEIPTS_FOR_EVENT,
             (event_id,),
+        )
+        return [_row_to_receipt(r) for r in rows]
+
+    async def list_all_receipts(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts in sequence order.
+
+        Ordered by ``sequence`` ascending for deterministic output.
+        Useful for global convergence analysis across all events.
+        """
+        rows = await self._read_all(
+            f"{_SELECT_ALL_RECEIPTS.strip()} LIMIT ? OFFSET ?",  # nosec B608 - _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
+            (limit, offset),
         )
         return [_row_to_receipt(r) for r in rows]
 

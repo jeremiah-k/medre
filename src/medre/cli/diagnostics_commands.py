@@ -73,6 +73,10 @@ def _diagnostics(config_path: str | None) -> None:
 
     print(json.dumps(snapshot, sort_keys=True, indent=2))
 
+    # Process exit cleans up resources — adapter stop and storage close
+    # are async and this is a sync CLI command.  No explicit cleanup
+    # needed since ``sys.exit`` follows in normal usage.
+
 
 async def _diagnostics_refresh(config_path: str | None) -> None:
     """Start runtime, refresh adapter health once, print live snapshot JSON.

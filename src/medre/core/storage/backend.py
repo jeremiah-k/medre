@@ -450,6 +450,24 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_all_receipts(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts in sequence order for global analysis.
+
+        Used for global convergence and diagnostic analysis across all
+        events and delivery plans.  Results are ordered by ``sequence``
+        ascending for deterministic output.
+
+        The default limit (10,000) is higher than the standard query
+        limit (1,000) to accommodate typical operational databases.
+        Callers working with larger databases should use explicit
+        pagination via ``limit`` and ``offset``.
+        """
+        ...
+
     # -- Counts -------------------------------------------------------------
 
     async def count_events(self) -> int:
@@ -550,6 +568,24 @@ class StorageBackend(Protocol):
 
         Ordered by ``next_attempt_at ASC, created_at ASC`` so that
         due items appear first.
+        """
+        ...
+
+    async def list_all_outbox_items(
+        self,
+        limit: int = 10_000,
+        offset: int = 0,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all delivery outbox items in creation order for global analysis.
+
+        Used for global convergence and diagnostic analysis across all
+        events and delivery plans.  Results are ordered by
+        ``created_at ASC, outbox_id ASC`` for deterministic output.
+
+        The default limit (10,000) is higher than the standard query
+        limit (100) to accommodate typical operational databases.
+        Callers working with larger databases should use explicit
+        pagination via ``limit`` and ``offset``.
         """
         ...
 

@@ -20,9 +20,42 @@ from ._helpers import (
     _section_skipped,
 )
 
+# Default limit for global convergence queries.  Must match the storage
+# protocol defaults in backend.py (list_all_receipts, list_all_outbox_items).
+_GLOBAL_CONVERGENCE_LIMIT = 10_000
+
 # ---------------------------------------------------------------------------
 # Shared storage data collector
 # ---------------------------------------------------------------------------
+
+
+def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
+    """Return the canonical empty storage-section data dict.
+
+    Centralised so the five initialization sites in this module
+    (shared collector, config-backed missing DB / read-only error,
+    storage-path missing DB / read-only error) stay in lockstep.  Any
+    new key added to the storage section contract must be added here
+    exactly once.
+    """
+    return {
+        "db_exists": db_exists,
+        "db_path": db_path,
+        "event": None,
+        "event_count": None,
+        "incident_summary": None,
+        "native_refs_for_event": None,
+        "receipt_count": None,
+        "replay_run_receipts": None,
+        "timeline": None,
+        "replay_timeline": None,
+        "delivery_outcome_ledger": None,
+        "retry_outbox_summary": None,
+        "lifecycle_convergence_report": None,
+        "convergence_summary": None,
+        "orphan_report": None,
+        "convergence_truncated_warning": None,
+    }
 
 
 async def _collect_storage_data_from_backend(
@@ -41,20 +74,8 @@ async def _collect_storage_data_from_backend(
     """
     import medre.runtime.timeline as _timeline
 
-    data: dict[str, Any] = {
-        "db_exists": True,
-        "db_path": db_path,
-        "event": None,
-        "event_count": None,
-        "native_refs_for_event": None,
-        "receipt_count": None,
-        "replay_run_receipts": None,
-        "timeline": None,
-        "replay_timeline": None,
-        "delivery_outcome_ledger": None,
-        "retry_outbox_summary": None,
-        "lifecycle_convergence_report": None,
-    }
+    data: dict[str, Any] = _empty_storage_data(db_path, db_exists=True)
+    _truncation_warning: str | None = None
 
     try:
         # Counts.
@@ -339,7 +360,99 @@ async def _collect_storage_data_from_backend(
                 data["lifecycle_convergence_report"] = _build_lifecycle_report(
                     _lifecycle_findings,
                 )
+
+                # --- Convergence summary (pure, per-target classification) ---
+                # Top-level operator-facing surface — see spec §21.
+                from medre.core.diagnostics.convergence.summary import (
+                    build_convergence_summary as _build_convergence_summary,
+                )
+
+                _convergence_summary = _build_convergence_summary(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
+                data["convergence_summary"] = _convergence_summary.to_dict()
+
+                # --- Orphan / invalid-lineage report (pure) ---
+                # Per-event orphan catalogue is unknown here, so the
+                # orphaned_outbox check is silently skipped — matching
+                # EvidenceCollector semantics.
+                from medre.core.diagnostics.convergence.orphans import (
+                    build_orphan_report as _build_orphan_report,
+                )
+
+                _orphan_report = _build_orphan_report(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
+                data["orphan_report"] = _orphan_report.to_dict()
             # else: event not found — keep None, not an error for the section.
+
+        else:
+            # No event_id — produce a global convergence view across all
+            # delivery targets.  The pure analysis functions are event-
+            # agnostic; we just feed them the full dataset.
+            all_receipts = await storage.list_all_receipts(
+                limit=_GLOBAL_CONVERGENCE_LIMIT
+            )
+            all_outbox = await storage.list_all_outbox_items(
+                limit=_GLOBAL_CONVERGENCE_LIMIT
+            )
+
+            # Detect truncation: if either result set hit the query limit
+            # the global view is partial and callers should be warned.
+            _truncated_receipts = len(all_receipts) >= _GLOBAL_CONVERGENCE_LIMIT
+            _truncated_outbox = len(all_outbox) >= _GLOBAL_CONVERGENCE_LIMIT
+            if _truncated_receipts or _truncated_outbox:
+                _truncated_parts: list[str] = []
+                if _truncated_receipts:
+                    _truncated_parts.append(
+                        f"receipts ({len(all_receipts)} >= {_GLOBAL_CONVERGENCE_LIMIT})"
+                    )
+                if _truncated_outbox:
+                    _truncated_parts.append(
+                        f"outbox items ({len(all_outbox)} >= {_GLOBAL_CONVERGENCE_LIMIT})"
+                    )
+                _truncation_warning = (
+                    "Global convergence data may be incomplete — "
+                    f"default query limit reached for: {', '.join(_truncated_parts)}. "
+                    "Results represent a partial view."
+                )
+                data["convergence_truncated_warning"] = _truncation_warning
+
+            if all_receipts or all_outbox:
+                from medre.core.diagnostics.convergence.lifecycle_convergence import (
+                    build_lifecycle_convergence_findings as _build_lifecycle_findings,
+                )
+                from medre.core.diagnostics.convergence.lifecycle_report import (
+                    build_lifecycle_convergence_report_dict as _build_lifecycle_report,
+                )
+                from medre.core.diagnostics.convergence.orphans import (
+                    build_orphan_report as _build_orphan_report,
+                )
+                from medre.core.diagnostics.convergence.summary import (
+                    build_convergence_summary as _build_convergence_summary,
+                )
+
+                _lifecycle_findings = _build_lifecycle_findings(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["lifecycle_convergence_report"] = _build_lifecycle_report(
+                    _lifecycle_findings,
+                )
+
+                _convergence_summary = _build_convergence_summary(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["convergence_summary"] = _convergence_summary.to_dict()
+
+                _orphan_report = _build_orphan_report(
+                    receipts=all_receipts,
+                    outbox_items=all_outbox,
+                )
+                data["orphan_report"] = _orphan_report.to_dict()
 
         # Optional replay-run receipts.
         if replay_run_id is not None:
@@ -363,6 +476,10 @@ async def _collect_storage_data_from_backend(
         if event_id is not None and data["event"] is None:
             return _section_partial(data, f"Event {event_id!r} not found in storage")
 
+        # Global convergence hit the query limit — section is partial.
+        if _truncation_warning is not None:
+            return _section_partial(data, _truncation_warning)
+
         return _section_ok(data)
     except Exception as exc:
         return _section_partial(data, f"Storage query error: {exc}")
@@ -383,6 +500,11 @@ async def _collect_storage_section(
 
     Never creates or mutates the database file.  Missing/invalid storage
     produces a partial or skipped section.
+
+    When no ``event_id`` is provided, global convergence queries default to
+    a 10 000-record limit per table.  If that limit is reached, the returned
+    data includes a ``convergence_truncated_warning`` string indicating the
+    results are partial.
     """
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
@@ -406,20 +528,7 @@ async def _collect_storage_section(
     db_exists = os.path.exists(db_path)
     if not db_exists:
         return _section_partial(
-            {
-                "db_exists": False,
-                "db_path": db_path,
-                "event": None,
-                "event_count": None,
-                "native_refs_for_event": None,
-                "receipt_count": None,
-                "replay_run_receipts": None,
-                "timeline": None,
-                "replay_timeline": None,
-                "delivery_outcome_ledger": None,
-                "retry_outbox_summary": None,
-                "lifecycle_convergence_report": None,
-            },
+            _empty_storage_data(db_path, db_exists=False),
             f"Database file does not exist: {db_path}",
         )
 
@@ -429,20 +538,7 @@ async def _collect_storage_section(
         storage = await SQLiteStorage.open_readonly(db_path)
     except Exception as exc:
         return _section_partial(
-            {
-                "db_exists": True,
-                "db_path": db_path,
-                "event": None,
-                "event_count": None,
-                "native_refs_for_event": None,
-                "receipt_count": None,
-                "replay_run_receipts": None,
-                "timeline": None,
-                "replay_timeline": None,
-                "delivery_outcome_ledger": None,
-                "retry_outbox_summary": None,
-                "lifecycle_convergence_report": None,
-            },
+            _empty_storage_data(db_path, db_exists=True),
             f"Cannot open database read-only: {exc}",
         )
 
@@ -470,16 +566,34 @@ def _build_storage_path_bundle(
 ) -> dict[str, Any]:
     """Assemble the top-level bundle dict for ``--storage-path`` mode."""
     overall = _compute_overall_status(sections)
+
+    # -- Extract convergence surfaces from storage data --------------------
+    # These are event-scoped when event_id is provided, otherwise the
+    # global storage-wide view.  See docs/spec/diagnostics-evidence.md §21-23.
+    _convergence_summary: dict[str, Any] | None = None
+    _orphan_report: dict[str, Any] | None = None
+    _lifecycle_convergence_report: dict[str, Any] | None = None
+    storage_data = sections.get("storage", {}).get("data")
+    if storage_data is not None:
+        _convergence_summary = storage_data.get("convergence_summary")
+        _orphan_report = storage_data.get("orphan_report")
+        _lifecycle_convergence_report = storage_data.get("lifecycle_convergence_report")
+
     return {
         "adapter_status": None,
         "collected_at": now_fn().isoformat(),
         "command": "evidence",
         "config_source": "storage_path",
+        "convergence_summary": _convergence_summary,
         "errors": errors,
         "evidence_tier": "synthetic",
         "generated_at": now_fn().isoformat(),
         "limitations": _LIMITATIONS,
+        "lifecycle_convergence_report": _lifecycle_convergence_report,
         "medre_version": _get_version(),
+        "orphan_report": _orphan_report,
+        "recovery_ledger": None,
+        "recovery_summary": None,
         "runtime_started": False,
         "schema_version": SCHEMA_VERSION,
         "sections": sections,
@@ -529,20 +643,7 @@ async def _collect_storage_path_bundle(
     db_exists = os.path.exists(storage_path)
     if not db_exists:
         sections["storage"] = _section_partial(
-            {
-                "db_exists": False,
-                "db_path": storage_path,
-                "event": None,
-                "event_count": None,
-                "native_refs_for_event": None,
-                "receipt_count": None,
-                "replay_run_receipts": None,
-                "timeline": None,
-                "replay_timeline": None,
-                "delivery_outcome_ledger": None,
-                "retry_outbox_summary": None,
-                "lifecycle_convergence_report": None,
-            },
+            _empty_storage_data(storage_path, db_exists=False),
             f"Database file does not exist: {storage_path}",
         )
         errors.append(sections["storage"]["error"])
@@ -553,20 +654,7 @@ async def _collect_storage_path_bundle(
         storage = await SQLiteStorage.open_readonly(storage_path)
     except Exception as exc:
         sections["storage"] = _section_partial(
-            {
-                "db_exists": True,
-                "db_path": storage_path,
-                "event": None,
-                "event_count": None,
-                "native_refs_for_event": None,
-                "receipt_count": None,
-                "replay_run_receipts": None,
-                "timeline": None,
-                "replay_timeline": None,
-                "delivery_outcome_ledger": None,
-                "retry_outbox_summary": None,
-                "lifecycle_convergence_report": None,
-            },
+            _empty_storage_data(storage_path, db_exists=True),
             f"Cannot open database read-only: {exc}",
         )
         errors.append(sections["storage"]["error"])

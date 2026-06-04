@@ -570,22 +570,23 @@ class TestStorageOnlyOperationalEvidence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
+        try:
+            await storage.initialize()
+            event = make_storage_event(event_id="ev-integ-001")
+            await storage.append(event)
 
-        event = make_storage_event(event_id="ev-integ-001")
-        await storage.append(event)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-integ-001",
-            event_id="ev-integ-001",
-            delivery_plan_id="dp-integ-001",
-            target_adapter="radio",
-            status="sent",
-            source="live",
-            created_at=_FIXED_NOW,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt-integ-001",
+                event_id="ev-integ-001",
+                delivery_plan_id="dp-integ-001",
+                target_adapter="radio",
+                status="sent",
+                source="live",
+                created_at=_FIXED_NOW,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
@@ -603,22 +604,23 @@ class TestStorageOnlyOperationalEvidence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
+        try:
+            await storage.initialize()
+            event = make_storage_event(event_id="ev-integ-002")
+            await storage.append(event)
 
-        event = make_storage_event(event_id="ev-integ-002")
-        await storage.append(event)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-integ-002",
-            event_id="ev-integ-002",
-            delivery_plan_id="dp-integ-002",
-            target_adapter="radio",
-            status="sent",
-            source="live",
-            created_at=_FIXED_NOW,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt-integ-002",
+                event_id="ev-integ-002",
+                delivery_plan_id="dp-integ-002",
+                target_adapter="radio",
+                status="sent",
+                source="live",
+                created_at=_FIXED_NOW,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
@@ -973,36 +975,37 @@ class TestStorageSectionOutboxItems:
 
         db_path = str(tmp_path / "test_outbox.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
+        try:
+            await storage.initialize()
+            event = make_storage_event(event_id="evt-outbox-integ")
+            await storage.append(event)
 
-        event = make_storage_event(event_id="evt-outbox-integ")
-        await storage.append(event)
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt-outbox-1",
+                event_id="evt-outbox-integ",
+                delivery_plan_id="plan-outbox-1",
+                target_adapter="radio",
+                status="sent",
+                source="live",
+                created_at=_FIXED_NOW,
+            )
+            await storage.append_receipt(receipt)
 
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-outbox-1",
-            event_id="evt-outbox-integ",
-            delivery_plan_id="plan-outbox-1",
-            target_adapter="radio",
-            status="sent",
-            source="live",
-            created_at=_FIXED_NOW,
-        )
-        await storage.append_receipt(receipt)
-
-        # Add an outbox item for this event.
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="ob-integ-1",
-            event_id="evt-outbox-integ",
-            route_id="route-outbox",
-            delivery_plan_id="plan-outbox-2",
-            target_adapter="radio",
-            target_channel="ch-1",
-            status="pending",
-            created_at=_FIXED_NOW.isoformat(),
-            updated_at=_FIXED_NOW.isoformat(),
-        )
-        await storage.create_outbox_item(outbox_item)
-        await storage.close()
+            # Add an outbox item for this event.
+            outbox_item = DeliveryOutboxItem(
+                outbox_id="ob-integ-1",
+                event_id="evt-outbox-integ",
+                route_id="route-outbox",
+                delivery_plan_id="plan-outbox-2",
+                target_adapter="radio",
+                target_channel="ch-1",
+                status="pending",
+                created_at=_FIXED_NOW.isoformat(),
+                updated_at=_FIXED_NOW.isoformat(),
+            )
+            await storage.create_outbox_item(outbox_item)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
@@ -1169,22 +1172,23 @@ class TestStorageSectionLifecycleConvergence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
+        try:
+            await storage.initialize()
+            event = make_storage_event(event_id="ev-lc-001")
+            await storage.append(event)
 
-        event = make_storage_event(event_id="ev-lc-001")
-        await storage.append(event)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-lc-001",
-            event_id="ev-lc-001",
-            delivery_plan_id="dp-lc-001",
-            target_adapter="radio",
-            status="sent",
-            source="live",
-            created_at=_FIXED_NOW,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt-lc-001",
+                event_id="ev-lc-001",
+                delivery_plan_id="dp-lc-001",
+                target_adapter="radio",
+                status="sent",
+                source="live",
+                created_at=_FIXED_NOW,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
@@ -1208,22 +1212,23 @@ class TestStorageSectionLifecycleConvergence:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
+        try:
+            await storage.initialize()
+            event = make_storage_event(event_id="ev-lc-clean")
+            await storage.append(event)
 
-        event = make_storage_event(event_id="ev-lc-clean")
-        await storage.append(event)
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-lc-clean",
-            event_id="ev-lc-clean",
-            delivery_plan_id="dp-lc-clean",
-            target_adapter="radio",
-            status="sent",
-            source="live",
-            created_at=_FIXED_NOW,
-        )
-        await storage.append_receipt(receipt)
-        await storage.close()
+            receipt = DeliveryReceipt(
+                receipt_id="rcpt-lc-clean",
+                event_id="ev-lc-clean",
+                delivery_plan_id="dp-lc-clean",
+                target_adapter="radio",
+                status="sent",
+                source="live",
+                created_at=_FIXED_NOW,
+            )
+            await storage.append_receipt(receipt)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
@@ -1239,7 +1244,8 @@ class TestStorageSectionLifecycleConvergence:
     async def test_storage_section_no_event_lifecycle_report_null(
         self, tmp_path
     ) -> None:
-        """Without event_id, lifecycle_convergence_report stays None."""
+        """Without event_id and an empty database, lifecycle_convergence_report
+        stays None (no data to analyze)."""
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
         db_path = str(tmp_path / "test.db")

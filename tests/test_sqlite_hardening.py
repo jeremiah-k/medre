@@ -79,11 +79,13 @@ class TestExecutorLifecycle:
     async def test_executor_created_lazily_on_sync_path(self, tmp_path: Path) -> None:
         """Executor is created on first _run_in_thread (sync fallback path)."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
-        # If _use_aiosqlite is False, executor should have been created.
-        if not s._use_aiosqlite:
-            assert s._executor is not None
-        await s.close()
+        try:
+            await s.initialize()
+            # If _use_aiosqlite is False, executor should have been created.
+            if not s._use_aiosqlite:
+                assert s._executor is not None
+        finally:
+            await s.close()
 
     async def test_run_in_thread_raises_after_close(self, tmp_path: Path) -> None:
         """After close(), _run_in_thread must raise RuntimeError regardless
@@ -97,18 +99,23 @@ class TestExecutorLifecycle:
     async def test_close_sets_executor_none(self, tmp_path: Path) -> None:
         """close() must set _executor to None and _closed to True."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
-        assert s._closed is False
-        await s.close()
+        try:
+            await s.initialize()
+            assert s._closed is False
+        finally:
+            await s.close()
         assert s._executor is None
         assert s._closed is True
 
     async def test_close_is_idempotent_repeated(self, tmp_path: Path) -> None:
         """Calling close() many times is safe — no errors, no state drift."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
-        for _ in range(5):
-            await s.close()
+        try:
+            await s.initialize()
+            pass  # No assertion before close — just test idempotency.
+        finally:
+            for _ in range(5):
+                await s.close()
         assert s._closed is True
         assert s._db is None
         assert s._executor is None
@@ -116,38 +123,42 @@ class TestExecutorLifecycle:
     async def test_executor_cleared_after_close(self, tmp_path: Path) -> None:
         """close() must clear _executor after full shutdown (wait=True via asyncio.to_thread)."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
-        # Executor is created lazily — verify it exists on sync path.
-        if not s._use_aiosqlite:
-            # Force executor creation by submitting a task.
-            await s._run_in_thread(lambda: None)
-            assert s._executor is not None
-        await s.close()
+        try:
+            await s.initialize()
+            # Executor is created lazily — verify it exists on sync path.
+            if not s._use_aiosqlite:
+                # Force executor creation by submitting a task.
+                await s._run_in_thread(lambda: None)
+                assert s._executor is not None
+        finally:
+            await s.close()
         assert s._executor is None
 
     async def test_closed_flag_set_before_db_operations(self, tmp_path: Path) -> None:
         """_closed must be True *before* the DB close() runs."""
         s = SQLiteStorage(str(tmp_path / "test.db"))
-        await s.initialize()
+        try:
+            await s.initialize()
+            if not s._use_aiosqlite:
+                closed_during_close = False
+                real_db = s._db
 
-        if not s._use_aiosqlite:
-            closed_during_close = False
-            real_db = s._db
+                class _InspectClose:
+                    """Wrapper that checks _closed when close() is called."""
 
-            class _InspectClose:
-                """Wrapper that checks _closed when close() is called."""
+                    def close(self):
+                        nonlocal closed_during_close
+                        closed_during_close = s._closed
+                        real_db.close()
 
-                def close(self):
-                    nonlocal closed_during_close
-                    closed_during_close = s._closed
-                    real_db.close()
-
-            s._db = _InspectClose()
-            await s.close()
-            assert (
-                closed_during_close is True
-            ), "_closed should be True when db.close() is called"
-        else:
+                s._db = _InspectClose()
+                await s.close()
+                assert (
+                    closed_during_close is True
+                ), "_closed should be True when db.close() is called"
+            else:
+                await s.close()
+        finally:
             await s.close()
 
     async def test_executor_cleared_even_if_db_close_raises(
@@ -163,11 +174,21 @@ class TestExecutorLifecycle:
         """
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
-        assert s._executor is not None or s._use_aiosqlite
+
+        if not s._use_aiosqlite:
+            # Sync executor is lazy — force creation via _run_in_thread so the
+            # precondition check below is meaningful.
+            await s._run_in_thread(lambda: None)
+            assert s._executor is not None
+        else:
+            assert s._executor is None
 
         if s._use_aiosqlite:
             # aiosqlite has no private executor — close normally and verify.
-            await s.close()
+            try:
+                pass
+            finally:
+                await s.close()
             assert s._executor is None
         else:
             # Sync path — close the real connection ourselves, then install
@@ -182,7 +203,15 @@ class TestExecutorLifecycle:
 
             s._db = _FailingConn()
 
-            with pytest.raises(RuntimeError, match="simulated sync db.close failure"):
+            try:
+                with pytest.raises(
+                    RuntimeError, match="simulated sync db.close failure"
+                ):
+                    await s.close()
+            finally:
+                # The first close() raised but still cleared the executor.
+                # Set _db = None so the cleanup close doesn't re-raise.
+                s._db = None
                 await s.close()
             assert s._executor is None
 
@@ -209,6 +238,7 @@ class TestExecutorLifecycle:
         s = SQLiteStorage(str(tmp_path / "test.db"))
         await s.initialize()
         if not s._use_aiosqlite:
+            await s.close()
             pytest.skip("aiosqlite not available — cancellation path is aiosqlite-only")
 
         real_close = s._db.close
@@ -235,19 +265,22 @@ class TestExecutorLifecycle:
         # Cancel the outer close() task while the inner close is still running.
         task.cancel()
 
-        # The shield catches the cancel, waits for the inner close to finish,
-        # then re-raises CancelledError to the caller.
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        try:
+            # The shield catches the cancel, waits for the inner close to finish,
+            # then re-raises CancelledError to the caller.
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
-        # The shield must wait for the inner aiosqlite close to actually finish —
-        # not just reach the boundary of the close.  This guards against future
-        # regressions where the shield is removed or bypassed.
-        assert finished_real_close.is_set(), "inner aiosqlite close never completed"
-        # Storage must be in a clean closed state.
-        assert s._executor is None
-        assert s._closed is True
-        assert s._db is None
+            # The shield must wait for the inner aiosqlite close to actually finish —
+            # not just reach the boundary of the close.  This guards against future
+            # regressions where the shield is removed or bypassed.
+            assert finished_real_close.is_set(), "inner aiosqlite close never completed"
+            # Storage must be in a clean closed state.
+            assert s._executor is None
+            assert s._closed is True
+            assert s._db is None
+        finally:
+            await s.close()
 
 
 # ===================================================================

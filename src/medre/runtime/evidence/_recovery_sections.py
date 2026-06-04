@@ -92,19 +92,21 @@ async def _collect_recovery_section(
         return _section_error(f"Cannot open database read-only: {exc}")
 
     try:
-        # Query all outbox items via pagination.
+        # Query all outbox items for recovery analysis using pagination
+        # to avoid truncation on large databases.
         all_items: list[Any] = []
-        offset = 0
-        batch_size = 500
+        _RECOVERY_PAGE_SIZE = 1_000
+        _offset = 0
         while True:
-            batch = await storage.list_outbox_items(
-                limit=batch_size,
-                offset=offset,
+            page = await storage.list_all_outbox_items(
+                limit=_RECOVERY_PAGE_SIZE, offset=_offset
             )
-            all_items.extend(batch)
-            if len(batch) < batch_size:
+            if not page:
                 break
-            offset += batch_size
+            all_items.extend(page)
+            if len(page) < _RECOVERY_PAGE_SIZE:
+                break
+            _offset += _RECOVERY_PAGE_SIZE
 
         # Generate collection-scoped recovery_run_id.
         collection_ts = datetime.now(timezone.utc)

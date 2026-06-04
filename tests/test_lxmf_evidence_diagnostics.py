@@ -207,9 +207,9 @@ class TestEvidenceBundleWithLxmfAdapter:
 
         db_path = str(tmp_path / "lxmf_events.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
 
         try:
+            await storage.initialize()
             # Store an LXMF-shaped event
             event = CanonicalEvent(
                 event_id="lxmf-evt-001",

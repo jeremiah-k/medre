@@ -91,6 +91,41 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
         Deterministic list of warning strings collected during assembly.
     generated_at:
         ISO 8601 timestamp when this bundle was created.
+    evidence_tier:
+        Provenance tier string.  One of ``"synthetic"``,
+        ``"conformance"``, ``"docker"``, ``"live_service"``, ``"hardware"``.
+        Defaults to ``"synthetic"``; live/hardware tiers are never
+        auto-inferred.
+    delivery_outcome_ledger:
+        Per-receipt outcome aggregation from
+        :func:`~medre.core.evidence.delivery_ledger.build_delivery_outcome_ledger`,
+        or ``None`` when no receipts exist.
+    retry_outbox_summary:
+        Per-outbox-item accountability summary from
+        :func:`~medre.core.evidence.retry_outbox.build_retry_outbox_summary`,
+        or ``None`` when no outbox items exist.
+    convergence_summary:
+        Per-target convergence classification from
+        :func:`~medre.core.diagnostics.convergence.summary.build_convergence_summary`,
+        or ``None`` when no targets exist.
+    orphan_report:
+        Aggregate orphan / invalid-lineage findings from
+        :func:`~medre.core.diagnostics.convergence.orphans.build_orphan_report`,
+        merged with recovery convergence findings.  ``None`` when no
+        findings exist.
+    recovery_summary:
+        Recovery ownership summary from
+        :func:`~medre.core.recovery.builder.build_recovery_summary`,
+        or ``None`` when no recovery actions exist.
+    recovery_ledger:
+        Recovery ownership ledger from
+        :func:`~medre.core.recovery.builder.build_startup_recovery_ledger`.
+        When built per-event the source is ``snapshot_diagnostics``
+        (not a real startup recovery cycle).
+    lifecycle_convergence_report:
+        Lifecycle delivery convergence findings from
+        :func:`~medre.core.diagnostics.convergence.lifecycle_convergence.build_lifecycle_convergence_findings`,
+        or ``None`` when no findings exist.
     """
 
     schema_version: int = BUNDLE_SCHEMA_VERSION

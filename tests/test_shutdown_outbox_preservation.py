@@ -166,22 +166,26 @@ class TestPendingPreservedAcrossShutdown:
         db_path = str(tmp_path / "test.db")
         # Phase 1: create pending item.
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        item = _make_outbox_item(
-            delivery_plan_id="plan-pend-surv", target_channel="ch-p"
-        )
-        await storage.create_outbox_item(item)
-        oid = item.outbox_id
-        await storage.close()
+        try:
+            await storage.initialize()
+            item = _make_outbox_item(
+                delivery_plan_id="plan-pend-surv", target_channel="ch-p"
+            )
+            await storage.create_outbox_item(item)
+            oid = item.outbox_id
+        finally:
+            await storage.close()
 
         # Phase 2: reopen and verify.
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(oid)
-        assert fetched is not None
-        assert fetched.status == "pending"
-        assert fetched.delivery_plan_id == "plan-pend-surv"
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(oid)
+            assert fetched is not None
+            assert fetched.status == "pending"
+            assert fetched.delivery_plan_id == "plan-pend-surv"
+        finally:
+            await storage2.close()
 
 
 class TestRetryWaitPreservedAcrossShutdown:
@@ -190,19 +194,23 @@ class TestRetryWaitPreservedAcrossShutdown:
     async def test_retry_wait_status_preserved(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(storage, "retry_wait", "plan-rw-surv")
-        oid = created.outbox_id
-        assert created.status == "retry_wait"
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(storage, "retry_wait", "plan-rw-surv")
+            oid = created.outbox_id
+            assert created.status == "retry_wait"
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(oid)
-        assert fetched is not None
-        assert fetched.status == "retry_wait"
-        assert fetched.next_attempt_at is not None
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(oid)
+            assert fetched is not None
+            assert fetched.status == "retry_wait"
+            assert fetched.next_attempt_at is not None
+        finally:
+            await storage2.close()
 
 
 class TestInProgressPreservedAcrossShutdown:
@@ -213,24 +221,28 @@ class TestInProgressPreservedAcrossShutdown:
     ) -> None:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(storage, "in_progress", "plan-ip-surv")
-        oid = created.outbox_id
-        assert created.status == "in_progress"
-        assert created.worker_id == "worker-seed"
-        assert created.lease_until is not None
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(storage, "in_progress", "plan-ip-surv")
+            oid = created.outbox_id
+            assert created.status == "in_progress"
+            assert created.worker_id == "worker-seed"
+            assert created.lease_until is not None
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(oid)
-        assert fetched is not None
-        assert fetched.status == "in_progress"
-        # Lease fields survive — the row is resumable on restart.
-        assert fetched.worker_id == "worker-seed"
-        assert fetched.lease_until is not None
-        assert fetched.locked_at is not None
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(oid)
+            assert fetched is not None
+            assert fetched.status == "in_progress"
+            # Lease fields survive — the row is resumable on restart.
+            assert fetched.worker_id == "worker-seed"
+            assert fetched.lease_until is not None
+            assert fetched.locked_at is not None
+        finally:
+            await storage2.close()
 
 
 class TestQueuedPreservedAcrossShutdown:
@@ -239,18 +251,22 @@ class TestQueuedPreservedAcrossShutdown:
     async def test_queued_status_preserved(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(storage, "queued", "plan-q-surv")
-        oid = created.outbox_id
-        assert created.status == "queued"
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(storage, "queued", "plan-q-surv")
+            oid = created.outbox_id
+            assert created.status == "queued"
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(oid)
-        assert fetched is not None
-        assert fetched.status == "queued"
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(oid)
+            assert fetched is not None
+            assert fetched.status == "queued"
+        finally:
+            await storage2.close()
 
 
 # ---------------------------------------------------------------------------
@@ -267,20 +283,24 @@ class TestTerminalStatusesPreservedAcrossShutdown:
     ) -> None:
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(
-            storage, terminal_status, f"plan-term-{terminal_status}"
-        )
-        oid = created.outbox_id
-        assert created.status == terminal_status
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(
+                storage, terminal_status, f"plan-term-{terminal_status}"
+            )
+            oid = created.outbox_id
+            assert created.status == terminal_status
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(oid)
-        assert fetched is not None
-        assert fetched.status == terminal_status
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(oid)
+            assert fetched is not None
+            assert fetched.status == terminal_status
+        finally:
+            await storage2.close()
 
 
 class TestMixedStatusesPreservedAcrossShutdown:
@@ -294,26 +314,30 @@ class TestMixedStatusesPreservedAcrossShutdown:
         oid_by_status: dict[str, str] = {}
 
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        for status in all_statuses:
-            created = await _seed_item_in_status(
-                storage, status, f"plan-mixed-{status}"
-            )
-            oid_by_status[status] = created.outbox_id
-            assert created.status == status
-        await storage.close()
+        try:
+            await storage.initialize()
+            for status in all_statuses:
+                created = await _seed_item_in_status(
+                    storage, status, f"plan-mixed-{status}"
+                )
+                oid_by_status[status] = created.outbox_id
+                assert created.status == status
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        for status, oid in oid_by_status.items():
-            fetched = await storage2.get_outbox_item(oid)
-            assert (
-                fetched is not None
-            ), f"Item for status={status!r} not found after reopen"
-            assert (
-                fetched.status == status
-            ), f"Expected status={status!r} but got {fetched.status!r}"
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            for status, oid in oid_by_status.items():
+                fetched = await storage2.get_outbox_item(oid)
+                assert (
+                    fetched is not None
+                ), f"Item for status={status!r} not found after reopen"
+                assert (
+                    fetched.status == status
+                ), f"Expected status={status!r} but got {fetched.status!r}"
+        finally:
+            await storage2.close()
 
 
 class TestNoSpuriousCancelledOrAbandoned:
@@ -327,26 +351,30 @@ class TestNoSpuriousCancelledOrAbandoned:
         cancelled or abandoned rows exist."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        for status in _NON_TERMINAL_STATUSES:
-            await _seed_item_in_status(storage, status, f"plan-no-cancel-{status}")
-        await storage.close()
+        try:
+            await storage.initialize()
+            for status in _NON_TERMINAL_STATUSES:
+                await _seed_item_in_status(storage, status, f"plan-no-cancel-{status}")
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        counts = await storage2.count_outbox_by_status()
-        assert (
-            counts.get("cancelled", 0) == 0
-        ), f"Unexpected cancelled rows: {counts.get('cancelled')}"
-        assert (
-            counts.get("abandoned", 0) == 0
-        ), f"Unexpected abandoned rows: {counts.get('abandoned')}"
-        # All non-terminal counts should be exactly 1 each.
-        for status in _NON_TERMINAL_STATUSES:
+        try:
+            await storage2.initialize()
+            counts = await storage2.count_outbox_by_status()
             assert (
-                counts.get(status, 0) == 1
-            ), f"Expected 1 {status} row, got {counts.get(status, 0)}"
-        await storage2.close()
+                counts.get("cancelled", 0) == 0
+            ), f"Unexpected cancelled rows: {counts.get('cancelled')}"
+            assert (
+                counts.get("abandoned", 0) == 0
+            ), f"Unexpected abandoned rows: {counts.get('abandoned')}"
+            # All non-terminal counts should be exactly 1 each.
+            for status in _NON_TERMINAL_STATUSES:
+                assert (
+                    counts.get(status, 0) == 1
+                ), f"Expected 1 {status} row, got {counts.get(status, 0)}"
+        finally:
+            await storage2.close()
 
     async def test_counts_identical_before_and_after_shutdown(
         self, tmp_path: Path
@@ -354,23 +382,27 @@ class TestNoSpuriousCancelledOrAbandoned:
         """outbox_by_status counts are byte-identical before and after close/reopen."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        # Create 2 pending + 1 retry_wait + 1 queued + 1 in_progress + 2 sent.
-        for i in range(2):
-            await _seed_item_in_status(storage, "pending", f"plan-cnt-p-{i}")
-        await _seed_item_in_status(storage, "retry_wait", "plan-cnt-rw")
-        await _seed_item_in_status(storage, "queued", "plan-cnt-q")
-        await _seed_item_in_status(storage, "in_progress", "plan-cnt-ip")
-        for i in range(2):
-            await _seed_item_in_status(storage, "sent", f"plan-cnt-s-{i}")
+        try:
+            await storage.initialize()
+            # Create 2 pending + 1 retry_wait + 1 queued + 1 in_progress + 2 sent.
+            for i in range(2):
+                await _seed_item_in_status(storage, "pending", f"plan-cnt-p-{i}")
+            await _seed_item_in_status(storage, "retry_wait", "plan-cnt-rw")
+            await _seed_item_in_status(storage, "queued", "plan-cnt-q")
+            await _seed_item_in_status(storage, "in_progress", "plan-cnt-ip")
+            for i in range(2):
+                await _seed_item_in_status(storage, "sent", f"plan-cnt-s-{i}")
 
-        counts_before = await storage.count_outbox_by_status()
-        await storage.close()
+            counts_before = await storage.count_outbox_by_status()
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        counts_after = await storage2.count_outbox_by_status()
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            counts_after = await storage2.count_outbox_by_status()
+        finally:
+            await storage2.close()
 
         assert (
             counts_before == counts_after
@@ -393,13 +425,15 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         """Non-terminal items in storage → shutdown_pending, resume_expected=True."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        await _seed_item_in_status(storage, "pending", "plan-ev-p")
-        await _seed_item_in_status(storage, "retry_wait", "plan-ev-rw")
-        await _seed_item_in_status(storage, "sent", "plan-ev-s")
+        try:
+            await storage.initialize()
+            await _seed_item_in_status(storage, "pending", "plan-ev-p")
+            await _seed_item_in_status(storage, "retry_wait", "plan-ev-rw")
+            await _seed_item_in_status(storage, "sent", "plan-ev-s")
 
-        counts = await storage.count_outbox_by_status()
-        await storage.close()
+            counts = await storage.count_outbox_by_status()
+        finally:
+            await storage.close()
 
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -419,12 +453,14 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         """Only terminal items in storage → graceful_stop, resume_expected=False."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        await _seed_item_in_status(storage, "sent", "plan-ev-ts1")
-        await _seed_item_in_status(storage, "dead_lettered", "plan-ev-dl1")
+        try:
+            await storage.initialize()
+            await _seed_item_in_status(storage, "sent", "plan-ev-ts1")
+            await _seed_item_in_status(storage, "dead_lettered", "plan-ev-dl1")
 
-        counts = await storage.count_outbox_by_status()
-        await storage.close()
+            counts = await storage.count_outbox_by_status()
+        finally:
+            await storage.close()
 
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -443,10 +479,12 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         for status in _NON_TERMINAL_STATUSES:
             status_db_path = tmp_path / f"test-{status}.db"
             storage = SQLiteStorage(db_path=str(status_db_path))
-            await storage.initialize()
-            await _seed_item_in_status(storage, status, f"plan-ev-resume-{status}")
-            counts = await storage.count_outbox_by_status()
-            await storage.close()
+            try:
+                await storage.initialize()
+                await _seed_item_in_status(storage, status, f"plan-ev-resume-{status}")
+                counts = await storage.count_outbox_by_status()
+            finally:
+                await storage.close()
 
             evidence = build_shutdown_evidence(
                 runtime_state="stopped",
@@ -467,10 +505,12 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         """in_progress rows count as pending work for shutdown evidence."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        await _seed_item_in_status(storage, "in_progress", "plan-ev-ip")
-        counts = await storage.count_outbox_by_status()
-        await storage.close()
+        try:
+            await storage.initialize()
+            await _seed_item_in_status(storage, "in_progress", "plan-ev-ip")
+            counts = await storage.count_outbox_by_status()
+        finally:
+            await storage.close()
 
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -490,11 +530,13 @@ class TestShutdownEvidenceFromLiveStorageCounts:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        await _seed_item_in_status(storage, "pending", "plan-ev-json")
-        await _seed_item_in_status(storage, "sent", "plan-ev-json-s")
-        counts = await storage.count_outbox_by_status()
-        await storage.close()
+        try:
+            await storage.initialize()
+            await _seed_item_in_status(storage, "pending", "plan-ev-json")
+            await _seed_item_in_status(storage, "sent", "plan-ev-json-s")
+            counts = await storage.count_outbox_by_status()
+        finally:
+            await storage.close()
 
         evidence = build_shutdown_evidence(
             runtime_state="stopped",
@@ -524,24 +566,28 @@ class TestClassifyOutboxPolicyFromStorageItems:
         """Each non-terminal status in storage is classified as resumable."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(storage, status, f"plan-cls-{status}")
-        assert created.status == status
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(storage, status, f"plan-cls-{status}")
+            assert created.status == status
+        finally:
+            await storage.close()
 
         # After reopen, verify status and classify.
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(created.outbox_id)
-        assert fetched is not None
-        assert fetched.status == status
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(created.outbox_id)
+            assert fetched is not None
+            assert fetched.status == status
 
-        classification = classify_outbox_shutdown_policy(fetched.status)
-        assert classification.resume_on_restart is True
-        assert classification.classification.startswith("resumable_")
-        assert classification.mutate_outbox is False
-        assert classification.append_receipt is False
-        await storage2.close()
+            classification = classify_outbox_shutdown_policy(fetched.status)
+            assert classification.resume_on_restart is True
+            assert classification.classification.startswith("resumable_")
+            assert classification.mutate_outbox is False
+            assert classification.append_receipt is False
+        finally:
+            await storage2.close()
 
     @pytest.mark.parametrize("status", _TERMINAL_STATUSES)
     async def test_terminal_classified_no_resume(
@@ -550,23 +596,29 @@ class TestClassifyOutboxPolicyFromStorageItems:
         """Each terminal status in storage is classified as non-resumable."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        created = await _seed_item_in_status(storage, status, f"plan-cls-term-{status}")
-        assert created.status == status
-        await storage.close()
+        try:
+            await storage.initialize()
+            created = await _seed_item_in_status(
+                storage, status, f"plan-cls-term-{status}"
+            )
+            assert created.status == status
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-        fetched = await storage2.get_outbox_item(created.outbox_id)
-        assert fetched is not None
-        assert fetched.status == status
+        try:
+            await storage2.initialize()
+            fetched = await storage2.get_outbox_item(created.outbox_id)
+            assert fetched is not None
+            assert fetched.status == status
 
-        classification = classify_outbox_shutdown_policy(fetched.status)
-        assert classification.resume_on_restart is False
-        assert classification.classification.startswith("terminal_")
-        assert classification.mutate_outbox is False
-        assert classification.append_receipt is False
-        await storage2.close()
+            classification = classify_outbox_shutdown_policy(fetched.status)
+            assert classification.resume_on_restart is False
+            assert classification.classification.startswith("terminal_")
+            assert classification.mutate_outbox is False
+            assert classification.append_receipt is False
+        finally:
+            await storage2.close()
 
     async def test_all_nonterminal_items_reclaimable_after_reopen(
         self,
@@ -576,58 +628,60 @@ class TestClassifyOutboxPolicyFromStorageItems:
         worker — proving they are genuine resumable work."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        # Create a pending item (claimable) and a queued item (not
-        # directly claimable).  Also create a retry_wait item — BUT we
-        # must NOT call claim, because claim grabs ALL due items.
-        # So we seed them directly.
-        await _seed_item_in_status(storage, "pending", "plan-reclaim-p")
+        try:
+            await storage.initialize()
+            # Create a pending item (claimable) and a queued item (not
+            # directly claimable).  Also create a retry_wait item — BUT we
+            # must NOT call claim, because claim grabs ALL due items.
+            # So we seed them directly.
+            await _seed_item_in_status(storage, "pending", "plan-reclaim-p")
 
-        # For retry_wait: create via in_progress → retry_wait.
-        # _seed_item_in_status already does this without claim.
-        await _seed_item_in_status(storage, "retry_wait", "plan-reclaim-rw")
+            # For retry_wait: create via in_progress → retry_wait.
+            # _seed_item_in_status already does this without claim.
+            await _seed_item_in_status(storage, "retry_wait", "plan-reclaim-rw")
 
-        # queued is NOT directly claimable.
-        await _seed_item_in_status(storage, "queued", "plan-reclaim-q")
-        await storage.close()
+            # queued is NOT directly claimable.
+            await _seed_item_in_status(storage, "queued", "plan-reclaim-q")
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
+        try:
+            await storage2.initialize()
+            # Claim due items — should get pending and retry_wait items.
+            claimed = await storage2.claim_due_outbox_items(
+                now="2026-01-01T00:05:00",
+                worker_id="worker-restart",
+                lease_seconds=60,
+                limit=10,
+            )
+            claimed_plans = {c.delivery_plan_id for c in claimed}
+            assert "plan-reclaim-p" in claimed_plans
+            # retry_wait items ARE claimable when their next_attempt_at has
+            # passed.  The _seed helper set next_attempt_at via
+            # mark_outbox_retry_wait to "2026-01-01T01:00:00", but claim
+            # uses the `now` parameter.  Since now="2026-01-01T00:05:00"
+            # is BEFORE next_attempt_at="2026-01-01T01:00:00", the
+            # retry_wait item is NOT yet due for claim.  This is correct
+            # behavior — the item is legitimately waiting for its scheduled
+            # retry time.
+            #
+            # Verify the retry_wait item is still present and still
+            # retry_wait (preserved across restart).
+            all_items = await storage2.list_outbox_items()
+            rw_item = [i for i in all_items if i.delivery_plan_id == "plan-reclaim-rw"]
+            assert len(rw_item) == 1
+            assert rw_item[0].status == "retry_wait"
 
-        # Claim due items — should get pending and retry_wait items.
-        claimed = await storage2.claim_due_outbox_items(
-            now="2026-01-01T00:05:00",
-            worker_id="worker-restart",
-            lease_seconds=60,
-            limit=10,
-        )
-        claimed_plans = {c.delivery_plan_id for c in claimed}
-        assert "plan-reclaim-p" in claimed_plans
-        # retry_wait items ARE claimable when their next_attempt_at has
-        # passed.  The _seed helper set next_attempt_at via
-        # mark_outbox_retry_wait to "2026-01-01T01:00:00", but claim
-        # uses the `now` parameter.  Since now="2026-01-01T00:05:00"
-        # is BEFORE next_attempt_at="2026-01-01T01:00:00", the
-        # retry_wait item is NOT yet due for claim.  This is correct
-        # behavior — the item is legitimately waiting for its scheduled
-        # retry time.
-        #
-        # Verify the retry_wait item is still present and still
-        # retry_wait (preserved across restart).
-        all_items = await storage2.list_outbox_items()
-        rw_item = [i for i in all_items if i.delivery_plan_id == "plan-reclaim-rw"]
-        assert len(rw_item) == 1
-        assert rw_item[0].status == "retry_wait"
+            # queued is NOT directly claimable.
+            assert "plan-reclaim-q" not in claimed_plans
 
-        # queued is NOT directly claimable.
-        assert "plan-reclaim-q" not in claimed_plans
-
-        # All claimed items should be in_progress now.
-        for c in claimed:
-            assert c.status == "in_progress"
-            assert c.worker_id == "worker-restart"
-
-        await storage2.close()
+            # All claimed items should be in_progress now.
+            for c in claimed:
+                assert c.status == "in_progress"
+                assert c.worker_id == "worker-restart"
+        finally:
+            await storage2.close()
 
     async def test_retry_wait_claimable_when_due_after_reopen(
         self, tmp_path: Path
@@ -636,22 +690,25 @@ class TestClassifyOutboxPolicyFromStorageItems:
         has passed IS claimable by a new worker."""
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
-        await _seed_item_in_status(storage, "retry_wait", "plan-rw-due")
-        await storage.close()
+        try:
+            await storage.initialize()
+            await _seed_item_in_status(storage, "retry_wait", "plan-rw-due")
+        finally:
+            await storage.close()
 
         storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
-
-        # Claim with now PAST the next_attempt_at.
-        claimed = await storage2.claim_due_outbox_items(
-            now="2026-01-01T02:00:00",
-            worker_id="worker-restart-rw",
-            lease_seconds=60,
-            limit=10,
-        )
-        claimed_plans = {c.delivery_plan_id for c in claimed}
-        assert "plan-rw-due" in claimed_plans
-        assert claimed[0].status == "in_progress"
-        assert claimed[0].worker_id == "worker-restart-rw"
-        await storage2.close()
+        try:
+            await storage2.initialize()
+            # Claim with now PAST the next_attempt_at.
+            claimed = await storage2.claim_due_outbox_items(
+                now="2026-01-01T02:00:00",
+                worker_id="worker-restart-rw",
+                lease_seconds=60,
+                limit=10,
+            )
+            claimed_plans = {c.delivery_plan_id for c in claimed}
+            assert "plan-rw-due" in claimed_plans
+            assert claimed[0].status == "in_progress"
+            assert claimed[0].worker_id == "worker-restart-rw"
+        finally:
+            await storage2.close()

@@ -8,6 +8,8 @@ exploding evidence output or corrupting state.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -54,10 +56,14 @@ def _make_bridge_route() -> Route:
     )
 
 
-async def _open_storage() -> SQLiteStorage:
+@asynccontextmanager
+async def _open_storage() -> AsyncGenerator[SQLiteStorage, None]:
     storage = SQLiteStorage(":memory:")
-    await storage.initialize()
-    return storage
+    try:
+        await storage.initialize()
+        yield storage
+    finally:
+        await storage.close()
 
 
 def _build_runner(
@@ -168,61 +174,62 @@ def _check_no_truncation_artifacts(obj: Any, *, path: str, depth: int = 0) -> No
 @pytest.mark.asyncio
 async def test_large_replay_history_does_not_explode_evidence() -> None:
     """50 events in SQLite, replayed via BEST_EFFORT, evidence stays bounded."""
-    storage = await _open_storage()
-    router = Router(routes=[_make_bridge_route()])
-    accounting = RuntimeAccounting()
-    pres = FakePresentationAdapter(adapter_id="fake_presentation")
-    runner = _build_runner(
-        storage,
-        router,
-        adapters={"fake_presentation": pres},
-        accounting=accounting,
-    )
-    await runner.start()
-
-    # Inject 50 live events.
-    event_ids = await _inject_events(runner, _LARGE_EVENT_COUNT)
-    assert await storage.count_events() == _LARGE_EVENT_COUNT
-    assert await storage.count_receipts() == _LARGE_EVENT_COUNT
-
-    # Replay all 50 via BEST_EFFORT.
-    replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
-    summary = await collect_replay_summary(
-        replay.replay(
-            ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT,
-                run_id="large-replay-001",
-                limit=_LARGE_EVENT_COUNT,
-            )
-        ),
-        events_scanned=_LARGE_EVENT_COUNT,
-    )
-    assert summary.events_replayed > 0
-    assert summary.failure_count == 0
-
-    # Total receipts: 50 live + 50 replay = 100.
-    assert await storage.count_receipts() == _LARGE_EVENT_COUNT * 2
-
-    # Per-event: exactly 2 receipts (1 live + 1 replay).
-    receipts = await storage.list_receipts_for_event(event_ids[0])
-    assert len(receipts) == 2
-    assert {r.source for r in receipts} == {"live", "replay"}
-
-    # Snapshot stays bounded.
-    snap = build_runtime_snapshot(
-        _AppStub(
-            storage=storage,
-            accounting=accounting,
+    async with _open_storage() as storage:
+        router = Router(routes=[_make_bridge_route()])
+        accounting = RuntimeAccounting()
+        pres = FakePresentationAdapter(adapter_id="fake_presentation")
+        runner = _build_runner(
+            storage,
+            router,
             adapters={"fake_presentation": pres},
-            route_stats=runner._config.route_stats,
+            accounting=accounting,
         )
-    )
-    snap_json = json.dumps(snap, sort_keys=True)
-    assert len(snap_json.encode()) < _SNAPSHOT_SIZE_LIMIT
-    assert snap["schema_version"] == SCHEMA_VERSION
+        await runner.start()
+        try:
+            # Inject 50 live events.
+            event_ids = await _inject_events(runner, _LARGE_EVENT_COUNT)
+            assert await storage.count_events() == _LARGE_EVENT_COUNT
+            assert await storage.count_receipts() == _LARGE_EVENT_COUNT
 
-    await runner.stop()
-    await storage.close()
+            # Replay all 50 via BEST_EFFORT.
+            replay = ReplayEngine(
+                storage=storage, pipeline=runner, accounting=accounting
+            )
+            summary = await collect_replay_summary(
+                replay.replay(
+                    ReplayRequest(
+                        mode=ReplayMode.BEST_EFFORT,
+                        run_id="large-replay-001",
+                        limit=_LARGE_EVENT_COUNT,
+                    )
+                ),
+                events_scanned=_LARGE_EVENT_COUNT,
+            )
+            assert summary.events_replayed > 0
+            assert summary.failure_count == 0
+
+            # Total receipts: 50 live + 50 replay = 100.
+            assert await storage.count_receipts() == _LARGE_EVENT_COUNT * 2
+
+            # Per-event: exactly 2 receipts (1 live + 1 replay).
+            receipts = await storage.list_receipts_for_event(event_ids[0])
+            assert len(receipts) == 2
+            assert {r.source for r in receipts} == {"live", "replay"}
+
+            # Snapshot stays bounded.
+            snap = build_runtime_snapshot(
+                _AppStub(
+                    storage=storage,
+                    accounting=accounting,
+                    adapters={"fake_presentation": pres},
+                    route_stats=runner._config.route_stats,
+                )
+            )
+            snap_json = json.dumps(snap, sort_keys=True)
+            assert len(snap_json.encode()) < _SNAPSHOT_SIZE_LIMIT
+            assert snap["schema_version"] == SCHEMA_VERSION
+        finally:
+            await runner.stop()
 
 
 # ===================================================================
@@ -233,47 +240,46 @@ async def test_large_replay_history_does_not_explode_evidence() -> None:
 @pytest.mark.asyncio
 async def test_oversized_payloads_truncated() -> None:
     """100KB+ payloads stored intact; snapshot does not inline them."""
-    storage = await _open_storage()
-    router = Router(routes=[_make_bridge_route()])
-    pres = FakePresentationAdapter(adapter_id="fake_presentation")
-    runner = _build_runner(
-        storage,
-        router,
-        adapters={"fake_presentation": pres},
-    )
-    await runner.start()
-
-    big_text = "X" * _OVERSIZED_PAYLOAD_SIZE
-
-    def _big_payload(eid: str) -> dict[str, str]:
-        return {"text": big_text, "ref": eid}
-
-    event_ids = await _inject_events(
-        runner,
-        count=3,
-        prefix="big-evt",
-        payload_factory=_big_payload,
-    )
-
-    # Stored payloads are intact (SQLite stores as-is).
-    for eid in event_ids:
-        retrieved = await storage.get(eid)
-        assert retrieved is not None
-        assert retrieved.payload["text"] == big_text
-
-    # Snapshot is metadata-only — no oversized strings inlined.
-    snap = build_runtime_snapshot(
-        _AppStub(
-            storage=storage,
+    async with _open_storage() as storage:
+        router = Router(routes=[_make_bridge_route()])
+        pres = FakePresentationAdapter(adapter_id="fake_presentation")
+        runner = _build_runner(
+            storage,
+            router,
             adapters={"fake_presentation": pres},
         )
-    )
-    snap_json = json.dumps(snap, sort_keys=True)
-    assert big_text not in snap_json
-    assert len(snap_json.encode()) < 50_000
+        await runner.start()
+        try:
+            big_text = "X" * _OVERSIZED_PAYLOAD_SIZE
 
-    await runner.stop()
-    await storage.close()
+            def _big_payload(eid: str) -> dict[str, str]:
+                return {"text": big_text, "ref": eid}
+
+            event_ids = await _inject_events(
+                runner,
+                count=3,
+                prefix="big-evt",
+                payload_factory=_big_payload,
+            )
+
+            # Stored payloads are intact (SQLite stores as-is).
+            for eid in event_ids:
+                retrieved = await storage.get(eid)
+                assert retrieved is not None
+                assert retrieved.payload["text"] == big_text
+
+            # Snapshot is metadata-only — no oversized strings inlined.
+            snap = build_runtime_snapshot(
+                _AppStub(
+                    storage=storage,
+                    adapters={"fake_presentation": pres},
+                )
+            )
+            snap_json = json.dumps(snap, sort_keys=True)
+            assert big_text not in snap_json
+            assert len(snap_json.encode()) < 50_000
+        finally:
+            await runner.stop()
 
 
 # ===================================================================
@@ -284,63 +290,64 @@ async def test_oversized_payloads_truncated() -> None:
 @pytest.mark.asyncio
 async def test_repeated_replay_runs_deterministic() -> None:
     """3 replay sessions on the same event produce 4 distinct receipts."""
-    storage = await _open_storage()
-    router = Router(routes=[_make_bridge_route()])
-    accounting = RuntimeAccounting()
-    pres = FakePresentationAdapter(adapter_id="fake_presentation")
-    runner = _build_runner(
-        storage,
-        router,
-        adapters={"fake_presentation": pres},
-        accounting=accounting,
-    )
-    await runner.start()
-
-    # Inject a single live event.
-    event_ids = await _inject_events(runner, 1, prefix="replay-deterministic")
-    target_eid = event_ids[0]
-    receipts_before = await storage.list_receipts_for_event(target_eid)
-    assert len(receipts_before) == 1
-    assert receipts_before[0].source == "live"
-
-    # Run 3 replay sessions with distinct run_ids.
-    run_ids = [f"replay-run-{i:03d}" for i in range(3)]
-    for run_id in run_ids:
-        replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
-        summary = await collect_replay_summary(
-            replay.replay(
-                ReplayRequest(
-                    mode=ReplayMode.BEST_EFFORT,
-                    run_id=run_id,
-                    correlation_ids=[target_eid],
-                )
-            ),
+    async with _open_storage() as storage:
+        router = Router(routes=[_make_bridge_route()])
+        accounting = RuntimeAccounting()
+        pres = FakePresentationAdapter(adapter_id="fake_presentation")
+        runner = _build_runner(
+            storage,
+            router,
+            adapters={"fake_presentation": pres},
+            accounting=accounting,
         )
-        assert summary.events_replayed >= 1
+        await runner.start()
+        try:
+            # Inject a single live event.
+            event_ids = await _inject_events(runner, 1, prefix="replay-deterministic")
+            target_eid = event_ids[0]
+            receipts_before = await storage.list_receipts_for_event(target_eid)
+            assert len(receipts_before) == 1
+            assert receipts_before[0].source == "live"
 
-    # Total: 1 live + 3 replay = 4 receipts.
-    all_receipts = await storage.list_receipts_for_event(target_eid)
-    assert len(all_receipts) == 4
+            # Run 3 replay sessions with distinct run_ids.
+            run_ids = [f"replay-run-{i:03d}" for i in range(3)]
+            for run_id in run_ids:
+                replay = ReplayEngine(
+                    storage=storage, pipeline=runner, accounting=accounting
+                )
+                summary = await collect_replay_summary(
+                    replay.replay(
+                        ReplayRequest(
+                            mode=ReplayMode.BEST_EFFORT,
+                            run_id=run_id,
+                            correlation_ids=[target_eid],
+                        )
+                    ),
+                )
+                assert summary.events_replayed >= 1
 
-    # Sources: 1 live, 3 replay.
-    source_counts: dict[str, int] = {}
-    for r in all_receipts:
-        source_counts[r.source] = source_counts.get(r.source, 0) + 1
-    assert source_counts == {"live": 1, "replay": 3}
+            # Total: 1 live + 3 replay = 4 receipts.
+            all_receipts = await storage.list_receipts_for_event(target_eid)
+            assert len(all_receipts) == 4
 
-    # Each replay_run_id is distinct.
-    replay_run_ids = {
-        r.replay_run_id
-        for r in all_receipts
-        if r.source == "replay" and r.replay_run_id is not None
-    }
-    assert replay_run_ids == set(run_ids)
+            # Sources: 1 live, 3 replay.
+            source_counts: dict[str, int] = {}
+            for r in all_receipts:
+                source_counts[r.source] = source_counts.get(r.source, 0) + 1
+            assert source_counts == {"live": 1, "replay": 3}
 
-    # Receipt IDs are all unique.
-    assert len({r.receipt_id for r in all_receipts}) == 4
+            # Each replay_run_id is distinct.
+            replay_run_ids = {
+                r.replay_run_id
+                for r in all_receipts
+                if r.source == "replay" and r.replay_run_id is not None
+            }
+            assert replay_run_ids == set(run_ids)
 
-    await runner.stop()
-    await storage.close()
+            # Receipt IDs are all unique.
+            assert len({r.receipt_id for r in all_receipts}) == 4
+        finally:
+            await runner.stop()
 
 
 # ===================================================================
@@ -351,64 +358,63 @@ async def test_repeated_replay_runs_deterministic() -> None:
 @pytest.mark.asyncio
 async def test_recursive_metadata_payloads() -> None:
     """Deeply nested payload dicts and long route_trace store without crash."""
-    storage = await _open_storage()
+    async with _open_storage() as storage:
+        # Deep nested payload: _RECURSIVE_DEPTH levels.
+        nested: dict[str, Any] = {"leaf": "value"}
+        for i in range(_RECURSIVE_DEPTH, 0, -1):
+            nested = {f"level_{i}": nested}
 
-    # Deep nested payload: _RECURSIVE_DEPTH levels.
-    nested: dict[str, Any] = {"leaf": "value"}
-    for i in range(_RECURSIVE_DEPTH, 0, -1):
-        nested = {f"level_{i}": nested}
+        routing_meta = RoutingMetadata(
+            matched_routes=tuple(f"matched-{i}" for i in range(10)),
+            route_trace=tuple(f"route-trace-{i}" for i in range(_RECURSIVE_DEPTH)),
+        )
+        evt = CanonicalEvent(
+            event_id="recursive-evt-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload=nested,
+            metadata=EventMetadata(routing=routing_meta),
+        )
+        await storage.append(evt)
+        retrieved = await storage.get("recursive-evt-001")
+        assert retrieved is not None
+        assert "level_1" in retrieved.payload
+        assert "leaf" in str(retrieved.payload)
+        assert retrieved.metadata.routing is not None
+        assert len(retrieved.metadata.routing.route_trace) == _RECURSIVE_DEPTH
+        assert retrieved.metadata.routing.route_trace[0] == "route-trace-0"
+        assert len(retrieved.metadata.routing.matched_routes) == 10
 
-    routing_meta = RoutingMetadata(
-        matched_routes=tuple(f"matched-{i}" for i in range(10)),
-        route_trace=tuple(f"route-trace-{i}" for i in range(_RECURSIVE_DEPTH)),
-    )
-    evt = CanonicalEvent(
-        event_id="recursive-evt-001",
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_transport",
-        source_transport_id="node-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=(),
-        payload=nested,
-        metadata=EventMetadata(routing=routing_meta),
-    )
-    await storage.append(evt)
-    retrieved = await storage.get("recursive-evt-001")
-    assert retrieved is not None
-    assert "level_1" in retrieved.payload
-    assert "leaf" in str(retrieved.payload)
-    assert retrieved.metadata.routing is not None
-    assert len(retrieved.metadata.routing.route_trace) == _RECURSIVE_DEPTH
-    assert retrieved.metadata.routing.route_trace[0] == "route-trace-0"
-    assert len(retrieved.metadata.routing.matched_routes) == 10
-
-    # Wide payload: 500 top-level keys + nested sub-dicts.
-    wide_payload: dict[str, Any] = {f"key_{i}": f"value_{i}" for i in range(500)}
-    wide_payload["nested"] = {f"sub_{i}": {"data": list(range(10))} for i in range(100)}
-    wide_evt = CanonicalEvent(
-        event_id="recursive-evt-002",
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_transport",
-        source_transport_id="node-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=(),
-        payload=wide_payload,
-        metadata=EventMetadata(),
-    )
-    await storage.append(wide_evt)
-    wide_r = await storage.get("recursive-evt-002")
-    assert wide_r is not None
-    assert len(wide_r.payload) >= 500
-
-    await storage.close()
+        # Wide payload: 500 top-level keys + nested sub-dicts.
+        wide_payload: dict[str, Any] = {f"key_{i}": f"value_{i}" for i in range(500)}
+        wide_payload["nested"] = {
+            f"sub_{i}": {"data": list(range(10))} for i in range(100)
+        }
+        wide_evt = CanonicalEvent(
+            event_id="recursive-evt-002",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload=wide_payload,
+            metadata=EventMetadata(),
+        )
+        await storage.append(wide_evt)
+        wide_r = await storage.get("recursive-evt-002")
+        assert wide_r is not None
+        assert len(wide_r.payload) >= 500
 
 
 # ===================================================================
@@ -482,61 +488,62 @@ def test_huge_error_sanitization() -> None:
 @pytest.mark.asyncio
 async def test_snapshot_bounded_after_long_run() -> None:
     """50 events + replay produces a bounded, valid JSON snapshot."""
-    storage = await _open_storage()
-    router = Router(routes=[_make_bridge_route()])
-    accounting = RuntimeAccounting()
-    pres = FakePresentationAdapter(adapter_id="fake_presentation")
-    route_stats = RouteStats()
-    runner = _build_runner(
-        storage,
-        router,
-        adapters={"fake_presentation": pres},
-        accounting=accounting,
-        route_stats=route_stats,
-    )
-    await runner.start()
-
-    await _inject_events(runner, _LARGE_EVENT_COUNT)
-
-    replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
-    summary = await collect_replay_summary(
-        replay.replay(
-            ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT,
-                run_id="snap-test-replay",
-                limit=_LARGE_EVENT_COUNT,
-            )
-        ),
-        events_scanned=_LARGE_EVENT_COUNT,
-    )
-    assert summary.events_replayed > 0
-
-    snap = build_runtime_snapshot(
-        _AppStub(
-            storage=storage,
-            accounting=accounting,
+    async with _open_storage() as storage:
+        router = Router(routes=[_make_bridge_route()])
+        accounting = RuntimeAccounting()
+        pres = FakePresentationAdapter(adapter_id="fake_presentation")
+        route_stats = RouteStats()
+        runner = _build_runner(
+            storage,
+            router,
             adapters={"fake_presentation": pres},
+            accounting=accounting,
             route_stats=route_stats,
         )
-    )
-    snap_json = json.dumps(snap, sort_keys=True, indent=2)
+        await runner.start()
+        try:
+            await _inject_events(runner, _LARGE_EVENT_COUNT)
 
-    # Valid JSON with correct schema.
-    parsed = json.loads(snap_json)
-    assert parsed["schema_version"] == SCHEMA_VERSION
+            replay = ReplayEngine(
+                storage=storage, pipeline=runner, accounting=accounting
+            )
+            summary = await collect_replay_summary(
+                replay.replay(
+                    ReplayRequest(
+                        mode=ReplayMode.BEST_EFFORT,
+                        run_id="snap-test-replay",
+                        limit=_LARGE_EVENT_COUNT,
+                    )
+                ),
+                events_scanned=_LARGE_EVENT_COUNT,
+            )
+            assert summary.events_replayed > 0
 
-    # Size is bounded (well under 1MB; metadata-only).
-    snap_bytes = len(snap_json.encode())
-    assert snap_bytes < _SNAPSHOT_SIZE_LIMIT
-    assert snap_bytes < 100_000, f"Snapshot unexpectedly large: {snap_bytes}"
+            snap = build_runtime_snapshot(
+                _AppStub(
+                    storage=storage,
+                    accounting=accounting,
+                    adapters={"fake_presentation": pres},
+                    route_stats=route_stats,
+                )
+            )
+            snap_json = json.dumps(snap, sort_keys=True, indent=2)
 
-    # No truncation artifacts (bare "..." strings).
-    _check_no_truncation_artifacts(snap, path="root")
+            # Valid JSON with correct schema.
+            parsed = json.loads(snap_json)
+            assert parsed["schema_version"] == SCHEMA_VERSION
 
-    # Key sections present.
-    for section in ("lifecycle", "adapters", "replay", "routes", "health"):
-        assert section in snap
-    assert "fake_presentation" in snap["adapters"]
+            # Size is bounded (well under 1MB; metadata-only).
+            snap_bytes = len(snap_json.encode())
+            assert snap_bytes < _SNAPSHOT_SIZE_LIMIT
+            assert snap_bytes < 100_000, f"Snapshot unexpectedly large: {snap_bytes}"
 
-    await runner.stop()
-    await storage.close()
+            # No truncation artifacts (bare "..." strings).
+            _check_no_truncation_artifacts(snap, path="root")
+
+            # Key sections present.
+            for section in ("lifecycle", "adapters", "replay", "routes", "health"):
+                assert section in snap
+            assert "fake_presentation" in snap["adapters"]
+        finally:
+            await runner.stop()

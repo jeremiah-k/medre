@@ -441,24 +441,25 @@ class TestRuntimeStoragePathTier:
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
-        await storage.initialize()
-
-        event = CanonicalEvent(
-            event_id="ev-tier-test-001",
-            event_kind=EventKind.MESSAGE_TEXT,
-            schema_version=1,
-            timestamp=datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc),
-            source_adapter="matrix",
-            source_transport_id="matrix",
-            source_channel_id="!room:test",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "tier test"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-        await storage.close()
+        try:
+            await storage.initialize()
+            event = CanonicalEvent(
+                event_id="ev-tier-test-001",
+                event_kind=EventKind.MESSAGE_TEXT,
+                schema_version=1,
+                timestamp=datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc),
+                source_adapter="matrix",
+                source_transport_id="matrix",
+                source_channel_id="!room:test",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "tier test"},
+                metadata=EventMetadata(),
+            )
+            await storage.append(event)
+        finally:
+            await storage.close()
 
         report = await collect_evidence_bundle(
             storage_path=db_path,
