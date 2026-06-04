@@ -41,18 +41,34 @@ class _OutboxMixin:
         match the new item's values so the caller always receives a
         properly-claimed row.  If the existing item is **active**
         (``in_progress`` or ``queued``), it is returned unchanged — active
-        work is never stolen.  If the existing item is terminal it is
-        deleted first so a new row for re-delivery can be inserted without
-        violating the UNIQUE constraint.
+        work is never stolen.  If the existing item is **terminal**, it is
+        returned unchanged — terminal rows are immutable for lifecycle
+        purposes; a new delivery after terminal state must use a new
+        attempt identity.
 
-        The entire SELECT + conditional DELETE + INSERT runs inside a
-        single ``BEGIN IMMEDIATE`` transaction so that two concurrent
-        callers cannot both pass the existence check and race on INSERT.
-        If the INSERT still fails with a UNIQUE constraint violation
+        The entire SELECT + UPDATE/INSERT runs inside a single
+        ``BEGIN IMMEDIATE`` transaction so that two concurrent callers
+        cannot both pass the existence check and race on INSERT.  If the
+        INSERT still fails with a UNIQUE constraint violation
         (extreme edge case), the existing row is re-read and returned.
         """
-        _terminal = TERMINAL_OUTBOX_STATUSES
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
+        effective_status = item.status or "pending"
+        if effective_status not in OUTBOX_STATUSES:
+            raise ValueError(
+                f"Unknown outbox status {effective_status!r}; "
+                f"expected one of {sorted(OUTBOX_STATUSES)}"
+            )
+        if (
+            effective_status not in CLAIMABLE_OUTBOX_STATUSES
+            and effective_status != "in_progress"
+        ):
+            # Creation only permits pending (default) or in_progress (claim path).
+            # All other statuses must be reached via _update_outbox_status.
+            raise ValueError(
+                f"create_outbox_item does not permit initial status {effective_status!r}; "
+                f"expected one of {sorted(CLAIMABLE_OUTBOX_STATUSES | {'in_progress'})}"
+            )
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
@@ -67,7 +83,6 @@ class _OutboxMixin:
             item.target_channel or None,
             item.attempt_number,
         )
-        delete_sql = "DELETE FROM delivery_outbox WHERE outbox_id = ?"
         insert_sql = (
             "INSERT INTO delivery_outbox"
             " (outbox_id, event_id, route_id, delivery_plan_id,"
@@ -87,7 +102,7 @@ class _OutboxMixin:
             item.target_channel or None,
             item.target_address,
             item.attempt_number,
-            item.status or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
+            effective_status,
             item.failure_kind,
             item.failure_kind_detail,
             _ensure_iso(item.next_attempt_at),
@@ -128,8 +143,7 @@ class _OutboxMixin:
                                        next_attempt_at = NULL
                                    WHERE outbox_id = ?""",
                                 (
-                                    item.status
-                                    or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
+                                    effective_status,
                                     item.worker_id,
                                     _ensure_iso(item.locked_at),
                                     _ensure_iso(item.lease_until),
@@ -142,17 +156,13 @@ class _OutboxMixin:
                                 await self.get_outbox_item(existing["outbox_id"])
                                 or item
                             )
-                        if existing["status"] in _terminal:
-                            # Terminal — delete so re-insertion can proceed.
-                            await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
-                        else:
-                            # Active (in_progress or queued) — return
-                            # unchanged to avoid stealing active work.
-                            await db.execute("COMMIT")  # type: ignore[union-attr]
-                            return (
-                                await self.get_outbox_item(existing["outbox_id"])
-                                or item
-                            )
+                        # Terminal or active (in_progress or queued) —
+                        # return unchanged.  Terminal rows are immutable
+                        # for lifecycle purposes; a new delivery after
+                        # terminal state must use a new attempt identity.
+                        # Active rows must not be stolen.
+                        await db.execute("COMMIT")  # type: ignore[union-attr]
+                        return await self.get_outbox_item(existing["outbox_id"]) or item
                     await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
                     await db.execute("COMMIT")  # type: ignore[union-attr]
                 except sqlite3.IntegrityError:
@@ -183,13 +193,10 @@ class _OutboxMixin:
                     self._require_db(),
                     select_sql,
                     select_params,
-                    delete_sql,
                     insert_sql,
                     insert_params,
-                    _terminal,
                     _reclaimable,
-                    reclaim_status=item.status
-                    or "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
+                    reclaim_status=effective_status,
                     reclaim_worker_id=item.worker_id,
                     reclaim_locked_at=_ensure_iso(item.locked_at),
                     reclaim_lease_until=_ensure_iso(item.lease_until),
@@ -210,10 +217,8 @@ class _OutboxMixin:
         db: sqlite3.Connection,
         select_sql: str,
         select_params: tuple[Any, ...],
-        delete_sql: str,
         insert_sql: str,
         insert_params: tuple[Any, ...],
-        terminal: frozenset[str],
         reclaimable: frozenset[str],
         *,
         reclaim_status: str = "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
@@ -222,13 +227,12 @@ class _OutboxMixin:
         reclaim_lease_until: str | None = None,
         reclaim_now: str = "",
     ) -> str | None:
-        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional DELETE/UPDATE, INSERT, COMMIT.
+        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional UPDATE, INSERT, COMMIT.
 
         Returns the existing outbox_id when a reclaimable row was found
         (idempotent — the row is reclaimed with new status/worker/lease),
-        or the existing outbox_id when an active (in_progress/queued) row
-        was found (returned unchanged).  Returns None when a new row was
-        inserted.
+        or the existing outbox_id when a terminal or active row was found
+        (returned unchanged).  Returns None when a new row was inserted.
         """
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
@@ -258,12 +262,11 @@ class _OutboxMixin:
                         )
                         db.execute("COMMIT")
                         return existing["outbox_id"]
-                    if existing["status"] in terminal:
-                        db.execute(delete_sql, (existing["outbox_id"],))
-                    else:
-                        # Active (in_progress or queued) — return unchanged.
-                        db.execute("COMMIT")
-                        return existing["outbox_id"]
+                    # Terminal or active (in_progress or queued) —
+                    # return unchanged.  Terminal rows are immutable for
+                    # lifecycle purposes; active rows must not be stolen.
+                    db.execute("COMMIT")
+                    return existing["outbox_id"]
                 db.execute(insert_sql, insert_params)
                 db.execute("COMMIT")
                 return None

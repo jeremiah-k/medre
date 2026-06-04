@@ -753,7 +753,7 @@ The outbox persists operational delivery work state. Outbox items are created af
 
 ### 9.2 Status Transitions
 
-**Terminal** (no further state changes; **MAY** be replaced on re-delivery):
+**Terminal** (no further state changes; **MUST NOT** be transitioned, reclaimed, deleted, or replaced):
 
 - `sent`, `dead_lettered`, `cancelled`, `abandoned`
 
@@ -761,11 +761,13 @@ The outbox persists operational delivery work state. Outbox items are created af
 
 - `pending`, `in_progress`, `queued`, `retry_wait`
 
+Receipt rows are append-only; the latest receipt for a delivery chain determines the current receipt state. Outbox rows are mutable for non-terminal statuses only.
+
 ### 9.3 Idempotent Create with Reclaim
 
 Creating an item with the same key tuple `(delivery_plan_id, target_adapter, target_channel, attempt_number)` when a non-terminal row already exists does **not** return the existing row unchanged. The existing row is **reclaimed**: its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. This ensures the caller always receives a properly-claimed operational row suitable for finalization.
 
-When the existing row is terminal, it is deleted and a new row is inserted (re-delivery).
+When the existing row is terminal, it is returned unchanged. Terminal rows are immutable for lifecycle purposes; a new delivery after terminal state MUST use a new attempt identity (new `delivery_plan_id` and/or new `attempt_number`) and a new outbox row.
 
 ### 9.4 Stale Queued Reclaim
 

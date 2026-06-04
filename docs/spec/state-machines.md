@@ -255,9 +255,12 @@ example because the worker crashed or the adapter lost the queued message.
 
 ### 2.4 Mutable Operational State
 
-> Outbox rows are mutable operational state. They MAY be reclaimed or replaced
-> for terminal statuses. The `delivery_receipts` table preserves the full
-> evidence trail independently of outbox lifecycle.
+> Outbox rows are mutable operational state for **non-terminal** statuses.
+> Terminal outbox rows (`sent`, `dead_lettered`, `cancelled`, `abandoned`)
+> MUST NOT be transitioned, reclaimed, deleted, or replaced. A new delivery
+> after terminal state MUST use a new attempt identity (new
+> `delivery_plan_id` and/or new `attempt_number`). The `delivery_receipts`
+> table preserves the full evidence trail independently of outbox lifecycle.
 
 ### 2.5 Graceful Shutdown Behavior
 

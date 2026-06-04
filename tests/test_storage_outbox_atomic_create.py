@@ -1,5 +1,6 @@
 """Tests for delivery_outbox atomic create semantics: idempotent key handling,
-terminal replacement, no-steal guarantees for in_progress/queued rows."""
+terminal immutability, no-steal guarantees for in_progress/queued rows,
+idempotent reclaim for pending/retry_wait."""
 
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
 
 class TestAtomicCreateOutboxItem:
-    """Verify idempotent and terminal-replacement semantics of
+    """Verify idempotent and terminal-immutability semantics of
     create_outbox_item."""
 
     async def test_concurrent_create_same_active_key_returns_one_row(
@@ -53,36 +54,35 @@ class TestAtomicCreateOutboxItem:
         ]
         assert len(matching) == 1
 
-    async def test_terminal_replacement_does_not_lose_rows(
+    async def test_terminal_existing_row_returned_unchanged(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """After terminal, re-create with same key produces a new row."""
+        """If the existing row is terminal, re-creating with the same key
+        returns the existing terminal row unchanged.  Terminal rows are
+        immutable for lifecycle purposes."""
         item1 = _make_outbox_item(
-            delivery_plan_id="plan-atomic-term",
+            delivery_plan_id="plan-term-rtn",
             target_channel="ch-term",
         )
         created1 = await temp_storage.create_outbox_item(item1)
-
-        # Transition to terminal via claim then sent
         claimed = await temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
-            worker_id="worker-1",
+            worker_id="w1",
             lease_seconds=30,
             limit=10,
         )
         assert len(claimed) == 1
         await temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
-
-        # Re-create with same key tuple but new outbox_id
+        # Item is now terminal.  Re-create with same key tuple.
         item2 = _make_outbox_item(
-            delivery_plan_id="plan-atomic-term",
+            delivery_plan_id="plan-term-rtn",
             target_channel="ch-term",
         )
         created2 = await temp_storage.create_outbox_item(item2)
-
-        # New row was created
-        assert created2.outbox_id == item2.outbox_id
-        assert created2.status == "pending"
+        # Must return the existing terminal row, not insert a new one.
+        assert created2.outbox_id == created1.outbox_id
+        # Status remains terminal (sent).
+        assert created2.status == "sent"
 
     async def test_non_terminal_existing_row_returned_unchanged(
         self, temp_storage: SQLiteStorage
@@ -194,7 +194,8 @@ class TestAtomicCreateOutboxItem:
 
 class TestCreateOutboxNoSteal:
     """create_outbox_item must not overwrite in_progress or queued rows.
-    It may only reclaim pending/retry_wait rows and replace terminal rows."""
+    It may only reclaim pending/retry_wait rows; terminal and active rows
+    are returned unchanged."""
 
     async def test_create_does_not_steal_in_progress(
         self, temp_storage: SQLiteStorage
