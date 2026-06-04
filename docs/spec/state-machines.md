@@ -95,7 +95,25 @@ existing delivery-receipt rows. Retry scheduling is represented by fields
 (`next_retry_at`, `retry_max_attempts`, `retry_backoff_base`) set when a
 receipt row is appended — these fields are never modified after creation.
 
-### 1.6 Status Vocabulary
+### 1.6 Dead-Letter Attempt Convention
+
+When retries are exhausted and a dead-letter receipt is created, the
+`attempt_number` field follows a chain-closing convention:
+
+- `should_dead_letter()` is called with the `attempt_number` of the **failed**
+  receipt (the attempt that just failed).
+- `RetryExecutor.is_exhausted(attempt_number)` determines whether that
+  attempt exhausts the configured `max_attempts`.
+- The dead-letter receipt receives `attempt_number + 1` — one more than the
+  failed attempt that triggered dead-lettering. This makes the dead-letter
+  receipt the chain-closing row whose attempt number accounts for the
+  dead-lettering step itself.
+
+Example: if `max_attempts = 3`, the failed receipt at `attempt_number = 3`
+triggers `should_dead_letter() → True`, and the dead-letter receipt is
+appended with `attempt_number = 4`.
+
+### 1.7 Status Vocabulary
 
 The receipt status vocabulary is closed: `queued`, `sent`, `failed`,
 `dead_lettered`, `suppressed`. No other status labels are valid in current
@@ -309,14 +327,14 @@ corresponding receipt. This enables:
 
 ### 3.3 Terminal State Correspondence
 
-| Outbox Terminal | Receipt Terminal  | Condition                                                                                                                          |
-| --------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `sent`          | `sent`            | Successful delivery                                                                                                                |
-| `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation                                                                             |
-| `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                               |
-| `cancelled`     | —                 | No receipt produced (pre-delivery)                                                                                                 |
+| Outbox Terminal | Receipt Terminal  | Condition                                                                                                                                       |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sent`          | `sent`            | Successful delivery                                                                                                                             |
+| `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation                                                                                          |
+| `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                                            |
+| `cancelled`     | —                 | No receipt produced (pre-delivery)                                                                                                              |
 | `abandoned`     | `suppressed`      | **Shutdown drain-timeout** abandonment produces a suppressed receipt with `failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` |
-| —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                  |
+| —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                               |
 
 ### 3.4 Implicit Suppression Paths
 
@@ -363,12 +381,14 @@ The module defines four status vocabularies as `frozenset` constants:
 
 Classification subsets:
 
-| Constant                    | Subset of          | Values                                            |
-| --------------------------- | ------------------ | ------------------------------------------------- |
-| `TERMINAL_RECEIPT_STATUSES` | `RECEIPT_STATUSES` | `sent`, `dead_lettered`, `suppressed`             |
-| `TERMINAL_OUTBOX_STATUSES`  | `OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned` |
-| `CLAIMABLE_OUTBOX_STATUSES` | `OUTBOX_STATUSES`  | `pending`, `retry_wait`                           |
-| `ACCEPTED_OUTCOME_STATUSES` | `OUTCOME_STATUSES` | `success`, `queued`                               |
+| Constant                        | Subset of          | Values                                            |
+| ------------------------------- | ------------------ | ------------------------------------------------- |
+| `TERMINAL_RECEIPT_STATUSES`     | `RECEIPT_STATUSES` | `sent`, `dead_lettered`, `suppressed`             |
+| `NON_TERMINAL_RECEIPT_STATUSES` | `RECEIPT_STATUSES` | `queued`, `failed`                                |
+| `TERMINAL_OUTBOX_STATUSES`      | `OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned` |
+| `NON_TERMINAL_OUTBOX_STATUSES`  | `OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`  |
+| `CLAIMABLE_OUTBOX_STATUSES`     | `OUTBOX_STATUSES`  | `pending`, `retry_wait`                           |
+| `ACCEPTED_OUTCOME_STATUSES`     | `OUTCOME_STATUSES` | `success`, `queued`                               |
 
 Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
 

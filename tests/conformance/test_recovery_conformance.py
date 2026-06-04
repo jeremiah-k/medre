@@ -249,7 +249,7 @@ class TestRecoveryNotProofOfDelivery:
             startup_timestamp=None,
             outbox_id="ob-1",
             prior_status="pending",
-            recovered_status="pending",
+            observed_status="pending",
             ownership_action="recoverable",
             reason="Item is pending and claimable",
             worker_identity=None,
@@ -264,7 +264,7 @@ class TestRecoveryNotProofOfDelivery:
         assert "delivery_status" not in d
         # Only outbox status fields
         assert "prior_status" in d
-        assert "recovered_status" in d
+        assert "observed_status" in d
 
     def test_no_recovery_claim_matches_ownership(self) -> None:
         """Ownership actions assert what was claimed, not what was delivered."""

@@ -1132,7 +1132,7 @@ A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery de
 | `startup_timestamp` | `str or None` | ISO-8601 startup timestamp. `None` when unavailable.                                                                     |
 | `outbox_id`         | `str`         | Affected outbox item ID.                                                                                                 |
 | `prior_status`      | `str`         | Outbox status at the time recovery analysis began.                                                                       |
-| `recovered_status`  | `str`         | Observed outbox status at analysis time. In snapshot diagnostics this equals `prior_status`; no storage mutation occurs. |
+| `observed_status`   | `str`         | Observed outbox status at analysis time. In snapshot diagnostics this equals `prior_status`; no storage mutation occurs. |
 | `ownership_action`  | `str`         | `RecoveryOwnershipStatus` value.                                                                                         |
 | `reason`            | `str`         | Human-readable explanation.                                                                                              |
 | `worker_identity`   | `str or None` | Worker identity, if known.                                                                                               |

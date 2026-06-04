@@ -917,7 +917,7 @@ The `recovery_summary` has these fields to check:
 | `recoverable_items`   | Items available for reclaim at next startup.                                                               |
 | `unrecoverable_items` | Terminal items (no recovery needed).                                                                       |
 
-The `recovery_ledger` provides per-item detail. Each action has `ownership_action`, `prior_status`, `recovered_status`, `recovery_source`, and a human-readable `reason`.
+The `recovery_ledger` provides per-item detail. Each action has `ownership_action`, `prior_status`, `observed_status`, `recovery_source`, and a human-readable `reason`.
 
 ### Recovery Convergence Findings
 

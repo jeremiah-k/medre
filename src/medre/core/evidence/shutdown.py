@@ -45,10 +45,7 @@ from dataclasses import dataclass, fields
 from typing import Any, Mapping, Sequence
 
 from medre.core.engine.pipeline.delivery_state import (
-    OUTBOX_STATUSES as _OUTBOX_STATUSES,
-)
-from medre.core.engine.pipeline.delivery_state import (
-    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
+    NON_TERMINAL_OUTBOX_STATUSES as _NON_TERMINAL_OUTBOX_STATUSES,
 )
 
 __all__ = [
@@ -92,7 +89,7 @@ class ShutdownStatus(str, enum.Enum):
 # honestly as ``shutdown_pending`` rather than claiming they were
 # cancelled.  Drift is detected by
 # tests/test_evidence_coherence_contract.py.
-_PENDING_OUTBOX_STATUSES: frozenset[str] = _OUTBOX_STATUSES - _TERMINAL_OUTBOX_STATUSES
+_PENDING_OUTBOX_STATUSES: frozenset[str] = _NON_TERMINAL_OUTBOX_STATUSES
 
 
 # ---------------------------------------------------------------------------

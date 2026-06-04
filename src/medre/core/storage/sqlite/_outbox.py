@@ -8,6 +8,7 @@ from typing import Any
 
 from medre.core.engine.pipeline.delivery_state import (
     CLAIMABLE_OUTBOX_STATUSES,
+    OUTBOX_STATUSES,
     TERMINAL_OUTBOX_STATUSES,
 )
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -478,7 +479,15 @@ class _OutboxMixin:
         If *allowed_from* is provided, an additional ``AND status IN
         (...)`` guard is added so the transition is only valid from
         the listed source statuses.
+
+        Raises :class:`ValueError` if *new_status* is not a known
+        outbox status (not in ``OUTBOX_STATUSES``).
         """
+        if new_status not in OUTBOX_STATUSES:
+            raise ValueError(
+                f"Unknown outbox status {new_status!r}; "
+                f"expected one of {sorted(OUTBOX_STATUSES)}"
+            )
         now = _now_iso()
         sets = ["status = ?", "updated_at = ?"]
         params: list[Any] = [new_status, now]

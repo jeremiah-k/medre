@@ -5,6 +5,11 @@ adapter metadata naming conventions.  These tests catch drift between
 spec documents and the authoritative status vocabularies in
 ``delivery_state.py``, and prevent ``delivery_status`` from leaking
 into adapter metadata dicts.
+
+Wave E additions:
+- Classification subset alignment (NON_TERMINAL constants in spec docs).
+- Transition table alignment (receipt and outbox transitions in spec docs
+  match RECEIPT_TRANSITIONS / OUTBOX_TRANSITIONS).
 """
 
 from __future__ import annotations
@@ -16,10 +21,18 @@ from pathlib import Path
 import pytest
 
 from medre.core.engine.pipeline.delivery_state import (
+    ACCEPTED_OUTCOME_STATUSES,
     ADAPTER_DELIVERY_STATUSES,
+    CLAIMABLE_OUTBOX_STATUSES,
+    NON_TERMINAL_OUTBOX_STATUSES,
+    NON_TERMINAL_RECEIPT_STATUSES,
     OUTBOX_STATUSES,
+    OUTBOX_TRANSITIONS,
     OUTCOME_STATUSES,
     RECEIPT_STATUSES,
+    RECEIPT_TRANSITIONS,
+    TERMINAL_OUTBOX_STATUSES,
+    TERMINAL_RECEIPT_STATUSES,
 )
 
 # ---------------------------------------------------------------------------
@@ -342,7 +355,86 @@ class TestTestMockMetadataNaming:
 
 
 # ===========================================================================
-# 5. MeshCore metadata regression
+# 5. Ambiguous top-level metadata keys (status / state)
+# ===========================================================================
+
+
+#: Bare keys that are ambiguous at the top level of adapter metadata.
+#: ``delivery_status`` is already covered by TestAdapterMetadataNaming and
+#: TestTestMockMetadataNaming above.  This set catches the remaining
+#: ambiguous bare names that could collide with pipeline-level concepts.
+_AMBIGUOUS_METADATA_KEYS: frozenset[str] = frozenset({"status", "state"})
+
+
+class TestAmbiguousTopLevelMetadataKeys:
+    """Adapter metadata dicts must not use bare ``status`` or ``state``
+    as top-level keys.
+
+    These ambiguous names could be confused with pipeline-level receipt
+    or outbox statuses.  Adapters should use namespace-prefixed names
+    (e.g. ``adapter_status``, ``meshtastic_channel_index``) or nest
+    protocol-specific state under a protocol namespace key (e.g.
+    ``metadata["lxmf"]["delivery_state"]``).
+    """
+
+    @pytest.fixture(scope="class")
+    def adapter_ambiguous_violations(self) -> list[str]:
+        """Scan adapter source for bare status/state metadata keys."""
+        violations: list[str] = []
+        for py_file in _adapter_py_files():
+            source = py_file.read_text("utf-8")
+            results = _parse_adapter_results(source, str(py_file))
+            for _ds_value, meta_keys in results:
+                for key in _AMBIGUOUS_METADATA_KEYS:
+                    if key in meta_keys:
+                        violations.append(
+                            f"{py_file.relative_to(_ROOT)}: metadata contains "
+                            f"ambiguous top-level key {key!r} — use a "
+                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                        )
+        return violations
+
+    def test_adapter_metadata_no_ambiguous_keys(
+        self, adapter_ambiguous_violations: list[str]
+    ) -> None:
+        """Adapter metadata must not contain bare ``status`` or ``state``."""
+        assert (
+            not adapter_ambiguous_violations
+        ), "Adapter metadata ambiguous key violations:\n" + "\n".join(
+            f"  {v}" for v in adapter_ambiguous_violations
+        )
+
+    @pytest.fixture(scope="class")
+    def test_mock_ambiguous_violations(self) -> list[str]:
+        """Scan test source for bare status/state metadata keys in mocks."""
+        test_dir = _ROOT / "tests"
+        violations: list[str] = []
+        for py_file in sorted(test_dir.rglob("*.py")):
+            source = py_file.read_text("utf-8")
+            results = _parse_adapter_results(source, str(py_file))
+            for _ds_value, meta_keys in results:
+                for key in _AMBIGUOUS_METADATA_KEYS:
+                    if key in meta_keys:
+                        violations.append(
+                            f"{py_file.relative_to(_ROOT)}: metadata contains "
+                            f"ambiguous top-level key {key!r} — use a "
+                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                        )
+        return violations
+
+    def test_test_mock_metadata_no_ambiguous_keys(
+        self, test_mock_ambiguous_violations: list[str]
+    ) -> None:
+        """Test mock metadata must not contain bare ``status`` or ``state``."""
+        assert (
+            not test_mock_ambiguous_violations
+        ), "Test mock metadata ambiguous key violations:\n" + "\n".join(
+            f"  {v}" for v in test_mock_ambiguous_violations
+        )
+
+
+# ===========================================================================
+# 6. MeshCore metadata regression
 # ===========================================================================
 
 
@@ -396,4 +488,334 @@ class TestMeshCoreMetadataRegression:
         assert adapter_status_found, (
             "MeshCore fake adapter does not use 'adapter_status' in any "
             "AdapterDeliveryResult metadata"
+        )
+
+
+# ===========================================================================
+# 7. Classification subset alignment (Wave E)
+# ===========================================================================
+
+
+class TestClassificationSubsetAlignment:
+    """NON_TERMINAL constants must appear in spec docs alongside terminal sets.
+
+    Verify that state-machines.md §4.1 and delivery-lifecycle.md §2.1 both
+    list every classification subset constant, including the new
+    NON_TERMINAL_RECEIPT_STATUSES and NON_TERMINAL_OUTBOX_STATUSES.
+    """
+
+    # -- state-machines.md §4.1 classification table -------------------------
+
+    def test_state_machines_lists_terminal_receipt(self) -> None:
+        content = _read(STATE_MACHINES_MD)
+        for status in TERMINAL_RECEIPT_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"state-machines.md missing terminal receipt status '{status}'"
+
+    def test_state_machines_lists_non_terminal_receipt(self) -> None:
+        content = _read(STATE_MACHINES_MD)
+        for status in NON_TERMINAL_RECEIPT_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"state-machines.md missing non-terminal receipt status '{status}'"
+
+    def test_state_machines_lists_terminal_outbox(self) -> None:
+        content = _read(STATE_MACHINES_MD)
+        for status in TERMINAL_OUTBOX_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"state-machines.md missing terminal outbox status '{status}'"
+
+    def test_state_machines_lists_non_terminal_outbox(self) -> None:
+        content = _read(STATE_MACHINES_MD)
+        for status in NON_TERMINAL_OUTBOX_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"state-machines.md missing non-terminal outbox status '{status}'"
+
+    # -- delivery-lifecycle.md §2.1 classification table ---------------------
+
+    def test_delivery_lifecycle_mentions_non_terminal_receipt(self) -> None:
+        content = _read(DELIVERY_LIFECYCLE_MD)
+        for status in NON_TERMINAL_RECEIPT_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"delivery-lifecycle.md missing non-terminal receipt status '{status}'"
+
+    def test_delivery_lifecycle_mentions_non_terminal_outbox(self) -> None:
+        content = _read(DELIVERY_LIFECYCLE_MD)
+        for status in NON_TERMINAL_OUTBOX_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"delivery-lifecycle.md missing non-terminal outbox status '{status}'"
+
+    def test_delivery_lifecycle_mentions_claimable_outbox(self) -> None:
+        content = _read(DELIVERY_LIFECYCLE_MD)
+        for status in CLAIMABLE_OUTBOX_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"delivery-lifecycle.md missing claimable outbox status '{status}'"
+
+    def test_delivery_lifecycle_mentions_accepted_outcome(self) -> None:
+        content = _read(DELIVERY_LIFECYCLE_MD)
+        for status in ACCEPTED_OUTCOME_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"delivery-lifecycle.md missing accepted outcome status '{status}'"
+
+    # -- lifecycle-authority-audit.md classification table -------------------
+
+    def test_audit_doc_mentions_non_terminal_receipt(self) -> None:
+        content = _read(LIFECYCLE_AUDIT_MD)
+        for status in NON_TERMINAL_RECEIPT_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"lifecycle-authority-audit.md missing non-terminal receipt status '{status}'"
+
+    def test_audit_doc_mentions_non_terminal_outbox(self) -> None:
+        content = _read(LIFECYCLE_AUDIT_MD)
+        for status in NON_TERMINAL_OUTBOX_STATUSES:
+            assert (
+                f"`{status}`" in content
+            ), f"lifecycle-authority-audit.md missing non-terminal outbox status '{status}'"
+
+    # -- partition invariants documented -------------------------------------
+
+    def test_state_machines_mentions_non_terminal_constant_name(self) -> None:
+        """state-machines.md §4.1 must name NON_TERMINAL_RECEIPT_STATUSES and
+        NON_TERMINAL_OUTBOX_STATUSES."""
+        content = _read(STATE_MACHINES_MD)
+        assert (
+            "NON_TERMINAL_RECEIPT_STATUSES" in content
+        ), "state-machines.md does not mention NON_TERMINAL_RECEIPT_STATUSES"
+        assert (
+            "NON_TERMINAL_OUTBOX_STATUSES" in content
+        ), "state-machines.md does not mention NON_TERMINAL_OUTBOX_STATUSES"
+
+    def test_delivery_lifecycle_mentions_non_terminal_constant_name(self) -> None:
+        """delivery-lifecycle.md §2.1 must name NON_TERMINAL constants."""
+        content = _read(DELIVERY_LIFECYCLE_MD)
+        assert (
+            "NON_TERMINAL_RECEIPT_STATUSES" in content
+        ), "delivery-lifecycle.md does not mention NON_TERMINAL_RECEIPT_STATUSES"
+        assert (
+            "NON_TERMINAL_OUTBOX_STATUSES" in content
+        ), "delivery-lifecycle.md does not mention NON_TERMINAL_OUTBOX_STATUSES"
+
+
+# ===========================================================================
+# 8. Transition table alignment (Wave E)
+# ===========================================================================
+
+
+class TestReceiptTransitionAlignment:
+    """Receipt transition table in state-machines.md §1.3 must align with
+    ``RECEIPT_TRANSITIONS`` in ``delivery_state.py``."""
+
+    @staticmethod
+    def _parse_receipt_transition_pairs() -> set[tuple[str, str]]:
+        """Parse (source, target) pairs from state-machines.md §1.3 table rows.
+
+        Returns a set of pairs.  Source ``—`` is mapped to the empty string
+        to distinguish it from a real status name.
+        """
+        content = _read(STATE_MACHINES_MD)
+        section_start = content.find("### 1.3 Legal Transitions")
+        section_end = content.find("### 1.4")
+        assert section_start != -1, "Cannot find §1.3 Legal Transitions"
+        assert section_end != -1, "Cannot find §1.4"
+        section = content[section_start:section_end]
+
+        pairs: set[tuple[str, str]] = set()
+        for line in section.splitlines():
+            # Match markdown table rows: | source | target | ... |
+            m = re.match(
+                r"\|\s*(?:`([a-z_]+)`|—)\s*\|\s*`([a-z_]+)`\s*\|",
+                line.strip(),
+            )
+            if m:
+                source = m.group(1) or "—"
+                target = m.group(2)
+                pairs.add((source, target))
+        return pairs
+
+    def test_all_code_receipt_transitions_in_docs(self) -> None:
+        """Every source→target pair in RECEIPT_TRANSITIONS must appear as an
+        exact row in state-machines.md §1.3 legal transitions table."""
+        docs_pairs = self._parse_receipt_transition_pairs()
+
+        missing: list[str] = []
+        for source, targets in RECEIPT_TRANSITIONS.items():
+            for target in targets:
+                if (source, target) not in docs_pairs:
+                    missing.append(f"`{source}` → `{target}`")
+
+        assert not missing, (
+            "Receipt transition pairs from RECEIPT_TRANSITIONS not found "
+            "as exact rows in §1.3 table:\n" + "\n".join(f"  {m}" for m in missing)
+        )
+
+    def test_all_docs_receipt_transitions_in_code(self) -> None:
+        """Every source→target pair in §1.3 table must exist in
+        RECEIPT_TRANSITIONS (docs→code coverage).
+
+        Rows with source ``—`` are initial receipt insertions (no previous
+        receipt), not state transitions.  They are excluded from this check
+        because ``RECEIPT_TRANSITIONS`` only models transitions from an
+        existing receipt status.
+        """
+        docs_pairs = self._parse_receipt_transition_pairs()
+
+        # Build the set of all code pairs.
+        code_pairs: set[tuple[str, str]] = set()
+        for source, targets in RECEIPT_TRANSITIONS.items():
+            for target in targets:
+                code_pairs.add((source, target))
+
+        extra: list[str] = []
+        for source, target in docs_pairs:
+            # Skip initial-receipt rows (source == "—"); they are not transitions.
+            if source == "—":
+                continue
+            if (source, target) not in code_pairs:
+                extra.append(f"`{source}` → `{target}`")
+
+        assert not extra, (
+            "Receipt transition rows in §1.3 table not found in "
+            "RECEIPT_TRANSITIONS:\n" + "\n".join(f"  {e}" for e in extra)
+        )
+
+    def test_terminal_receipt_statuses_have_no_outgoing_in_docs(self) -> None:
+        """Terminal receipt statuses must not appear as transition sources
+        in state-machines.md §1.3."""
+        docs_pairs = self._parse_receipt_transition_pairs()
+
+        violations: list[str] = []
+        for source, target in docs_pairs:
+            if source in TERMINAL_RECEIPT_STATUSES:
+                violations.append(f"`{source}` → `{target}`")
+
+        assert not violations, (
+            "Terminal receipt statuses found as transition sources in §1.3:\n"
+            + "\n".join(f"  {v}" for v in violations)
+        )
+
+
+class TestOutboxTransitionAlignment:
+    """Outbox transition table in state-machines.md §2.3 must align with
+    ``OUTBOX_TRANSITIONS`` in ``delivery_state.py``."""
+
+    @staticmethod
+    def _parse_outbox_transition_pairs() -> set[tuple[str, str]]:
+        """Parse (source, target) pairs from state-machines.md §2.3 table rows.
+
+        Returns a set of pairs.  Source ``—`` is mapped to the empty string.
+        """
+        content = _read(STATE_MACHINES_MD)
+        section_start = content.find("### 2.3 Legal Transitions")
+        section_end = content.find("### 2.4")
+        assert section_start != -1, "Cannot find §2.3 Legal Transitions"
+        assert section_end != -1, "Cannot find §2.4 Mutable"
+        section = content[section_start:section_end]
+
+        pairs: set[tuple[str, str]] = set()
+        for line in section.splitlines():
+            # Match: | source | target | method | condition |
+            m = re.match(
+                r"\|\s*(?:`([a-z_]+)`|—)\s*\|\s*`([a-z_]+)`\s*\|",
+                line.strip(),
+            )
+            if m:
+                source = m.group(1) or "—"
+                target = m.group(2)
+                pairs.add((source, target))
+        return pairs
+
+    def test_all_code_outbox_transitions_in_docs(self) -> None:
+        """Every source→target pair in OUTBOX_TRANSITIONS must appear as an
+        exact row in state-machines.md §2.3 legal transitions table."""
+        docs_pairs = self._parse_outbox_transition_pairs()
+
+        missing: list[str] = []
+        for source, targets in OUTBOX_TRANSITIONS.items():
+            for target in targets:
+                if (source, target) not in docs_pairs:
+                    missing.append(f"`{source}` → `{target}`")
+
+        assert not missing, (
+            "Outbox transition pairs from OUTBOX_TRANSITIONS not found "
+            "as exact rows in §2.3 table:\n" + "\n".join(f"  {m}" for m in missing)
+        )
+
+    def test_all_docs_outbox_transitions_in_code(self) -> None:
+        """Every source→target pair in §2.3 table must exist in
+        OUTBOX_TRANSITIONS (docs→code coverage).
+
+        Rows with source ``—`` are initial outbox insertions (no previous
+        status), not state transitions.  They are excluded because
+        ``OUTBOX_TRANSITIONS`` only models transitions from an existing status.
+        """
+        docs_pairs = self._parse_outbox_transition_pairs()
+
+        code_pairs: set[tuple[str, str]] = set()
+        for source, targets in OUTBOX_TRANSITIONS.items():
+            for target in targets:
+                code_pairs.add((source, target))
+
+        extra: list[str] = []
+        for source, target in docs_pairs:
+            # Skip initial-insertion rows (source == "—"); they are not transitions.
+            if source == "—":
+                continue
+            if (source, target) not in code_pairs:
+                extra.append(f"`{source}` → `{target}`")
+
+        assert not extra, (
+            "Outbox transition rows in §2.3 table not found in "
+            "OUTBOX_TRANSITIONS:\n" + "\n".join(f"  {e}" for e in extra)
+        )
+
+    def test_terminal_outbox_statuses_have_no_outgoing_in_docs(self) -> None:
+        """Terminal outbox statuses must not appear as transition sources
+        in state-machines.md §2.3 legal transitions table rows."""
+        docs_pairs = self._parse_outbox_transition_pairs()
+
+        violations: list[str] = []
+        for source, target in docs_pairs:
+            if source in TERMINAL_OUTBOX_STATUSES:
+                violations.append(f"`{source}` → `{target}`")
+
+        assert not violations, (
+            "Terminal outbox statuses found as transition sources in §2.3:\n"
+            + "\n".join(f"  {v}" for v in violations)
+        )
+
+
+# ===========================================================================
+# 9. Dead-letter attempt convention alignment (Wave E)
+# ===========================================================================
+
+
+class TestDeadLetterAttemptConvention:
+    """Dead-letter attempt_number convention must be documented in
+    state-machines.md."""
+
+    def test_state_machines_documents_dead_letter_convention(self) -> None:
+        """state-machines.md must have §1.6 Dead-Letter Attempt Convention."""
+        content = _read(STATE_MACHINES_MD)
+        assert (
+            "Dead-Letter Attempt Convention" in content
+        ), "state-machines.md missing Dead-Letter Attempt Convention section"
+        assert "attempt_number + 1" in content, (
+            "state-machines.md dead-letter convention does not describe "
+            "attempt_number + 1 chain-closing"
+        )
+
+    def test_audit_doc_documents_dead_letter_convention(self) -> None:
+        """lifecycle-authority-audit.md must document the convention."""
+        content = _read(LIFECYCLE_AUDIT_MD)
+        assert "attempt_number = N + 1" in content, (
+            "lifecycle-authority-audit.md missing dead-letter attempt "
+            "convention note"
         )

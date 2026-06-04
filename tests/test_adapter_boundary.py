@@ -327,6 +327,19 @@ class TestClassifyFailureWithAdapterSendError:
 class TestAdapterDeliveryResultFields:
     """AdapterDeliveryResult has consistent field shapes."""
 
+    def test_default_delivery_status_is_adapter_fact(self) -> None:
+        """AdapterDeliveryResult().delivery_status defaults to a known
+        ADAPTER_DELIVERY_STATUSES value."""
+        from medre.core.engine.pipeline.delivery_state import (
+            ADAPTER_DELIVERY_STATUSES,
+        )
+
+        result = AdapterDeliveryResult()
+        assert result.delivery_status in ADAPTER_DELIVERY_STATUSES, (
+            f"Default delivery_status {result.delivery_status!r} not in "
+            f"ADAPTER_DELIVERY_STATUSES {sorted(ADAPTER_DELIVERY_STATUSES)}"
+        )
+
     def test_delivery_note_defaults_to_empty(self) -> None:
         result = AdapterDeliveryResult()
         assert result.delivery_note == ""

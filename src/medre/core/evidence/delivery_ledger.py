@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from medre.core.engine.pipeline.delivery_state import (
-    OUTBOX_STATUSES,
+    NON_TERMINAL_OUTBOX_STATUSES,
     TERMINAL_OUTBOX_STATUSES,
     TERMINAL_RECEIPT_STATUSES,
 )
@@ -188,7 +188,7 @@ _TERMINAL_STATUSES: frozenset[str] = (
 # Derived from canonical outbox lifecycle constants: the set of outbox statuses
 # that are NOT terminal.  Equivalent to {"pending", "in_progress", "queued",
 # "retry_wait"} but kept in sync automatically when statuses are added.
-_ACTIVE_STATUSES: frozenset[str] = OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
+_ACTIVE_STATUSES: frozenset[str] = NON_TERMINAL_OUTBOX_STATUSES
 
 
 def _derive_retry_state(

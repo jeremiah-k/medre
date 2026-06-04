@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -1243,3 +1245,64 @@ class TestReceiptRenderingEvidence:
         assert status.rendering_evidence == evidence_json
         parsed = json.loads(status.rendering_evidence)
         assert parsed["renderer"] == "text"
+
+
+# ===================================================================
+# Unknown receipt status validation
+# ===================================================================
+
+
+class TestUnknownReceiptStatusRejected:
+    """append_receipt raises ValueError for unknown receipt statuses
+    and does not append a row."""
+
+    async def test_unknown_receipt_status_raises_value_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Passing an unknown status to append_receipt raises ValueError."""
+        event = make_storage_event(event_id="evt-unknown-rcpt")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-bad-status",
+            event_id="evt-unknown-rcpt",
+            delivery_plan_id="plan-bad-status",
+            target_adapter="adapter_bad",
+            status="not_a_real_status",  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(ValueError, match="Unknown receipt status"):
+            await temp_storage.append_receipt(receipt)
+
+    async def test_unknown_receipt_status_does_not_append_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After a ValueError for unknown receipt status, no row exists."""
+        event = make_storage_event(event_id="evt-unknown-row")
+        await temp_storage.append(event)
+
+        # Count receipts before.
+        rows_before = await temp_storage._read_all(
+            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
+            ("evt-unknown-row",),
+        )
+        count_before = rows_before[0]["cnt"]
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-no-row",
+            event_id="evt-unknown-row",
+            delivery_plan_id="plan-no-row",
+            target_adapter="adapter_no",
+            status="totally_invalid",  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(ValueError):
+            await temp_storage.append_receipt(receipt)
+
+        # Count receipts after — must be unchanged.
+        rows_after = await temp_storage._read_all(
+            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
+            ("evt-unknown-row",),
+        )
+        count_after = rows_after[0]["cnt"]
+        assert count_after == count_before

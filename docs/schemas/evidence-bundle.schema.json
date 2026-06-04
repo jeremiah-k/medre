@@ -666,7 +666,7 @@
         },
         "prior_status": { "type": "string" },
         "reason": { "type": "string" },
-        "recovered_status": { "type": "string" },
+        "observed_status": { "type": "string" },
         "recovery_run_id": { "type": ["string", "null"] },
         "recovery_source": {
           "type": "string",
@@ -691,7 +691,7 @@
         "ownership_action",
         "prior_status",
         "reason",
-        "recovered_status",
+        "observed_status",
         "recovery_run_id",
         "recovery_source",
         "startup_timestamp",

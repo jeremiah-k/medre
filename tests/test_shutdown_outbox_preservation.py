@@ -31,6 +31,10 @@ from pathlib import Path
 
 import pytest
 
+from medre.core.engine.pipeline.delivery_state import (
+    NON_TERMINAL_OUTBOX_STATUSES,
+    TERMINAL_OUTBOX_STATUSES,
+)
 from medre.core.evidence.shutdown import (
     build_shutdown_evidence,
     classify_outbox_shutdown_policy,
@@ -42,10 +46,10 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # Helpers
 # ---------------------------------------------------------------------------
 
-# NOTE: Canonical status vocab constants are in medre.core.diagnostics.convergence.helpers.
-# These tuples are a subset used for shutdown-test parametrization.
-_NON_TERMINAL_STATUSES = ("pending", "retry_wait", "in_progress", "queued")
-_TERMINAL_STATUSES = ("sent", "dead_lettered")
+# Canonical status vocab constants from delivery_state.py.
+# Deterministic param order via tuple(sorted(...)).
+_NON_TERMINAL_STATUSES: tuple[str, ...] = tuple(sorted(NON_TERMINAL_OUTBOX_STATUSES))
+_TERMINAL_STATUSES: tuple[str, ...] = tuple(sorted(TERMINAL_OUTBOX_STATUSES))
 
 
 def _make_outbox_item(
@@ -149,6 +153,22 @@ async def _seed_item_in_status(
         fetched = await storage.get_outbox_item(oid)
         assert fetched is not None
         assert fetched.status == "dead_lettered"
+        return fetched
+
+    if status == "cancelled":
+        # cancelled items are created via in_progress → mark_outbox_cancelled
+        await storage.mark_outbox_cancelled(oid, error_summary="shutdown_test")
+        fetched = await storage.get_outbox_item(oid)
+        assert fetched is not None
+        assert fetched.status == "cancelled"
+        return fetched
+
+    if status == "abandoned":
+        # abandoned items are created via in_progress → mark_outbox_abandoned
+        await storage.mark_outbox_abandoned(oid, error_summary="shutdown_test")
+        fetched = await storage.get_outbox_item(oid)
+        assert fetched is not None
+        assert fetched.status == "abandoned"
         return fetched
 
     raise ValueError(f"Unsupported status for helper: {status!r}")

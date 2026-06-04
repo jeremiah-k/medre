@@ -62,16 +62,18 @@ decisions made by higher layers.
 These vocabularies are defined in `delivery_state.py` (§4 of
 [state-machines.md](state-machines.md)) and are the normative source:
 
-| Vocabulary                | Constant                    | Values                                                                                              |
-| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
-| Receipt statuses          | `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
-| Outbox statuses           | `OUTBOX_STATUSES`           | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
-| Outcome statuses          | `OUTCOME_STATUSES`          | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
-| Adapter delivery statuses | `ADAPTER_DELIVERY_STATUSES` | `sent`, `enqueued`                                                                                  |
-| Terminal receipt statuses | `TERMINAL_RECEIPT_STATUSES` | `sent`, `dead_lettered`, `suppressed`                                                               |
-| Terminal outbox statuses  | `TERMINAL_OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
-| Claimable outbox statuses | `CLAIMABLE_OUTBOX_STATUSES` | `pending`, `retry_wait`                                                                             |
-| Accepted outcome statuses | `ACCEPTED_OUTCOME_STATUSES` | `success`, `queued`                                                                                 |
+| Vocabulary                    | Constant                        | Values                                                                                              |
+| ----------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
+| Outbox statuses               | `OUTBOX_STATUSES`               | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
+| Outcome statuses              | `OUTCOME_STATUSES`              | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
+| Adapter delivery statuses     | `ADAPTER_DELIVERY_STATUSES`     | `sent`, `enqueued`                                                                                  |
+| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `suppressed`                                                               |
+| Non-terminal receipt statuses | `NON_TERMINAL_RECEIPT_STATUSES` | `queued`, `failed`                                                                                  |
+| Terminal outbox statuses      | `TERMINAL_OUTBOX_STATUSES`      | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
+| Non-terminal outbox statuses  | `NON_TERMINAL_OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`                                                    |
+| Claimable outbox statuses     | `CLAIMABLE_OUTBOX_STATUSES`     | `pending`, `retry_wait`                                                                             |
+| Accepted outcome statuses     | `ACCEPTED_OUTCOME_STATUSES`     | `success`, `queued`                                                                                 |
 
 This specification introduces no new lifecycle states. All valid status strings
 are drawn from the vocabularies above.

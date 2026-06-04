@@ -86,7 +86,7 @@ def _make_action(
         startup_timestamp=None,
         outbox_id=outbox_id,
         prior_status=prior_status,
-        recovered_status=prior_status,
+        observed_status=prior_status,
         ownership_action=ownership_action,
         reason="Test action",
         worker_identity=None,
