@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 #: Well-known delivery strategy method values, matching
 #: :attr:`~medre.core.planning.delivery_plan.DeliveryStrategy.method`.
 #: Re-exported from the planning layer to avoid duplicate Literal definitions.
-from medre.core.planning.delivery_plan import (  # noqa: F401 – re-export
+from medre.core.planning.delivery_plan import (  # noqa: F401 - re-export
     DeliveryStrategyMethod,
 )
 

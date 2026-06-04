@@ -39,8 +39,12 @@ def _make_outbox_item(
 class TestStatusTransitions:
     """Outbox status methods correctly transition items."""
 
-    async def _create_and_claim(self, storage: SQLiteStorage, plan_id: str) -> str:
-        item = _make_outbox_item(delivery_plan_id=plan_id)
+    async def _create_and_claim(
+        self, storage: SQLiteStorage, plan_id: str, *, attempt_number: int = 1
+    ) -> str:
+        item = _make_outbox_item(
+            delivery_plan_id=plan_id, attempt_number=attempt_number
+        )
         await storage.create_outbox_item(item)
         claimed = await storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
@@ -119,8 +123,10 @@ class TestStatusTransitions:
     ) -> None:
         """mark_outbox_dead_lettered without attempt_number preserves the
         original value (backwards compatible)."""
-        oid = await self._create_and_claim(temp_storage, "plan-ts-dl-noattnum")
-        # Original attempt_number is 1 (from _make_outbox_item default)
+        oid = await self._create_and_claim(
+            temp_storage, "plan-ts-dl-noattnum", attempt_number=3
+        )
+        # Original attempt_number is 3 (explicitly passed)
         await temp_storage.mark_outbox_dead_lettered(
             oid,
             failure_kind="adapter_permanent",
@@ -128,7 +134,7 @@ class TestStatusTransitions:
         item = await temp_storage.get_outbox_item(oid)
         assert item is not None
         assert item.status == "dead_lettered"
-        assert item.attempt_number == 1  # unchanged from creation
+        assert item.attempt_number == 3  # unchanged from creation
 
     async def test_mark_cancelled(self, temp_storage: SQLiteStorage) -> None:
         oid = await self._create_and_claim(temp_storage, "plan-ts-cancel")

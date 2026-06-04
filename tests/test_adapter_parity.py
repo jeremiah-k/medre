@@ -333,6 +333,7 @@ class TestFakeAdapterDeliveryResultFields:
         # metadata should contain adapter_status, NOT delivery_note
         assert "adapter_status" in dr.metadata
         assert "delivery_note" not in dr.metadata
+        assert "delivery_status" not in dr.metadata
 
     @pytest.mark.asyncio
     async def test_meshtastic_returns_delivery_result(self) -> None:
@@ -686,6 +687,8 @@ class TestRealAdapterDeliveryResultShape:
         assert isinstance(dr.delivery_note, str)
         assert dr.delivery_note != ""
         assert "adapter_status" in dr.metadata
+        assert "delivery_note" not in dr.metadata
+        assert "delivery_status" not in dr.metadata
 
     @pytest.mark.asyncio
     async def test_meshtastic_real_deliver_result(self) -> None:

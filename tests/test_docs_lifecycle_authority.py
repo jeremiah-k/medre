@@ -109,8 +109,19 @@ def _parse_adapter_results(
                 if isinstance(kw.value.value, str):
                     ds_value = kw.value.value
 
-            # Extract metadata=MappingProxyType({...})
-            if kw.arg == "metadata" and isinstance(kw.value, ast.Call):
+            # Extract metadata={...} (literal dict) or metadata=MappingProxyType({...})
+            if kw.arg == "metadata" and isinstance(kw.value, ast.Dict):
+                # Literal dict: metadata={...}
+                d = kw.value
+                for k, v in zip(d.keys, d.values, strict=False):
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        key_str = k.value
+                        if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                            meta_keys[key_str] = v.value
+                        else:
+                            meta_keys[key_str] = "<non-literal>"
+            elif kw.arg == "metadata" and isinstance(kw.value, ast.Call):
+                # MappingProxyType({...})
                 meta_call = kw.value
                 meta_func = meta_call.func
                 is_mapping_proxy = False
