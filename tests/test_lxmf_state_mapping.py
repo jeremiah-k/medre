@@ -245,8 +245,8 @@ class TestTransientLxmfSendErrorRetry:
                 )
 
         assert exc_info.value.transient is True
-        # 3 transient in loop + 1 at exhaustion = 4
-        assert session._diag.transient_delivery_failures == 4
+        # 3 transient in loop (exhaustion is a summary, not a separate increment)
+        assert session._diag.transient_delivery_failures == 3
         assert session._diag.permanent_delivery_failures == 0
         assert mock_router.handle_outbound.call_count == 3
         await session.stop()
@@ -309,8 +309,8 @@ class TestGenericExceptionRetry:
                 )
 
         assert exc_info.value.transient is True
-        # 3 generic failures in loop + 1 at exhaustion = 4
-        assert session._diag.transient_delivery_failures == 4
+        # 3 generic failures in loop (exhaustion is a summary, not a separate increment)
+        assert session._diag.transient_delivery_failures == 3
         assert session._diag.permanent_delivery_failures == 0
         assert mock_router.handle_outbound.call_count == 3
         await session.stop()
