@@ -180,6 +180,16 @@ delivery produces new receipt rows with `source="replay"` and a `replay_run_id`.
 Replay MAY create new delivery attempts, but each attempt is a new receipt row
 — it does not modify existing receipts.
 
+### 5.1.1 Replay Attempt Identity
+
+Replay computes the outbox attempt number as `max(existing attempt_number) + 1`
+across all outbox rows sharing the same delivery identity (delivery_plan_id,
+target_adapter, target_channel). This ensures replay never reclaims or mutates
+live rows, which have lower attempt numbers. The same ownership check that
+applies to live delivery also applies to replay: if the freshly-created outbox
+row comes back terminal, active, or owned by another worker, the pipeline skips
+delivery with `failure_kind=outbox_not_owned`.
+
 ### 5.2 Replay Must Not Rewrite History
 
 Replay MUST NOT update, delete, or modify existing receipt rows. Replay MUST

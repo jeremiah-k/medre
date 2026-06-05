@@ -849,24 +849,23 @@ class DeliveryLifecycleService:
                     await storage.mark_outbox_queued(
                         outbox_id,
                         receipt_id=receipt.receipt_id,
-                        attempt_number=receipt.attempt_number,
                     )
                 else:
                     await storage.mark_outbox_sent(
                         outbox_id,
                         receipt_id=receipt.receipt_id,
-                        attempt_number=receipt.attempt_number,
                     )
             elif failure_kind_val is not None:
                 receipt_ref_id: str | None = (
                     receipt.receipt_id if receipt is not None else None
                 )
-                attempt: int | None = (
-                    receipt.attempt_number if receipt is not None else None
-                )
-                # NOTE: attempt_number=None when receipt is unavailable preserves
-                # the existing outbox attempt value (storage default) rather than
-                # overwriting it with an inferred value.
+                # NOTE: attempt_number is NOT passed to mark_outbox_* calls.
+                # The outbox row's attempt_number is set correctly at creation
+                # time by _create_outbox_for_delivery() and must not be
+                # overwritten — doing so would risk UNIQUE constraint violations
+                # when the receipt's attempt_number (computed from receipt
+                # lineage) differs from the outbox's attempt_number (computed
+                # from max existing outbox rows).
                 error_summary: str | None = error[:512] if error else None
                 if failure_kind_val.is_retryable:
                     if retry_policy is None:
@@ -876,7 +875,6 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
-                            attempt_number=attempt,
                         )
                     elif receipt is not None and receipt.next_retry_at is None:
                         # Receipt exists but next_retry_at is None despite
@@ -889,7 +887,6 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
-                            attempt_number=attempt,
                         )
                     elif receipt is not None and receipt.next_retry_at is not None:
                         # Receipt has a persisted next_retry_at - reuse it
@@ -901,12 +898,13 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
-                            attempt_number=attempt or 1,
                         )
                     else:
                         # Defensive fallback: no persisted receipt to
                         # consult.  Compute backoff from scratch.
-                        retry_attempt = attempt or 1
+                        retry_attempt = (
+                            receipt.attempt_number if receipt is not None else 1
+                        )
                         backoff_duration = RetryExecutor(retry_policy).compute_backoff(
                             retry_attempt
                         )
@@ -919,7 +917,6 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
-                            attempt_number=retry_attempt,
                         )
                 else:
                     await storage.mark_outbox_dead_lettered(
@@ -927,7 +924,6 @@ class DeliveryLifecycleService:
                         receipt_id=receipt_ref_id,
                         failure_kind=failure_kind_val.value,
                         error_summary=error_summary,
-                        attempt_number=attempt,
                     )
         except Exception:
             self._log.exception(

@@ -166,7 +166,29 @@ unsupported by adapter"`). The `capability_field` identifies which
 `replies`, `text`). See the Routing and Delivery Specification § 6.3.3 for the
 complete event-kind to capability-field mapping.
 
-## 10. Operational Implications
+## 10. Outbox Ownership Skip
+
+`outbox_not_owned` is a non-retryable runtime skip classification. It means the
+durable outbox state showed the row was terminal or already active elsewhere.
+It prevents duplicate adapter delivery. It is not an adapter failure.
+
+| Property       | Value                                                              |
+| -------------- | ------------------------------------------------------------------ |
+| Failure kind   | `outbox_not_owned`                                                 |
+| Outcome status | `skipped`                                                          |
+| Receipt status | None (no receipt is created)                                       |
+| Retryable      | No — the pipeline must not attempt delivery against an unowned row |
+| Adapter called | No                                                                 |
+
+Triggers when `create_outbox_item()` returns an existing row in a terminal
+state (`sent`, `dead_lettered`, `cancelled`, `abandoned`), an active queued
+state, or an `in_progress` row owned by another worker. The pipeline logs the
+skip reason (`terminal:<status>`, `active:queued`, or
+`active:other_worker:<id>`) and returns a `DeliveryOutcome` with
+`failure_kind=OUTBOX_NOT_OWNED`. No adapter call is made and no receipt is
+persisted.
+
+## 11. Operational Implications
 
 1. Consumers must handle duplicates for Meshtastic and MeshCore.
 2. Delivery confirmation is transport-dependent. Only Matrix provides strong
