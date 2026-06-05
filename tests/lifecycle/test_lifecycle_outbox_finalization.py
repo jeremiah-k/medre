@@ -388,3 +388,43 @@ class TestFinalizeOutboxDefensiveFallback:
         assert updated is not None
         assert updated.status == "retry_wait"
         assert updated.next_attempt_at is not None
+
+
+class TestFinalizeOutboxNoReceiptExhausted:
+    """Verify finalize_outbox_outcome marks dead_lettered when receipt is None,
+    retryable failure, retry policy exists, but RetryExecutor.is_exhausted
+    returns True (lines 908-909)."""
+
+    async def test_no_receipt_exhausted_retries_marks_dead_lettered(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """No receipt, retryable failure, max_attempts=1 (already on attempt 1)
+        → is_exhausted returns True → dead_lettered."""
+        lifecycle = _make_lifecycle()
+
+        item = DeliveryOutboxItem(
+            outbox_id="obox-no-rcpt-ex",
+            event_id="evt-no-rcpt-ex",
+            route_id="route-nre",
+            delivery_plan_id="plan-nre",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        # max_attempts=1 means attempt_number=1 is already exhausted.
+        policy = RetryPolicy(max_attempts=1, backoff_base=1.0)
+        await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            "obox-no-rcpt-ex",
+            True,
+            receipt=None,
+            failure_kind_val=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="timeout",
+            retry_policy=policy,
+        )
+
+        updated = await temp_storage.get_outbox_item("obox-no-rcpt-ex")
+        assert updated is not None
+        assert updated.status == "dead_lettered"
