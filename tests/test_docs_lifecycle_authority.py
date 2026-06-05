@@ -869,3 +869,187 @@ class TestDeadLetterAttemptConvention:
             "lifecycle-authority-audit.md missing dead-letter attempt "
             "convention note"
         )
+
+
+# ===========================================================================
+# 10. Adapter-reality-audit contract: delivery_status wording
+# ===========================================================================
+
+
+class TestDeliveryStatusWording:
+    """delivery-result.schema.json must describe delivery_status as adapter
+    delivery fact, not lifecycle state.  lifecycle-authority-audit.md must
+    use 'adapter delivery fact' wording."""
+
+    def test_schema_delivery_status_says_adapter_delivery_fact(self) -> None:
+        """delivery-result.schema.json delivery_status description must
+        contain 'adapter delivery fact'."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["delivery_status"]["description"]
+        assert "adapter delivery fact" in desc.lower(), (
+            "delivery-result.schema.json delivery_status description must "
+            "say 'adapter delivery fact', got: " + desc
+        )
+
+    def test_schema_delivery_status_not_lifecycle_state(self) -> None:
+        """delivery-result.schema.json delivery_status description must not
+        define it AS a lifecycle state. Saying 'not lifecycle state' is fine."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["delivery_status"]["description"]
+        desc_lower = desc.lower()
+        # The description must say "adapter delivery fact" as the primary definition.
+        assert (
+            "adapter delivery fact" in desc_lower
+        ), "delivery_status must be defined as 'adapter delivery fact'"
+        # It must NOT say something like "lifecycle state: 'sent'" as the definition.
+        # But "not the final lifecycle state" or "not lifecycle authority" is acceptable.
+        assert not desc_lower.startswith("adapter-level lifecycle state"), (
+            "delivery_status must not be defined as starting with "
+            "'adapter-level lifecycle state'"
+        )
+
+    def test_audit_doc_uses_adapter_delivery_fact(self) -> None:
+        """lifecycle-authority-audit.md must use 'adapter delivery fact'."""
+        content = _read(LIFECYCLE_AUDIT_MD)
+        assert "adapter delivery fact" in content.lower(), (
+            "lifecycle-authority-audit.md must use 'adapter delivery fact' "
+            "when describing AdapterDeliveryResult.delivery_status"
+        )
+
+
+# ===========================================================================
+# 11. Adapter-reality-audit contract: metadata namespacing in schema + example
+# ===========================================================================
+
+
+class TestMetadataNamespacing:
+    """Schema metadata description and example metadata must use
+    transport-namespaced keys (e.g. metadata.matrix, metadata.lxmf)."""
+
+    def test_schema_metadata_says_namespaced(self) -> None:
+        """delivery-result.schema.json metadata description must mention
+        namespacing under metadata[<transport>]."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["metadata"]["description"]
+        assert "metadata[<transport>]" in desc or "metadata[" in desc, (
+            "delivery-result.schema.json metadata description must mention "
+            "namespacing under metadata[<transport>], got: " + desc
+        )
+
+    def test_example_metadata_uses_transport_namespace(self) -> None:
+        """delivery-result-example.json metadata must use a transport-
+        namespaced key (e.g. 'matrix', 'lxmf'), not flat keys."""
+        import json
+
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+        metadata = example.get("metadata", {})
+        # All top-level keys in metadata must be transport namespace keys,
+        # not generic keys like "homeserver", "retry_count", "latency_ms".
+        generic_keys = {"homeserver", "retry_count", "latency_ms", "status", "state"}
+        found_generic = generic_keys & set(metadata.keys())
+        assert not found_generic, (
+            "delivery-result-example.json metadata has generic top-level "
+            f"keys {sorted(found_generic)} — use transport-namespaced "
+            "keys (e.g. metadata.matrix, metadata.lxmf)"
+        )
+
+    def test_example_metadata_has_transport_key(self) -> None:
+        """delivery-result-example.json metadata must have at least one
+        transport namespace key (e.g. 'matrix')."""
+        import json
+
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+        metadata = example.get("metadata", {})
+        # At least one key should be a known transport namespace
+        transport_namespaces = {"matrix", "lxmf", "meshtastic", "meshcore"}
+        assert transport_namespaces & set(metadata.keys()), (
+            "delivery-result-example.json metadata must use a transport "
+            "namespace key (e.g. 'matrix', 'lxmf'), got keys: "
+            + str(sorted(metadata.keys()))
+        )
+
+
+# ===========================================================================
+# 12. LXMF profile contract: delivery_status, unmapped, no unknown
+# ===========================================================================
+
+
+class TestLxmfProfileContract:
+    """LXMF transport profile must use correct delivery_status semantics
+    and 'unmapped' (not 'unknown') for unrecognised states."""
+
+    _LXMF_MD = _ROOT / "docs" / "spec" / "transport-profiles" / "lxmf.md"
+
+    def test_lxmf_delivery_status_is_sent_for_handoff(self) -> None:
+        """LXMF profile must state delivery_status is 'sent' for local
+        LXMRouter handoff."""
+        content = _read(self._LXMF_MD)
+        assert "delivery_status" in content and "sent" in content, (
+            "LXMF profile must describe delivery_status='sent' for local "
+            "LXMRouter handoff"
+        )
+
+    def test_lxmf_no_unknown_state(self) -> None:
+        """LXMF delivery state table must not use 'unknown' — use 'unmapped'."""
+        content = _read(self._LXMF_MD)
+        # Find the delivery state model section
+        section_start = content.find("Delivery state model")
+        assert section_start != -1, "Cannot find 'Delivery state model' in LXMF profile"
+        section_end = content.find("State transitions are tracked", section_start)
+        if section_end == -1:
+            section_end = content.find("##", section_start + 1)
+        section = content[section_start:section_end]
+        assert "`unknown`" not in section and "unknown" not in (
+            line.split("|")[1].strip().strip("`")
+            for line in section.splitlines()
+            if "|" in line and "Unrecognised" in line
+        ), (
+            "LXMF delivery state table must not contain 'unknown' — "
+            "use 'unmapped' for unrecognised states"
+        )
+
+    def test_lxmf_uses_unmapped_state(self) -> None:
+        """LXMF delivery state table must have 'unmapped' for unrecognised states."""
+        content = _read(self._LXMF_MD)
+        assert (
+            "`unmapped`" in content
+        ), "LXMF profile must use 'unmapped' for unrecognised SDK states"
+
+    def test_lxmf_delivery_state_in_metadata_not_status(self) -> None:
+        """LXMF profile must state LXMF delivery state is in
+        metadata['lxmf']['delivery_state'], not delivery_status."""
+        content = _read(self._LXMF_MD)
+        assert 'metadata["lxmf"]["delivery_state"]' in content, (
+            "LXMF profile must state that LXMF delivery state is in "
+            'metadata["lxmf"]["delivery_state"], not delivery_status'
+        )
+
+    def test_lxmf_no_delivery_status_equals_lxmf_state_claim(self) -> None:
+        """LXMF profile must NOT claim delivery_status equals LXMF delivery state."""
+        content = _read(self._LXMF_MD)
+        # The profile should not conflate delivery_status with LXMF state
+        bad_patterns = [
+            "delivery_status is the LXMF",
+            "delivery_status equals",
+            "delivery_status reflects LXMF",
+        ]
+        for pattern in bad_patterns:
+            assert pattern not in content, (
+                f"LXMF profile must not claim delivery_status equals LXMF "
+                f"delivery state (found '{pattern}')"
+            )

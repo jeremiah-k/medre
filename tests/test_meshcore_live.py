@@ -598,7 +598,7 @@ class TestMeshCoreBLEValidation:
             "medre.adapters.meshcore.session.importlib.import_module",
             return_value=mock_meshcore_module,
         ) as mock_import:
-            await session.start(message_callback=lambda pkt: None)
+            await session.start(message_callback=lambda _pkt: None)
 
         assert session.connected is True
         mock_import.assert_called_once_with("meshcore")
@@ -646,7 +646,7 @@ class TestMeshCoreBLEValidation:
             return_value=mock_meshcore_module,
         ):
             with pytest.raises(MeshCoreConnectionError):
-                await session.start(message_callback=lambda pkt: None)
+                await session.start(message_callback=lambda _pkt: None)
 
         # Diagnostics should still be available and safe.
         diag = session.diagnostics()

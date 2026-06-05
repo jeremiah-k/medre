@@ -60,7 +60,7 @@ class TestMockedSDKSerialStartup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         # create_serial should have been called with (port, baudrate).
         mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyACM0", 57600)
@@ -83,7 +83,7 @@ class TestMockedSDKSerialStartup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyUSB0", 115200)
 
@@ -113,7 +113,7 @@ class TestMockedSDKTCPStartup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4403)
         assert session.connected is True
@@ -144,7 +144,7 @@ class TestMockedSDKEventSubscription:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         # subscribe should have been called 3 times.
         assert mock_inst.subscribe.call_count == 3
@@ -256,7 +256,7 @@ class TestMockedSDKSendMsg:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbccddeeff", "test message")
 
@@ -289,7 +289,7 @@ class TestMockedSDKSendChanMsg:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("ignored", "chan hello", channel_index=2)
 
@@ -324,7 +324,7 @@ class TestMockedSDKSendError:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         with pytest.raises(MeshCoreSendError, match="SDK send error"):
             await session.send_text("aabbcc", "will fail")
@@ -347,7 +347,7 @@ class TestMockedSDKSendError:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         with pytest.raises(MeshCoreSendError, match="Send failed after 3 attempts"):
             await session.send_text("aabbcc", "retry me")
@@ -383,7 +383,7 @@ class TestMockedSDKStartupFailureCleanup:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError, match="Failed to connect"):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         # _meshcore should have been cleaned up.
         assert session._meshcore is None
@@ -413,7 +413,7 @@ class TestMockedSDKStartupFailureCleanup:
             with pytest.raises(
                 MeshCoreConnectionError, match="Failed to subscribe to events"
             ):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         # Full cleanup: meshcore client released, callback cleared,
         # connected flag false, subscriptions empty.
@@ -439,7 +439,7 @@ class TestMockedSDKStartupFailureCleanup:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         assert session._message_callback is None
         assert session._started is False
@@ -464,7 +464,7 @@ class TestMockedSDKDisconnectIdempotent:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         await session.stop()
         assert session.connected is False
@@ -499,7 +499,7 @@ class TestMockedSDKBLEStartup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         mock_mc.MeshCore.create_ble.assert_awaited_once_with(
             address="AA:BB:CC:DD:EE:FF",
@@ -522,7 +522,7 @@ class TestMockedSDKBLEStartup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         assert mock_inst.subscribe.call_count == 3
 
@@ -562,7 +562,7 @@ class TestMockedSDKSendMsgWithId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbcc", "test with id")
 
@@ -590,7 +590,7 @@ class TestMockedSDKSendMsgWithId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbcc", "attr id test")
 
@@ -614,7 +614,7 @@ class TestMockedSDKSendMsgWithId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("ignored", "chan msg", channel_index=0)
 
@@ -645,7 +645,7 @@ class TestSendAppstartFailureCleanup:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         # _meshcore must be cleaned up (set to None).
         assert session._meshcore is None
@@ -674,7 +674,7 @@ class TestSendAppstartFailureCleanup:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         # Despite disconnect error, cleanup still occurs.
         assert session._meshcore is None
