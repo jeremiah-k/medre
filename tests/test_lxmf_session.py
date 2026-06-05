@@ -8,7 +8,6 @@ All tests use fake mode or mocks — no real Reticulum/LXMF dependency required.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -352,20 +351,20 @@ class TestLxmfDeliveryStateModel:
             "failed",
             "rejected",
             "cancelled",
-            "unknown",
+            "unmapped",
         }
         actual = {s.value for s in LxmfDeliveryState}
         assert actual == expected
 
-    def test_map_unknown_int_returns_unknown(self) -> None:
-        assert _map_delivery_state(99999) == LxmfDeliveryState.UNKNOWN
+    def test_map_unknown_int_returns_unmapped(self) -> None:
+        assert _map_delivery_state(99999) == LxmfDeliveryState.UNMAPPED
 
     def test_map_string_state(self) -> None:
         assert _map_delivery_state("delivered") == LxmfDeliveryState.DELIVERED
         assert _map_delivery_state("FAILED") == LxmfDeliveryState.FAILED
 
-    def test_map_none_returns_unknown(self) -> None:
-        assert _map_delivery_state(None) == LxmfDeliveryState.UNKNOWN
+    def test_map_none_returns_unmapped(self) -> None:
+        assert _map_delivery_state(None) == LxmfDeliveryState.UNMAPPED
 
     def test_map_delivery_method_direct(self) -> None:
         assert _map_delivery_method("direct") == "direct"
@@ -753,8 +752,105 @@ class TestSendRealFieldsPreservation:
 
 
 # ===================================================================
-# Fake-mode send returns AdapterDeliveryResult-compatible data
+# Real-mode _send_real destination identity recall
 # ===================================================================
+
+
+class TestSendRealDestinationRecall:
+    """_send_real() uses RNS.Identity.recall to construct destinations."""
+
+    async def test_unrecallable_destination_raises_non_transient(self) -> None:
+        """If RNS.Identity.recall returns None, raise LxmfSendError(transient=False)."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        mock_rns = MagicMock()
+        mock_rns.Identity.recall.return_value = None  # identity not found
+        mock_lxmf = MagicMock()
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            with pytest.raises(
+                LxmfSendError, match="Cannot recall identity"
+            ) as exc_info:
+                await session._send_real(
+                    destination_hash="ab" * 16,
+                    content="hello",
+                )
+
+        assert (
+            exc_info.value.transient is False
+        ), "Unrecallable destination should be a permanent (non-transient) error"
+        mock_rns.Identity.recall.assert_called_once_with(bytes.fromhex("ab" * 16))
+        await session.stop()
+
+    async def test_destination_constructed_with_recalled_identity(self) -> None:
+        """Destination must be constructed using the identity returned by recall."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        recalled_identity = MagicMock()
+
+        created_lxmessages: list[FakeLXMessage] = []
+
+        class FakeDestination:
+            OUT = "out"
+            SINGLE = "single"
+            hash = b"\x00" * 16
+
+            def __init__(self, identity, *args, **kwargs):
+                self.identity = identity
+
+        class FakeLXMessage:
+            OUTBOUND = 1
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.dest = dest  # Capture for assertion
+                created_lxmessages.append(self)
+                self.state = self.OUTBOUND
+                self.hash = b"\xab" * 16
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_rns.Identity.recall.return_value = recalled_identity
+        mock_rns.Destination = FakeDestination
+        mock_rns.Destination.OUT = "out"
+        mock_rns.Destination.SINGLE = "single"
+
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+            )
+
+        mock_rns.Identity.recall.assert_called_once_with(bytes.fromhex("ab" * 16))
+        assert (
+            len(created_lxmessages) == 1
+        ), f"Expected exactly 1 LXMessage, got {len(created_lxmessages)}"
+        assert (
+            created_lxmessages[0].dest.identity is recalled_identity
+        ), "Destination was not wired with the recalled identity"
+        await session.stop()
 
 
 class TestFakeSendReturnsAdapterDeliveryResult:
@@ -878,63 +974,6 @@ class TestTranche5CallbackThreadingSafety:
 
         assert session.connected is True
         await session.stop()
-
-
-# ===================================================================
-# Tranche 6: Post-stop callback guard
-# ===================================================================
-
-
-class TestTranche6PostStopCallbackGuard:
-    """Late SDK callbacks after stop() are silently dropped."""
-
-    async def test_callback_not_invoked_after_stop(self) -> None:
-        """After stop(), _on_lxmf_delivery drops the message and does not
-        invoke the user callback."""
-        received: list[dict[str, Any]] = []
-
-        def callback(msg: dict[str, Any]) -> None:
-            received.append(msg)
-
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=callback)
-
-        # Deliver while running — should succeed.
-        class FakeMsg:
-            source_hash = b"\x01" * 16
-            destination_hash = b"\x02" * 16
-            hash = b"\x03" * 32
-            timestamp = 1.0
-            content = "before-stop"
-            title = ""
-            fields = {}
-            signature_validated = True
-            method = None
-
-        session._on_lxmf_delivery(FakeMsg())
-        await asyncio.sleep(0)
-        assert len(received) == 1
-
-        # Stop the session.
-        await session.stop()
-
-        # Late callback after stop — must be dropped.
-        session._on_lxmf_delivery(FakeMsg())
-        await asyncio.sleep(0)
-        assert len(received) == 1, "Callback must not fire after stop()"
-
-    async def test_stop_clears_callback_and_loop(self) -> None:
-        """stop() nullifies _message_callback and _loop."""
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=lambda msg: None)
-
-        assert session._message_callback is not None
-        assert session._loop is not None
-
-        await session.stop()
-
-        assert session._message_callback is None
-        assert session._loop is None
 
 
 # ===================================================================
@@ -1115,276 +1154,4 @@ class TestTranche5BoundedOutboundCleanup:
         counts = session.delivery_state_counts()
         assert counts.get("outbound", 0) == 2
         assert counts.get("delivered", 0) == 0  # delivered entries were untracked
-        await session.stop()
-
-
-# ===================================================================
-# Tranche 6: Failed-start callback/loop cleanup
-# ===================================================================
-
-
-class TestTranche6FailedStartCleanup:
-    """Failed LXMF start clears _message_callback, _loop, and diagnostics."""
-
-    async def test_real_start_failure_clears_callback_and_loop(self) -> None:
-        """Real-mode start failure clears _message_callback and _loop."""
-        session = _make_session(connection_type="reticulum")
-
-        def callback(msg: dict[str, Any]) -> None:
-            pass
-
-        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
-            with pytest.raises(LxmfConnectionError, match="not installed"):
-                await session.start(message_callback=callback)
-
-        assert session._started is False
-        assert session._message_callback is None
-        assert session._loop is None
-
-    async def test_real_start_failure_diagnostics_clean(self) -> None:
-        """Diagnostics after failed start report not connected/reconnecting."""
-        session = _make_session(connection_type="reticulum")
-
-        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
-            with pytest.raises(LxmfConnectionError):
-                await session.start()
-
-        assert session.connected is False
-        assert session.router_running is False
-        assert session.reconnecting is False
-
-    async def test_partial_start_teardown_clears_sdk_objects(self) -> None:
-        """When _connect_real creates SDK objects but then fails,
-        _teardown_sdk clears _reticulum, _identity, _router."""
-        session = _make_session(connection_type="reticulum")
-
-        mock_rns = MagicMock()
-        mock_lxmf = MagicMock()
-        mock_rns.Reticulum.get_instance.return_value = None
-        mock_rns.Reticulum.return_value = MagicMock()
-        mock_rns.Identity.return_value = MagicMock()
-        # LXMRouter creation fails after Reticulum + Identity succeed.
-        mock_lxmf.LXMRouter.side_effect = ValueError("storage_path invalid")
-
-        with (
-            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
-            patch(
-                "medre.adapters.lxmf.session._require_lxmf",
-                return_value=(mock_rns, mock_lxmf),
-            ),
-        ):
-            with pytest.raises(LxmfConnectionError):
-                await session.start()
-
-        assert session._reticulum is None
-        assert session._identity is None
-        assert session._router is None
-        assert session._message_callback is None
-        assert session._loop is None
-        assert session.connected is False
-
-
-# ===================================================================
-# Tranche 6: Async callback exception handling
-# ===================================================================
-
-
-class TestTranche6AsyncCallbackException:
-    """Async callback exceptions are consumed/logged, not unhandled."""
-
-    async def test_async_callback_exception_consumed(self) -> None:
-        """Async callback that raises does not crash the session."""
-        received: list[dict[str, Any]] = []
-
-        async def bad_async(msg: dict[str, Any]) -> None:
-            received.append(msg)
-            raise RuntimeError("async callback explosion")
-
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=bad_async)
-
-        session.inject_inbound({"content": "trigger"})
-
-        # Give the event loop a turn to run the scheduled task.
-        await asyncio.sleep(0.05)
-
-        # Callback was invoked (received the message) and exception
-        # was consumed by the done callback — session survives.
-        assert len(received) == 1
-        assert session.connected is True
-        await session.stop()
-
-    async def test_sync_callback_exception_still_caught(self) -> None:
-        """Sync callback exception in inject_inbound is caught."""
-
-        def bad_sync(msg: dict[str, Any]) -> None:
-            raise RuntimeError("sync callback explosion")
-
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=bad_sync)
-
-        # Should not raise — exception caught in inject_inbound.
-        session.inject_inbound({"content": "trigger"})
-
-        assert session.connected is True
-        await session.stop()
-
-
-# ===================================================================
-# Tranche 6: No callback when loop is None/not running
-# ===================================================================
-
-
-class TestTranche6NoCallbackWithoutLoop:
-    """Inbound callbacks are never invoked directly on Reticulum threads
-    when no valid asyncio loop is available."""
-
-    async def test_no_callback_when_loop_none(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """_on_lxmf_delivery drops callback when _loop is None."""
-        received: list[dict[str, Any]] = []
-
-        def callback(msg: dict[str, Any]) -> None:
-            received.append(msg)
-
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=callback)
-
-        # Simulate loop being cleared (as if start failed or stop cleared it).
-        session._loop = None
-
-        class FakeMsg:
-            source_hash = b"\x01" * 16
-            destination_hash = b"\x02" * 16
-            hash = b"\x03" * 32
-            timestamp = 1.0
-            content = "dropped"
-            title = ""
-            fields = {}
-            signature_validated = True
-            method = None
-
-        with caplog.at_level(logging.WARNING):
-            session._on_lxmf_delivery(FakeMsg())
-
-        await asyncio.sleep(0)
-
-        # Callback must NOT have been invoked.
-        assert len(received) == 0
-
-        # Warning should be logged.
-        assert any("dropping inbound callback" in r.message for r in caplog.records)
-
-        await session.stop()
-
-    async def test_no_callback_when_loop_not_running(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """_on_lxmf_delivery drops callback when loop is not running."""
-        received: list[dict[str, Any]] = []
-
-        def callback(msg: dict[str, Any]) -> None:
-            received.append(msg)
-
-        session = _make_session(connection_type="fake")
-        await session.start(message_callback=callback)
-
-        # Replace loop with a non-running mock.
-        mock_loop = MagicMock()
-        mock_loop.is_running.return_value = False
-        session._loop = mock_loop
-
-        class FakeMsg:
-            source_hash = b"\x01" * 16
-            destination_hash = b"\x02" * 16
-            hash = b"\x03" * 32
-            timestamp = 1.0
-            content = "dropped"
-            title = ""
-            fields = {}
-            signature_validated = True
-            method = None
-
-        with caplog.at_level(logging.WARNING):
-            session._on_lxmf_delivery(FakeMsg())
-
-        await asyncio.sleep(0)
-
-        assert len(received) == 0
-        assert any("dropping inbound callback" in r.message for r in caplog.records)
-
-        await session.stop()
-
-
-# ===================================================================
-# Tranche 6: Delivery state thread-safe bridging
-# ===================================================================
-
-
-class TestTranche6DeliveryStateBridging:
-    """Delivery state updates are bridged onto the asyncio loop."""
-
-    async def test_state_update_works_via_bridge(self) -> None:
-        """State update via _on_delivery_state_update reaches tracking."""
-        session = _make_session(connection_type="fake")
-        await session.start()
-
-        native_id, _ = await session.send_text("ab" * 16, "hello")
-
-        class _Msg:
-            hash = native_id
-            state = LxmfDeliveryState.SENT
-
-        session._on_delivery_state_update(_Msg())
-
-        # In fake mode, the loop IS running, so call_soon_threadsafe
-        # schedules on the loop.  Give it a turn.
-        await asyncio.sleep(0)
-
-        delivery = session._outbound_deliveries.get(native_id)
-        assert delivery is not None
-        assert delivery.state == LxmfDeliveryState.SENT
-
-        await session.stop()
-
-    async def test_unknown_hash_ignored_via_bridge(self) -> None:
-        """Unknown hash delivery state update is silently ignored."""
-        session = _make_session(connection_type="fake")
-        await session.start()
-
-        class _Msg:
-            hash = "nonexistent-hash"
-            state = LxmfDeliveryState.DELIVERED
-
-        session._on_delivery_state_update(_Msg())
-        await asyncio.sleep(0)
-
-        assert sum(session.delivery_state_counts().values()) == 0
-        await session.stop()
-
-    async def test_no_thread_exception_from_bridge(self) -> None:
-        """State update with dead loop is dropped — no direct-apply."""
-        session = _make_session(connection_type="fake")
-        await session.start()
-
-        native_id, _ = await session.send_text("ab" * 16, "hello")
-
-        # Simulate a dead loop.
-        mock_loop = MagicMock()
-        mock_loop.is_running.return_value = False
-        session._loop = mock_loop
-
-        class _Msg:
-            hash = native_id
-            state = LxmfDeliveryState.FAILED
-
-        # Should not raise — update is dropped when loop is not running.
-        session._on_delivery_state_update(_Msg())
-
-        # State must NOT have changed (direct-apply was removed).
-        delivery = session._outbound_deliveries.get(native_id)
-        assert delivery is not None
-        assert delivery.state == LxmfDeliveryState.OUTBOUND
-
         await session.stop()

@@ -41,7 +41,13 @@ REASON_NON_CHAT: str = "non-chat message type"
 REASON_DIRECT_MESSAGE: str = "direct message to specific node"
 REASON_PLUGIN_ONLY: str = "plugin_only packets are deferred"
 REASON_EMPTY_TEXT: str = "empty text"
+REASON_SELF_ECHO: str = "self echo"
 REASON_UNCLASSIFIED: str = "unclassified packet"
+
+# When fromId is absent (rare: node not in nodesByNum), derive sender_id
+# from the numeric `from` field using canonical "!" + 8-char hex format
+# to match own_node_id's format.
+_MESHTASTIC_NODE_ID_HEX_WIDTH: int = 8
 
 # --- Literal type aliases ---
 ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
@@ -269,6 +275,7 @@ class ClassificationResult:
     priority: str | None = None
     rx_snr: float | None = None
     rx_rssi: int | None = None
+    is_self_echo: bool = False
     via_mqtt: bool = False
 
 
@@ -320,7 +327,12 @@ class MeshtasticPacketClassifier:
             return True
         return False
 
-    def classify(self, packet: dict[str, Any]) -> ClassificationResult:
+    def classify(
+        self,
+        packet: dict[str, Any],
+        *,
+        own_node_id: str | None = None,
+    ) -> ClassificationResult:
         """Classify a raw Meshtastic packet dict.
 
         Parameters
@@ -333,13 +345,19 @@ class MeshtasticPacketClassifier:
             ``fromId`` is absent, and checks ``to`` for the broadcast value
             ``0xFFFFFFFF`` when ``toId`` alone is inconclusive.
 
+        own_node_id:
+            The local node's own ID (e.g. ``"!abc123"``).  When provided,
+            packets whose ``fromId`` matches this ID are classified as
+            self-echo and ignored.  ``None`` (the default) disables
+            self-echo detection, preserving backward compatibility.
+
         Returns
         -------
         ClassificationResult
             Immutable classification result with action, category, reason,
             and all metadata fields including mesh-relay diagnostics
             (``hop_start``, ``hop_limit``, ``rx_time``, ``priority``,
-            ``rx_snr``, ``rx_rssi``, ``via_mqtt``).
+            ``rx_snr``, ``rx_rssi``, ``via_mqtt``, ``is_self_echo``).
         """
         # --- Extract raw fields ---
         to_id = packet.get("toId", "")
@@ -359,7 +377,29 @@ class MeshtasticPacketClassifier:
         if sender_id is None:
             from_numeric = packet.get("from")
             if from_numeric is not None:
-                sender_id = str(from_numeric)
+                # Pass through string values as-is (matches SDK format like "!abc123").
+                # Convert integers to canonical "!{num:08x}" format when the
+                # value looks like a node number.
+                if isinstance(from_numeric, str):
+                    sender_id = from_numeric
+                elif isinstance(from_numeric, int) and not isinstance(
+                    from_numeric, bool
+                ):
+                    try:
+                        sender_id = (
+                            f"!{int(from_numeric):0{_MESHTASTIC_NODE_ID_HEX_WIDTH}x}"
+                        )
+                    except (TypeError, ValueError, OverflowError):
+                        sender_id = None
+                else:
+                    sender_id = None
+
+        # --- Self-echo detection ---
+        is_self_echo = (
+            own_node_id is not None
+            and sender_id is not None
+            and sender_id == own_node_id
+        )
 
         raw_decoded = packet.get("decoded", {})
         decoded = raw_decoded if isinstance(raw_decoded, dict) else {}
@@ -452,8 +492,12 @@ class MeshtasticPacketClassifier:
         action: ClassificationAction
         reason: str
 
+        # 0. Self-echo (packet from our own node)
+        if is_self_echo:
+            action = "ignore"
+            reason = REASON_SELF_ECHO
         # 1. Encrypted
-        if is_encrypted:
+        elif is_encrypted:
             action = "drop"
             reason = REASON_ENCRYPTED
         # 2. Malformed / no decoded payload
@@ -528,4 +572,5 @@ class MeshtasticPacketClassifier:
             rx_snr=rx_snr,
             rx_rssi=rx_rssi,
             via_mqtt=via_mqtt,
+            is_self_echo=is_self_echo,
         )

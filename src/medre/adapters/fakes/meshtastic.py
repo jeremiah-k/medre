@@ -386,12 +386,20 @@ class FakeMeshtasticAdapter(AdapterContract):
         packet_id = send_result["packet_id"]
 
         result_metadata: dict[str, object] = {}
+        meshtastic_meta: dict[str, object] = {}
         if reply_id_val is not None:
-            result_metadata["reply_id"] = reply_id_val
+            meshtastic_meta["reply_id"] = reply_id_val
         if emoji_val is not None:
-            result_metadata["emoji"] = emoji_val
-        result_metadata["packet_id"] = packet_id
-        result_metadata["channel"] = channel_index
+            meshtastic_meta["emoji"] = emoji_val
+        meshtastic_meta["packet_id"] = packet_id
+        meshtastic_meta["channel"] = channel_index
+        # Inner transport-namespaced dict stays a plain dict; the outer
+        # MappingProxyType is the contract-level immutability boundary.
+        # The pipeline's _normalize_mapping handles any nested
+        # MappingProxyType at the persistence boundary, so nested
+        # MappingProxyType is safe — but keeping the inner dict plain
+        # avoids unnecessary wrapping here.
+        result_metadata["meshtastic"] = meshtastic_meta
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
@@ -424,7 +432,7 @@ class FakeMeshtasticAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
-        classification = self._classifier.classify(packet)
+        classification = self._classifier.classify(packet, own_node_id=None)
         if classification.action != "relay":
             return
 

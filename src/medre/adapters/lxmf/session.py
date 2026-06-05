@@ -182,7 +182,7 @@ class LxmfDeliveryState(str, Enum):
     FAILED = "failed"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
-    UNKNOWN = "unknown"
+    UNMAPPED = "unmapped"
 
 
 # Map of known LXMF.LXMessage state attribute names to our enum.
@@ -234,19 +234,19 @@ def _build_state_map() -> dict[int, LxmfDeliveryState]:
 def _map_delivery_state(raw_state: Any) -> LxmfDeliveryState:
     """Map a raw LXMF delivery state value to our enum.
 
-    Maps conservatively: unknown values become ``UNKNOWN``.
+    Maps conservatively: unknown values become ``UNMAPPED``.
     """
     if isinstance(raw_state, int):
         mapping = _build_state_map()
-        return mapping.get(raw_state, LxmfDeliveryState.UNKNOWN)
+        return mapping.get(raw_state, LxmfDeliveryState.UNMAPPED)
     if isinstance(raw_state, LxmfDeliveryState):
         return raw_state
     if isinstance(raw_state, str):
         try:
             return LxmfDeliveryState(raw_state.lower())
         except ValueError:
-            return LxmfDeliveryState.UNKNOWN
-    return LxmfDeliveryState.UNKNOWN
+            return LxmfDeliveryState.UNMAPPED
+    return LxmfDeliveryState.UNMAPPED
 
 
 def _map_delivery_method(raw_method: Any) -> str | None:
@@ -296,7 +296,14 @@ def _map_delivery_method(raw_method: Any) -> str | None:
 
 @dataclass
 class _SessionDiagnostics:
-    """Mutable diagnostics snapshot owned by the session."""
+    """Mutable diagnostics snapshot owned by the session.
+
+    ``transient_delivery_failures`` counts one per transient retry
+    attempt.  Exhaustion itself does **not** add an increment --
+    per-attempt failures are the unit of measurement.  For example,
+    3 transient failed attempts in a single send call result in a
+    count of 3.
+    """
 
     connected: bool = False
     router_running: bool = False
@@ -841,13 +848,6 @@ class LxmfSession:
                     f"Failed to register delivery callback on LXMRouter: {exc}"
                 ) from exc
 
-            # 5. Optional: register announce callback.
-            try:
-                self._router.register_announce_callback(self._on_lxmf_announce)
-            except (AttributeError, TypeError):
-                # Not all LXMF versions support announce callbacks.
-                pass
-
         except LxmfConnectionError:
             raise
         except Exception as exc:
@@ -998,17 +998,6 @@ class LxmfSession:
                 self._adapter_id,
             )
             result.close()
-
-    def _on_lxmf_announce(self, *args: Any, **kwargs: Any) -> None:
-        """Handle LXMF announce events.
-
-        Announce handling is informational only — it updates
-        path/diagnostics but does not generate canonical events.
-        """
-        self._logger.debug(
-            "LxmfSession %s: LXMF announce received",
-            self._adapter_id,
-        )
 
     def _on_delivery_state_update(self, message: Any) -> None:
         """Handle delivery state updates for outbound messages.
@@ -1237,18 +1226,27 @@ class LxmfSession:
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
             try:
-                # Create destination object from hash.
+                # Recall identity inside the retry loop so recall failures
+                # are classified as non-transient errors and downstream
+                # construction failures can be retried.  (RNS caches recall
+                # results, so repeated calls are cheap.)
+                dest_identity = RNS.Identity.recall(dest_bytes)
+                if dest_identity is None:
+                    raise LxmfSendError(
+                        f"Cannot recall identity for destination hash "
+                        f"{destination_hash!r}",
+                        transient=False,
+                    )
+
+                # Construct destination inside the retry block so that
+                # construction errors are caught and classified.
                 dest = RNS.Destination(
-                    self._identity,
+                    dest_identity,
                     RNS.Destination.OUT,
                     RNS.Destination.SINGLE,
                     "lxmf",
                     "delivery",
                 )
-                # Override with the actual destination hash.
-                # NOTE: In production, the destination lookup is more nuanced.
-                # This is the standard pattern from LXMF examples.
-                dest.hash = dest_bytes
 
                 # Build the LXMessage — include fields so rendered
                 # metadata (MEDRE envelope, provenance hints, etc.)
@@ -1299,6 +1297,25 @@ class LxmfSession:
                     f"Permanent send failure: {exc}",
                     transient=False,
                 ) from exc
+            except LxmfSendError as exc:
+                if not exc.transient:
+                    self._diag.permanent_delivery_failures += 1
+                    self._diag.last_error = f"Permanent send failure: {exc}"
+                    raise
+                last_exc = exc
+                self._diag.transient_delivery_failures += 1
+                self._diag.last_error = (
+                    f"Transient send failure (attempt {attempt}): {exc}"
+                )
+                self._logger.warning(
+                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
+                    self._adapter_id,
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    exc,
+                )
+                if attempt < _SEND_MAX_RETRIES:
+                    await asyncio.sleep(0.1 * attempt)
             except Exception as exc:
                 last_exc = exc
                 self._diag.transient_delivery_failures += 1
@@ -1306,7 +1323,7 @@ class LxmfSession:
                     f"Transient send failure (attempt {attempt}): {exc}"
                 )
                 self._logger.warning(
-                    "LxmfSession %s transient send failure " "(attempt %d/%d): %s",
+                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
                     self._adapter_id,
                     attempt,
                     _SEND_MAX_RETRIES,
@@ -1316,12 +1333,14 @@ class LxmfSession:
                     await asyncio.sleep(0.1 * attempt)
 
         # All retries exhausted.
-        self._diag.permanent_delivery_failures += 1
+        # Diagnostics already count per-attempt failures above; exhaustion
+        # itself is a summary event, not an additional transient failure.
         self._diag.last_error = (
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
         )
         raise LxmfSendError(
-            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
+            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}",
+            transient=True,
         ) from last_exc
 
     @staticmethod

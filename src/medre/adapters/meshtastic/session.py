@@ -182,7 +182,15 @@ class MeshtasticSession:
 
     @property
     def node_id(self) -> str | None:
-        """Our node ID extracted from the interface, if available."""
+        """The session's own node ID in the format matching ``fromId`` in inbound
+        packets (typically ``"!" + lowercase_hex(myNodeNum)``, e.g. ``"!a1b2c3d4"``).
+
+        Populated from ``interface.myInfo.myNodeNum`` after every successful
+        connect (and re-connect).  If ``myInfo`` is not yet available at
+        connect time, the ``_on_receive`` callback lazily refreshes on each
+        inbound packet until the value is obtained.  Returns ``None`` when
+        the client is not connected or ``myInfo`` is not yet available.
+        """
         return self._node_id
 
     @property
@@ -283,6 +291,7 @@ class MeshtasticSession:
 
         if conn == "fake":
             self._client = None
+            self._node_id = None
         else:
             if not HAS_MESHTASTIC:
                 raise MeshtasticConnectionError(
@@ -292,6 +301,7 @@ class MeshtasticSession:
 
             try:
                 self._subscribe_callbacks()
+                self._refresh_node_id()
             except Exception:
                 self._subscribed = False
                 try:
@@ -348,6 +358,7 @@ class MeshtasticSession:
                 pass
 
         self._client = None
+        self._node_id = None
         self._started = False
         self._logger.info("MeshtasticSession %s stopped", self._adapter_id)
 
@@ -718,12 +729,35 @@ class MeshtasticSession:
             pass
         self._subscribed = False
 
+    def _refresh_node_id(self) -> None:
+        """Populate self._node_id from interface.myInfo.myNodeNum when available.
+
+        Called after every successful connect (and re-connect) and lazily
+        from ``_on_receive`` when ``_node_id`` is still ``None`` (late
+        myInfo).  Safe to call multiple times; refreshes from current
+        interface state.
+        """
+        self._node_id = None
+        if self._client is None:
+            return
+        my_info = getattr(self._client, "myInfo", None)
+        node_num = getattr(my_info, "myNodeNum", None)
+        if isinstance(node_num, int) and node_num >= 0:
+            self._node_id = f"!{node_num:08x}"
+
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets.
 
-        Records diagnostics and forwards to the adapter's message callback.
+        Records diagnostics, lazily refreshes ``_node_id`` when it is
+        still ``None`` (late ``myInfo``), and forwards to the adapter's
+        message callback.
         """
         self._last_packet_time = time.monotonic()
+        # Lazy refresh: if myInfo was not available at connect time,
+        # try again on each inbound packet until it succeeds.  Once
+        # _node_id is set this is a no-op (cheap branch only).
+        if self._node_id is None and self._client is not None:
+            self._refresh_node_id()
         if self._message_callback is not None:
             self._message_callback(packet)
 
@@ -737,6 +771,7 @@ class MeshtasticSession:
         """
         if self._stop_requested or self._reconnecting:
             return
+        self._node_id = None
         self._last_error = "Connection lost"
         self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
@@ -807,10 +842,12 @@ class MeshtasticSession:
                         except Exception:
                             pass
                         self._client = None
+                        self._node_id = None
 
                     self._unsubscribe_callbacks()
                     self._client = self._create_client()
                     self._subscribe_callbacks()
+                    self._refresh_node_id()
 
                     # Reconnect success
                     self._logger.info(

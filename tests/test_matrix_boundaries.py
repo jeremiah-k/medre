@@ -593,6 +593,47 @@ class TestMatrixDeliveryNioResponseHardening:
         with pytest.raises(AdapterPermanentError):
             await adapter.deliver(result)
 
+    async def test_duplicate_annotation_is_permanent(self) -> None:
+        """M_DUPLICATE_ANNOTATION is classified as a permanent error."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_error("M_DUPLICATE_ANNOTATION")
+        )
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = RenderingResult(
+            event_id="evt-dup-annot",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(AdapterPermanentError, match="M_DUPLICATE_ANNOTATION"):
+            await adapter.deliver(result)
+
+    async def test_duplicate_annotation_message_includes_errcode(self) -> None:
+        """Error message for M_DUPLICATE_ANNOTATION includes the errcode."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_error("M_DUPLICATE_ANNOTATION")
+        )
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = RenderingResult(
+            event_id="evt-dup-annot-msg",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(AdapterPermanentError) as exc_info:
+            await adapter.deliver(result)
+        assert "M_DUPLICATE_ANNOTATION" in str(exc_info.value)
+
 
 class TestMatrixDeliveryIgnoreUnverifiedDevices:
     """room_send receives ignore_unverified_devices based on encryption_mode."""

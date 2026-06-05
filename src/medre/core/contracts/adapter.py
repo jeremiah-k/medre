@@ -19,6 +19,7 @@ Definitions:
 
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -89,7 +90,7 @@ class AdapterDeliveryResult:
     The pipeline owns receipts and storage; adapters only report what
     the platform returned.
 
-    ``delivery_status`` carries the adapter-level lifecycle state:
+    ``delivery_status`` carries the adapter delivery fact:
 
     * ``"sent"`` — the adapter completed the platform hand-off and
       obtained a native message ID (or confirmed the send).  This is the
@@ -126,11 +127,15 @@ class AdapterDeliveryResult:
         Human-readable context about the delivery.  Used by queue-based
         adapters to explain local-acceptance without a native ACK.
     delivery_status:
-        Adapter-level lifecycle state: ``"sent"`` (default, synchronous
-        adapters) or ``"enqueued"`` (queue-based adapters that accepted
-        locally but have not yet sent to the platform).
+        Adapter delivery fact: ``"sent"`` (default, synchronous adapters)
+        or ``"enqueued"`` (queue-based adapters that accepted locally but
+        have not yet sent to the platform). This is a narrow adapter
+        fact — the pipeline maps it to receipt status; it is not
+        lifecycle authority.
     metadata:
-        Adapter-specific immutable metadata about the delivery.
+        Immutable, namespaced delivery metadata.  Transport-specific data
+        MUST live under ``metadata[<transport>]`` (e.g. ``metadata.matrix``,
+        ``metadata.lxmf``).  No top-level MEDRE-standard keys are permitted.
     """
 
     native_message_id: str | None = None
@@ -356,10 +361,22 @@ class OutboundNativeRefRecord:
             raise ValueError(
                 "OutboundNativeRefRecord.native_message_id must be a non-empty string"
             )
-        frozen = dict(self.metadata)
-        try:
-            import json
 
+        # Recursively unwrap any nested MappingProxyType to plain dicts
+        # so that ``json.dumps`` can serialise the structure. ``dict()``
+        # alone only copies the top level; nested MappingProxyType values
+        # would still trip the encoder.
+        def _unwrap(obj: object) -> object:
+            if isinstance(obj, MappingProxyType):
+                obj = dict(obj)
+            if isinstance(obj, Mapping):
+                return {k: _unwrap(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return type(obj)(_unwrap(v) for v in obj)
+            return obj
+
+        frozen = _unwrap(self.metadata)
+        try:
             json.dumps(frozen)
         except (TypeError, ValueError) as exc:
             raise TypeError(

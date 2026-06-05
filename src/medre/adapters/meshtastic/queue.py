@@ -384,7 +384,11 @@ class MeshtasticOutboundQueue:
 
         # Build packet snapshot metadata when result is packet-like.
         snapshot = _packet_snapshot(send_result)
-        metadata = MappingProxyType(snapshot) if snapshot else MappingProxyType({})
+        metadata = (
+            MappingProxyType({"meshtastic": snapshot})
+            if snapshot
+            else MappingProxyType({})
+        )
 
         delivery_result = AdapterDeliveryResult(
             native_message_id=native_id,

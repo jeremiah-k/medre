@@ -954,12 +954,12 @@ class TestLoopSuppressedVisibility:
 
 
 # ===================================================================
-# 7. Matrix success metadata includes matrix_txn_id
+# 7. Matrix success metadata includes matrix["txn_id"]
 # ===================================================================
 
 
 class TestMatrixTxnIdInSuccess:
-    """Matrix adapter deliver() returns metadata with matrix_txn_id."""
+    """Matrix adapter deliver() returns metadata with matrix.txn_id."""
 
     async def test_matrix_delivery_result_has_txn_id(self) -> None:
         from medre.adapters.matrix.adapter import MatrixAdapter, _matrix_txn_id
@@ -974,10 +974,12 @@ class TestMatrixTxnIdInSuccess:
         delivery = await adapter.deliver(result)
 
         assert delivery is not None
-        assert "matrix_txn_id" in delivery.metadata
+        assert "matrix" in delivery.metadata
+        assert "txn_id" in delivery.metadata["matrix"]
+        assert "matrix_txn_id" not in delivery.metadata
         room_id = result.target_channel or "!room:example.com"
         expected_txn = _matrix_txn_id(result, room_id)
-        assert delivery.metadata["matrix_txn_id"] == expected_txn
+        assert delivery.metadata["matrix"]["txn_id"] == expected_txn
 
 
 # ===================================================================
@@ -1185,8 +1187,10 @@ class TestEvidenceSecretSafety:
         assert "token" not in meta
         assert "password" not in meta
         assert "secret" not in meta
-        # matrix_txn_id is allowed
-        assert "matrix_txn_id" in meta
+        # matrix txn_id is allowed
+        assert "matrix" in meta
+        assert "txn_id" in meta["matrix"]
+        assert "matrix_txn_id" not in meta
 
 
 # ===================================================================

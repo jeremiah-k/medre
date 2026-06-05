@@ -69,6 +69,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -86,6 +87,7 @@ from medre.adapters.meshtastic.packet_classifier import (
     REASON_EMPTY_TEXT,
     REASON_ENCRYPTED,
     REASON_MALFORMED,
+    REASON_SELF_ECHO,
     REASON_UNKNOWN_PORTNUM,
     MeshtasticPacketClassifier,
 )
@@ -187,6 +189,7 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_dm_ignored: int = 0
         self._classifier_packets_empty_text_ignored: int = 0
         self._classifier_packets_unknown_portnum_deferred: int = 0
+        self._classifier_packets_self_echo_ignored: int = 0
         self._inbound_published: int = 0
 
         # Startup backlog suppression
@@ -411,7 +414,13 @@ class MeshtasticAdapter(AdapterContract):
             native_channel_id=str(channel_index),
             delivery_note="locally enqueued",
             delivery_status="enqueued",
-            metadata=MappingProxyType({"meshtastic_channel_index": channel_index}),
+            metadata=MappingProxyType(
+                {
+                    "meshtastic": {
+                        "channel_index": channel_index,
+                    }
+                }
+            ),
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -451,6 +460,8 @@ class MeshtasticAdapter(AdapterContract):
             self._classifier_packets_empty_text_ignored += 1
         if classification.reason == REASON_UNKNOWN_PORTNUM:
             self._classifier_packets_unknown_portnum_deferred += 1
+        if classification.reason == REASON_SELF_ECHO:
+            self._classifier_packets_self_echo_ignored += 1
 
     def _log_classification(self, classification: Any) -> None:
         """Log a structured classification decision.
@@ -605,7 +616,9 @@ class MeshtasticAdapter(AdapterContract):
             return
 
         try:
-            classification = self._classifier.classify(packet)
+            session = self._session
+            own_node_id = session.node_id if session is not None else None
+            classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
             self._log_classification(classification)
 
@@ -694,7 +707,11 @@ class MeshtasticAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
-        classification = self._classifier.classify(packet)
+        session = self._session
+        classification = self._classifier.classify(
+            packet,
+            own_node_id=(session.node_id if session is not None else None),
+        )
         self._increment_classifier_counters(classification)
         self._log_classification(classification)
 
@@ -760,6 +777,7 @@ class MeshtasticAdapter(AdapterContract):
             "classifier_packets_dm_ignored": self._classifier_packets_dm_ignored,
             "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
             "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
+            "classifier_packets_self_echo_ignored": self._classifier_packets_self_echo_ignored,
             "inbound_published": self._inbound_published,
             # Startup backlog suppression
             "startup_backlog_packets_seen": self._startup_backlog_packets_seen,
@@ -946,9 +964,26 @@ class MeshtasticAdapter(AdapterContract):
         # Build enriched metadata from delivery result + payload context.
         send_meta: dict[str, object] = {}
 
-        # Merge delivery metadata (packet snapshot: id, channel, reply_id, etc.)
+        # Merge delivery metadata into the ``meshtastic`` namespace.
+        meshtastic_meta: dict[str, object] = {}
+        transport_keys = {
+            "id",
+            "packet_id",
+            "channel",
+            "reply_id",
+            "emoji",
+            "reaction_id",
+            "to",
+        }
         for k, v in (delivery.metadata or {}).items():
-            send_meta[k] = v
+            if k == "meshtastic" and isinstance(v, Mapping):
+                meshtastic_meta.update(dict(v))
+            elif k in transport_keys:
+                meshtastic_meta[k] = v
+            else:
+                send_meta[k] = v
+        if meshtastic_meta:
+            send_meta["meshtastic"] = meshtastic_meta
 
         # Add useful send context from the queued payload.
         payload = result.item.get("payload", {})

@@ -85,7 +85,7 @@ class TestQueuedReceiptCreation:
             return AdapterDeliveryResult(
                 native_message_id=None,
                 native_channel_id=str(result.payload.get("channel_index", 0)),
-                metadata=MappingProxyType({"adapter_status": "enqueued"}),
+                metadata=MappingProxyType({"meshtastic": {"queue_status": "enqueued"}}),
                 delivery_status="enqueued",
             )
 

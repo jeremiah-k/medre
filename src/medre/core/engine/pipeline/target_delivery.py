@@ -35,6 +35,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import (
@@ -103,6 +104,35 @@ def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
         return _VALID_DELIVERY_STRATEGIES[method]
     except KeyError:
         raise ValueError(f"Unknown delivery strategy method: {method!r}") from None
+
+
+# ---------------------------------------------------------------------------
+# Metadata serialization helper
+# ---------------------------------------------------------------------------
+
+
+def _normalize_mapping(value: Any) -> Any:
+    """Recursively convert MappingProxyType and other Mapping types to plain dicts.
+
+    Adapters return immutable ``MappingProxyType`` metadata (including nested
+    ones) to enforce deep immutability on the result object.  Before persisting
+    to SQLite via ``msgspec.json.encode``, all MappingProxyType values must be
+    converted to plain dicts because msgspec cannot serialize ``mappingproxy``.
+
+    This function creates a **copy** — it never mutates the adapter result.
+    """
+    if isinstance(value, dict):
+        return {k: _normalize_mapping(v) for k, v in value.items()}
+    # MappingProxyType and other Mapping subclasses (but not plain dict,
+    # already handled above) → recurse into a plain dict.
+    if isinstance(value, Mapping):
+        return {k: _normalize_mapping(v) for k, v in value.items()}
+    # Lists / tuples: recurse into elements in case they contain nested maps.
+    # Tuples are normalised to lists because JSON has no tuple type and
+    # msgspec.json.encode serialises both as JSON arrays.
+    if isinstance(value, (list, tuple)):
+        return [_normalize_mapping(v) for v in value]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -780,10 +810,13 @@ class TargetDeliveryService:
             and adapter_result is not None
             and adapter_result.native_message_id is not None
         ):
-            # Extract metadata from adapter result, converting
-            # MappingProxyType to a plain dict for storage.
+            # Extract metadata from adapter result, recursively converting
+            # MappingProxyType (and other Mapping subclasses) to plain dicts
+            # so that msgspec.json.encode never encounters a mappingproxy.
             outbound_meta: dict[str, object] = (
-                dict(adapter_result.metadata) if adapter_result.metadata else {}
+                _normalize_mapping(adapter_result.metadata)
+                if adapter_result.metadata
+                else {}
             )
             native_ref = NativeMessageRef(
                 id=f"nref-{uuid.uuid4()}",

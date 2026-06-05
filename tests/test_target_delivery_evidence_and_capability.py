@@ -806,3 +806,116 @@ class TestPipelineRunnerDelegation:
             assert exc_info.value.failure_kind == DeliveryFailureKind.ADAPTER_MISSING
         finally:
             await runner.stop()
+
+
+# ===========================================================================
+# _normalize_mapping: recursive metadata normalization
+# ===========================================================================
+
+
+class TestNormalizeMapping:
+    """Focused tests for ``_normalize_mapping`` in ``target_delivery.py``.
+
+    The function recursively converts ``MappingProxyType`` and other
+    ``Mapping`` subclasses to plain ``dict`` so that ``msgspec.json.encode``
+    never encounters a ``mappingproxy``.  It creates a copy — never mutates.
+    """
+
+    @staticmethod
+    def _normalize(value: object) -> object:
+        """Import and call the private function under test."""
+        from medre.core.engine.pipeline.target_delivery import _normalize_mapping
+
+        return _normalize_mapping(value)
+
+    def test_plain_dict_values_recursed(self) -> None:
+        """Plain dict is recursed into (values normalised) but top level stays dict."""
+        result = self._normalize({"a": 1})
+        assert result == {"a": 1}
+        assert isinstance(result, dict)
+
+    def test_mapping_proxy_converted_to_dict(self) -> None:
+        """MappingProxyType at top level is converted to plain dict."""
+        from types import MappingProxyType
+
+        proxy = MappingProxyType({"key": "val"})
+        result = self._normalize(proxy)
+        assert isinstance(result, dict)
+        assert result == {"key": "val"}
+        assert not isinstance(result, MappingProxyType)
+
+    def test_nested_mapping_proxy_unwrapped(self) -> None:
+        """MappingProxyType nested inside a dict is unwrapped."""
+        from types import MappingProxyType
+
+        data = {"outer": MappingProxyType({"inner": 42})}
+        result = self._normalize(data)
+        assert isinstance(result, dict)
+        outer = result["outer"]
+        assert isinstance(outer, dict)
+        assert outer == {"inner": 42}
+
+    def test_list_items_recursed(self) -> None:
+        """List elements are recursed into."""
+        from types import MappingProxyType
+
+        data = [MappingProxyType({"x": 1}), "scalar", 3]
+        result = self._normalize(data)
+        assert isinstance(result, list)
+        assert isinstance(result[0], dict)
+        assert result[0] == {"x": 1}
+        assert result[1] == "scalar"
+        assert result[2] == 3
+
+    def test_tuple_items_recursed_as_list(self) -> None:
+        """Tuple elements are recursed into and returned as list."""
+        from types import MappingProxyType
+
+        data = (MappingProxyType({"y": 2}),)
+        result = self._normalize(data)
+        assert isinstance(result, list)
+        assert result[0] == {"y": 2}
+
+    def test_deeply_nested_structure_fully_normalised(self) -> None:
+        """Three levels of MappingProxyType nesting are fully unwrapped."""
+        from types import MappingProxyType
+
+        deep = MappingProxyType({"leaf": True})
+        mid = MappingProxyType({"deep": deep})
+        top = {"mid": mid, "list": [MappingProxyType({"item": 1})]}
+        result = self._normalize(top)
+        assert isinstance(result, dict)
+        mid_val = result["mid"]
+        assert isinstance(mid_val, dict)
+        deep_val = mid_val["deep"]
+        assert isinstance(deep_val, dict)
+        assert deep_val == {"leaf": True}
+        list_val = result["list"]
+        assert isinstance(list_val, list)
+        assert isinstance(list_val[0], dict)
+        assert list_val[0] == {"item": 1}
+
+    def test_scalars_pass_through(self) -> None:
+        """Non-collection values pass through unchanged."""
+        for val in (42, 3.14, True, None, "hello", b"bytes"):
+            assert self._normalize(val) is val
+
+    def test_user_dict_mapping_subclass_converted(self) -> None:
+        """UserDict (Mapping subclass) is converted to plain dict."""
+        from collections import UserDict
+
+        ud = UserDict({"k": "v"})
+        result = self._normalize(ud)
+        assert isinstance(result, dict)
+        assert result == {"k": "v"}
+        assert not isinstance(result, UserDict)
+
+    def test_does_not_mutate_input(self) -> None:
+        """Original MappingProxyType is never mutated (it's immutable anyway)."""
+        from types import MappingProxyType
+
+        proxy = MappingProxyType({"a": MappingProxyType({"b": 1})})
+        result = self._normalize(proxy)
+        assert isinstance(result, dict)
+        # Original proxy still wraps immutable data
+        assert isinstance(proxy["a"], MappingProxyType)

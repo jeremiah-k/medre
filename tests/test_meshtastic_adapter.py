@@ -934,10 +934,74 @@ class TestMeshtasticAdapterClassifierCounters:
                 "classifier_packets_dm_ignored",
                 "classifier_packets_empty_text_ignored",
                 "classifier_packets_unknown_portnum_deferred",
+                "classifier_packets_self_echo_ignored",
                 "inbound_published",
             ]
             for key in expected_keys:
                 assert key in diag, f"Missing key {key!r} in diagnostics"
                 assert isinstance(diag[key], int)
+        finally:
+            await adapter.stop()
+
+
+# ===================================================================
+# Self-echo suppression tests
+# ===================================================================
+
+
+class TestMeshtasticAdapterSelfEcho:
+    """Self-echo packets are suppressed before reaching the codec/publish."""
+
+    async def test_self_echo_does_not_reach_codec(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """Packet from own node is classified as self-echo, not published."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        try:
+            # Set the session's node_id so the adapter passes it to the classifier.
+            # In fake mode the session has no real client, so node_id is None.
+            # Inject it for testing.
+            adapter._session._node_id = "!own_node"
+
+            # Packet from our own node (broadcast text)
+            packet = make_meshtastic_text_packet(
+                text="echo from me", sender="!own_node"
+            )
+            await adapter.simulate_inbound(packet)
+
+            # Should NOT be published
+            assert len(inbound_collector.events) == 0
+
+            # Should increment self-echo counter
+            diag = adapter.diagnostics()
+            assert diag["classifier_packets_self_echo_ignored"] == 1
+            assert diag["classifier_packets_seen"] == 1
+            assert diag["inbound_published"] == 0
+        finally:
+            await adapter.stop()
+
+    async def test_non_self_echo_published_normally(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """Packet from a different node is published normally with node_id set."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        try:
+            # Inject node_id for self-echo classification (see test_self_echo_does_not_reach_codec).
+            adapter._session._node_id = "!own_node"
+
+            packet = make_meshtastic_text_packet(
+                text="from other", sender="!other_node"
+            )
+            await adapter.simulate_inbound(packet)
+
+            assert len(inbound_collector.events) == 1
+            assert inbound_collector.events[0].payload["body"] == "from other"
+            assert adapter.diagnostics()["classifier_packets_self_echo_ignored"] == 0
         finally:
             await adapter.stop()

@@ -576,6 +576,10 @@ class TestMeshCoreBLEValidation:
         mock_mc_instance = MagicMock()
         mock_mc_instance.subscribe = MagicMock()
         mock_mc_instance.disconnect = AsyncMock()
+        mock_mc_instance.commands = AsyncMock()
+        mock_mc_instance.commands.send_appstart = AsyncMock(
+            return_value=MagicMock(is_error=lambda: False)
+        )
 
         fake_create_ble = AsyncMock(return_value=mock_mc_instance)
 
@@ -594,11 +598,14 @@ class TestMeshCoreBLEValidation:
             "medre.adapters.meshcore.session.importlib.import_module",
             return_value=mock_meshcore_module,
         ) as mock_import:
-            await session.start(message_callback=lambda pkt: None)
+            await session.start(message_callback=lambda _pkt: None)
 
         assert session.connected is True
         mock_import.assert_called_once_with("meshcore")
         fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
+
+        # Verify send_appstart was called during startup.
+        mock_mc_instance.commands.send_appstart.assert_awaited_once()
 
         # Verify subscription wiring was exercised.
         assert (
@@ -639,7 +646,7 @@ class TestMeshCoreBLEValidation:
             return_value=mock_meshcore_module,
         ):
             with pytest.raises(MeshCoreConnectionError):
-                await session.start(message_callback=lambda pkt: None)
+                await session.start(message_callback=lambda _pkt: None)
 
         # Diagnostics should still be available and safe.
         diag = session.diagnostics()

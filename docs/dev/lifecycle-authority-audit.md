@@ -102,7 +102,7 @@ the exhausted attempt. Example: `max_attempts = 3`, failed receipt at
 
 ## Adapter Metadata Naming Rule
 
-Adapters report delivery outcome via `AdapterDeliveryResult.delivery_status` (field: `delivery_status`, values: `"sent"` or `"enqueued"`). This is the **adapter-level** lifecycle field.
+Adapters report delivery outcome via `AdapterDeliveryResult.delivery_status` (field: `delivery_status`, values: `"sent"` or `"enqueued"`). This is the **adapter delivery fact** — what the adapter did at the local level (e.g., handed to LXMRouter, accepted by homeserver). It is not lifecycle authority and does not track transport-level delivery progression.
 
 Do not confuse this with:
 
@@ -112,7 +112,7 @@ Do not confuse this with:
 
 The pipeline maps adapter `delivery_status` to receipt status: `"sent"` maps to receipt `"sent"`, `"enqueued"` maps to receipt `"queued"`. The adapter never sets receipt status directly.
 
-When adding new adapter-level status evidence fields, name them `adapter_status` or `adapter_*` to keep the namespace clear. Do not introduce `delivery_status` in metadata dicts or evidence bundles as a synonym for receipt status.
+When adding new fields to `AdapterStatusEvidence` (in `src/medre/core/evidence/adapter_status.py`), name them `adapter_*` to keep the namespace clear. This guidance applies to the **evidence bundle**, NOT to `AdapterDeliveryResult.metadata`. For `AdapterDeliveryResult.metadata`, transport-specific state MUST live under `metadata[<transport>]` (see `docs/spec/adapter-runtime.md` section 9.2). Do not introduce `delivery_status` in metadata dicts or evidence bundles as a synonym for receipt status.
 
 ## Related Validation Surfaces
 

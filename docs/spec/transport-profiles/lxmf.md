@@ -97,7 +97,7 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
   - `destination_hash` is the 16-byte recipient identity hash (hex-encoded, 32 chars), if available.
   - `native_channel_id` is always `None` — LXMF has no channel concept.
 
-- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `delivery_status` is the initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`).
+- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `AdapterDeliveryResult.delivery_status` is always `"sent"` (meaning the message was handed to the local LXMRouter). The initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`) is reported in `metadata["lxmf"]["delivery_state"]`, not in `delivery_status`.
 
 ---
 
@@ -114,6 +114,8 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
 
 **Delivery state model (tracked per outbound message):**
 
+`AdapterDeliveryResult.delivery_status` is `"sent"` for all LXMF deliveries, meaning the message was handed to the local LXMRouter. This does **not** mean confirmed delivery to the recipient. The actual LXMF delivery state is reported in `metadata["lxmf"]["delivery_state"]`.
+
 | State        | Meaning                             |
 | ------------ | ----------------------------------- |
 | `generating` | Message being constructed           |
@@ -124,7 +126,7 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
 | `failed`     | Permanent delivery failure          |
 | `rejected`   | Rejected by recipient               |
 | `cancelled`  | Cancelled by sender                 |
-| `unknown`    | Unrecognised state                  |
+| `unmapped`   | Unrecognised state from SDK         |
 
 State transitions are tracked via `_on_delivery_state_update` callbacks from `LXMRouter`. Terminal states (`delivered`, `failed`, `rejected`, `cancelled`) remove the message from tracking.
 
@@ -142,7 +144,7 @@ State transitions are tracked via `_on_delivery_state_update` callbacks from `LX
 2. **Connecting** — `session.start()`:
    - Captures the asyncio event loop for thread bridging.
    - Fake mode: sets `connected=True`, `router_running=True`.
-   - Real mode: `_connect_real()` — initialises `RNS.Reticulum` (reuses singleton if available), loads or auto-generates `RNS.Identity`, creates `LXMF.LXMRouter(identity=..., storagepath=...)`, registers delivery and optional announce callbacks.
+   - Real mode: `_connect_real()` — initialises `RNS.Reticulum` (reuses singleton if available), loads or auto-generates `RNS.Identity`, creates `LXMF.LXMRouter(identity=..., storagepath=...)`, registers delivery callback.
 3. **Connected** — Router operational; inbound messages flow via `_on_lxmf_delivery` → normalise → `call_soon_threadsafe` → `_invoke_inbound_callback` → adapter `_on_packet`.
 4. **Reconnecting** — On unexpected disconnect, bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts).
 5. **Stopped** — `stop(timeout=5.0)`:

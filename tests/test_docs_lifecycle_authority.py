@@ -72,6 +72,40 @@ def _adapter_py_files() -> list[Path]:
     return sorted(ADAPTERS_DIR.rglob("*.py"))
 
 
+def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | None:
+    """Best-effort resolution for local `name = {...}` bindings in the same scope.
+
+    Walks the enclosing FunctionDef body (or module-level assigns) in reverse
+    to find the *most recent* preceding assignment of `name` to a dict literal
+    that appears before the call site (by line number).
+
+    Limitations: only resolves simple ``name = {...}`` assignments in the
+    same scope.  Does not handle aliases (``x = name``), dict comprehensions,
+    function returns, cross-scope bindings, or augmented assignments.
+    """
+    # Walk up to find the enclosing scope
+    parent = getattr(call_node, "parent", None)
+    while parent is not None and not isinstance(
+        parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)
+    ):
+        parent = getattr(parent, "parent", None)
+
+    if parent is None:
+        return None
+
+    call_line = getattr(call_node, "lineno", None)
+    for stmt in reversed(parent.body):
+        stmt_line = getattr(stmt, "lineno", None)
+        if call_line is not None and stmt_line is not None and stmt_line > call_line:
+            continue
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            target = stmt.targets[0]
+            if isinstance(target, ast.Name) and target.id == name:
+                if isinstance(stmt.value, ast.Dict):
+                    return stmt.value
+    return None
+
+
 def _parse_adapter_results(
     source: str, filename: str
 ) -> list[tuple[str | None, dict[str, str]]]:
@@ -90,6 +124,11 @@ def _parse_adapter_results(
     """
     tree = ast.parse(source, filename=filename)
     results: list[tuple[str | None, dict[str, str]]] = []
+
+    # Set parent references so _resolve_name_to_dict_literal can walk up.
+    for _parent in ast.walk(tree):
+        for _child in ast.iter_child_nodes(_parent):
+            _child.parent = _parent  # type: ignore[attr-defined]  # AST nodes have no .parent in type stubs; injected for upward traversal
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -142,12 +181,14 @@ def _parse_adapter_results(
                 ):
                     is_mapping_proxy = True
 
-                if (
-                    is_mapping_proxy
-                    and meta_call.args
-                    and isinstance(meta_call.args[0], ast.Dict)
-                ):
-                    d = meta_call.args[0]
+                if is_mapping_proxy and meta_call.args:
+                    arg0 = meta_call.args[0]
+                    # Handle MappingProxyType(local_name) where local_name is a dict literal
+                    if isinstance(arg0, ast.Name):
+                        arg0 = _resolve_name_to_dict_literal(node, arg0.id)  # type: ignore[assignment]  # may return None, assigned to AST variable
+                    if not isinstance(arg0, ast.Dict):
+                        continue
+                    d = arg0
                     for k, v in zip(d.keys, d.values, strict=True):
                         if isinstance(k, ast.Constant) and isinstance(k.value, str):
                             key_str = k.value
@@ -291,9 +332,10 @@ class TestAdapterMetadataNaming:
 
     The ``delivery_status`` keyword is reserved for
     ``AdapterDeliveryResult.delivery_status`` (the top-level field).
-    Adapter-level status evidence in metadata must use ``adapter_status``
-    or ``adapter_*`` names to avoid namespace collision with pipeline-level
-    receipt / outbox status.
+    Adapter-level status evidence in metadata must use transport-namespaced
+    keys (e.g. ``metadata["meshcore"]``, ``metadata["lxmf"]``) rather than
+    bare ``adapter_status`` or ``adapter_*`` names, to avoid namespace
+    collision with pipeline-level receipt / outbox status.
     """
 
     @pytest.fixture(scope="class")
@@ -304,10 +346,12 @@ class TestAdapterMetadataNaming:
             source = py_file.read_text("utf-8")
             results = _parse_adapter_results(source, str(py_file))
             for _ds_value, meta_keys in results:
-                if "delivery_status" in meta_keys:
+                has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
+                if "delivery_status" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use 'adapter_status' instead"
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"— use transport namespacing (e.g. metadata['meshcore']) instead"
                     )
         return violations
 
@@ -336,10 +380,12 @@ class TestTestMockMetadataNaming:
             source = py_file.read_text("utf-8")
             results = _parse_adapter_results(source, str(py_file))
             for _ds_value, meta_keys in results:
-                if "delivery_status" in meta_keys:
+                has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
+                if "delivery_status" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use 'adapter_status' instead"
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"— use transport namespacing (e.g. metadata['meshtastic']) instead"
                     )
         return violations
 
@@ -371,10 +417,10 @@ class TestAmbiguousTopLevelMetadataKeys:
     as top-level keys.
 
     These ambiguous names could be confused with pipeline-level receipt
-    or outbox statuses.  Adapters should use namespace-prefixed names
-    (e.g. ``adapter_status``, ``meshtastic_channel_index``) or nest
+    or outbox statuses.  Adapters should use transport-namespaced keys
+    (e.g. ``metadata["meshcore"]``, ``metadata["lxmf"]``) or nest
     protocol-specific state under a protocol namespace key (e.g.
-    ``metadata["lxmf"]["delivery_state"]``).
+    ``metadata["meshtastic"]["channel_index"]``).
     """
 
     @pytest.fixture(scope="class")
@@ -390,7 +436,7 @@ class TestAmbiguousTopLevelMetadataKeys:
                         violations.append(
                             f"{py_file.relative_to(_ROOT)}: metadata contains "
                             f"ambiguous top-level key {key!r} — use a "
-                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                            f"transport-namespaced key (e.g. metadata['meshcore'])"
                         )
         return violations
 
@@ -418,7 +464,7 @@ class TestAmbiguousTopLevelMetadataKeys:
                         violations.append(
                             f"{py_file.relative_to(_ROOT)}: metadata contains "
                             f"ambiguous top-level key {key!r} — use a "
-                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                            f"transport-namespaced key (e.g. metadata['meshtastic'])"
                         )
         return violations
 
@@ -439,11 +485,11 @@ class TestAmbiguousTopLevelMetadataKeys:
 
 
 class TestMeshCoreMetadataRegression:
-    """MeshCore adapter metadata must use ``adapter_status``, not
-    ``delivery_status``."""
+    """MeshCore adapter metadata must use ``meshcore`` namespace key, not
+    ``delivery_status`` or ``adapter_status``."""
 
-    def test_meshcore_uses_adapter_status(self) -> None:
-        """MeshCore real adapter metadata uses ``adapter_status`` key."""
+    def test_meshcore_uses_meshcore_namespace(self) -> None:
+        """MeshCore real adapter metadata uses ``meshcore`` namespace key."""
         meshcore_path = ADAPTERS_DIR / "meshcore" / "adapter.py"
         if not meshcore_path.exists():
             pytest.skip("MeshCore adapter not found")
@@ -452,23 +498,27 @@ class TestMeshCoreMetadataRegression:
         results = _parse_adapter_results(source, str(meshcore_path))
 
         # Must have at least one AdapterDeliveryResult with metadata
-        adapter_status_found = False
+        meshcore_ns_found = False
         for _ds_value, meta_keys in results:
-            if "adapter_status" in meta_keys:
-                adapter_status_found = True
+            if "meshcore" in meta_keys:
+                meshcore_ns_found = True
             # Should never have delivery_status in metadata
             assert "delivery_status" not in meta_keys, (
                 "MeshCore adapter metadata uses 'delivery_status' key "
-                "instead of 'adapter_status'"
+                "instead of 'meshcore' namespace"
+            )
+            assert "adapter_status" not in meta_keys, (
+                "MeshCore adapter metadata uses 'adapter_status' key "
+                "instead of 'meshcore' namespace"
             )
 
-        assert adapter_status_found, (
-            "MeshCore adapter does not use 'adapter_status' in any "
+        assert meshcore_ns_found, (
+            "MeshCore adapter does not use 'meshcore' namespace in any "
             "AdapterDeliveryResult metadata"
         )
 
-    def test_meshcore_fake_uses_adapter_status(self) -> None:
-        """MeshCore fake adapter metadata uses ``adapter_status`` key."""
+    def test_meshcore_fake_uses_meshcore_namespace(self) -> None:
+        """MeshCore fake adapter metadata uses ``meshcore`` namespace key."""
         fake_path = ADAPTERS_DIR / "fakes" / "meshcore.py"
         if not fake_path.exists():
             pytest.skip("MeshCore fake adapter not found")
@@ -476,17 +526,21 @@ class TestMeshCoreMetadataRegression:
         source = fake_path.read_text("utf-8")
         results = _parse_adapter_results(source, str(fake_path))
 
-        adapter_status_found = False
+        meshcore_ns_found = False
         for _ds_value, meta_keys in results:
-            if "adapter_status" in meta_keys:
-                adapter_status_found = True
+            if "meshcore" in meta_keys:
+                meshcore_ns_found = True
             assert "delivery_status" not in meta_keys, (
                 "MeshCore fake adapter metadata uses 'delivery_status' "
-                "instead of 'adapter_status'"
+                "instead of 'meshcore' namespace"
+            )
+            assert "adapter_status" not in meta_keys, (
+                "MeshCore fake adapter metadata uses 'adapter_status' "
+                "instead of 'meshcore' namespace"
             )
 
-        assert adapter_status_found, (
-            "MeshCore fake adapter does not use 'adapter_status' in any "
+        assert meshcore_ns_found, (
+            "MeshCore fake adapter does not use 'meshcore' namespace in any "
             "AdapterDeliveryResult metadata"
         )
 
@@ -819,3 +873,308 @@ class TestDeadLetterAttemptConvention:
             "lifecycle-authority-audit.md missing dead-letter attempt "
             "convention note"
         )
+
+
+# ===========================================================================
+# 10. Adapter-reality-audit contract: delivery_status wording
+# ===========================================================================
+
+
+class TestDeliveryStatusWording:
+    """delivery-result.schema.json must describe delivery_status as adapter
+    delivery fact, not lifecycle state.  lifecycle-authority-audit.md must
+    use 'adapter delivery fact' wording."""
+
+    def test_schema_delivery_status_says_adapter_delivery_fact(self) -> None:
+        """delivery-result.schema.json delivery_status description must
+        contain 'adapter delivery fact'."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["delivery_status"]["description"]
+        assert "adapter delivery fact" in desc.lower(), (
+            "delivery-result.schema.json delivery_status description must "
+            "say 'adapter delivery fact', got: " + desc
+        )
+
+    def test_schema_delivery_status_not_lifecycle_state(self) -> None:
+        """delivery-result.schema.json delivery_status description must not
+        define it AS a lifecycle state. Saying 'not lifecycle state' is fine."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["delivery_status"]["description"]
+        desc_lower = desc.lower()
+        # The description must say "adapter delivery fact" as the primary definition.
+        assert (
+            "adapter delivery fact" in desc_lower
+        ), "delivery_status must be defined as 'adapter delivery fact'"
+        # It must NOT say something like "lifecycle state: 'sent'" as the definition.
+        # But "not the final lifecycle state" or "not lifecycle authority" is acceptable.
+        assert not desc_lower.startswith("adapter-level lifecycle state"), (
+            "delivery_status must not be defined as starting with "
+            "'adapter-level lifecycle state'"
+        )
+
+    def test_audit_doc_uses_adapter_delivery_fact(self) -> None:
+        """lifecycle-authority-audit.md must use 'adapter delivery fact'."""
+        content = _read(LIFECYCLE_AUDIT_MD)
+        assert "adapter delivery fact" in content.lower(), (
+            "lifecycle-authority-audit.md must use 'adapter delivery fact' "
+            "when describing AdapterDeliveryResult.delivery_status"
+        )
+
+
+# ===========================================================================
+# 11. Adapter-reality-audit contract: metadata namespacing in schema + example
+# ===========================================================================
+
+
+class TestMetadataNamespacing:
+    """Schema metadata description and example metadata must use
+    transport-namespaced keys (e.g. metadata.matrix, metadata.lxmf)."""
+
+    def test_schema_metadata_says_namespaced(self) -> None:
+        """delivery-result.schema.json metadata description must mention
+        namespacing under metadata[<transport>]."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        desc = schema["properties"]["metadata"]["description"]
+        assert "metadata[<transport>]" in desc or "metadata[" in desc, (
+            "delivery-result.schema.json metadata description must mention "
+            "namespacing under metadata[<transport>], got: " + desc
+        )
+
+    def test_example_metadata_uses_transport_namespace(self) -> None:
+        """delivery-result-example.json metadata must use a transport-
+        namespaced key (e.g. 'matrix', 'lxmf'), not flat keys."""
+        import json
+
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+        metadata = example.get("metadata", {})
+        # All top-level keys in metadata must be transport namespace keys,
+        # not generic keys like "homeserver", "retry_count", "latency_ms".
+        generic_keys = {"homeserver", "retry_count", "latency_ms", "status", "state"}
+        found_generic = generic_keys & set(metadata.keys())
+        assert not found_generic, (
+            "delivery-result-example.json metadata has generic top-level "
+            f"keys {sorted(found_generic)} — use transport-namespaced "
+            "keys (e.g. metadata.matrix, metadata.lxmf)"
+        )
+
+    def test_example_metadata_has_transport_key(self) -> None:
+        """delivery-result-example.json metadata must have at least one
+        transport namespace key (e.g. 'matrix')."""
+        import json
+
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+        metadata = example.get("metadata", {})
+        # At least one key should be a known transport namespace
+        transport_namespaces = {"matrix", "lxmf", "meshtastic", "meshcore"}
+        assert transport_namespaces & set(metadata.keys()), (
+            "delivery-result-example.json metadata must use a transport "
+            "namespace key (e.g. 'matrix', 'lxmf'), got keys: "
+            + str(sorted(metadata.keys()))
+        )
+
+
+# ===========================================================================
+# 12. LXMF profile contract: delivery_status, unmapped, no unknown
+# ===========================================================================
+
+
+class TestLxmfProfileContract:
+    """LXMF transport profile must use correct delivery_status semantics
+    and 'unmapped' (not 'unknown') for unrecognised states."""
+
+    _LXMF_MD = _ROOT / "docs" / "spec" / "transport-profiles" / "lxmf.md"
+
+    def test_lxmf_delivery_status_is_sent_for_handoff(self) -> None:
+        """LXMF profile must state delivery_status is 'sent' for local
+        LXMRouter handoff."""
+        content = _read(self._LXMF_MD)
+        assert "delivery_status" in content and "sent" in content, (
+            "LXMF profile must describe delivery_status='sent' for local "
+            "LXMRouter handoff"
+        )
+
+    def test_lxmf_no_unknown_state(self) -> None:
+        """LXMF delivery state table must not use 'unknown' — use 'unmapped'."""
+        content = _read(self._LXMF_MD)
+        # Find the delivery state model section
+        section_start = content.find("Delivery state model")
+        assert section_start != -1, "Cannot find 'Delivery state model' in LXMF profile"
+        section_end = content.find("State transitions are tracked", section_start)
+        if section_end == -1:
+            section_end = content.find("##", section_start + 1)
+        section = content[section_start:section_end]
+        assert "`unknown`" not in section and "unknown" not in (
+            line.split("|")[1].strip().strip("`")
+            for line in section.splitlines()
+            if "|" in line and "Unrecognised" in line
+        ), (
+            "LXMF delivery state table must not contain 'unknown' — "
+            "use 'unmapped' for unrecognised states"
+        )
+
+    def test_lxmf_uses_unmapped_state(self) -> None:
+        """LXMF delivery state table must have 'unmapped' for unrecognised states."""
+        content = _read(self._LXMF_MD)
+        assert (
+            "`unmapped`" in content
+        ), "LXMF profile must use 'unmapped' for unrecognised SDK states"
+
+    def test_lxmf_delivery_state_in_metadata_not_status(self) -> None:
+        """LXMF profile must state LXMF delivery state is in
+        metadata['lxmf']['delivery_state'], not delivery_status."""
+        content = _read(self._LXMF_MD)
+        assert 'metadata["lxmf"]["delivery_state"]' in content, (
+            "LXMF profile must state that LXMF delivery state is in "
+            'metadata["lxmf"]["delivery_state"], not delivery_status'
+        )
+
+    def test_lxmf_no_delivery_status_equals_lxmf_state_claim(self) -> None:
+        """LXMF profile must NOT claim delivery_status equals LXMF delivery state."""
+        content = _read(self._LXMF_MD)
+        # The profile should not conflate delivery_status with LXMF state
+        bad_patterns = [
+            "delivery_status is the LXMF",
+            "delivery_status equals",
+            "delivery_status reflects LXMF",
+        ]
+        for pattern in bad_patterns:
+            assert pattern not in content, (
+                f"LXMF profile must not claim delivery_status equals LXMF "
+                f"delivery state (found '{pattern}')"
+            )
+
+
+# ===========================================================================
+# 13. §24 rule 6: bounded in-call retry wording
+# ===========================================================================
+
+
+class TestSection24RetryWording:
+    """§24 rule 6 must permit bounded in-call transport retries and forbid
+    durable retry, receipt writing, and lifecycle mutation."""
+
+    _ADAPTER_RUNTIME_MD = _ROOT / "docs" / "spec" / "adapter-runtime.md"
+
+    def test_rule6_mentions_bounded_retries(self) -> None:
+        """§24 rule 6 must mention bounded transport-call retries."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        # Find §24 section
+        section_start = content.find("## 24. Key Architectural Rules")
+        assert section_start != -1, "Cannot find §24 Key Architectural Rules"
+        section_end = content.find("## 25.", section_start)
+        assert section_end != -1, "Cannot find §25 after §24"
+        section = content[section_start:section_end]
+
+        assert "bounded transport-call retries" in section.lower() or (
+            "bounded" in section.lower() and "retry" in section.lower()
+        ), "§24 rule 6 must mention bounded retries"
+
+    def test_rule6_forbids_durable_retry(self) -> None:
+        """§24 rule 6 must forbid durable retry loops."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert (
+            "durable retry" in section.lower()
+        ), "§24 rule 6 must forbid durable retry loops"
+
+    def test_rule6_forbids_receipt_writing(self) -> None:
+        """§24 rule 6 must forbid adapters writing receipts."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert (
+            "receipt" in section.lower()
+        ), "§24 rule 6 must mention receipt writing prohibition"
+
+    def test_rule6_requires_raise_on_exhaustion(self) -> None:
+        """§24 rule 6 must require raising on retry exhaustion."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert (
+            "AdapterSendError" in section
+        ), "§24 rule 6 must mention AdapterSendError on exhaustion"
+        assert (
+            "AdapterPermanentError" in section
+        ), "§24 rule 6 must mention AdapterPermanentError on exhaustion"
+
+
+class TestSchemaDeliveryStatusEnum:
+    """delivery-result.schema.json must restrict delivery_status to sent/enqueued."""
+
+    def test_schema_has_delivery_status_enum(self) -> None:
+        """delivery_status must have an enum restricting to sent and enqueued."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        ds = schema["properties"]["delivery_status"]
+        assert "enum" in ds, "delivery_status must have an enum constraint"
+        assert set(ds["enum"]) == {
+            "sent",
+            "enqueued",
+        }, f"delivery_status enum must be ['sent', 'enqueued'], got {ds['enum']}"
+
+
+class TestSchemaMetadataPropertyNames:
+    """delivery-result.schema.json metadata must guard legacy top-level keys
+    via propertyNames."""
+
+    def test_schema_metadata_has_property_names_guard(self) -> None:
+        """metadata must use propertyNames to reject reserved bare keys."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        meta = schema["properties"]["metadata"]
+        assert "propertyNames" in meta, "metadata must have propertyNames guard"
+        # The propertyNames.not.enum must include the reserved keys
+        not_enum = meta["propertyNames"].get("not", {}).get("enum", [])
+        expected_reserved = {"delivery_status", "adapter_status", "status", "state"}
+        missing = expected_reserved - set(not_enum)
+        assert (
+            not missing
+        ), f"metadata propertyNames not.enum missing reserved keys: {sorted(missing)}"
+
+    def test_schema_metadata_allows_namespaced_keys(self) -> None:
+        """metadata propertyNames must NOT reject transport-namespaced keys.
+        Verify that a payload with metadata.matrix still validates."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+
+        # Load example which uses namespaced key "matrix"
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+
+        try:
+            import jsonschema
+
+            jsonschema.validate(instance=example, schema=schema)
+        except ImportError:
+            pytest.skip("jsonschema not installed")

@@ -76,6 +76,7 @@ _PERMANENT_ERRCODES = frozenset(
         "M_BAD_JSON",
         "M_NOT_JSON",
         "M_INVALID_PARAM",
+        "M_DUPLICATE_ANNOTATION",  # HTTP 400: reaction already exists for this key
     }
 )
 
@@ -174,8 +175,10 @@ def _is_nio_rate_limited_response(response: Any) -> bool:
 def _is_nio_permanent_response(response: Any) -> bool:
     """Return True if a nio response indicates a permanent error.
 
-    Checks for ``M_FORBIDDEN``, ``M_NOT_FOUND``, or invalid-room
-    errcodes on response objects that lack an ``event_id``.
+    Checks for errcodes in :data:`_PERMANENT_ERRCODES` (including
+    ``M_FORBIDDEN``, ``M_NOT_FOUND``, ``M_DUPLICATE_ANNOTATION``, etc.)
+    or ``NOT_FOUND``/``FORBIDDEN`` in the string representation, on
+    response objects that lack an ``event_id``.
     """
     if hasattr(response, "event_id"):
         return False
@@ -596,7 +599,9 @@ class MatrixAdapter(AdapterContract):
                 return AdapterDeliveryResult(
                     native_message_id=event_id,
                     native_channel_id=room_id,
-                    metadata=MappingProxyType({"matrix_txn_id": txn_id}),
+                    metadata=MappingProxyType(
+                        {"matrix": MappingProxyType({"txn_id": txn_id})}
+                    ),
                 )
 
             except MatrixSendError as exc:

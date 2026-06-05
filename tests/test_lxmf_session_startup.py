@@ -290,12 +290,14 @@ class TestDeliveryCallbackRegistration:
 
         assert session.connected is False
 
-    async def test_announce_callback_failure_is_ignored(self) -> None:
-        """If register_announce_callback raises, it's silently ignored
-        (not all LXMF versions support it)."""
+    async def test_no_announce_callback_registered(self) -> None:
+        """The session does not register an announce callback.
+
+        ``LXMRouter.register_announce_callback`` does not exist in any
+        known LXMF version, so the session must not attempt to call it.
+        """
         mock_rns, mock_lxmf = _mock_rns_lxmf()
         mock_router = mock_lxmf.LXMRouter.return_value
-        mock_router.register_announce_callback.side_effect = AttributeError
         session = _make_session(connection_type="reticulum")
 
         with (
@@ -308,6 +310,8 @@ class TestDeliveryCallbackRegistration:
             await session.start()
 
         assert session.connected is True
+        # Verify register_announce_callback was never called.
+        mock_router.register_announce_callback.assert_not_called()
         await session.stop()
 
 

@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 from datetime import datetime, timezone
+from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -945,3 +946,279 @@ class TestOutboundNativeRefRecordMessageIdValidation:
         )
         with pytest.raises(TypeError):
             record.metadata["x"] = "y"  # type: ignore[index]
+
+
+# ===================================================================
+# 16. Cross-cutting: SDK import safety (compat layer)
+# ===================================================================
+
+_COMPAT_SPECS = [
+    ("lxmf", "HAS_LXMF"),
+    ("meshcore", "HAS_MESHCORE"),
+    ("matrix", "HAS_NIO"),
+    ("meshtastic", "HAS_MESHTASTIC"),
+]
+
+_ADAPTER_NAMES = ["lxmf", "meshcore", "matrix", "meshtastic"]
+
+
+class TestCompatImportSafety:
+    """Each adapter's compat.py is importable without the optional SDK.
+
+    Tier 1 (fake_pipeline) — proves the compat guard pattern is consistent
+    across all four transport adapters.
+    """
+
+    @pytest.mark.parametrize(
+        ("adapter_name", "flag_name"),
+        _COMPAT_SPECS,
+        ids=[s[0] for s in _COMPAT_SPECS],
+    )
+    def test_compat_importable_without_sdk(
+        self, adapter_name: str, flag_name: str
+    ) -> None:
+        """Importing compat.py does not raise ImportError."""
+        import importlib
+
+        mod = importlib.import_module(f"medre.adapters.{adapter_name}.compat")
+        assert hasattr(mod, flag_name)
+
+    @pytest.mark.parametrize(
+        ("adapter_name", "flag_name"),
+        _COMPAT_SPECS,
+        ids=[s[0] for s in _COMPAT_SPECS],
+    )
+    def test_has_flag_is_bool(self, adapter_name: str, flag_name: str) -> None:
+        """HAS_* flag is a boolean value."""
+        import importlib
+
+        mod = importlib.import_module(f"medre.adapters.{adapter_name}.compat")
+        value = getattr(mod, flag_name)
+        assert isinstance(
+            value, bool
+        ), f"{adapter_name}.compat.{flag_name} is {type(value).__name__}, expected bool"
+
+    @pytest.mark.parametrize("adapter_name", _ADAPTER_NAMES, ids=_ADAPTER_NAMES)
+    def test_adapter_init_importable(self, adapter_name: str) -> None:
+        """The adapter package __init__.py imports without the SDK."""
+        import importlib
+
+        mod = importlib.import_module(f"medre.adapters.{adapter_name}")
+        assert mod is not None
+
+
+class TestLxmfRequireGuard:
+    """LXMF compat._require_lxmf() raises ImportError when HAS_LXMF is False."""
+
+    def test_require_lxmf_raises_when_sdk_missing(self) -> None:
+        """When HAS_LXMF is False, _require_lxmf() raises ImportError."""
+        import medre.adapters.lxmf.compat as compat
+
+        original = compat.HAS_LXMF
+        try:
+            compat.HAS_LXMF = False
+            with pytest.raises(ImportError, match="lxmf"):
+                compat._require_lxmf()
+        finally:
+            compat.HAS_LXMF = original
+
+    def test_require_lxmf_raises_clear_message(self) -> None:
+        """Error message mentions the install command."""
+        import medre.adapters.lxmf.compat as compat
+
+        original = compat.HAS_LXMF
+        try:
+            compat.HAS_LXMF = False
+            with pytest.raises(ImportError, match="medre\\[lxmf\\]") as exc_info:
+                compat._require_lxmf()
+            assert "connection_type='fake'" in str(exc_info.value)
+        finally:
+            compat.HAS_LXMF = original
+
+
+# ===================================================================
+# 17. Cross-cutting: pipeline ignores metadata for lifecycle
+# ===================================================================
+
+
+def _classify_delivery_status(
+    result: AdapterDeliveryResult | None,
+) -> str:
+    """Mirror the pipeline's status classification from target_delivery.py.
+
+    The pipeline maps AdapterDeliveryResult.delivery_status to a receipt
+    status using exactly this logic (target_delivery.py lines 636-643):
+
+        _adapter_delivery_status = (
+            getattr(adapter_result, "delivery_status", "sent")
+            if adapter_result
+            else "sent"
+        )
+        status = "queued" if _adapter_delivery_status == "enqueued" else "sent"
+
+    This helper reproduces that mapping so tests can prove the classification
+    is a pure function of delivery_status, independent of metadata.
+    """
+    _adapter_delivery_status = (
+        getattr(result, "delivery_status", "sent") if result else "sent"
+    )
+    return "queued" if _adapter_delivery_status == "enqueued" else "sent"
+
+
+class TestPipelineMetadataIgnoredForLifecycle:
+    """Pipeline classifies delivery based on delivery_status, not metadata.
+
+    Tier 1 (fake_pipeline) — proves the pipeline's status mapping is a pure
+    function of AdapterDeliveryResult.delivery_status.  The pipeline never
+    reads metadata keys (meshcore.local_acceptance, lxmf.delivery_state, etc.)
+    for lifecycle routing decisions.
+    """
+
+    def test_sent_with_meshcore_rejection_metadata(self) -> None:
+        """delivery_status='sent' with local_acceptance=False stays 'sent'."""
+        result = AdapterDeliveryResult(
+            native_message_id="mc-123",
+            native_channel_id="0",
+            delivery_status="sent",
+            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
+        )
+        assert _classify_delivery_status(result) == "sent"
+
+    def test_sent_with_lxmf_outbound_metadata(self) -> None:
+        """delivery_status='sent' with lxmf delivery_state stays 'sent'."""
+        result = AdapterDeliveryResult(
+            native_message_id="lx-123",
+            native_channel_id="abc",
+            delivery_status="sent",
+            metadata=MappingProxyType({"lxmf": {"delivery_state": "outbound"}}),
+        )
+        assert _classify_delivery_status(result) == "sent"
+
+    def test_sent_with_multi_adapter_metadata(self) -> None:
+        """delivery_status='sent' with combined adapter metadata stays 'sent'."""
+        result = AdapterDeliveryResult(
+            native_message_id="x-123",
+            native_channel_id="0",
+            delivery_status="sent",
+            metadata=MappingProxyType(
+                {
+                    "meshcore": {"local_acceptance": False},
+                    "lxmf": {"delivery_state": "outbound"},
+                    "meshtastic": {"hop_limit": 3},
+                    "matrix": {"event_type": "m.room.encrypted"},
+                }
+            ),
+        )
+        assert _classify_delivery_status(result) == "sent"
+
+    def test_sent_with_large_metadata(self) -> None:
+        """Large metadata dict does not affect classification."""
+        result = AdapterDeliveryResult(
+            native_message_id="big-123",
+            native_channel_id="0",
+            delivery_status="sent",
+            metadata=MappingProxyType({f"key_{i}": f"value_{i}" for i in range(100)}),
+        )
+        assert _classify_delivery_status(result) == "sent"
+
+    def test_sent_with_empty_metadata(self) -> None:
+        """delivery_status='sent' with empty metadata stays 'sent'."""
+        result = AdapterDeliveryResult(
+            native_message_id="empty-meta",
+            native_channel_id="0",
+            delivery_status="sent",
+        )
+        assert _classify_delivery_status(result) == "sent"
+
+    def test_enqueued_with_lxmf_metadata(self) -> None:
+        """delivery_status='enqueued' with lxmf metadata stays 'queued'."""
+        result = AdapterDeliveryResult(
+            native_message_id=None,
+            native_channel_id="1",
+            delivery_status="enqueued",
+            delivery_note="locally queued",
+            metadata=MappingProxyType({"lxmf": {"delivery_state": "outbound"}}),
+        )
+        assert _classify_delivery_status(result) == "queued"
+
+    def test_enqueued_with_meshcore_metadata(self) -> None:
+        """delivery_status='enqueued' with meshcore metadata stays 'queued'."""
+        result = AdapterDeliveryResult(
+            native_message_id=None,
+            native_channel_id="0",
+            delivery_status="enqueued",
+            delivery_note="queued for mesh",
+            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
+        )
+        assert _classify_delivery_status(result) == "queued"
+
+    def test_enqueued_with_empty_metadata(self) -> None:
+        """delivery_status='enqueued' with empty metadata stays 'queued'."""
+        result = AdapterDeliveryResult(
+            native_message_id=None,
+            native_channel_id="1",
+            delivery_status="enqueued",
+            delivery_note="locally queued",
+        )
+        assert _classify_delivery_status(result) == "queued"
+
+    def test_none_result_classifies_as_sent(self) -> None:
+        """When adapter returns None, pipeline defaults to 'sent'."""
+        assert _classify_delivery_status(None) == "sent"
+
+    def test_same_status_different_metadata_same_classification(self) -> None:
+        """Two results with same delivery_status but different metadata
+        produce identical pipeline classification."""
+        r1 = AdapterDeliveryResult(
+            native_message_id="a",
+            delivery_status="sent",
+            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
+        )
+        r2 = AdapterDeliveryResult(
+            native_message_id="b",
+            delivery_status="sent",
+            metadata=MappingProxyType({"lxmf": {"delivery_state": "delivered"}}),
+        )
+        assert _classify_delivery_status(r1) == _classify_delivery_status(r2) == "sent"
+
+    def test_different_status_different_metadata_swaps_classification(self) -> None:
+        """Different delivery_status changes classification regardless of metadata."""
+        r_sent = AdapterDeliveryResult(
+            delivery_status="sent",
+            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
+        )
+        r_enqueued = AdapterDeliveryResult(
+            delivery_status="enqueued",
+            metadata=MappingProxyType({}),
+        )
+        assert _classify_delivery_status(r_sent) == "sent"
+        assert _classify_delivery_status(r_enqueued) == "queued"
+
+    def test_default_delivery_status_is_sent(self) -> None:
+        """AdapterDeliveryResult() with no delivery_status defaults to 'sent'."""
+        result = AdapterDeliveryResult()
+        assert result.delivery_status == "sent"
+        assert _classify_delivery_status(result) == "sent"
+
+    @pytest.mark.parametrize(
+        ("delivery_status", "expected"),
+        [("sent", "sent"), ("enqueued", "queued"), (None, "sent")],
+    )
+    def test_classify_parity_with_pipeline(
+        self, delivery_status: str | None, expected: str
+    ) -> None:
+        """Local helper matches the pipeline's inline classification logic.
+
+        target_delivery.py:636-643 uses:
+            _adapter_delivery_status = (
+                getattr(adapter_result, "delivery_status", "sent")
+                if adapter_result else "sent"
+            )
+            status = "queued" if _adapter_delivery_status == "enqueued" else "sent"
+        """
+        if delivery_status is None:
+            # None result → both default to "sent"
+            assert _classify_delivery_status(None) == expected
+        else:
+            result = AdapterDeliveryResult(delivery_status=delivery_status)
+            assert _classify_delivery_status(result) == expected

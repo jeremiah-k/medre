@@ -363,7 +363,10 @@ class FakeMeshCoreAdapter(AdapterContract):
             delivery_note="fake adapter — simulated local acceptance",
             metadata=MappingProxyType(
                 {
-                    "adapter_status": "local_accepted",
+                    # Nested MappingProxyType matches real adapter shape.
+                    # NOTE: MappingProxyType is not directly JSON-serializable;
+                    # consumers that persist metadata must cast via dict() first.
+                    "meshcore": MappingProxyType({"local_acceptance": True}),
                 }
             ),
         )
