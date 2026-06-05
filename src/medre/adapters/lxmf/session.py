@@ -296,7 +296,13 @@ def _map_delivery_method(raw_method: Any) -> str | None:
 
 @dataclass
 class _SessionDiagnostics:
-    """Mutable diagnostics snapshot owned by the session."""
+    """Mutable diagnostics snapshot owned by the session.
+
+    ``transient_delivery_failures`` counts transient failure events,
+    including each retry attempt plus the final exhaustion event when
+    all retries are exhausted.  For example, 3 failed attempts result
+    in a count of 4 (3 attempts + 1 exhaustion).
+    """
 
     connected: bool = False
     router_running: bool = False
@@ -1219,8 +1225,10 @@ class LxmfSession:
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
             try:
-                # Recall identity (cached by RNS, but hoisting out would skip
-                # the retry/classification logic on failure).
+                # Recall identity inside the retry loop so recall failures
+                # are classified as non-transient errors and downstream
+                # construction failures can be retried.  (RNS caches recall
+                # results, so repeated calls are cheap.)
                 dest_identity = RNS.Identity.recall(dest_bytes)
                 if dest_identity is None:
                     raise LxmfSendError(
@@ -1323,7 +1331,8 @@ class LxmfSession:
                 if attempt < _SEND_MAX_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
 
-        # All retries exhausted.
+        # All retries exhausted — count the exhaustion event separately
+        # from the per-attempt increments above.
         self._diag.transient_delivery_failures += 1
         self._diag.last_error = (
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"

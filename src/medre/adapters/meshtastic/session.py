@@ -760,6 +760,7 @@ class MeshtasticSession:
         """
         if self._stop_requested or self._reconnecting:
             return
+        self._node_id = None
         self._last_error = "Connection lost"
         self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
@@ -830,6 +831,7 @@ class MeshtasticSession:
                         except Exception:
                             pass
                         self._client = None
+                        self._node_id = None
 
                     self._unsubscribe_callbacks()
                     self._client = self._create_client()
