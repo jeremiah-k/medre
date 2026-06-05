@@ -1709,7 +1709,8 @@ class PipelineRunner:
             elif (
                 created.status == "in_progress" and created.worker_id != pipeline_worker
             ):
-                skip_reason = f"active:other_worker:{created.worker_id!r}"
+                owner_id = created.worker_id or "unknown"
+                skip_reason = f"active:other_worker:{owner_id}"
                 self._log.info(
                     "outbox_skip: event_id=%s adapter=%s outbox_id=%s owner=%s (active, not stealing)",
                     event.event_id,
