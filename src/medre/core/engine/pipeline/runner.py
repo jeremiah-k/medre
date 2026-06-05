@@ -1659,7 +1659,7 @@ class PipelineRunner:
                     if (
                         row.delivery_plan_id == route_plan.plan_id
                         and row.target_adapter == adapter_name
-                        and row.target_channel == target.channel
+                        and (row.target_channel or None) == (target.channel or None)
                     ):
                         attempt_number = max(attempt_number, row.attempt_number + 1)
 

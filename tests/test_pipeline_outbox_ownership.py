@@ -726,3 +726,111 @@ class TestReplayWithExistingActiveAttempt2OwnedByOther:
             assert 3 in attempts
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Regression: target_channel normalization (empty string vs None)
+# ===================================================================
+
+
+_ADAPTER_ID_NCH = "fake_presentation"
+_ROUTE_ID_NCH = "route-ch-norm"
+
+
+class TestReplayChannelNormalization:
+    """Replay attempt matching must normalize target_channel so that
+    ``""`` and ``None`` are treated as equivalent.
+
+    SQLite storage normalizes empty-string channels to NULL in outbox
+    keys.  If the route target has ``channel=""`` and the stored row has
+    ``target_channel=None``, replay must still find existing attempts
+    and compute ``attempt_number = max(existing) + 1``.
+    """
+
+    async def test_empty_channel_normalized_to_none_for_attempt_counting(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Seed a sent row with target_channel=None, replay with channel=""."""
+        event_id = "evt-ch-norm-001"
+        target = RouteTarget(adapter=_ADAPTER_ID_NCH, channel="")
+        plan_id = stable_delivery_plan_id(
+            event_id, target, route_id=_ROUTE_ID_NCH, target_index=0
+        )
+        route = Route(
+            id=_ROUTE_ID_NCH,
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[target],
+        )
+        plan = DeliveryPlan(
+            plan_id=plan_id,
+            event_id=event_id,
+            target=target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+        )
+
+        # Seed attempt 1 as sent.  Use target_channel="" so storage
+        # normalizes it to None internally.
+        now = datetime.now(timezone.utc)
+        seed_item = DeliveryOutboxItem(
+            outbox_id=f"obox-seed-chnorm-{event_id[:8]}",
+            event_id=event_id,
+            route_id=_ROUTE_ID_NCH,
+            delivery_plan_id=plan_id,
+            target_adapter=_ADAPTER_ID_NCH,
+            target_channel="",  # storage normalizes "" → None
+            attempt_number=1,
+            status="in_progress",
+            worker_id="seed:worker",
+            locked_at=now.isoformat(),
+            lease_until=(now + timedelta(minutes=5)).isoformat(),
+        )
+        created = await temp_storage.create_outbox_item(seed_item)
+        # Verify storage normalized target_channel to None.
+        stored = await temp_storage.get_outbox_item(created.outbox_id)
+        assert stored is not None
+        assert (
+            stored.target_channel is None
+        ), f"expected target_channel=None after storage normalization, got {stored.target_channel!r}"
+        await temp_storage.mark_outbox_sent(created.outbox_id, receipt_id="rcpt-seed")
+
+        adapter = FakePresentationAdapter(adapter_id=_ADAPTER_ID_NCH, channel="ch-out")
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={_ADAPTER_ID_NCH: adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            event = make_event(event_id=event_id, source_channel_id="ch-0")
+            outcomes = await runner.deliver_to_targets(
+                event,
+                [(route, plan)],
+                source="replay",
+            )
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            # Delivery must succeed — not skip with outbox_not_owned.
+            assert outcome.status in (
+                "success",
+                "queued",
+            ), f"expected success/queued, got {outcome.status}: {outcome.error}"
+            assert outcome.failure_kind is None
+            assert len(adapter.delivered_payloads) == 1
+
+            # Original attempt 1 row must still be sent.
+            original = await temp_storage.get_outbox_item(created.outbox_id)
+            assert original is not None
+            assert original.status == "sent"
+
+            # A new attempt 2 row must exist.
+            all_rows = await temp_storage.list_outbox_items_for_event(event_id)
+            attempts = sorted(r.attempt_number for r in all_rows)
+            assert 2 in attempts
+        finally:
+            await runner.stop()
