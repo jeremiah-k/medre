@@ -801,6 +801,8 @@ class TestSendRealDestinationRecall:
 
         recalled_identity = MagicMock()
 
+        created_lxmessages: list[FakeLXMessage] = []
+
         class FakeDestination:
             OUT = "out"
             SINGLE = "single"
@@ -813,6 +815,8 @@ class TestSendRealDestinationRecall:
             OUTBOUND = 1
 
             def __init__(self, dest, router, content, **kwargs):
+                self.dest = dest  # Capture for assertion
+                created_lxmessages.append(self)
                 self.state = self.OUTBOUND
                 self.hash = b"\xab" * 16
 
@@ -841,12 +845,13 @@ class TestSendRealDestinationRecall:
             )
 
         mock_rns.Identity.recall.assert_called_once_with(bytes.fromhex("ab" * 16))
+        assert (
+            len(created_lxmessages) == 1
+        ), f"Expected exactly 1 LXMessage, got {len(created_lxmessages)}"
+        assert (
+            created_lxmessages[0].dest.identity is recalled_identity
+        ), "Destination was not wired with the recalled identity"
         await session.stop()
-
-
-# ===================================================================
-# Fake-mode send returns AdapterDeliveryResult-compatible data
-# ===================================================================
 
 
 class TestFakeSendReturnsAdapterDeliveryResult:

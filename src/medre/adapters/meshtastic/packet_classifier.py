@@ -377,7 +377,18 @@ class MeshtasticPacketClassifier:
         if sender_id is None:
             from_numeric = packet.get("from")
             if from_numeric is not None:
-                sender_id = f"!{int(from_numeric):0{_MESHTASTIC_NODE_ID_HEX_WIDTH}x}"
+                # Pass through string values as-is (matches SDK format like "!abc123").
+                # Convert integers to canonical "!{num:08x}" format when the
+                # value looks like a node number.
+                if isinstance(from_numeric, str):
+                    sender_id = from_numeric
+                else:
+                    try:
+                        sender_id = (
+                            f"!{int(from_numeric):0{_MESHTASTIC_NODE_ID_HEX_WIDTH}x}"
+                        )
+                    except (TypeError, ValueError, OverflowError):
+                        sender_id = None
 
         # --- Self-echo detection ---
         is_self_echo = (

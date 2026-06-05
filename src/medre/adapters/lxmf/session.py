@@ -1216,27 +1216,29 @@ class LxmfSession:
                 transient=False,
             ) from exc
 
-        # Recall identity once (cached by RNS, but no need to re-call per attempt).
-        dest_identity = RNS.Identity.recall(dest_bytes)
-        if dest_identity is None:
-            raise LxmfSendError(
-                f"Cannot recall identity for destination hash " f"{destination_hash!r}",
-                transient=False,
-            )
-
-        # Construct destination once — deterministic and cheap, no need to
-        # rebuild on every retry.
-        dest = RNS.Destination(
-            dest_identity,
-            RNS.Destination.OUT,
-            RNS.Destination.SINGLE,
-            "lxmf",
-            "delivery",
-        )
-
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
             try:
+                # Recall identity (cached by RNS, but hoisting out would skip
+                # the retry/classification logic on failure).
+                dest_identity = RNS.Identity.recall(dest_bytes)
+                if dest_identity is None:
+                    raise LxmfSendError(
+                        f"Cannot recall identity for destination hash "
+                        f"{destination_hash!r}",
+                        transient=False,
+                    )
+
+                # Construct destination inside the retry block so that
+                # construction errors are caught and classified.
+                dest = RNS.Destination(
+                    dest_identity,
+                    RNS.Destination.OUT,
+                    RNS.Destination.SINGLE,
+                    "lxmf",
+                    "delivery",
+                )
+
                 # Build the LXMessage — include fields so rendered
                 # metadata (MEDRE envelope, provenance hints, etc.)
                 # is preserved through serialisation (pack()).

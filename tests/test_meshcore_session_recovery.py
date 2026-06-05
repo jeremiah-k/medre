@@ -534,7 +534,10 @@ class TestTranche6FailedStartCleanup:
         async def noop(pkt: dict) -> None:
             pass
 
-        with pytest.raises(MeshCoreConnectionError):
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", False),
+            pytest.raises(MeshCoreConnectionError),
+        ):
             await session.start(noop)
 
         assert session._started is False
@@ -548,7 +551,10 @@ class TestTranche6FailedStartCleanup:
         async def noop(pkt: dict) -> None:
             pass
 
-        with pytest.raises(MeshCoreConnectionError):
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", False),
+            pytest.raises(MeshCoreConnectionError),
+        ):
             await session.start(noop)
 
         diag = session.diagnostics()

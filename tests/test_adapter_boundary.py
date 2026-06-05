@@ -970,7 +970,7 @@ class TestCompatImportSafety:
     """
 
     @pytest.mark.parametrize(
-        "adapter_name, flag_name",
+        ("adapter_name", "flag_name"),
         _COMPAT_SPECS,
         ids=[s[0] for s in _COMPAT_SPECS],
     )
@@ -984,7 +984,7 @@ class TestCompatImportSafety:
         assert hasattr(mod, flag_name)
 
     @pytest.mark.parametrize(
-        "adapter_name, flag_name",
+        ("adapter_name", "flag_name"),
         _COMPAT_SPECS,
         ids=[s[0] for s in _COMPAT_SPECS],
     )
@@ -1199,3 +1199,26 @@ class TestPipelineMetadataIgnoredForLifecycle:
         result = AdapterDeliveryResult()
         assert result.delivery_status == "sent"
         assert _classify_delivery_status(result) == "sent"
+
+    @pytest.mark.parametrize(
+        ("delivery_status", "expected"),
+        [("sent", "sent"), ("enqueued", "queued"), (None, "sent")],
+    )
+    def test_classify_parity_with_pipeline(
+        self, delivery_status: str | None, expected: str
+    ) -> None:
+        """Local helper matches the pipeline's inline classification logic.
+
+        target_delivery.py:636-643 uses:
+            _adapter_delivery_status = (
+                getattr(adapter_result, "delivery_status", "sent")
+                if adapter_result else "sent"
+            )
+            status = "queued" if _adapter_delivery_status == "enqueued" else "sent"
+        """
+        if delivery_status is None:
+            # None result → both default to "sent"
+            assert _classify_delivery_status(None) == expected
+        else:
+            result = AdapterDeliveryResult(delivery_status=delivery_status)
+            assert _classify_delivery_status(result) == expected

@@ -185,9 +185,9 @@ class MeshtasticSession:
         """The session's own node ID in the format matching ``fromId`` in inbound
         packets (typically ``"!" + lowercase_hex(myNodeNum)``, e.g. ``"!a1b2c3d4"``).
 
-        Currently always ``None`` because node ID is not yet populated from
-        ``interface.myInfo.myNodeNum`` after connect. See Remaining Risks in
-        ``docs/dev/adapter-reality-audit.md`` for the population gap.
+        Populated from ``interface.myInfo.myNodeNum`` after every successful
+        connect (and re-connect).  Returns ``None`` when the client is not
+        connected or ``myInfo`` is not yet available.
         """
         return self._node_id
 
@@ -298,6 +298,7 @@ class MeshtasticSession:
 
             try:
                 self._subscribe_callbacks()
+                self._refresh_node_id()
             except Exception:
                 self._subscribed = False
                 try:
@@ -724,6 +725,20 @@ class MeshtasticSession:
             pass
         self._subscribed = False
 
+    def _refresh_node_id(self) -> None:
+        """Populate self._node_id from interface.myInfo.myNodeNum when available.
+
+        Called after every successful connect (and re-connect). Safe to call
+        multiple times; refreshes from current interface state.
+        """
+        self._node_id = None
+        if self._client is None:
+            return
+        my_info = getattr(self._client, "myInfo", None)
+        node_num = getattr(my_info, "myNodeNum", None)
+        if isinstance(node_num, int) and node_num >= 0:
+            self._node_id = f"!{node_num:08x}"
+
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets.
 
@@ -817,6 +832,7 @@ class MeshtasticSession:
                     self._unsubscribe_callbacks()
                     self._client = self._create_client()
                     self._subscribe_callbacks()
+                    self._refresh_node_id()
 
                     # Reconnect success
                     self._logger.info(

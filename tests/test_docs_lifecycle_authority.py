@@ -464,6 +464,10 @@ class TestMeshCoreMetadataRegression:
                 "MeshCore adapter metadata uses 'delivery_status' key "
                 "instead of 'meshcore' namespace"
             )
+            assert "adapter_status" not in meta_keys, (
+                "MeshCore adapter metadata uses 'adapter_status' key "
+                "instead of 'meshcore' namespace"
+            )
 
         assert meshcore_ns_found, (
             "MeshCore adapter does not use 'meshcore' namespace in any "
@@ -485,6 +489,10 @@ class TestMeshCoreMetadataRegression:
                 meshcore_ns_found = True
             assert "delivery_status" not in meta_keys, (
                 "MeshCore fake adapter metadata uses 'delivery_status' "
+                "instead of 'meshcore' namespace"
+            )
+            assert "adapter_status" not in meta_keys, (
+                "MeshCore fake adapter metadata uses 'adapter_status' "
                 "instead of 'meshcore' namespace"
             )
 

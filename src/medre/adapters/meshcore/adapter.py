@@ -399,11 +399,15 @@ class MeshCoreAdapter(AdapterContract):
         channel_index = payload.get("channel_index")
         contact_id = str(payload.get("contact_id", ""))
 
+        resolved_channel_index = (
+            channel_index if isinstance(channel_index, int) else None
+        )
+
         try:
             native_id = await self._session.send_text(
                 contact_id=contact_id,
                 text=str(text),
-                channel_index=channel_index if isinstance(channel_index, int) else None,
+                channel_index=resolved_channel_index,
             )
         except asyncio.CancelledError:
             raise
@@ -418,7 +422,7 @@ class MeshCoreAdapter(AdapterContract):
         if native_id is None:
             return None
 
-        if channel_index is not None:
+        if resolved_channel_index is not None:
             delivery_note = (
                 "MeshCore: channel send local-accepted only (no ACK protocol)"
             )
@@ -430,7 +434,11 @@ class MeshCoreAdapter(AdapterContract):
 
         return AdapterDeliveryResult(
             native_message_id=native_id,
-            native_channel_id=str(channel_index) if channel_index is not None else None,
+            native_channel_id=(
+                str(resolved_channel_index)
+                if resolved_channel_index is not None
+                else None
+            ),
             delivery_note=delivery_note,
             metadata=MappingProxyType(
                 {

@@ -961,9 +961,26 @@ class MeshtasticAdapter(AdapterContract):
         # Build enriched metadata from delivery result + payload context.
         send_meta: dict[str, object] = {}
 
-        # Merge delivery metadata (packet snapshot: id, channel, reply_id, etc.)
+        # Merge delivery metadata into the ``meshtastic`` namespace.
+        meshtastic_meta: dict[str, object] = {}
+        transport_keys = {
+            "id",
+            "packet_id",
+            "channel",
+            "reply_id",
+            "emoji",
+            "reaction_id",
+            "to",
+        }
         for k, v in (delivery.metadata or {}).items():
-            send_meta[k] = v
+            if k == "meshtastic" and isinstance(v, dict):
+                meshtastic_meta.update(v)
+            elif k in transport_keys:
+                meshtastic_meta[k] = v
+            else:
+                send_meta[k] = v
+        if meshtastic_meta:
+            send_meta["meshtastic"] = meshtastic_meta
 
         # Add useful send context from the queued payload.
         payload = result.item.get("payload", {})
