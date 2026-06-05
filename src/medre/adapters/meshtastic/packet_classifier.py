@@ -382,13 +382,17 @@ class MeshtasticPacketClassifier:
                 # value looks like a node number.
                 if isinstance(from_numeric, str):
                     sender_id = from_numeric
-                else:
+                elif isinstance(from_numeric, int) and not isinstance(
+                    from_numeric, bool
+                ):
                     try:
                         sender_id = (
                             f"!{int(from_numeric):0{_MESHTASTIC_NODE_ID_HEX_WIDTH}x}"
                         )
                     except (TypeError, ValueError, OverflowError):
                         sender_id = None
+                else:
+                    sender_id = None
 
         # --- Self-echo detection ---
         is_self_echo = (

@@ -576,6 +576,10 @@ class TestMeshCoreBLEValidation:
         mock_mc_instance = MagicMock()
         mock_mc_instance.subscribe = MagicMock()
         mock_mc_instance.disconnect = AsyncMock()
+        mock_mc_instance.commands = AsyncMock()
+        mock_mc_instance.commands.send_appstart = AsyncMock(
+            return_value=MagicMock(is_error=lambda: False)
+        )
 
         fake_create_ble = AsyncMock(return_value=mock_mc_instance)
 

@@ -191,10 +191,14 @@ class TestMatrixToMeshtasticOutboundNativeRef:
             assert ref["event_id"] == _CANON_EVENT_ID
             assert ref["direction"] == "outbound"
 
-            # Metadata includes useful delivery context (packet_id, channel).
+            # Metadata includes useful delivery context (packet_id, channel)
+            # nested under the "meshtastic" transport namespace per spec.
             meta = json.loads(ref["metadata"])
-            assert "packet_id" in meta
-            assert "channel" in meta
+            assert "meshtastic" in meta
+            assert "packet_id" in meta["meshtastic"]
+            assert meta["meshtastic"]["packet_id"] == _RADIO_PKT_ID
+            assert "channel" in meta["meshtastic"]
+            assert meta["meshtastic"]["channel"] == 0
 
             # -- Verify inbound ref also persisted -------------------------
             inbound_resolved = await temp_storage.resolve_native_ref(
@@ -275,8 +279,10 @@ async def _seed_test_a_state(storage: SQLiteStorage) -> None:
         direction="outbound",
         metadata={
             "text": "Hello from Matrix",
-            "packet_id": _RADIO_PKT_ID,
-            "channel": 0,
+            "meshtastic": {
+                "packet_id": _RADIO_PKT_ID,
+                "channel": 0,
+            },
         },
         created_at=ts,
     )

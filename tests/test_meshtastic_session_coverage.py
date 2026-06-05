@@ -1,8 +1,9 @@
-"""Tests for MeshtasticSession: get_node_info, _create_client branches.
+"""Tests for MeshtasticSession: get_node_info, _create_client branches, _refresh_node_id.
 
 Covers uncovered lines in session.py:
 - get_node_info (lines 229-249): node lookup via SDK client.nodes dict
 - _create_client (lines 646-676): TCP, serial, BLE, and unsupported types
+- _refresh_node_id (lines 728-740): populate _node_id from interface.myInfo.myNodeNum
 """
 
 from __future__ import annotations
@@ -278,3 +279,106 @@ class TestCreateClientUnsupported:
 
         with pytest.raises(MeshtasticConnectionError, match="Unsupported"):
             session._create_client()
+
+
+# ===================================================================
+# _refresh_node_id
+# ===================================================================
+
+
+class TestRefreshNodeId:
+    """MeshtasticSession._refresh_node_id edge cases.
+
+    _refresh_node_id reads client.myInfo.myNodeNum and formats it as
+    "!{node_num:08x}".  It guards against missing attributes, non-int
+    values, and negative node numbers.
+    """
+
+    def test_happy_path_formats_hex(self) -> None:
+        """myInfo.myNodeNum = 0x12345678 → _node_id == '!12345678'."""
+        my_info = MagicMock()
+        my_info.myNodeNum = 0x12345678
+        client = MagicMock()
+        client.myInfo = my_info
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id == "!12345678"
+
+    def test_missing_my_info_attribute(self) -> None:
+        """Client with no myInfo attribute → _node_id stays None."""
+        client = MagicMock(spec=[])  # no attributes
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id is None
+
+    def test_my_info_none(self) -> None:
+        """Client where myInfo is None → _node_id stays None."""
+        client = MagicMock()
+        client.myInfo = None
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id is None
+
+    def test_my_node_num_non_int(self) -> None:
+        """myInfo.myNodeNum = 'garbage' → _node_id stays None."""
+        my_info = MagicMock()
+        my_info.myNodeNum = "garbage"
+        client = MagicMock()
+        client.myInfo = my_info
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id is None
+
+    def test_my_node_num_negative(self) -> None:
+        """myInfo.myNodeNum = -1 → _node_id stays None."""
+        my_info = MagicMock()
+        my_info.myNodeNum = -1
+        client = MagicMock()
+        client.myInfo = my_info
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id is None
+
+    def test_my_node_num_zero(self) -> None:
+        """myInfo.myNodeNum = 0 → _node_id == '!00000000'."""
+        my_info = MagicMock()
+        my_info.myNodeNum = 0
+        client = MagicMock()
+        client.myInfo = my_info
+        session = _make_session(client=client)
+
+        session._refresh_node_id()
+
+        assert session._node_id == "!00000000"
+
+    def test_client_none_resets_to_none(self) -> None:
+        """No client → _node_id is reset to None regardless of prior value."""
+        session = _make_session(client=None)
+        session._node_id = "!deadbeef"
+
+        session._refresh_node_id()
+
+        assert session._node_id is None
+
+    def test_refresh_overwrites_previous_value(self) -> None:
+        """Subsequent call with valid client overwrites prior _node_id."""
+        my_info = MagicMock()
+        my_info.myNodeNum = 0xAABBCCDD
+        client = MagicMock()
+        client.myInfo = my_info
+        session = _make_session(client=client)
+        session._node_id = "!00000000"
+
+        session._refresh_node_id()
+
+        assert session._node_id == "!aabbccdd"

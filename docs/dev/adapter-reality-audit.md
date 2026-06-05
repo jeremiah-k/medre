@@ -1,6 +1,6 @@
 # Adapter Reality Audit
 
-**Tranche**: Adapter Reality Audit & Boundary Tightening
+**Work Package**: Adapter Reality Audit & Boundary Tightening
 **Branch**: `adapter-reality-audit`
 **Date**: 2026-06-05
 **Scope**: All 4 real adapters + transport profile docs + `AdapterDeliveryResult` contract
@@ -216,25 +216,25 @@ the value was received but MEDRE has no mapping for it. This is not
 
 **Total test lines: 8,295 across 11 files.**
 
-## 7. Remaining Risks (deferred to future tranches)
+## 7. Remaining Risks (deferred to future work packages)
 
-| Item                                    | Risk     | Notes                                                                                                                                                                                                                                                                                 |
-| --------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R11 `delivery_receipts` capability      | Low      | Matrix/LXMF semantics debatable; not obviously wrong                                                                                                                                                                                                                                  |
-| R12 `text_message_ack` portnum          | Cosmetic | Artifact in portnum handling; no functional impact                                                                                                                                                                                                                                    |
-| Meshtastic byte budget (B2)             | Medium   | 227 bytes doesn't account for protobuf overhead when `reply_id` is set; could break valid sends. Needs user decision on whether to reduce budget or measure dynamically                                                                                                               |
-| MeshCore hardcoded port 4403            | Low      | Fallback is intentional config behavior; unclear if should require explicit user opt-in                                                                                                                                                                                               |
-| MeshCore reconnect parameters           | Low      | 1s to 30s backoff, 10 attempts is more aggressive than SDK default. Intentional for MEDRE's use case                                                                                                                                                                                  |
-| `M_UNKNOWN` HTTP status check           | Cosmetic | Current behavior is safe default (treats unknown as transient)                                                                                                                                                                                                                        |
-| LXMF "in production" destination nuance | Low      | Comment removed during fix; destination lookup complexity deferred to future work                                                                                                                                                                                                     |
-| Meshtastic `_node_id` population        | **High** | Session initializes `node_id` to `None`; needs population from `interface.myInfo.myNodeNum` after connect. Without it, the entire R2/R3 self-echo detection feature is inert at runtime — every packet passes the classifier's self-echo check because `own_node_id` is always `None` |
+| Item                                    | Risk     | Notes                                                                                                                                                                                                                |
+| --------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R11 `delivery_receipts` capability      | Low      | Matrix/LXMF semantics debatable; not obviously wrong                                                                                                                                                                 |
+| R12 `text_message_ack` portnum          | Cosmetic | Artifact in portnum handling; no functional impact                                                                                                                                                                   |
+| Meshtastic byte budget (B2)             | Medium   | 227 bytes doesn't account for protobuf overhead when `reply_id` is set; could break valid sends. Needs user decision on whether to reduce budget or measure dynamically                                              |
+| MeshCore hardcoded port 4403            | Low      | Fallback is intentional config behavior; unclear if should require explicit user opt-in                                                                                                                              |
+| MeshCore reconnect parameters           | Low      | 1s to 30s backoff, 10 attempts is more aggressive than SDK default. Intentional for MEDRE's use case                                                                                                                 |
+| `M_UNKNOWN` HTTP status check           | Cosmetic | Current behavior is safe default (treats unknown as transient)                                                                                                                                                       |
+| LXMF "in production" destination nuance | Low      | Comment removed during fix; destination lookup complexity deferred to future work                                                                                                                                    |
+| ~~Meshtastic `_node_id` population~~    | ~~High~~ | **Resolved in this work package.** `_refresh_node_id()` added to session (lines 728-740); called after connect/reconnect. Tests in `test_meshtastic_session_coverage.py`. Self-echo detection now active at runtime. |
 
-## 8. Next Tranche
+## 8. Next Work Package
 
 Two candidates from the backlog:
 
-1. **RetryWorker / DeliveryLifecycleService convergence** (from `lifecycle-authority-audit.md` deferred refactors). Retry logic is split between scheduling (RetryWorker) and state transitions (DeliveryLifecycleService). Consolidating the boundary would close the gap identified in the prior tranche.
+1. **RetryWorker / DeliveryLifecycleService convergence** (from `lifecycle-authority-audit.md` deferred refactors). Retry logic is split between scheduling (RetryWorker) and state transitions (DeliveryLifecycleService). Consolidating the boundary would close the gap identified in the prior work package.
 
-2. **Continue adapter hardening.** The remaining risks in section 7 include actionable items: Meshtastic `node_id` population (unblocks self-echo detection at runtime), Meshtastic byte budget for structured messages, and MeshCore hardcoded port handling.
+2. **Continue adapter hardening.** The remaining risks in section 7 include actionable items: ~~Meshtastic `node_id` population (unblocks self-echo detection at runtime)~~ _(Done — see §7 for resolution note)_, Meshtastic byte budget for structured messages, and MeshCore hardcoded port handling.
 
-Either tranche builds on this audit's evidence without reopening the reference checks already completed.
+Either work package builds on this audit's evidence without reopening the reference checks already completed.

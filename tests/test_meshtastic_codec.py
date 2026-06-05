@@ -185,9 +185,9 @@ class TestMeshtasticCodecDecode:
         del packet["fromId"]
         packet["from"] = 123456
         event = codec.decode(packet)
-        assert event.source_transport_id == "123456"
+        assert event.source_transport_id == "!0001e240"
         assert event.metadata.native is not None
-        assert event.metadata.native.data["from_id"] == "123456"
+        assert event.metadata.native.data["from_id"] == "!0001e240"
 
 
 class TestMeshtasticCodecSourceNativeRef:
