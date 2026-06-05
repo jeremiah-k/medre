@@ -12,6 +12,7 @@ import asyncio
 import logging
 import time
 import uuid
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import (
@@ -1347,7 +1348,8 @@ class PipelineRunner:
             # survives a crash between this point and the receipt commit.
             _outbox_id, _outbox_created, _pipeline_worker, _skip_reason = (
                 await self._create_outbox_for_delivery(
-                    event, route, route_plan, target, adapter_id
+                    event, route, route_plan, target, adapter_id,
+                    source=source,
                 )
             )
 
@@ -1597,6 +1599,8 @@ class PipelineRunner:
         route_plan: DeliveryPlan,
         target: RouteTarget,
         adapter_name: str,
+        *,
+        source: str = "live",
     ) -> tuple[str | None, bool, str, str | None]:
         """Create a durable outbox item tracking a delivery attempt.
 
@@ -1612,6 +1616,11 @@ class PipelineRunner:
         * ``"active:queued"`` — row is queued (owned by another worker).
         * ``"active:other_worker:<id>"`` — row is in_progress but owned by
           another worker.
+
+        When *source* is ``"replay"`` and the storage returns an existing
+        terminal row, a **new** outbox row is created with an incremented
+        attempt number so that replay can re-deliver.  The ownership check
+        is skipped for replay because it always owns the freshly-created row.
         """
         outbox_id: str | None = None
         outbox_created: bool = False
@@ -1651,39 +1660,56 @@ class PipelineRunner:
             outbox_id = created.outbox_id
             outbox_created = True
 
+            # If replay finds a terminal row, create a new row with
+            # incremented attempt_number so replay can re-deliver.
+            if source == "replay" and created.status in {
+                "sent",
+                "dead_lettered",
+                "cancelled",
+                "abandoned",
+            }:
+                outbox_item = dataclasses.replace(
+                    outbox_item, attempt_number=created.attempt_number + 1
+                )
+                created = await self._config.storage.create_outbox_item(outbox_item)
+                outbox_id = created.outbox_id
+
             # Ownership check — must run BEFORE we update pipeline_worker
             # so that we compare the persisted worker_id against the
             # pipeline's own worker_id (not the overridden value).
+            # Skipped for replay: replay always owns the freshly-created row.
             skip_reason: str | None = None
-            TERMINAL_STATUSES = {"sent", "dead_lettered", "cancelled", "abandoned"}
-            if created.status in TERMINAL_STATUSES:
-                skip_reason = f"terminal:{created.status}"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                    created.status,
-                )
-            elif created.status == "queued":
-                skip_reason = "active:queued"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=queued (active, not stealing)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                )
-            elif (
-                created.status == "in_progress" and created.worker_id != pipeline_worker
-            ):
-                skip_reason = f"active:other_worker:{created.worker_id!r}"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s owner=%s (active, not stealing)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                    created.worker_id,
-                )
+            if source != "replay":
+                TERMINAL_STATUSES = {"sent", "dead_lettered", "cancelled", "abandoned"}
+                if created.status in TERMINAL_STATUSES:
+                    skip_reason = f"terminal:{created.status}"
+                    self._log.info(
+                        "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
+                        event.event_id,
+                        adapter_name,
+                        created.outbox_id,
+                        created.status,
+                    )
+                elif created.status == "queued":
+                    skip_reason = "active:queued"
+                    self._log.info(
+                        "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=queued (active, not stealing)",
+                        event.event_id,
+                        adapter_name,
+                        created.outbox_id,
+                    )
+                elif (
+                    created.status == "in_progress"
+                    and created.worker_id != pipeline_worker
+                ):
+                    skip_reason = f"active:other_worker:{created.worker_id!r}"
+                    self._log.info(
+                        "outbox_skip: event_id=%s adapter=%s outbox_id=%s owner=%s (active, not stealing)",
+                        event.event_id,
+                        adapter_name,
+                        created.outbox_id,
+                        created.worker_id,
+                    )
 
             # create_outbox_item may return an existing non-terminal row;
             # always use the persisted owner for lease renewals.
