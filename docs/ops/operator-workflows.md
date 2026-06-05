@@ -375,11 +375,12 @@ Look for multiple receipts with different `attempt_number` values linked by `par
 
 ### "Suppressed why?"
 
-Three types:
+Five types:
 
 - **Loop suppressed**: `failure_kind: "loop_suppressed"` — route-trace or self-loop guard fired.
 - **Policy suppressed**: `failure_kind: "policy_suppressed"` — route-policy denied the delivery. Adjust the route's `[policy]` section to resolve.
 - **Capability suppressed**: `failure_kind: "capability_suppressed"` — the target adapter does not support the event's relation type (e.g. reactions, edits, replies). Check the transport profile capability declarations. The `suppression_reason`, `capability_field`, and `capability_level` fields in the receipt report dict identify which capability caused the suppression and at what level.
+- **Outbox not owned**: `failure_kind: "outbox_not_owned"` — the durable outbox row was terminal or already active under another worker. No adapter delivery was attempted. This is a non-retryable runtime skip, not an adapter failure. Check the outbox state for the event to understand which worker or process already handled it.
 - **Duplicate suppressed**: No receipt at all. The event was never stored (native-ref dedup at ingress). Check `RuntimeAccounting.loop_prevented` counters in diagnostics for aggregate counts.
 
 ### "Dead-lettered why?"

@@ -191,10 +191,10 @@ def build_startup_recovery_ledger(
                 startup_timestamp=startup_timestamp,
                 outbox_id=outbox_id,
                 prior_status=status,
-                # recovered_status reflects the pre-recovery state —
-                # recovery classification is diagnostic and does not
-                # mutate outbox status.
-                recovered_status=status,
+                # observed_status reflects the outbox status observed
+                # at analysis time — recovery classification is
+                # diagnostic and does not mutate outbox status.
+                observed_status=status,
                 ownership_action=ownership_action,
                 reason=reason,
                 worker_identity=worker_id,

@@ -18,12 +18,23 @@ Source of truth: `src/medre/core/engine/pipeline/delivery_state.py`.
 | Adapter delivery | `sent`, `enqueued`                                                                                                              | `AdapterDeliveryResult.delivery_status` |
 | Operator         | `disabled`, `not_configured`, `configured`, `starting`, `connected`, `degraded`, `unavailable`, `stopping`, `failed`, `stopped` | `AdapterStatusEvidence.operator_status` |
 
+Classification subsets (all defined in `delivery_state.py`):
+
+| Classification       | Values                                            | Partition of       |
+| -------------------- | ------------------------------------------------- | ------------------ |
+| Terminal receipt     | `sent`, `dead_lettered`, `suppressed`             | `RECEIPT_STATUSES` |
+| Non-terminal receipt | `queued`, `failed`                                | `RECEIPT_STATUSES` |
+| Terminal outbox      | `sent`, `dead_lettered`, `cancelled`, `abandoned` | `OUTBOX_STATUSES`  |
+| Non-terminal outbox  | `pending`, `in_progress`, `queued`, `retry_wait`  | `OUTBOX_STATUSES`  |
+| Claimable outbox     | `pending`, `retry_wait`                           | `OUTBOX_STATUSES`  |
+| Accepted outcome     | `success`, `queued`                               | `OUTCOME_STATUSES` |
+
 ## Audit Checklist: Status Update Correctness
 
 Before changing any status value, vocabulary, or transition:
 
 1. **Vocabulary frozenset** -- update the `frozenset` constant in `delivery_state.py`.
-2. **Terminal / claimable / accepted sets** -- update `TERMINAL_*`, `CLAIMABLE_*`, `ACCEPTED_*` if membership changes.
+2. **Terminal / non-terminal / claimable / accepted sets** -- update `TERMINAL_*`, `NON_TERMINAL_*`, `CLAIMABLE_*`, `ACCEPTED_*` if membership changes. `NON_TERMINAL_*` constants are computed as `VOCABULARY - TERMINAL_*` and must partition cleanly (disjoint, union equals vocabulary).
 3. **Transition table** -- add/remove entries in `RECEIPT_TRANSITIONS` or `OUTBOX_TRANSITIONS`.
 4. **Spec tables** -- update `docs/spec/state-machines.md` sections 1.1, 1.3, 2.1, 2.3.
 5. **Test coverage** -- update `tests/test_delivery_state.py` (vocabulary, classification, transition tests).
@@ -55,7 +66,7 @@ Before changing any status value, vocabulary, or transition:
 ### Evidence (diagnostics and bundles)
 
 - `AdapterStatusEvidence` (in `src/medre/core/evidence/adapter_status.py`) is observational and pure -- no I/O, no async, no SDK imports.
-- `RecoveryOwnershipAction.recovered_status` is the observed outbox status at analysis time. In snapshot diagnostics it equals `prior_status` because no storage mutation occurs.
+- `RecoveryOwnershipAction.observed_status` is the observed outbox status at analysis time. In snapshot diagnostics it equals `prior_status` because no storage mutation occurs.
 - Rendering evidence (`rendering_evidence` column) is populated only for `sent` and `queued` receipt statuses; `None` for `suppressed`, `failed`, or pre-outbox skip paths.
 - Check: evidence fields are `str` or `None`, never SDK objects or enums.
 
@@ -79,6 +90,15 @@ These surfaces derive status from receipt/outbox state rather than storing it in
 | `AdapterStatusEvidence.operator_status`    | Derives from enabled/configured/lifecycle state             | `adapter_status.py`                 |
 | `CapabilityDecision`                       | Derives from `AdapterCapabilities` + event kind + relations | `routing-delivery.md` section 6.3   |
 | `RenderingEvidence.capability_level`       | Carried from `CapabilityDecision` into rendering context    | `routing-delivery.md` section 6.3.7 |
+
+## Dead-Letter Attempt Convention
+
+When `should_dead_letter()` returns `True` for a failed receipt at attempt N,
+the dead-letter receipt is appended with `attempt_number = N + 1`. This
+chain-closing convention means the dead-letter receipt records one more than
+the exhausted attempt. Example: `max_attempts = 3`, failed receipt at
+`attempt_number = 3` triggers dead-lettering; the dead-letter receipt receives
+`attempt_number = 4`. See `state-machines.md` §1.6.
 
 ## Adapter Metadata Naming Rule
 
@@ -114,6 +134,7 @@ items tracked for future work:
 | ------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | RetryWorker unification   | `src/medre/runtime/retry.py`, `delivery_lifecycle.py` | Retry logic is split between `RetryWorker` (scheduling, capacity) and `DeliveryLifecycleService` (retry decisions, dead-letter progression). A future refactor could consolidate the retry decision boundary so `RetryWorker` owns scheduling and capacity while `DeliveryLifecycleService` owns all state transition logic. |
 | Replay outbox attribution | `src/medre/core/engine/pipeline/`                     | Replay BEST_EFFORT mode produces receipts but does not create outbox items. Attribution comes from the receipt alone. A future refactor could give replay its own lightweight attribution mechanism instead of relying on live-path outbox patterns.                                                                         |
-| `recovered_status` rename | `src/medre/core/recovery/models.py`                   | `RecoveryOwnershipAction.recovered_status` is the observed outbox status at analysis time, not a "recovered" status. The field name is misleading. A rename to `observed_status` or `analysis_time_status` would clarify the semantics.                                                                                      |
 | Capability caching        | `src/medre/core/planning/`                            | `CapabilityDecisionResolver` is stateless and re-evaluates on every call. For high-throughput scenarios, caching resolved decisions per `(event_kind, target_adapter)` could reduce repeated lookups against static `AdapterCapabilities`. Not currently a bottleneck.                                                       |
 | Frozen DeliveryPlan       | `src/medre/core/planning/delivery_plan.py`            | `DeliveryPlan` is a mutable dataclass used as an operational artifact. Making it frozen (or adding a frozen variant) would align with the immutability pattern used by `DeliveryReceipt` and `CapabilityDecision`. This requires updating all construction sites.                                                            |
+
+Note: the `observed_status` rename in `src/medre/core/recovery/models.py` (formerly `recovered_status`) was completed during the lifecycle-consolidation branch — it is no longer deferred.

@@ -662,7 +662,7 @@ class TestSupplementalOutboxTransition:
         )
         await temp_storage.append_receipt(queued)
 
-        # Create a matching outbox item in "queued" status.
+        # Create a matching outbox item, then transition to "queued" (Pattern C).
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-supplemental",
             event_id="evt-001",
@@ -670,9 +670,10 @@ class TestSupplementalOutboxTransition:
             delivery_plan_id="plan-outbox",
             target_adapter="mesh-1",
             target_channel="0",
-            status="queued",
+            status="in_progress",
         )
         await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-supplemental")
 
         record = OutboundNativeRefRecord(
             event_id="evt-001",
@@ -1240,7 +1241,7 @@ class TestDeterministicPlanIdCorrelation:
             )
         )
 
-        # Create a matching outbox item in "queued" status.
+        # Create a matching outbox item, then transition to "queued" (Pattern C).
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-no-plan",
             event_id="evt-001",
@@ -1248,9 +1249,10 @@ class TestDeterministicPlanIdCorrelation:
             delivery_plan_id="plan-ob",
             target_adapter="mesh-1",
             target_channel="0",
-            status="queued",
+            status="in_progress",
         )
         await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-no-plan")
 
         record = OutboundNativeRefRecord(
             event_id="evt-001",

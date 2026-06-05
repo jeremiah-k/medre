@@ -509,24 +509,27 @@ class StorageBackend(Protocol):
     # -- Outbox -------------------------------------------------------------
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
-        """Create a new outbox item.
+        """Create a new outbox item or reclaim an existing pending/retry_wait row.
 
-        Checks for an existing item with the same key tuple
-        ``(delivery_plan_id, target_adapter, target_channel,
-        attempt_number)`` before inserting.  The behaviour depends on
-        the existing row's status (see ``sqlite.py`` for the canonical
-        implementation):
+        Production lifecycle policy:
+          - Initial status MUST be ``pending`` (default) or ``in_progress``
+            (pipeline claim path).  All other statuses must be reached
+            through ``mark_outbox_*`` transition methods.
+          - If an existing row has a reclaimable status (``pending`` or
+            ``retry_wait``), it is reclaimed — its ``status``,
+            ``worker_id``, ``locked_at``, ``lease_until``, and
+            ``next_attempt_at`` are updated to match the new item's
+            values.
+          - If an existing row is active (``in_progress`` or ``queued``),
+            it is returned unchanged — active work is never stolen.
+          - If an existing row is terminal (``sent``, ``dead_lettered``,
+            ``cancelled``, ``abandoned``), it is returned unchanged —
+            terminal rows are immutable.  A new delivery after terminal
+            state must use a new ``delivery_plan_id`` and/or new
+            ``attempt_number``.
 
-        * **Reclaimable** (``pending`` or ``retry_wait``): the existing
-          row is reclaimed — its ``status``, ``worker_id``,
-          ``locked_at``, ``lease_until``, and ``updated_at`` are
-          updated so the caller receives a properly-claimed row.
-        * **Active** (``in_progress`` or ``queued``): returned
-          unchanged — active work is never stolen.
-        * **Terminal** (``sent``, ``dead_lettered``, ``cancelled``, or
-          ``abandoned``): the existing row is deleted first and a new
-          row is inserted so re-delivery can proceed without violating
-          the UNIQUE constraint.
+        Raises ``ValueError`` if ``item.status`` is not ``pending`` or
+        ``in_progress``.
         """
         ...
 

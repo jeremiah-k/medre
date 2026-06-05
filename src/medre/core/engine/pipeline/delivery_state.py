@@ -51,6 +51,14 @@ TERMINAL_RECEIPT_STATUSES: frozenset[str] = frozenset(
     {"sent", "dead_lettered", "suppressed"}
 )
 
+#: Receipt statuses that are non-terminal -- the delivery chain may later
+#: receive another appended receipt.  Individual receipt rows never
+#: transition; the delivery_state ``NON_TERMINAL_RECEIPT_STATUSES`` is
+#: derived as ``RECEIPT_STATUSES - TERMINAL_RECEIPT_STATUSES``.
+NON_TERMINAL_RECEIPT_STATUSES: frozenset[str] = (
+    RECEIPT_STATUSES - TERMINAL_RECEIPT_STATUSES
+)
+
 # ---------------------------------------------------------------------------
 # Outbox status vocabulary
 # ---------------------------------------------------------------------------
@@ -73,6 +81,14 @@ OUTBOX_STATUSES: frozenset[str] = frozenset(
 #: never transitioned to a different status.
 TERMINAL_OUTBOX_STATUSES: frozenset[str] = frozenset(
     {"sent", "dead_lettered", "cancelled", "abandoned"}
+)
+
+#: Outbox statuses that are non-terminal -- the outbox item may still
+#: transition to a different status.  Unlike receipts, outbox rows ARE
+#: mutable; the underlying state machine drives ``_update_outbox_status``.
+#: Computed as ``OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES``.
+NON_TERMINAL_OUTBOX_STATUSES: frozenset[str] = (
+    OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
 )
 
 #: Outbox statuses that are directly claimable by any worker via

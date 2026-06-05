@@ -120,11 +120,15 @@ class TestIdempotentCreate:
         created2 = await temp_storage.create_outbox_item(item2)
         assert created1.outbox_id != created2.outbox_id
 
-    async def test_recreate_after_terminal_allows_new_row(
+    async def test_recreate_after_terminal_returns_existing_terminal_row(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """After an item reaches a terminal status, creating a new item
-        with the same key tuple should succeed (re-delivery)."""
+        with the same key tuple returns the existing terminal row
+        unchanged.  Terminal rows are immutable for lifecycle purposes;
+        a new delivery after terminal state must use a new attempt
+        identity (new ``delivery_plan_id`` and/or ``attempt_number``)
+        so it does not collide with the terminal row's key."""
         # Create, claim (pending -> in_progress), then mark dead_lettered.
         item1 = _make_outbox_item(
             delivery_plan_id="plan-recreate",
@@ -142,22 +146,22 @@ class TestIdempotentCreate:
             created1.outbox_id, failure_kind="adapter_permanent"
         )
 
-        # Re-create with same key tuple.
+        # Re-create with same key tuple.  The terminal row is returned
+        # unchanged; no new row is inserted.
         item2 = _make_outbox_item(
             delivery_plan_id="plan-recreate",
             target_channel="ch-r1",
         )
         created2 = await temp_storage.create_outbox_item(item2)
 
-        # Should succeed with a NEW outbox_id (terminal row was deleted).
-        assert created2.outbox_id == item2.outbox_id
-        assert created2.outbox_id != created1.outbox_id
-        assert created2.status == "pending"
+        assert created2.outbox_id == created1.outbox_id
+        assert created2.status == "dead_lettered"
 
-    async def test_recreate_after_sent_allows_new_row(
+    async def test_recreate_after_sent_returns_existing_terminal_row(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """After an item is marked sent (terminal), re-creation should succeed."""
+        """After an item is marked sent (terminal), re-creation with the
+        same key tuple returns the existing terminal row unchanged."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-recreate-sent",
             target_channel="ch-rs",
@@ -177,8 +181,8 @@ class TestIdempotentCreate:
             target_channel="ch-rs",
         )
         created2 = await temp_storage.create_outbox_item(item2)
-        assert created2.outbox_id == item2.outbox_id
-        assert created2.outbox_id != created1.outbox_id
+        assert created2.outbox_id == created1.outbox_id
+        assert created2.status == "sent"
 
 
 # ===================================================================
@@ -205,9 +209,16 @@ class TestListOutboxItems:
         pending_item = _make_outbox_item(
             delivery_plan_id="plan-status-1", status="pending"
         )
-        sent_item = _make_outbox_item(delivery_plan_id="plan-status-2", status="sent")
+        # Reach "sent" via in_progress → mark_sent (avoids claim side
+        # effect on the pending item).
+        sent_base = _make_outbox_item(
+            delivery_plan_id="plan-status-2", status="in_progress"
+        )
         await temp_storage.create_outbox_item(pending_item)
-        await temp_storage.create_outbox_item(sent_item)
+        created_sent = await temp_storage.create_outbox_item(sent_base)
+        await temp_storage.mark_outbox_sent(
+            created_sent.outbox_id, receipt_id="rcpt-sent"
+        )
 
         pendings = await temp_storage.list_outbox_items(status_filter=["pending"])
         assert all(i.status == "pending" for i in pendings)
@@ -238,10 +249,17 @@ class TestCountByStatus:
         # Create items in various statuses
         pending1 = _make_outbox_item(delivery_plan_id="plan-cnt-p1")
         pending2 = _make_outbox_item(delivery_plan_id="plan-cnt-p2")
-        sent1 = _make_outbox_item(delivery_plan_id="plan-cnt-s1", status="sent")
+        # Reach "sent" via in_progress → mark_sent (avoids claim side
+        # effect on the pending items).
+        sent_base = _make_outbox_item(
+            delivery_plan_id="plan-cnt-s1", status="in_progress"
+        )
         await temp_storage.create_outbox_item(pending1)
         await temp_storage.create_outbox_item(pending2)
-        await temp_storage.create_outbox_item(sent1)
+        created_sent = await temp_storage.create_outbox_item(sent_base)
+        await temp_storage.mark_outbox_sent(
+            created_sent.outbox_id, receipt_id="rcpt-sent"
+        )
 
         counts = await temp_storage.count_outbox_by_status()
         assert counts.get("pending", 0) == 2

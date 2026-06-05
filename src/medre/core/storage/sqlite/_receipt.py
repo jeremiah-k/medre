@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
 from medre.core.events import DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
@@ -31,11 +32,19 @@ class _ReceiptMixin:
         view projects the latest receipt as a ``MAX(sequence)`` aggregation.
 
         Empty-string ``target_channel`` values are normalised to ``None``
-        before storage so that NULL and ``""`` are never stored as distinct
-        values — the ``delivery_status`` view groups them together via
-        ``COALESCE(target_channel, '')`` and normalising at write time
-        keeps queries unambiguous.
+        (SQL NULL) before insertion.  The ``delivery_status`` view uses
+        ``COALESCE(target_channel, '')`` so that NULL and empty-string
+        channels are treated identically in grouping.
+
+        Raises :class:`ValueError` if ``receipt.status`` is not a known
+        receipt status (not in ``RECEIPT_STATUSES``).
         """
+        if receipt.status not in RECEIPT_STATUSES:
+            raise ValueError(
+                f"Unknown receipt status {receipt.status!r}; "
+                f"expected one of {sorted(RECEIPT_STATUSES)}"
+            )
+
         # Normalise empty-string target_channel to NULL.
         channel = receipt.target_channel or None
         await self._write(

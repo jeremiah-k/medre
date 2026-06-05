@@ -23,6 +23,9 @@ __all__ = ["classify_startup_reclamation"]
 # tests/test_evidence_coherence_contract.py.
 
 from medre.core.engine.pipeline.delivery_state import (
+    NON_TERMINAL_OUTBOX_STATUSES as _NON_TERMINAL_OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
     OUTBOX_STATUSES as _OUTBOX_STATUSES,
 )
 from medre.core.engine.pipeline.delivery_state import (
@@ -30,7 +33,7 @@ from medre.core.engine.pipeline.delivery_state import (
 )
 
 _TERMINAL_STATUSES: frozenset[str] = _TERMINAL_OUTBOX_STATUSES
-_NON_TERMINAL_STATUSES: frozenset[str] = _OUTBOX_STATUSES - _TERMINAL_OUTBOX_STATUSES
+_NON_TERMINAL_STATUSES: frozenset[str] = _NON_TERMINAL_OUTBOX_STATUSES
 _ALL_KNOWN_STATUSES: frozenset[str] = _OUTBOX_STATUSES
 
 

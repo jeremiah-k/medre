@@ -1,8 +1,12 @@
 """Tests for delivery_outbox status transitions: state machine guards, valid
-transitions, queued lease semantics, and terminal state protection."""
+transitions, queued lease semantics, terminal state protection, unknown
+status validation, and storage allowed_from alignment with OUTBOX_TRANSITIONS."""
 
 from __future__ import annotations
 
+import pytest
+
+from medre.core.engine.pipeline.delivery_state import OUTBOX_TRANSITIONS
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
@@ -351,3 +355,184 @@ class TestQueuedLeaseSemantics:
         assert item.lease_until is None
         assert item.worker_id is None
         assert item.receipt_id == "rcpt-final"
+
+
+# ===================================================================
+# Unknown status validation
+# ===================================================================
+
+
+class TestUnknownOutboxStatusRejected:
+    """_update_outbox_status raises ValueError for unknown statuses
+    and leaves the row unchanged."""
+
+    async def test_unknown_status_raises_value_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Passing an unknown status to _update_outbox_status raises ValueError."""
+        item = _make_outbox_item(delivery_plan_id="plan-unknown-status")
+        await temp_storage.create_outbox_item(item)
+        oid = item.outbox_id
+
+        with pytest.raises(ValueError, match="Unknown outbox status"):
+            await temp_storage._update_outbox_status(oid, "not_a_real_status")
+
+    async def test_unknown_status_does_not_mutate_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After a ValueError for unknown status, the row is unchanged."""
+        item = _make_outbox_item(delivery_plan_id="plan-unknown-row")
+        await temp_storage.create_outbox_item(item)
+        oid = item.outbox_id
+
+        before = await temp_storage.get_outbox_item(oid)
+        assert before is not None
+        assert before.status == "pending"
+
+        with pytest.raises(ValueError, match="Unknown outbox status"):
+            await temp_storage._update_outbox_status(oid, "bogus_status_xyz")
+
+        after = await temp_storage.get_outbox_item(oid)
+        assert after is not None
+        assert after.status == "pending"
+        assert after.updated_at == before.updated_at
+
+
+# ===================================================================
+# Negative transition cases
+# ===================================================================
+
+
+class TestNegativeTransitionCases:
+    """Verify forbidden known transitions remain no-ops (not ValueError,
+    just silently ignored due to WHERE clause mismatch)."""
+
+    async def test_queued_cannot_be_marked_retry_wait(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """queued -> retry_wait is not a valid transition (no-op)."""
+        oid = await _create_in_progress(temp_storage, "plan-neg-q2rw")
+        await temp_storage.mark_outbox_queued(oid)
+
+        item = await temp_storage.get_outbox_item(oid)
+        assert item is not None
+        assert item.status == "queued"
+
+        # Attempt invalid transition queued -> retry_wait
+        await temp_storage.mark_outbox_retry_wait(
+            oid,
+            next_attempt_at="2026-01-01T01:00:00",
+            failure_kind="adapter_transient",
+        )
+        item = await temp_storage.get_outbox_item(oid)
+        assert item is not None
+        assert item.status == "queued"  # unchanged
+
+    async def test_pending_cannot_be_marked_dead_lettered_directly(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """pending -> dead_lettered is not a valid transition (no-op)."""
+        item = _make_outbox_item(delivery_plan_id="plan-neg-p2dl")
+        await temp_storage.create_outbox_item(item)
+        oid = item.outbox_id
+
+        before = await temp_storage.get_outbox_item(oid)
+        assert before is not None
+        assert before.status == "pending"
+
+        await temp_storage.mark_outbox_dead_lettered(
+            oid, failure_kind="adapter_permanent"
+        )
+
+        after = await temp_storage.get_outbox_item(oid)
+        assert after is not None
+        assert after.status == "pending"  # unchanged
+
+
+# ===================================================================
+# Storage allowed_from alignment with OUTBOX_TRANSITIONS
+# ===================================================================
+
+
+class TestAllowedFromAlignment:
+    """Verify that the allowed_from tuples in each mark method match the
+    OUTBOX_TRANSITIONS table exactly.
+
+    Covers the six ``mark_outbox_*`` methods with explicit ``allowed_from``
+    tuples: ``mark_outbox_sent``, ``mark_outbox_queued``,
+    ``mark_outbox_retry_wait``, ``mark_outbox_dead_lettered``,
+    ``mark_outbox_cancelled``, ``mark_outbox_abandoned``.
+
+    For each target status, the mark method's allowed_from must equal the
+    set of source statuses that list the target in their outgoing set
+    in OUTBOX_TRANSITIONS.
+
+    Note: ``pending`` and ``in_progress`` are excluded as *targets* from
+    this parametrised list because they have no dedicated ``mark_outbox_*``
+    method — ``pending`` is set by ``create_outbox_item`` and ``in_progress``
+    by ``claim_due_outbox_items`` (SQL-path transitions, not mark methods).
+    See ``test_no_mark_method_for_pending_or_in_progress`` below.
+    """
+
+    @staticmethod
+    def _sources_for_target(target: str) -> frozenset[str]:
+        """Return all source statuses that can transition to *target*
+        according to OUTBOX_TRANSITIONS."""
+        return frozenset(
+            src for src, targets in OUTBOX_TRANSITIONS.items() if target in targets
+        )
+
+    @pytest.mark.parametrize(
+        "target,allowed_from",
+        [
+            ("sent", ("in_progress", "queued")),
+            ("queued", ("in_progress",)),
+            ("retry_wait", ("in_progress",)),
+            ("dead_lettered", ("in_progress", "retry_wait")),
+            ("cancelled", ("pending", "in_progress", "retry_wait", "queued")),
+            ("abandoned", ("pending", "in_progress", "retry_wait", "queued")),
+        ],
+    )
+    def test_allowed_from_matches_outbox_transitions(
+        self, target: str, allowed_from: tuple[str, ...]
+    ) -> None:
+        """Each mark method's allowed_from must equal the set of sources
+        that can transition to *target* per OUTBOX_TRANSITIONS."""
+        expected_sources = self._sources_for_target(target)
+        actual_sources = frozenset(allowed_from)
+        assert actual_sources == expected_sources, (
+            f"allowed_from for {target!r} ({sorted(actual_sources)}) "
+            f"does not match OUTBOX_TRANSITIONS sources ({sorted(expected_sources)})"
+        )
+
+    def test_no_mark_method_for_pending_or_in_progress(self) -> None:
+        """``pending`` and ``in_progress`` are not targets of any
+        ``mark_outbox_*`` method.
+
+        They are entered via dedicated SQL paths rather than mark methods:
+        ``pending`` by ``create_outbox_item`` (INSERT) and ``in_progress``
+        by ``claim_due_outbox_items`` (atomic UPDATE with lease acquisition).
+
+        ``in_progress`` *is* a source for several mark methods (see the
+        parametrised cases above), but it is never a destination of one.
+        ``pending`` similarly only appears as a source (for ``cancelled``
+        and ``abandoned``).
+        """
+        # Verify that OUTBOX_TRANSITIONS lists them only as sources,
+        # never as targets reachable via mark methods.
+        mark_targets = {
+            "sent",
+            "queued",
+            "retry_wait",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+        }
+        excluded_targets = {"pending", "in_progress"}
+        # The excluded targets must not appear in the mark target set.
+        assert excluded_targets.isdisjoint(mark_targets)
+        # They must still be valid sources in OUTBOX_TRANSITIONS.
+        for status in excluded_targets:
+            assert (
+                status in OUTBOX_TRANSITIONS
+            ), f"{status!r} missing from OUTBOX_TRANSITIONS"

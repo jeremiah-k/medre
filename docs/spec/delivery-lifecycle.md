@@ -62,16 +62,18 @@ decisions made by higher layers.
 These vocabularies are defined in `delivery_state.py` (§4 of
 [state-machines.md](state-machines.md)) and are the normative source:
 
-| Vocabulary                | Constant                    | Values                                                                                              |
-| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
-| Receipt statuses          | `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
-| Outbox statuses           | `OUTBOX_STATUSES`           | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
-| Outcome statuses          | `OUTCOME_STATUSES`          | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
-| Adapter delivery statuses | `ADAPTER_DELIVERY_STATUSES` | `sent`, `enqueued`                                                                                  |
-| Terminal receipt statuses | `TERMINAL_RECEIPT_STATUSES` | `sent`, `dead_lettered`, `suppressed`                                                               |
-| Terminal outbox statuses  | `TERMINAL_OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
-| Claimable outbox statuses | `CLAIMABLE_OUTBOX_STATUSES` | `pending`, `retry_wait`                                                                             |
-| Accepted outcome statuses | `ACCEPTED_OUTCOME_STATUSES` | `success`, `queued`                                                                                 |
+| Vocabulary                    | Constant                        | Values                                                                                              |
+| ----------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
+| Outbox statuses               | `OUTBOX_STATUSES`               | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
+| Outcome statuses              | `OUTCOME_STATUSES`              | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
+| Adapter delivery statuses     | `ADAPTER_DELIVERY_STATUSES`     | `sent`, `enqueued`                                                                                  |
+| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `suppressed`                                                               |
+| Non-terminal receipt statuses | `NON_TERMINAL_RECEIPT_STATUSES` | `queued`, `failed`                                                                                  |
+| Terminal outbox statuses      | `TERMINAL_OUTBOX_STATUSES`      | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
+| Non-terminal outbox statuses  | `NON_TERMINAL_OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`                                                    |
+| Claimable outbox statuses     | `CLAIMABLE_OUTBOX_STATUSES`     | `pending`, `retry_wait`                                                                             |
+| Accepted outcome statuses     | `ACCEPTED_OUTCOME_STATUSES`     | `success`, `queued`                                                                                 |
 
 This specification introduces no new lifecycle states. All valid status strings
 are drawn from the vocabularies above.
@@ -177,6 +179,16 @@ Replay re-processes stored canonical events through the pipeline. Each replay
 delivery produces new receipt rows with `source="replay"` and a `replay_run_id`.
 Replay MAY create new delivery attempts, but each attempt is a new receipt row
 — it does not modify existing receipts.
+
+### 5.1.1 Replay Attempt Identity
+
+Replay computes the outbox attempt number as `max(existing attempt_number) + 1`
+across all outbox rows sharing the same delivery identity (delivery_plan_id,
+target_adapter, target_channel). This ensures replay never reclaims or mutates
+live rows, which have lower attempt numbers. The same ownership check that
+applies to live delivery also applies to replay: if the freshly-created outbox
+row comes back terminal, active, or owned by another worker, the pipeline skips
+delivery with `failure_kind=outbox_not_owned`.
 
 ### 5.2 Replay Must Not Rewrite History
 

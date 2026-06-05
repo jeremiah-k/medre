@@ -216,12 +216,11 @@ def test_all_outbox_statuses_covered() -> None:
 def test_resumable_matches_non_terminal() -> None:
     """Resumable classifications exactly match non-terminal outbox statuses."""
     from medre.core.engine.pipeline.delivery_state import (
-        OUTBOX_STATUSES,
+        NON_TERMINAL_OUTBOX_STATUSES,
         TERMINAL_OUTBOX_STATUSES,
     )
 
-    non_terminal = OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
-    for status in non_terminal:
+    for status in NON_TERMINAL_OUTBOX_STATUSES:
         result = classify_outbox_shutdown_policy(status)
         assert result.resume_on_restart is True, f"{status} should be resumable"
 

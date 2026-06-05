@@ -166,7 +166,29 @@ unsupported by adapter"`). The `capability_field` identifies which
 `replies`, `text`). See the Routing and Delivery Specification § 6.3.3 for the
 complete event-kind to capability-field mapping.
 
-## 10. Operational Implications
+## 10. Outbox Ownership Skip
+
+`outbox_not_owned` is a non-retryable runtime skip classification. It means the
+durable outbox state showed the row was terminal or already active elsewhere.
+It prevents duplicate adapter delivery. It is not an adapter failure.
+
+| Property       | Value                                                              |
+| -------------- | ------------------------------------------------------------------ |
+| Failure kind   | `outbox_not_owned`                                                 |
+| Outcome status | `skipped`                                                          |
+| Receipt status | None (no receipt is created)                                       |
+| Retryable      | No — the pipeline must not attempt delivery against an unowned row |
+| Adapter called | No                                                                 |
+
+Triggers when `create_outbox_item()` returns an existing row in a terminal
+state (`sent`, `dead_lettered`, `cancelled`, `abandoned`), an active queued
+state, or an `in_progress` row owned by another worker. The pipeline logs the
+skip reason (`terminal:<status>`, `active:queued`, or
+`active:other_worker:<id>`) and returns a `DeliveryOutcome` with
+`failure_kind=OUTBOX_NOT_OWNED`. No adapter call is made and no receipt is
+persisted.
+
+## 11. Operational Implications
 
 1. Consumers must handle duplicates for Meshtastic and MeshCore.
 2. Delivery confirmation is transport-dependent. Only Matrix provides strong
@@ -186,7 +208,7 @@ complete event-kind to capability-field mapping.
    entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
    include all non-successful outcomes.
 
-## 11. Delivery Failure Evidence Taxonomy
+## 12. Delivery Failure Evidence Taxonomy
 
 The following table lists all failure categories that appear in delivery
 evidence (receipts, report dicts, operator diagnostics). Some are first-class
@@ -225,7 +247,7 @@ diagnostics.
   delivery, or when an outbox item is cancelled through explicit operator
   action. Graceful shutdown does not automatically transition non-terminal
   outbox items to `cancelled`. Non-terminal outbox rows remain as resumable
-  work for the next startup. See §12.
+  work for the next startup. See §13.
 - Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
   `connection_failed`, `route_disabled`, `route_listen_only`,
   `retry_exhausted`, `shutdown_pending`) are computed at report time from
@@ -235,9 +257,9 @@ diagnostics.
   a failure kind. It is used in evidence tables and operator reports to
   document what was not tested.
 
-## 12. Shutdown Delivery Evidence
+## 13. Shutdown Delivery Evidence
 
-### 12.1 Goals
+### 13.1 Goals
 
 When the runtime shuts down, the delivery evidence system aims to:
 
@@ -249,7 +271,7 @@ When the runtime shuts down, the delivery evidence system aims to:
 - Report honest shutdown evidence, including whether resumable work was left
   pending.
 
-### 12.2 Resumable Shutdown Policy
+### 13.2 Resumable Shutdown Policy
 
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
@@ -270,7 +292,7 @@ resumable outbox work is not performed because:
 Terminal outbox statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`)
 are already final and require no shutdown-side action.
 
-### 12.3 Outbox Shutdown Classification
+### 13.3 Outbox Shutdown Classification
 
 Each outbox status is classified for shutdown policy:
 
@@ -285,7 +307,7 @@ Each outbox status is classified for shutdown policy:
 | `cancelled`     | `terminal_cancelled`     | No        | None (already final) |
 | `abandoned`     | `terminal_abandoned`     | No        | None (already final) |
 
-### 12.4 ShutdownEvidence Model
+### 13.4 ShutdownEvidence Model
 
 The `ShutdownEvidence` frozen dataclass records structured shutdown evidence.
 It is built by `build_shutdown_evidence()`, a pure function with no I/O or
@@ -308,7 +330,7 @@ inspected at shutdown and non-terminal rows were intentionally preserved.
 Operators can use `resume_expected` to determine whether pending work will be
 resumed on next startup.
 
-### 12.5 Current Behaviour
+### 13.5 Current Behaviour
 
 | Scenario                                         | Evidence produced                                           |
 | ------------------------------------------------ | ----------------------------------------------------------- |
@@ -318,7 +340,7 @@ resumed on next startup.
 | Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
 
-## 13. Orphan and Invalid-Lineage Finding Kinds
+## 14. Orphan and Invalid-Lineage Finding Kinds
 
 The convergence diagnostics system detects orphaned and invalid-lineage records. These findings are not `DeliveryFailureKind` enum values. They are diagnostic findings produced by the pure `build_orphan_report()` function from existing receipt and outbox snapshots. They do not indicate a delivery failure per se, but rather a state inconsistency in the persisted evidence chain.
 

@@ -86,7 +86,7 @@ class RecoveryOwnershipAction:
     prior_status: str
     """The outbox item's status at the time recovery analysis began."""
 
-    recovered_status: str
+    observed_status: str
     """Observed outbox status at analysis time.  In snapshot diagnostics
     this equals ``prior_status`` because no storage mutation occurs."""
 

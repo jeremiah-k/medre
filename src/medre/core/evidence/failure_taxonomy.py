@@ -80,6 +80,7 @@ class FailureTaxon(Enum):
     CAPABILITY_SUPPRESSED = "capability_suppressed"
     LOOP_SUPPRESSED = "loop_suppressed"
     POLICY_SUPPRESSED = "policy_suppressed"
+    OUTBOX_NOT_OWNED = "outbox_not_owned"
 
     # -- Operational -------------------------------------------------------
 
@@ -118,8 +119,9 @@ FAILURE_KIND_TO_TAXON: dict[str, FailureTaxon] = {
     "loop_suppressed": FailureTaxon.LOOP_SUPPRESSED,
     "policy_suppressed": FailureTaxon.POLICY_SUPPRESSED,
     "capability_suppressed": FailureTaxon.CAPABILITY_SUPPRESSED,
+    "outbox_not_owned": FailureTaxon.OUTBOX_NOT_OWNED,
 }
-"""Identity mapping for the 11 ``DeliveryFailureKind`` values.
+"""Identity mapping for all ``DeliveryFailureKind`` values.
 
 Every key is a ``DeliveryFailureKind.value`` string; every value is the
 corresponding :class:`FailureTaxon` member with the same string value.
@@ -314,6 +316,7 @@ _PERMANENT_TAXA: frozenset[FailureTaxon] = frozenset(
         FailureTaxon.NOT_CONFIGURED,
         FailureTaxon.ROUTE_DISABLED,
         FailureTaxon.ROUTE_LISTEN_ONLY,
+        FailureTaxon.OUTBOX_NOT_OWNED,
     }
 )
 _OPERATIONAL_TAXA: frozenset[FailureTaxon] = frozenset(

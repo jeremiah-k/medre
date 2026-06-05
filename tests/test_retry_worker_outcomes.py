@@ -91,11 +91,16 @@ class TestRetryCapacityRejectionBackoff:
             delivery_plan_id="plan-cap-backoff",
             target_adapter="target_a",
             attempt_number=1,
-            status="retry_wait",
-            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
+            status="in_progress",
             receipt_id=receipt_id,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        created = await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
+            failure_kind="adapter_transient",
+            error_summary="Transient failure",
+        )
 
         # Pipeline needed for RetryWorker but capacity=0 means it never gets called
         render_pipe = RenderingPipeline()

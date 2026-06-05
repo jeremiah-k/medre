@@ -12,6 +12,8 @@ from medre.core.engine.pipeline.delivery_state import (
     ACCEPTED_OUTCOME_STATUSES,
     ADAPTER_DELIVERY_STATUSES,
     CLAIMABLE_OUTBOX_STATUSES,
+    NON_TERMINAL_OUTBOX_STATUSES,
+    NON_TERMINAL_RECEIPT_STATUSES,
     OUTBOX_STATUSES,
     OUTBOX_TRANSITIONS,
     OUTCOME_STATUSES,
@@ -408,3 +410,192 @@ class TestCrossVocabularyEdgeCases:
     def test_enqueued_not_an_outbox_status(self) -> None:
         assert validate_outbox_status("enqueued") is False
         assert "enqueued" in ADAPTER_DELIVERY_STATUSES
+
+
+# ---------------------------------------------------------------------------
+# Non-terminal constants and partition properties
+# ---------------------------------------------------------------------------
+
+
+class TestNonTerminalReceiptStatuses:
+    """NON_TERMINAL_RECEIPT_STATUSES: exact set, disjoint from terminal, union
+    equals RECEIPT_STATUSES."""
+
+    EXPECTED = {"queued", "failed"}
+
+    def test_exact_set(self) -> None:
+        assert NON_TERMINAL_RECEIPT_STATUSES == self.EXPECTED
+
+    def test_disjoint_from_terminal(self) -> None:
+        assert NON_TERMINAL_RECEIPT_STATUSES.isdisjoint(TERMINAL_RECEIPT_STATUSES)
+
+    def test_union_equals_vocabulary(self) -> None:
+        assert (
+            NON_TERMINAL_RECEIPT_STATUSES | TERMINAL_RECEIPT_STATUSES
+            == RECEIPT_STATUSES
+        )
+
+    def test_no_terminal_overlap(self) -> None:
+        for s in NON_TERMINAL_RECEIPT_STATUSES:
+            assert s not in TERMINAL_RECEIPT_STATUSES
+
+
+class TestNonTerminalOutboxStatuses:
+    """NON_TERMINAL_OUTBOX_STATUSES: exact set, disjoint from terminal, union
+    equals OUTBOX_STATUSES."""
+
+    EXPECTED = {"pending", "in_progress", "queued", "retry_wait"}
+
+    def test_exact_set(self) -> None:
+        assert NON_TERMINAL_OUTBOX_STATUSES == self.EXPECTED
+
+    def test_disjoint_from_terminal(self) -> None:
+        assert NON_TERMINAL_OUTBOX_STATUSES.isdisjoint(TERMINAL_OUTBOX_STATUSES)
+
+    def test_union_equals_vocabulary(self) -> None:
+        assert (
+            NON_TERMINAL_OUTBOX_STATUSES | TERMINAL_OUTBOX_STATUSES == OUTBOX_STATUSES
+        )
+
+    def test_no_terminal_overlap(self) -> None:
+        for s in NON_TERMINAL_OUTBOX_STATUSES:
+            assert s not in TERMINAL_OUTBOX_STATUSES
+
+
+# ---------------------------------------------------------------------------
+# Convergence classification conformance (Wave E)
+# ---------------------------------------------------------------------------
+# Lightweight matrix assertion using the pure build_convergence_summary API.
+# The full convergence matrix (every outbox×receipt combination) is tested
+# exhaustively in tests/test_convergence_diagnostics.py. This class focuses
+# on the key structural invariants tying delivery_state constants to the
+# convergence classification rules documented in state-machines.md §3.3.
+
+
+class TestConvergenceClassificationConformance:
+    """Structural invariants for convergence classification that tie
+    ``delivery_state`` constants to the documented terminal correspondence
+    (state-machines.md §3.3 Terminal State Correspondence).
+
+    These tests use the pure ``build_convergence_summary`` API without
+    storage setup, validating that terminal/claimable/non-terminal
+    classification constants produce the documented convergence outcomes.
+    """
+
+    @staticmethod
+    def _classify(
+        outbox_status: str | None,
+        receipt_status: str | None,
+    ) -> str | None:
+        """Classify a single (outbox, receipt) pair using convergence summary."""
+        from medre.core.diagnostics.convergence.summary import (
+            build_convergence_summary,
+        )
+
+        dp = "dp-test"
+        adapter = "test-adapter"
+        channel = "ch-test"
+
+        outbox_items = []
+        receipts = []
+
+        if outbox_status is not None:
+            outbox_items.append(
+                {
+                    "outbox_id": "ob-1",
+                    "event_id": "ev-1",
+                    "delivery_plan_id": dp,
+                    "target_adapter": adapter,
+                    "target_channel": channel,
+                    "route_id": "route-1",
+                    "status": outbox_status,
+                    "attempt_number": 1,
+                }
+            )
+        if receipt_status is not None:
+            from datetime import datetime, timezone
+
+            receipts.append(
+                {
+                    "receipt_id": "r-1",
+                    "event_id": "ev-1",
+                    "delivery_plan_id": dp,
+                    "target_adapter": adapter,
+                    "target_channel": channel,
+                    "route_id": "route-1",
+                    "status": receipt_status,
+                    "attempt_number": 1,
+                    "sequence": 1,
+                    "source": "live",
+                    "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    "parent_receipt_id": None,
+                }
+            )
+
+        summary = build_convergence_summary(
+            receipts=receipts,
+            outbox_items=outbox_items,
+        )
+        if summary.total_targets == 0:
+            return None
+        return summary.targets[0].severity
+
+    # -- Terminal state correspondence (§3.3) --------------------------------
+
+    def test_sent_outbox_sent_receipt_is_safe(self) -> None:
+        """sent outbox + sent receipt → safe (§3.3 row 1)."""
+        assert self._classify("sent", "sent") == "safe"
+
+    def test_dead_lettered_outbox_dead_lettered_receipt_is_safe(self) -> None:
+        """dead_lettered outbox + dead_lettered receipt → safe (§3.3 row 3)."""
+        assert self._classify("dead_lettered", "dead_lettered") == "safe"
+
+    def test_cancelled_outbox_no_receipt_is_safe(self) -> None:
+        """cancelled outbox, no receipt → safe (§3.3 row 4)."""
+        assert self._classify("cancelled", None) == "safe"
+
+    def test_abandoned_outbox_no_receipt_is_safe(self) -> None:
+        """abandoned outbox, no receipt → safe (§3.3 row 5 partial)."""
+        assert self._classify("abandoned", None) == "safe"
+
+    def test_terminal_outbox_terminal_receipt_different_safe(self) -> None:
+        """Both terminal but different statuses → safe with warning (§3.3)."""
+        assert self._classify("sent", "dead_lettered") == "safe"
+
+    # -- Terminal outbox + non-terminal receipt = inconsistent ----------------
+
+    @pytest.mark.parametrize(
+        "outbox_status, receipt_status",
+        [
+            (ob, rc)
+            for ob in TERMINAL_OUTBOX_STATUSES
+            for rc in NON_TERMINAL_RECEIPT_STATUSES
+        ],
+    )
+    def test_terminal_outbox_non_terminal_receipt_is_inconsistent(
+        self, outbox_status: str, receipt_status: str
+    ) -> None:
+        """Terminal outbox + non-terminal receipt → inconsistent."""
+        assert self._classify(outbox_status, receipt_status) == "inconsistent"
+
+    # -- Non-terminal outbox without receipt = degraded (mid-flight) ---------
+
+    def test_all_non_terminal_outbox_only_are_degraded(self) -> None:
+        """Every non-terminal outbox without a receipt → degraded."""
+        for status in NON_TERMINAL_OUTBOX_STATUSES:
+            result = self._classify(status, None)
+            assert result == "degraded", (
+                f"Non-terminal outbox `{status}` without receipt classified as "
+                f"{result}, expected degraded"
+            )
+
+    # -- Terminal outbox only (all terminal statuses) = safe -----------------
+
+    def test_all_terminal_outbox_only_are_safe(self) -> None:
+        """Every terminal outbox without a receipt → safe."""
+        for status in TERMINAL_OUTBOX_STATUSES:
+            result = self._classify(status, None)
+            assert result == "safe", (
+                f"Terminal outbox `{status}` without receipt classified as "
+                f"{result}, expected safe"
+            )

@@ -972,12 +972,20 @@ class TestRetryWorkerReconstruction:
             delivery_plan_id=plan_id,
             target_adapter="dest_adapter",
             target_channel="ch-1",
-            status="retry_wait",
+            status="in_progress",
             attempt_number=1,
             next_attempt_at=now - timedelta(seconds=1),
             metadata=outbox_metadata,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        created = await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_retry_wait(
+            created.outbox_id,
+            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
+            failure_kind="adapter_transient",
+            error_summary="Retry scheduled",
+        )
+        retry_wait_item = await temp_storage.get_outbox_item(created.outbox_id)
+        assert retry_wait_item is not None
 
         # -- Create a failed receipt for lineage ------------------------------
         receipt = DeliveryReceipt(
@@ -1029,7 +1037,7 @@ class TestRetryWorkerReconstruction:
         # Patch _emit to avoid event buffer dependency
         worker._emit = MagicMock()  # type: ignore[method-assign]
 
-        await worker._retry_outbox_item(outbox_item)
+        await worker._retry_outbox_item(retry_wait_item)
 
         # -- Assert deliver_to_target was called with the reconstructed plan --
         mock_deliver.assert_called_once()

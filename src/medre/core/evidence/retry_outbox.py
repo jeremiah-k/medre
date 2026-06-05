@@ -29,6 +29,9 @@ from datetime import datetime
 from typing import Any, Iterable
 
 from medre.core.engine.pipeline.delivery_state import (
+    NON_TERMINAL_OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
     OUTBOX_STATUSES as _OUTBOX_STATUSES,
 )
 from medre.core.engine.pipeline.delivery_state import (
@@ -94,7 +97,7 @@ def _to_iso(value: Any) -> str | None:
 # the internal names used throughout this module.  Drift is detected by
 # tests/test_evidence_coherence_contract.py.
 _TERMINAL_OUTBOX = TERMINAL_OUTBOX_STATUSES
-_NON_TERMINAL_OUTBOX = _OUTBOX_STATUSES - TERMINAL_OUTBOX_STATUSES
+_NON_TERMINAL_OUTBOX = NON_TERMINAL_OUTBOX_STATUSES
 # Suppressed and failed are receipt-only statuses (no outbox equivalent).
 _RECEIPT_ONLY_STATUSES = _RECEIPT_STATUSES - _OUTBOX_STATUSES
 

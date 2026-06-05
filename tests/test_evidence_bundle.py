@@ -105,7 +105,7 @@ def _make_outbox_item(
     event_id: str = "evt-1",
     outbox_id: str = "ob-1",
     target_adapter: str = "adapter_a",
-    status: str = "sent",
+    status: str = "pending",
     created_at: str | None = None,
 ) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
@@ -504,6 +504,11 @@ class TestSQLiteRoundTrip:
 
         outbox = _make_outbox_item(event_id="evt-sqlite", outbox_id="ob-sqlite")
         await temp_storage.create_outbox_item(outbox)
+        # Reach "sent" via pending → claim → mark_sent (Pattern A).
+        await temp_storage.claim_due_outbox_items(
+            now="2026-01-15T12:00:00+00:00", worker_id="w1", lease_seconds=30, limit=10
+        )
+        await temp_storage.mark_outbox_sent("ob-sqlite", receipt_id="rcpt-sqlite")
 
         collector = EvidenceCollector(temp_storage, now_fn=_fixed_now)
         bundle = await collector.collect_for_event("evt-sqlite")
