@@ -133,7 +133,9 @@ class AdapterDeliveryResult:
         fact — the pipeline maps it to receipt status; it is not
         lifecycle authority.
     metadata:
-        Adapter-specific immutable metadata about the delivery.
+        Immutable, namespaced delivery metadata.  Transport-specific data
+        MUST live under ``metadata[<transport>]`` (e.g. ``metadata.matrix``,
+        ``metadata.lxmf``).  No top-level MEDRE-standard keys are permitted.
     """
 
     native_message_id: str | None = None
