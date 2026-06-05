@@ -63,7 +63,10 @@ class _FakeLXMessage:
     OUTBOUND = 1
 
     def __init__(self, dest: Any, router: Any, content: Any, **kwargs: Any) -> None:
-        self.state = self.OUTBOUND
+        # Use string state so _map_delivery_state resolves via the
+        # string-to-enum branch (HAS_LXMF is False in tests, so the
+        # integer state-map is empty and an int would map to UNMAPPED).
+        self.state = "outbound"
         self.hash = b"\xab" * 16
 
     def register_delivery_callback(self, cb: Any) -> None:

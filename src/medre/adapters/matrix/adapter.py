@@ -599,9 +599,7 @@ class MatrixAdapter(AdapterContract):
                 return AdapterDeliveryResult(
                     native_message_id=event_id,
                     native_channel_id=room_id,
-                    metadata=MappingProxyType(
-                        {"matrix": MappingProxyType({"txn_id": txn_id})}
-                    ),
+                    metadata=MappingProxyType({"matrix": {"txn_id": txn_id}}),
                 )
 
             except MatrixSendError as exc:
