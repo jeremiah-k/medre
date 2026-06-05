@@ -208,7 +208,7 @@ persisted.
    entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
    include all non-successful outcomes.
 
-## 11. Delivery Failure Evidence Taxonomy
+## 12. Delivery Failure Evidence Taxonomy
 
 The following table lists all failure categories that appear in delivery
 evidence (receipts, report dicts, operator diagnostics). Some are first-class
@@ -257,7 +257,7 @@ diagnostics.
   a failure kind. It is used in evidence tables and operator reports to
   document what was not tested.
 
-## 12. Shutdown Delivery Evidence
+## 13. Shutdown Delivery Evidence
 
 ### 12.1 Goals
 
@@ -340,7 +340,7 @@ resumed on next startup.
 | Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
 
-## 13. Orphan and Invalid-Lineage Finding Kinds
+## 14. Orphan and Invalid-Lineage Finding Kinds
 
 The convergence diagnostics system detects orphaned and invalid-lineage records. These findings are not `DeliveryFailureKind` enum values. They are diagnostic findings produced by the pure `build_orphan_report()` function from existing receipt and outbox snapshots. They do not indicate a delivery failure per se, but rather a state inconsistency in the persisted evidence chain.
 

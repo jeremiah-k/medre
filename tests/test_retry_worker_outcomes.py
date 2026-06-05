@@ -92,7 +92,6 @@ class TestRetryCapacityRejectionBackoff:
             target_adapter="target_a",
             attempt_number=1,
             status="in_progress",
-            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
             receipt_id=receipt_id,
         )
         created = await temp_storage.create_outbox_item(outbox_item)

@@ -375,7 +375,7 @@ Look for multiple receipts with different `attempt_number` values linked by `par
 
 ### "Suppressed why?"
 
-Four types:
+Five types:
 
 - **Loop suppressed**: `failure_kind: "loop_suppressed"` — route-trace or self-loop guard fired.
 - **Policy suppressed**: `failure_kind: "policy_suppressed"` — route-policy denied the delivery. Adjust the route's `[policy]` section to resolve.

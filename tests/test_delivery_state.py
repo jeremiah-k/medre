@@ -564,13 +564,19 @@ class TestConvergenceClassificationConformance:
 
     # -- Terminal outbox + non-terminal receipt = inconsistent ----------------
 
-    def test_sent_outbox_failed_receipt_is_inconsistent(self) -> None:
-        """sent outbox + failed receipt → inconsistent."""
-        assert self._classify("sent", "failed") == "inconsistent"
-
-    def test_sent_outbox_queued_receipt_is_inconsistent(self) -> None:
-        """sent outbox + queued receipt → inconsistent."""
-        assert self._classify("sent", "queued") == "inconsistent"
+    @pytest.mark.parametrize(
+        "outbox_status, receipt_status",
+        [
+            (ob, rc)
+            for ob in TERMINAL_OUTBOX_STATUSES
+            for rc in NON_TERMINAL_RECEIPT_STATUSES
+        ],
+    )
+    def test_terminal_outbox_non_terminal_receipt_is_inconsistent(
+        self, outbox_status: str, receipt_status: str
+    ) -> None:
+        """Terminal outbox + non-terminal receipt → inconsistent."""
+        assert self._classify(outbox_status, receipt_status) == "inconsistent"
 
     # -- Non-terminal outbox without receipt = degraded (mid-flight) ---------
 

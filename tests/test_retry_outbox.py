@@ -273,10 +273,12 @@ class TestRestartVisibility:
             )
             await storage.create_outbox_item(item)
             # Reach "dead_lettered" via pending → claim → mark_dead_lettered (Pattern B).
-            await storage.claim_due_outbox_items(
+            claimed = await storage.claim_due_outbox_items(
                 now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
             )
-            await storage.mark_outbox_dead_lettered(item.outbox_id, failure_kind="test")
+            await storage.mark_outbox_dead_lettered(
+                claimed[0].outbox_id, failure_kind="test"
+            )
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -315,9 +317,9 @@ class TestRestartVisibility:
                 status="in_progress",
                 target_adapter="meshtastic",
             )
-            await storage.create_outbox_item(item)
+            created = await storage.create_outbox_item(item)
             # Reach "queued" via in_progress → mark_queued (Pattern C).
-            await storage.mark_outbox_queued(item.outbox_id)
+            await storage.mark_outbox_queued(created.outbox_id)
 
             # Re-open: queued item is visible.
             storage2 = SQLiteStorage(db_path=db_path)

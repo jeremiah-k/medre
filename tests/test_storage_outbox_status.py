@@ -389,7 +389,7 @@ class TestUnknownOutboxStatusRejected:
         assert before is not None
         assert before.status == "pending"
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Unknown outbox status"):
             await temp_storage._update_outbox_status(oid, "bogus_status_xyz")
 
         after = await temp_storage.get_outbox_item(oid)

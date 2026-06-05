@@ -900,24 +900,30 @@ class DeliveryLifecycleService:
                             error_summary=error_summary,
                         )
                     else:
-                        # Defensive fallback: no persisted receipt to
-                        # consult.  Compute backoff from scratch.
-                        retry_attempt = (
-                            receipt.attempt_number if receipt is not None else 1
-                        )
-                        backoff_duration = RetryExecutor(retry_policy).compute_backoff(
-                            retry_attempt
-                        )
-                        next_attempt_at = (
-                            datetime.now(timezone.utc) + backoff_duration
-                        ).isoformat()
-                        await storage.mark_outbox_retry_wait(
-                            outbox_id,
-                            next_attempt_at=next_attempt_at,
-                            receipt_id=receipt_ref_id,
-                            failure_kind=failure_kind_val.value,
-                            error_summary=error_summary,
-                        )
+                        # No persisted receipt.  Derive attempt number from
+                        # the outbox row so backoff reflects the real count.
+                        outbox_item = await storage.get_outbox_item(outbox_id)
+                        retry_attempt = outbox_item.attempt_number if outbox_item else 1
+                        executor = RetryExecutor(retry_policy)
+                        if executor.is_exhausted(retry_attempt):
+                            await storage.mark_outbox_dead_lettered(
+                                outbox_id,
+                                receipt_id=receipt_ref_id,
+                                failure_kind=failure_kind_val.value,
+                                error_summary=error_summary,
+                            )
+                        else:
+                            backoff_duration = executor.compute_backoff(retry_attempt)
+                            next_attempt_at = (
+                                datetime.now(timezone.utc) + backoff_duration
+                            ).isoformat()
+                            await storage.mark_outbox_retry_wait(
+                                outbox_id,
+                                next_attempt_at=next_attempt_at,
+                                receipt_id=receipt_ref_id,
+                                failure_kind=failure_kind_val.value,
+                                error_summary=error_summary,
+                            )
                 else:
                     await storage.mark_outbox_dead_lettered(
                         outbox_id,

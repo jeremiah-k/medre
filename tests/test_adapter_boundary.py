@@ -335,6 +335,7 @@ class TestAdapterDeliveryResultFields:
         )
 
         result = AdapterDeliveryResult()
+        assert result.delivery_status == "sent"
         assert result.delivery_status in ADAPTER_DELIVERY_STATUSES, (
             f"Default delivery_status {result.delivery_status!r} not in "
             f"ADAPTER_DELIVERY_STATUSES {sorted(ADAPTER_DELIVERY_STATUSES)}"

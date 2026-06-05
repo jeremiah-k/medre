@@ -33,6 +33,9 @@ from medre.core.contracts.adapter import (
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
+    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
+)
+from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
 from medre.core.engine.pipeline.target_delivery import (
@@ -1361,12 +1364,7 @@ class PipelineRunner:
             if _skip_reason is not None:
                 # Release the capacity slot acquired earlier, if any.
                 if self._capacity_controller is not None:
-                    try:
-                        await self._capacity_controller.release_delivery()
-                    except Exception:
-                        self._log.exception(
-                            "Failed to release capacity on outbox-ownership skip"
-                        )
+                    await self._capacity_controller.release_delivery()
                 elapsed = (time.monotonic() - t0) * 1000.0
                 return DeliveryOutcome(
                     event_id=event.event_id,
@@ -1691,8 +1689,7 @@ class PipelineRunner:
             # pipeline's own worker_id (not the overridden value).
             # Applies to ALL sources including replay.
             skip_reason: str | None = None
-            TERMINAL_STATUSES = {"sent", "dead_lettered", "cancelled", "abandoned"}
-            if created.status in TERMINAL_STATUSES:
+            if created.status in _TERMINAL_OUTBOX_STATUSES:
                 skip_reason = f"terminal:{created.status}"
                 self._log.info(
                     "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
