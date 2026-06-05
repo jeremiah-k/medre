@@ -28,11 +28,11 @@ class MockEvent:
 
     def __init__(
         self,
-        type: MockEventType,
+        event_type: MockEventType,
         payload: Any = None,
         attributes: dict | None = None,
     ) -> None:
-        self.type = type
+        self.type = event_type
         self.payload = payload
         self.attributes = attributes or {}
 
@@ -59,7 +59,7 @@ def build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
     instance.commands.send_msg = AsyncMock()
     instance.commands.send_chan_msg = AsyncMock()
     instance.commands.send_appstart = AsyncMock(
-        return_value=MockEvent(type=MockEventType.OK, payload={})
+        return_value=MockEvent(event_type=MockEventType.OK, payload={})
     )
 
     # Factory methods: MeshCore.create_tcp/create_serial/create_ble

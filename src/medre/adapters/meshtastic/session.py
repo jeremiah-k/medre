@@ -186,8 +186,10 @@ class MeshtasticSession:
         packets (typically ``"!" + lowercase_hex(myNodeNum)``, e.g. ``"!a1b2c3d4"``).
 
         Populated from ``interface.myInfo.myNodeNum`` after every successful
-        connect (and re-connect).  Returns ``None`` when the client is not
-        connected or ``myInfo`` is not yet available.
+        connect (and re-connect).  If ``myInfo`` is not yet available at
+        connect time, the ``_on_receive`` callback lazily refreshes on each
+        inbound packet until the value is obtained.  Returns ``None`` when
+        the client is not connected or ``myInfo`` is not yet available.
         """
         return self._node_id
 
@@ -730,8 +732,10 @@ class MeshtasticSession:
     def _refresh_node_id(self) -> None:
         """Populate self._node_id from interface.myInfo.myNodeNum when available.
 
-        Called after every successful connect (and re-connect). Safe to call
-        multiple times; refreshes from current interface state.
+        Called after every successful connect (and re-connect) and lazily
+        from ``_on_receive`` when ``_node_id`` is still ``None`` (late
+        myInfo).  Safe to call multiple times; refreshes from current
+        interface state.
         """
         self._node_id = None
         if self._client is None:
@@ -744,9 +748,16 @@ class MeshtasticSession:
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets.
 
-        Records diagnostics and forwards to the adapter's message callback.
+        Records diagnostics, lazily refreshes ``_node_id`` when it is
+        still ``None`` (late ``myInfo``), and forwards to the adapter's
+        message callback.
         """
         self._last_packet_time = time.monotonic()
+        # Lazy refresh: if myInfo was not available at connect time,
+        # try again on each inbound packet until it succeeds.  Once
+        # _node_id is set this is a no-op (cheap branch only).
+        if self._node_id is None and self._client is not None:
+            self._refresh_node_id()
         if self._message_callback is not None:
             self._message_callback(packet)
 

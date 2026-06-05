@@ -6,8 +6,8 @@
   "delivery_note": "Message delivered to Matrix room via long-poll sync",
   "delivery_status": "sent",
   "metadata": {
-    "homeserver": "matrix.example.org",
-    "retry_count": 0,
-    "latency_ms": 142
+    "matrix": {
+      "txn_id": "txn_1717401600000"
+    }
   }
 }

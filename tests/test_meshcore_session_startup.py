@@ -186,7 +186,7 @@ class TestMockedSDKEventCallbackPayload:
 
         # Simulate an SDK inbound event.
         sdk_event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload={
                 "text": "hello from radio",
                 "pubkey_prefix": "aabbcc",
@@ -245,7 +245,7 @@ class TestMockedSDKSendMsg:
 
         # Successful send returns MSG_SENT event with expected_ack as 4-byte bytes.
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={"expected_ack": b"\xde\xad\xbe\xef"},
         )
 
@@ -278,7 +278,7 @@ class TestMockedSDKSendChanMsg:
 
         # Successful channel send returns OK event.
         mock_inst.commands.send_chan_msg.return_value = MockEvent(
-            type=MockEventType.OK,
+            event_type=MockEventType.OK,
             payload={},
         )
 
@@ -313,7 +313,7 @@ class TestMockedSDKSendError:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.ERROR,
+            event_type=MockEventType.ERROR,
             payload={"reason": "node_busy"},
         )
 
@@ -551,7 +551,7 @@ class TestMockedSDKSendMsgWithId:
 
         # expected_ack is None, message_id is 42
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={"expected_ack": None, "message_id": 42},
         )
 
@@ -577,7 +577,7 @@ class TestMockedSDKSendMsgWithId:
 
         # No expected_ack or message_id in payload, but message_id in attributes
         event = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={},
             attributes={"message_id": "pkt-99"},
         )
@@ -603,7 +603,7 @@ class TestMockedSDKSendMsgWithId:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_chan_msg.return_value = MockEvent(
-            type=MockEventType.OK,
+            event_type=MockEventType.OK,
             payload={},
         )
 

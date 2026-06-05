@@ -444,7 +444,7 @@ class MeshCoreAdapter(AdapterContract):
             delivery_note=delivery_note,
             metadata=MappingProxyType(
                 {
-                    "meshcore": {"local_acceptance": True},
+                    "meshcore": MappingProxyType({"local_acceptance": True}),
                 }
             ),
         )

@@ -431,7 +431,7 @@ class TestNativeIdExtraction:
 
         session, mock_mc = self._make_session_with_mock()
         mock_mc.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={"expected_ack": b"\x01\x02\x03\x04"},
         )
 
@@ -444,7 +444,7 @@ class TestNativeIdExtraction:
 
         session, mock_mc = self._make_session_with_mock()
         mock_mc.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={},
             attributes={"expected_ack": b"\x01\x02\x03\x04"},
         )
@@ -458,7 +458,7 @@ class TestNativeIdExtraction:
 
         session, mock_mc = self._make_session_with_mock()
         mock_mc.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={},
             attributes={},
         )

@@ -273,6 +273,53 @@ class TestSuccessMetadataIncludesTxnId:
         expected_txn = _matrix_txn_id(result, room_id)
         assert delivery.metadata["matrix"]["txn_id"] == expected_txn
 
+        # Legacy flat key must NOT appear at top level
+        assert "matrix_txn_id" not in delivery.metadata
+        # Legacy flat key must NOT appear inside nested matrix dict
+        assert "matrix_txn_id" not in delivery.metadata["matrix"]
+
+
+# ---------------------------------------------------------------------------
+# 7b. metadata["matrix"] is deeply immutable
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataDeepImmutability:
+    """Both metadata and nested metadata['matrix'] are read-only."""
+
+    async def test_nested_matrix_dict_is_immutable(self) -> None:
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+
+        # Top-level metadata is already immutable (MappingProxyType)
+        with pytest.raises(TypeError):
+            delivery.metadata["matrix"]["txn_id"] = "tampered"  # type: ignore[index]
+
+        # Direct assignment on the nested mapping must also raise
+        with pytest.raises(TypeError):
+            delivery.metadata["matrix"]["new_key"] = "value"  # type: ignore[index]
+
+    async def test_top_level_metadata_is_immutable(self) -> None:
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+
+        with pytest.raises(TypeError):
+            delivery.metadata["new_top_key"] = "value"  # type: ignore[index]
+
 
 # ---------------------------------------------------------------------------
 # 8. timeout / network → transient
@@ -468,6 +515,9 @@ class TestNoSecretsInMetadata:
         # matrix txn_id is allowed
         assert "matrix" in meta
         assert "txn_id" in meta["matrix"]
+        # Legacy flat key must NOT appear
+        assert "matrix_txn_id" not in meta
+        assert "matrix_txn_id" not in delivery.metadata["matrix"]
 
 
 # ---------------------------------------------------------------------------

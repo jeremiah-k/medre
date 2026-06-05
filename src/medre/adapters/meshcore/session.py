@@ -427,8 +427,12 @@ class MeshCoreSession:
         if self._meshcore is not None:
             try:
                 await self._meshcore.disconnect()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._logger.debug(
+                    "MeshCoreSession %s: error during cleanup disconnect: %s",
+                    self._adapter_id,
+                    exc,
+                )
             self._meshcore = None
 
     async def _connect_real(self) -> None:
@@ -479,8 +483,12 @@ class MeshCoreSession:
             if self._meshcore is not None:
                 try:
                     await self._meshcore.disconnect()
-                except Exception:
-                    pass
+                except Exception as disconnect_exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error during cleanup disconnect: %s",
+                        self._adapter_id,
+                        disconnect_exc,
+                    )
                 self._meshcore = None
             raise
         except Exception as exc:
@@ -488,8 +496,12 @@ class MeshCoreSession:
             if self._meshcore is not None:
                 try:
                     await self._meshcore.disconnect()
-                except Exception:
-                    pass
+                except Exception as disconnect_exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error during cleanup disconnect: %s",
+                        self._adapter_id,
+                        disconnect_exc,
+                    )
                 self._meshcore = None
             self._diag.last_error = str(exc)
             raise MeshCoreConnectionError(
@@ -507,8 +519,12 @@ class MeshCoreSession:
             if self._meshcore is not None:
                 try:
                     await self._meshcore.disconnect()
-                except Exception:
-                    pass
+                except Exception as disconnect_exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error during cleanup disconnect: %s",
+                        self._adapter_id,
+                        disconnect_exc,
+                    )
                 self._meshcore = None
             self._subscriptions.clear()
             raise MeshCoreConnectionError(
@@ -529,8 +545,12 @@ class MeshCoreSession:
             if self._meshcore is not None:
                 try:
                     await self._meshcore.disconnect()
-                except Exception:
-                    pass
+                except Exception as disconnect_exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error during cleanup disconnect: %s",
+                        self._adapter_id,
+                        disconnect_exc,
+                    )
                 self._meshcore = None
             self._subscriptions.clear()
             raise MeshCoreConnectionError(f"send_appstart failed: {exc}") from exc

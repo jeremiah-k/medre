@@ -96,7 +96,7 @@ The pipeline guarantees that `result` has already been rendered by a `Renderer` 
 
 On success, the adapter **MUST** return an `AdapterDeliveryResult` populated with platform-native IDs, or `None` when the adapter has no native ID to report.
 
-If delivery fails, the adapter **MUST** raise `AdapterSendError` (transient) or `AdapterPermanentError` (permanent). The adapter **MUST NOT** implement its own retry loops, write receipts, update delivery state, or trigger retries. The pipeline owns all of that.
+If delivery fails, the adapter **MUST** raise `AdapterSendError` (transient) or `AdapterPermanentError` (permanent). The adapter **MUST NOT** write receipts, update delivery state, or trigger pipeline-level retries. The pipeline owns all of that. Bounded transport-call retries within the session send path (e.g., up to 3 attempts for transient SDK send failures — see §14.1 "Send retry") are permitted and expected; what is forbidden is the adapter implementing its own durable retry loops or retry scheduling outside the single `deliver()` call.
 
 This is the only outbound method. There is no `send()`, no `push()`, no `emit()`. Delivery is always `RenderingResult`-driven.
 

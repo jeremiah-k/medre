@@ -102,7 +102,7 @@ the exhausted attempt. Example: `max_attempts = 3`, failed receipt at
 
 ## Adapter Metadata Naming Rule
 
-Adapters report delivery outcome via `AdapterDeliveryResult.delivery_status` (field: `delivery_status`, values: `"sent"` or `"enqueued"`). This is the **adapter-level** delivery field.
+Adapters report delivery outcome via `AdapterDeliveryResult.delivery_status` (field: `delivery_status`, values: `"sent"` or `"enqueued"`). This is the **adapter delivery fact** — what the adapter did at the local level (e.g., handed to LXMRouter, accepted by homeserver). It is not lifecycle authority and does not track transport-level delivery progression.
 
 Do not confuse this with:
 

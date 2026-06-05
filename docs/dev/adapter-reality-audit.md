@@ -93,7 +93,6 @@ stateless. The adapter must pass its own node ID on every `classify()` call.
 
 - Real path and simulate path both pass `own_node_id`
 - Added `classifier_packets_self_echo_ignored` diagnostic counter
-- **Note:** Self-echo detection is structurally complete but requires `_node_id` population from `interface.myInfo.myNodeNum` to activate at runtime (see Remaining Risks section).
 - `src/medre/adapters/meshtastic/adapter.py:191,457,612-613,704,771`
 
 ### R4: MeshCore session skips `send_appstart()` after connect
@@ -218,16 +217,16 @@ the value was received but MEDRE has no mapping for it. This is not
 
 ## 7. Remaining Risks (deferred to future work packages)
 
-| Item                                    | Risk     | Notes                                                                                                                                                                                                                |
-| --------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R11 `delivery_receipts` capability      | Low      | Matrix/LXMF semantics debatable; not obviously wrong                                                                                                                                                                 |
-| R12 `text_message_ack` portnum          | Cosmetic | Artifact in portnum handling; no functional impact                                                                                                                                                                   |
-| Meshtastic byte budget (B2)             | Medium   | 227 bytes doesn't account for protobuf overhead when `reply_id` is set; could break valid sends. Needs user decision on whether to reduce budget or measure dynamically                                              |
-| MeshCore hardcoded port 4403            | Low      | Fallback is intentional config behavior; unclear if should require explicit user opt-in                                                                                                                              |
-| MeshCore reconnect parameters           | Low      | 1s to 30s backoff, 10 attempts is more aggressive than SDK default. Intentional for MEDRE's use case                                                                                                                 |
-| `M_UNKNOWN` HTTP status check           | Cosmetic | Current behavior treats M_UNKNOWN as permanent (in `_PERMANENT_ERRCODES`); may be overly conservative — unknown server errors are usually transient. Deferred.                                                       |
-| LXMF "in production" destination nuance | Low      | Comment removed during fix; destination lookup complexity deferred to future work                                                                                                                                    |
-| ~~Meshtastic `_node_id` population~~    | ~~High~~ | **Resolved in this work package.** `_refresh_node_id()` added to session (lines 728-740); called after connect/reconnect. Tests in `test_meshtastic_session_coverage.py`. Self-echo detection now active at runtime. |
+| Item                                    | Risk     | Notes                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R11 `delivery_receipts` capability      | Low      | Matrix/LXMF semantics debatable; not obviously wrong                                                                                                                                                                                                                                                       |
+| R12 `text_message_ack` portnum          | Cosmetic | Artifact in portnum handling; no functional impact                                                                                                                                                                                                                                                         |
+| Meshtastic byte budget (B2)             | Medium   | 227 bytes doesn't account for protobuf overhead when `reply_id` is set; could break valid sends. Needs user decision on whether to reduce budget or measure dynamically                                                                                                                                    |
+| MeshCore hardcoded port 4403            | Low      | Fallback is intentional config behavior; unclear if should require explicit user opt-in                                                                                                                                                                                                                    |
+| MeshCore reconnect parameters           | Low      | 1s to 30s backoff, 10 attempts is more aggressive than SDK default. Intentional for MEDRE's use case                                                                                                                                                                                                       |
+| `M_UNKNOWN` HTTP status check           | Cosmetic | Current behavior treats M_UNKNOWN as permanent (in `_PERMANENT_ERRCODES`); may be overly conservative — unknown server errors are usually transient. Deferred.                                                                                                                                             |
+| LXMF "in production" destination nuance | Low      | Comment removed during fix; destination lookup complexity deferred to future work                                                                                                                                                                                                                          |
+| ~~Meshtastic `_node_id` population~~    | ~~High~~ | **Resolved in this work package.** `_refresh_node_id()` added to session (lines 730-742); called after connect/reconnect. Additionally, `_on_receive()` performs a lazy refresh when `_node_id is None`, covering late-arriving `myInfo`. Self-echo detection now activates without requiring a reconnect. |
 
 ## 8. Next Work Package
 

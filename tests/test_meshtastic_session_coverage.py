@@ -1,9 +1,10 @@
-"""Tests for MeshtasticSession: get_node_info, _create_client branches, _refresh_node_id.
+"""Tests for MeshtasticSession: get_node_info, _create_client branches, _refresh_node_id, lazy node_id refresh.
 
 Covers uncovered lines in session.py:
 - get_node_info (lines 229-249): node lookup via SDK client.nodes dict
 - _create_client (lines 646-676): TCP, serial, BLE, and unsupported types
-- _refresh_node_id (lines 728-740): populate _node_id from interface.myInfo.myNodeNum
+- _refresh_node_id (lines 730-742): populate _node_id from interface.myInfo.myNodeNum
+- _on_receive lazy refresh: late myInfo activates self-echo without reconnect
 """
 
 from __future__ import annotations
@@ -532,3 +533,101 @@ class TestReconnectSuccessPath:
             "subscribe",
             "refresh_node_id",
         ]
+
+
+# ===================================================================
+# _on_receive lazy _node_id refresh
+# ===================================================================
+
+
+class TestOnReceiveLazyNodeIdRefresh:
+    """_on_receive lazily refreshes _node_id when it is still None.
+
+    When ``interface.myInfo.myNodeNum`` was not available at connect
+    time, the first inbound packet should trigger a refresh so that
+    self-echo detection can activate without a reconnect.
+    """
+
+    def test_lazy_refresh_when_node_id_none(self) -> None:
+        """_on_receive triggers _refresh_node_id when _node_id is None."""
+        my_info = MagicMock()
+        my_info.myNodeNum = 0xDEADBEEF
+        client = MagicMock()
+        client.myInfo = my_info
+
+        session = _make_session(client=client)
+        assert session._node_id is None
+
+        callback = MagicMock()
+        session._message_callback = callback
+        session._on_receive({"fromId": "!aabbccdd"})
+
+        # _node_id must now be populated from myInfo
+        assert session._node_id == "!deadbeef"
+        callback.assert_called_once_with({"fromId": "!aabbccdd"})
+
+    def test_no_refresh_when_node_id_already_set(self) -> None:
+        """_on_receive skips refresh when _node_id is already populated."""
+        my_info = MagicMock()
+        my_info.myNodeNum = 0xDEADBEEF
+        client = MagicMock()
+        client.myInfo = my_info
+
+        session = _make_session(client=client)
+        session._node_id = "!alreadyset"
+
+        callback = MagicMock()
+        session._message_callback = callback
+        session._on_receive({"fromId": "!aabbccdd"})
+
+        # _node_id must remain unchanged (not overwritten by refresh)
+        assert session._node_id == "!alreadyset"
+        callback.assert_called_once()
+
+    def test_no_refresh_when_client_none(self) -> None:
+        """_on_receive does not call _refresh_node_id when client is None."""
+        session = _make_session(client=None)
+        assert session._node_id is None
+
+        callback = MagicMock()
+        session._message_callback = callback
+        session._on_receive({"fromId": "!aabbccdd"})
+
+        # _node_id stays None (no crash, no refresh attempt)
+        assert session._node_id is None
+        callback.assert_called_once()
+
+    def test_lazy_refresh_still_none_if_myinfo_unavailable(self) -> None:
+        """Lazy refresh attempt that finds no myInfo leaves _node_id None."""
+        client = MagicMock()
+        client.myInfo = None
+
+        session = _make_session(client=client)
+        assert session._node_id is None
+
+        session._on_receive({"fromId": "!aabbccdd"})
+
+        # Still None — but no crash either
+        assert session._node_id is None
+
+    def test_subsequent_packet_refreshes_after_becoming_available(
+        self,
+    ) -> None:
+        """Second packet triggers successful refresh after myInfo appears."""
+        client = MagicMock()
+        client.myInfo = None
+
+        session = _make_session(client=client)
+
+        # First packet: myInfo not available yet
+        session._on_receive({"fromId": "!aabbccdd"})
+        assert session._node_id is None
+
+        # myInfo becomes available between packets
+        my_info = MagicMock()
+        my_info.myNodeNum = 0xCAFEBABE
+        client.myInfo = my_info
+
+        # Second packet: lazy refresh succeeds
+        session._on_receive({"fromId": "!aabbccdd"})
+        assert session._node_id == "!cafebabe"

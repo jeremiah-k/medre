@@ -145,7 +145,7 @@ class TestMockedSDKErrorClassification:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.ERROR,
+            event_type=MockEventType.ERROR,
             payload={"reason": "node_busy"},
         )
 
@@ -156,7 +156,7 @@ class TestMockedSDKErrorClassification:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         with pytest.raises(MeshCoreSendError, match="SDK send error"):
             await session.send_text("aabbcc", "perm test")
@@ -179,7 +179,7 @@ class TestMockedSDKErrorClassification:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         with pytest.raises(MeshCoreSendError, match="Send failed after 3 attempts"):
             await session.send_text("aabbcc", "transient test")
@@ -201,7 +201,7 @@ class TestMockedSDKErrorClassification:
             if call_count == 1:
                 raise OSError("transient glitch")
             return MockEvent(
-                type=MockEventType.MSG_SENT,
+                event_type=MockEventType.MSG_SENT,
                 payload={"expected_ack": b"\x00\x00\x00\x01"},
             )
 
@@ -214,7 +214,7 @@ class TestMockedSDKErrorClassification:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbcc", "recover me")
 
@@ -230,7 +230,7 @@ class TestMockedSDKErrorClassification:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.ERROR,
+            event_type=MockEventType.ERROR,
             payload={"reason": "bad_state"},
         )
 
@@ -241,7 +241,7 @@ class TestMockedSDKErrorClassification:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         with pytest.raises(MeshCoreSendError):
             await session.send_text("x", "first fail")
@@ -283,7 +283,7 @@ class TestMockedSDKCallbackNormalization:
 
         # Event with non-dict payload (e.g., string)
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload="not a dict",
         )
         await session._on_sdk_event(event)
@@ -311,7 +311,7 @@ class TestMockedSDKCallbackNormalization:
             await session.start(callback)
 
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload=None,
         )
         await session._on_sdk_event(event)
@@ -338,7 +338,7 @@ class TestMockedSDKCallbackNormalization:
             await session.start(bad_callback)
 
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload={"text": "trigger error", "type": "PRIV"},
         )
         # Should NOT raise
@@ -369,7 +369,7 @@ class TestMockedSDKCallbackNormalization:
 
         await session._on_sdk_event(
             MockEvent(
-                type=MockEventType.CONTACT_MSG_RECV,
+                event_type=MockEventType.CONTACT_MSG_RECV,
                 payload={"text": "first"},
             )
         )
@@ -382,7 +382,7 @@ class TestMockedSDKCallbackNormalization:
 
         await session._on_sdk_event(
             MockEvent(
-                type=MockEventType.CHANNEL_MSG_RECV,
+                event_type=MockEventType.CHANNEL_MSG_RECV,
                 payload={"text": "second"},
             )
         )
@@ -419,7 +419,7 @@ class TestTranche6SyncCallback:
             await session.start(sync_callback)
 
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload={"text": "sync hello", "type": "PRIV"},
         )
         await session._on_sdk_event(event)
@@ -450,7 +450,7 @@ class TestTranche6SyncCallback:
 
         with caplog.at_level(logging.ERROR):
             event = MockEvent(
-                type=MockEventType.CONTACT_MSG_RECV,
+                event_type=MockEventType.CONTACT_MSG_RECV,
                 payload={"text": "test", "type": "PRIV"},
             )
             await session._on_sdk_event(event)
@@ -480,7 +480,7 @@ class TestTranche6SyncCallback:
             await session.start(async_callback)
 
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload={"text": "async hello", "type": "PRIV"},
         )
         await session._on_sdk_event(event)
@@ -507,7 +507,7 @@ class TestTranche6SyncCallback:
             await session.start(bad_sync)
 
         event = MockEvent(
-            type=MockEventType.CONTACT_MSG_RECV,
+            event_type=MockEventType.CONTACT_MSG_RECV,
             payload={"text": "trigger", "type": "PRIV"},
         )
         await session._on_sdk_event(event)
@@ -581,7 +581,7 @@ class TestSendAppstart:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         mock_inst.commands.send_appstart.assert_awaited_once()
         assert session.connected is True
@@ -594,7 +594,7 @@ class TestSendAppstart:
 
         # Make send_appstart return an error event.
         error_event = MockEvent(
-            type=MockEventType.ERROR,
+            event_type=MockEventType.ERROR,
             payload={"reason": "firmware rejected"},
         )
         mock_inst.commands.send_appstart = AsyncMock(return_value=error_event)
@@ -607,7 +607,7 @@ class TestSendAppstart:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError, match="send_appstart"):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         assert session._meshcore is None
         assert session.connected is False
@@ -629,7 +629,7 @@ class TestSendAppstart:
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
         assert session._meshcore is None
         assert session.connected is False
@@ -658,7 +658,7 @@ class TestSendAppstart:
                 patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
                 patch.dict(sys.modules, {"meshcore": mock_mc}),
             ):
-                await session.start(lambda pkt: None)
+                await session.start(lambda _pkt: None)
 
             # Reset appstart call count from initial connect.
             mock_inst.commands.send_appstart.reset_mock()
@@ -692,7 +692,7 @@ class TestExpectedAckAsNativeId:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_msg.return_value = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={"expected_ack": b"\x01\x02\x03\x04"},
         )
 
@@ -703,7 +703,7 @@ class TestExpectedAckAsNativeId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbcc", "test dm")
 
@@ -716,7 +716,7 @@ class TestExpectedAckAsNativeId:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         mock_inst.commands.send_chan_msg.return_value = MockEvent(
-            type=MockEventType.OK,
+            event_type=MockEventType.OK,
             payload={},
         )
 
@@ -727,7 +727,7 @@ class TestExpectedAckAsNativeId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("ignored", "chan msg", channel_index=0)
 
@@ -740,7 +740,7 @@ class TestExpectedAckAsNativeId:
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         event = MockEvent(
-            type=MockEventType.MSG_SENT,
+            event_type=MockEventType.MSG_SENT,
             payload={},
             attributes={"expected_ack": b"\xab\xcd\xef\x01"},
         )
@@ -753,7 +753,7 @@ class TestExpectedAckAsNativeId:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            await session.start(lambda pkt: None)
+            await session.start(lambda _pkt: None)
 
         result = await session.send_text("aabbcc", "attr ack")
 

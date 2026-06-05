@@ -604,6 +604,9 @@ class TestMeshCoreBLEValidation:
         mock_import.assert_called_once_with("meshcore")
         fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
 
+        # Verify send_appstart was called during startup.
+        mock_mc_instance.commands.send_appstart.assert_awaited_once()
+
         # Verify subscription wiring was exercised.
         assert (
             mock_mc_instance.subscribe.call_count >= 1
