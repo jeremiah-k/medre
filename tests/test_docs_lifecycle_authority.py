@@ -119,7 +119,7 @@ def _parse_adapter_results(
             if kw.arg == "metadata" and isinstance(kw.value, ast.Dict):
                 # Literal dict: metadata={...}
                 d = kw.value
-                for k, v in zip(d.keys, d.values, strict=False):
+                for k, v in zip(d.keys, d.values, strict=True):
                     if isinstance(k, ast.Constant) and isinstance(k.value, str):
                         key_str = k.value
                         if isinstance(v, ast.Constant) and isinstance(v.value, str):
@@ -148,7 +148,7 @@ def _parse_adapter_results(
                     and isinstance(meta_call.args[0], ast.Dict)
                 ):
                     d = meta_call.args[0]
-                    for k, v in zip(d.keys, d.values, strict=False):
+                    for k, v in zip(d.keys, d.values, strict=True):
                         if isinstance(k, ast.Constant) and isinstance(k.value, str):
                             key_str = k.value
                             if isinstance(v, ast.Constant) and isinstance(v.value, str):
