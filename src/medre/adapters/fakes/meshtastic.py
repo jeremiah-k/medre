@@ -395,8 +395,10 @@ class FakeMeshtasticAdapter(AdapterContract):
         meshtastic_meta["channel"] = channel_index
         # Inner transport-namespaced dict stays a plain dict; the outer
         # MappingProxyType is the contract-level immutability boundary.
-        # (Nested MappingProxyType breaks JSON validation in
-        # OutboundNativeRefRecord.__post_init__.)
+        # The pipeline's _normalize_mapping handles any nested
+        # MappingProxyType at the persistence boundary, so nested
+        # MappingProxyType is safe — but keeping the inner dict plain
+        # avoids unnecessary wrapping here.
         result_metadata["meshtastic"] = meshtastic_meta
 
         return AdapterDeliveryResult(

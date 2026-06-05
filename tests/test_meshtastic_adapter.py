@@ -992,6 +992,7 @@ class TestMeshtasticAdapterSelfEcho:
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         try:
+            # Inject node_id for self-echo classification (see test_self_echo_does_not_reach_codec).
             adapter._session._node_id = "!own_node"
 
             packet = make_meshtastic_text_packet(

@@ -128,6 +128,8 @@ def _normalize_mapping(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {k: _normalize_mapping(v) for k, v in value.items()}
     # Lists / tuples: recurse into elements in case they contain nested maps.
+    # Tuples are normalised to lists because JSON has no tuple type and
+    # msgspec.json.encode serialises both as JSON arrays.
     if isinstance(value, (list, tuple)):
         return [_normalize_mapping(v) for v in value]
     return value

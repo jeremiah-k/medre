@@ -78,6 +78,10 @@ def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | N
     Walks the enclosing FunctionDef body (or module-level assigns) in reverse
     to find the *most recent* preceding assignment of `name` to a dict literal
     that appears before the call site (by line number).
+
+    Limitations: only resolves simple ``name = {...}`` assignments in the
+    same scope.  Does not handle aliases (``x = name``), dict comprehensions,
+    function returns, cross-scope bindings, or augmented assignments.
     """
     # Walk up to find the enclosing scope
     parent = getattr(call_node, "parent", None)
@@ -124,7 +128,7 @@ def _parse_adapter_results(
     # Set parent references so _resolve_name_to_dict_literal can walk up.
     for _parent in ast.walk(tree):
         for _child in ast.iter_child_nodes(_parent):
-            _child.parent = _parent  # type: ignore[attr-defined]
+            _child.parent = _parent  # type: ignore[attr-defined]  # AST nodes have no .parent in type stubs; injected for upward traversal
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -181,7 +185,7 @@ def _parse_adapter_results(
                     arg0 = meta_call.args[0]
                     # Handle MappingProxyType(local_name) where local_name is a dict literal
                     if isinstance(arg0, ast.Name):
-                        arg0 = _resolve_name_to_dict_literal(node, arg0.id)  # type: ignore[assignment]
+                        arg0 = _resolve_name_to_dict_literal(node, arg0.id)  # type: ignore[assignment]  # may return None, assigned to AST variable
                     if not isinstance(arg0, ast.Dict):
                         continue
                     d = arg0
@@ -1087,9 +1091,9 @@ class TestSection24RetryWording:
         section_end = content.find("## 25.", section_start)
         section = content[section_start:section_end]
 
-        assert "durable retry" in section.lower(), (
-            "§24 rule 6 must forbid durable retry loops"
-        )
+        assert (
+            "durable retry" in section.lower()
+        ), "§24 rule 6 must forbid durable retry loops"
 
     def test_rule6_forbids_receipt_writing(self) -> None:
         """§24 rule 6 must forbid adapters writing receipts."""
@@ -1098,9 +1102,9 @@ class TestSection24RetryWording:
         section_end = content.find("## 25.", section_start)
         section = content[section_start:section_end]
 
-        assert "receipt" in section.lower(), (
-            "§24 rule 6 must mention receipt writing prohibition"
-        )
+        assert (
+            "receipt" in section.lower()
+        ), "§24 rule 6 must mention receipt writing prohibition"
 
     def test_rule6_requires_raise_on_exhaustion(self) -> None:
         """§24 rule 6 must require raising on retry exhaustion."""
@@ -1109,12 +1113,12 @@ class TestSection24RetryWording:
         section_end = content.find("## 25.", section_start)
         section = content[section_start:section_end]
 
-        assert "AdapterSendError" in section, (
-            "§24 rule 6 must mention AdapterSendError on exhaustion"
-        )
-        assert "AdapterPermanentError" in section, (
-            "§24 rule 6 must mention AdapterPermanentError on exhaustion"
-        )
+        assert (
+            "AdapterSendError" in section
+        ), "§24 rule 6 must mention AdapterSendError on exhaustion"
+        assert (
+            "AdapterPermanentError" in section
+        ), "§24 rule 6 must mention AdapterPermanentError on exhaustion"
 
 
 class TestSchemaDeliveryStatusEnum:
@@ -1128,9 +1132,10 @@ class TestSchemaDeliveryStatusEnum:
         schema = json.loads(schema_path.read_text("utf-8"))
         ds = schema["properties"]["delivery_status"]
         assert "enum" in ds, "delivery_status must have an enum constraint"
-        assert set(ds["enum"]) == {"sent", "enqueued"}, (
-            f"delivery_status enum must be ['sent', 'enqueued'], got {ds['enum']}"
-        )
+        assert set(ds["enum"]) == {
+            "sent",
+            "enqueued",
+        }, f"delivery_status enum must be ['sent', 'enqueued'], got {ds['enum']}"
 
 
 class TestSchemaMetadataPropertyNames:
@@ -1144,16 +1149,14 @@ class TestSchemaMetadataPropertyNames:
         schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
         schema = json.loads(schema_path.read_text("utf-8"))
         meta = schema["properties"]["metadata"]
-        assert "propertyNames" in meta, (
-            "metadata must have propertyNames guard"
-        )
+        assert "propertyNames" in meta, "metadata must have propertyNames guard"
         # The propertyNames.not.enum must include the reserved keys
         not_enum = meta["propertyNames"].get("not", {}).get("enum", [])
-        expected_reserved = {"delivery_status", "status", "state"}
+        expected_reserved = {"delivery_status", "adapter_status", "status", "state"}
         missing = expected_reserved - set(not_enum)
-        assert not missing, (
-            f"metadata propertyNames not.enum missing reserved keys: {sorted(missing)}"
-        )
+        assert (
+            not missing
+        ), f"metadata propertyNames not.enum missing reserved keys: {sorted(missing)}"
 
     def test_schema_metadata_allows_namespaced_keys(self) -> None:
         """metadata propertyNames must NOT reject transport-namespaced keys.
