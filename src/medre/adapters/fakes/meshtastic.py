@@ -393,7 +393,11 @@ class FakeMeshtasticAdapter(AdapterContract):
             meshtastic_meta["emoji"] = emoji_val
         meshtastic_meta["packet_id"] = packet_id
         meshtastic_meta["channel"] = channel_index
-        result_metadata["meshtastic"] = MappingProxyType(meshtastic_meta)
+        # Inner transport-namespaced dict stays a plain dict; the outer
+        # MappingProxyType is the contract-level immutability boundary.
+        # (Nested MappingProxyType breaks JSON validation in
+        # OutboundNativeRefRecord.__post_init__.)
+        result_metadata["meshtastic"] = meshtastic_meta
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),

@@ -356,7 +356,21 @@ class OutboundNativeRefRecord:
             raise ValueError(
                 "OutboundNativeRefRecord.native_message_id must be a non-empty string"
             )
-        frozen = dict(self.metadata)
+
+        # Recursively unwrap any nested MappingProxyType to plain dicts
+        # so that ``json.dumps`` can serialise the structure. ``dict()``
+        # alone only copies the top level; nested MappingProxyType values
+        # would still trip the encoder.
+        def _unwrap(obj: object) -> object:
+            if isinstance(obj, MappingProxyType):
+                obj = dict(obj)
+            if isinstance(obj, dict):
+                return {k: _unwrap(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return type(obj)(_unwrap(v) for v in obj)
+            return obj
+
+        frozen = _unwrap(self.metadata)
         try:
             import json
 
