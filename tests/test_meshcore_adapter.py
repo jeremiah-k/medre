@@ -989,7 +989,7 @@ class TestMeshCoreNamespacedMetadata:
             config=_make_config(connection_type="fake"),
             adapter_id="meshcore-1",
         )
-        await fake_session.start(message_callback=lambda pkt: None)
+        await fake_session.start(message_callback=lambda _pkt: None)
         fake_session.send_text = AsyncMock(return_value="pkt-42")  # type: ignore[attr-defined]
         adapter._session = fake_session
         adapter._started = True

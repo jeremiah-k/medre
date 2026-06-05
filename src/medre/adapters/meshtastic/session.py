@@ -289,6 +289,7 @@ class MeshtasticSession:
 
         if conn == "fake":
             self._client = None
+            self._node_id = None
         else:
             if not HAS_MESHTASTIC:
                 raise MeshtasticConnectionError(
@@ -355,6 +356,7 @@ class MeshtasticSession:
                 pass
 
         self._client = None
+        self._node_id = None
         self._started = False
         self._logger.info("MeshtasticSession %s stopped", self._adapter_id)
 

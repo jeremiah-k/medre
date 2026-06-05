@@ -400,7 +400,9 @@ class MeshCoreAdapter(AdapterContract):
         contact_id = str(payload.get("contact_id", ""))
 
         resolved_channel_index = (
-            channel_index if isinstance(channel_index, int) else None
+            channel_index
+            if isinstance(channel_index, int) and not isinstance(channel_index, bool)
+            else None
         )
 
         try:

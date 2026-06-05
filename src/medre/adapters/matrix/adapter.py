@@ -600,11 +600,7 @@ class MatrixAdapter(AdapterContract):
                     native_message_id=event_id,
                     native_channel_id=room_id,
                     metadata=MappingProxyType(
-                        {
-                            "matrix": {
-                                "txn_id": txn_id,
-                            }
-                        }
+                        {"matrix": MappingProxyType({"txn_id": txn_id})}
                     ),
                 )
 

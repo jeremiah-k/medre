@@ -467,4 +467,5 @@ class TestFakeMeshtasticStructuredDelivery:
         assert delivery.metadata["meshtastic"]["packet_id"] == packet["packet_id"]
         assert delivery.metadata["meshtastic"]["channel"] == 0
         assert "reply_id" not in delivery.metadata["meshtastic"]
+        assert "emoji" not in delivery.metadata["meshtastic"]
         assert "emoji" not in delivery.metadata

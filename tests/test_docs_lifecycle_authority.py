@@ -305,11 +305,12 @@ class TestAdapterMetadataNaming:
             source = py_file.read_text("utf-8")
             results = _parse_adapter_results(source, str(py_file))
             for _ds_value, meta_keys in results:
-                if "delivery_status" in meta_keys:
+                has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
+                if "delivery_status" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use a transport-namespaced "
-                        f"key (e.g. metadata['meshcore']) instead"
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"— use transport namespacing (e.g. metadata['meshcore']) instead"
                     )
         return violations
 
@@ -338,11 +339,12 @@ class TestTestMockMetadataNaming:
             source = py_file.read_text("utf-8")
             results = _parse_adapter_results(source, str(py_file))
             for _ds_value, meta_keys in results:
-                if "delivery_status" in meta_keys:
+                has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
+                if "delivery_status" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use a transport-namespaced "
-                        f"key (e.g. metadata['meshtastic']) instead"
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"— use transport namespacing (e.g. metadata['meshtastic']) instead"
                     )
         return violations
 

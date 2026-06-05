@@ -976,6 +976,7 @@ class TestMatrixTxnIdInSuccess:
         assert delivery is not None
         assert "matrix" in delivery.metadata
         assert "txn_id" in delivery.metadata["matrix"]
+        assert "matrix_txn_id" not in delivery.metadata
         room_id = result.target_channel or "!room:example.com"
         expected_txn = _matrix_txn_id(result, room_id)
         assert delivery.metadata["matrix"]["txn_id"] == expected_txn
@@ -1189,6 +1190,7 @@ class TestEvidenceSecretSafety:
         # matrix txn_id is allowed
         assert "matrix" in meta
         assert "txn_id" in meta["matrix"]
+        assert "matrix_txn_id" not in meta
 
 
 # ===================================================================

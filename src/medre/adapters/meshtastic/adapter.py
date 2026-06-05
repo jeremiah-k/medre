@@ -615,7 +615,8 @@ class MeshtasticAdapter(AdapterContract):
             return
 
         try:
-            own_node_id = self._session.node_id if self._session is not None else None
+            session = self._session
+            own_node_id = session.node_id if session is not None else None
             classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
             self._log_classification(classification)
@@ -705,9 +706,10 @@ class MeshtasticAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
+        session = self._session
         classification = self._classifier.classify(
             packet,
-            own_node_id=(self._session.node_id if self._session is not None else None),
+            own_node_id=(session.node_id if session is not None else None),
         )
         self._increment_classifier_counters(classification)
         self._log_classification(classification)
