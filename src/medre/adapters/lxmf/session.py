@@ -1324,13 +1324,13 @@ class LxmfSession:
                     await asyncio.sleep(0.1 * attempt)
 
         # All retries exhausted.
-        self._diag.permanent_delivery_failures += 1
+        self._diag.transient_delivery_failures += 1
         self._diag.last_error = (
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
         )
         raise LxmfSendError(
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}",
-            transient=False,
+            transient=True,
         ) from last_exc
 
     @staticmethod

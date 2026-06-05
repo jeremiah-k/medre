@@ -805,9 +805,9 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.delivery_result.metadata["packet_id"] == 42
-        assert result.delivery_result.metadata["channel"] == 0
-        assert result.delivery_result.metadata["reply_id"] == 7
+        assert result.delivery_result.metadata["meshtastic"]["packet_id"] == 42
+        assert result.delivery_result.metadata["meshtastic"]["channel"] == 0
+        assert result.delivery_result.metadata["meshtastic"]["reply_id"] == 7
 
     async def test_metadata_from_object_result(self) -> None:
         """process_one includes metadata snapshot from object send result."""
@@ -821,9 +821,9 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.delivery_result.metadata["id"] == 123
-        assert result.delivery_result.metadata["channel"] == 3
-        assert result.delivery_result.metadata["reply_id"] == 99
+        assert result.delivery_result.metadata["meshtastic"]["id"] == 123
+        assert result.delivery_result.metadata["meshtastic"]["channel"] == 3
+        assert result.delivery_result.metadata["meshtastic"]["reply_id"] == 99
 
     async def test_metadata_empty_for_none_result(self) -> None:
         """process_one metadata is empty when send returns None."""
@@ -852,7 +852,7 @@ class TestQueueMetadataSnapshot:
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
         assert result.delivery_result.native_message_id == "55"
-        assert result.delivery_result.metadata["packet_id"] == 55
+        assert result.delivery_result.metadata["meshtastic"]["packet_id"] == 55
 
     async def test_bytes_metadata_json_safe_from_dict(self) -> None:
         """Dict send result with bytes in a captured key is JSON-safe."""
@@ -866,11 +866,13 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.delivery_result.metadata.get("to") == {
+        assert result.delivery_result.metadata.get("meshtastic", {}).get("to") == {
             "encoding": "base64",
             "data": "AP8=",
         }
-        assert result.delivery_result.metadata.get("packet_id") == 42
+        assert (
+            result.delivery_result.metadata.get("meshtastic", {}).get("packet_id") == 42
+        )
 
     async def test_bytes_metadata_json_safe_from_object(self) -> None:
         """Object send result with bytes in a captured attr is JSON-safe."""
@@ -888,11 +890,11 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.delivery_result.metadata.get("to") == {
+        assert result.delivery_result.metadata.get("meshtastic", {}).get("to") == {
             "encoding": "base64",
             "data": "AP8=",
         }
-        assert result.delivery_result.metadata.get("id") == 1
+        assert result.delivery_result.metadata.get("meshtastic", {}).get("id") == 1
 
 
 # ===================================================================

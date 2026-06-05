@@ -89,7 +89,7 @@ class AdapterDeliveryResult:
     The pipeline owns receipts and storage; adapters only report what
     the platform returned.
 
-    ``delivery_status`` carries the adapter-level lifecycle state:
+    ``delivery_status`` carries the adapter-level delivery state:
 
     * ``"sent"`` — the adapter completed the platform hand-off and
       obtained a native message ID (or confirmed the send).  This is the
@@ -126,7 +126,7 @@ class AdapterDeliveryResult:
         Human-readable context about the delivery.  Used by queue-based
         adapters to explain local-acceptance without a native ACK.
     delivery_status:
-        Adapter-level lifecycle state: ``"sent"`` (default, synchronous
+        Adapter-level delivery state: ``"sent"`` (default, synchronous
         adapters) or ``"enqueued"`` (queue-based adapters that accepted
         locally but have not yet sent to the platform).
     metadata:
