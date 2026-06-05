@@ -34,6 +34,7 @@ from medre.core.contracts.adapter import (
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
+    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
 from medre.core.engine.pipeline.target_delivery import (
@@ -1662,12 +1663,7 @@ class PipelineRunner:
 
             # If replay finds a terminal row, create a new row with
             # incremented attempt_number so replay can re-deliver.
-            if source == "replay" and created.status in {
-                "sent",
-                "dead_lettered",
-                "cancelled",
-                "abandoned",
-            }:
+            if source == "replay" and created.status in _TERMINAL_OUTBOX_STATUSES:
                 outbox_item = dataclasses.replace(
                     outbox_item, attempt_number=created.attempt_number + 1
                 )
