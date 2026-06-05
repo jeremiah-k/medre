@@ -984,6 +984,8 @@ class TestRetryWorkerReconstruction:
             failure_kind="adapter_transient",
             error_summary="Retry scheduled",
         )
+        retry_wait_item = await temp_storage.get_outbox_item(created.outbox_id)
+        assert retry_wait_item is not None
 
         # -- Create a failed receipt for lineage ------------------------------
         receipt = DeliveryReceipt(
@@ -1035,7 +1037,7 @@ class TestRetryWorkerReconstruction:
         # Patch _emit to avoid event buffer dependency
         worker._emit = MagicMock()  # type: ignore[method-assign]
 
-        await worker._retry_outbox_item(outbox_item)
+        await worker._retry_outbox_item(retry_wait_item)
 
         # -- Assert deliver_to_target was called with the reconstructed plan --
         mock_deliver.assert_called_once()

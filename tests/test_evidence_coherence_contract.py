@@ -566,7 +566,7 @@ class TestTopLevelConvergenceFieldsPopulated:
             await storage.claim_due_outbox_items(
                 now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
             )
-            await storage.mark_outbox_sent("obx_001", receipt_id="rcpt_obx_001")
+            await storage.mark_outbox_sent("obx_001", receipt_id="rcpt_001")
 
             receipt = DeliveryReceipt(
                 receipt_id="rcpt_001",
@@ -743,7 +743,7 @@ class TestTopLevelConvergenceFieldsPopulated:
             await storage.claim_due_outbox_items(
                 now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
             )
-            await storage.mark_outbox_sent("obx_g001", receipt_id="rcpt_obx_g001")
+            await storage.mark_outbox_sent("obx_g001", receipt_id="rcpt_g001")
 
             receipt = DeliveryReceipt(
                 receipt_id="rcpt_g001",

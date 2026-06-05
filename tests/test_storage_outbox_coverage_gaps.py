@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from typing import NoReturn
 
 import pytest
 
@@ -239,25 +240,25 @@ class TestAiosqliteIntegrityErrorHandler:
         class _NoRowCursor:
             """Mock aiosqlite cursor: fetchone returns None, supports async with."""
 
-            async def fetchone(self):
+            async def fetchone(self) -> None:
                 return None
 
-            async def __aenter__(self):
+            async def __aenter__(self) -> _NoRowCursor:
                 return self
 
-            async def __aexit__(self, *a):
+            async def __aexit__(self, *a: object) -> None:
                 pass
 
-            def __await__(self):
+            def __await__(self):  # type: ignore[override]
                 return self.__aenter__().__await__()
 
         class _InsertErrorCursor:
             """Mock aiosqlite cursor that raises IntegrityError when awaited."""
 
-            def __await__(self):
+            def __await__(self):  # type: ignore[override]
                 return self._raise().__await__()
 
-            async def _raise(self):
+            async def _raise(self) -> NoReturn:
                 raise sqlite3.IntegrityError("UNIQUE constraint violation")
 
         def _patched_execute(sql, params=None):
