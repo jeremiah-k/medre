@@ -69,6 +69,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -975,8 +976,8 @@ class MeshtasticAdapter(AdapterContract):
             "to",
         }
         for k, v in (delivery.metadata or {}).items():
-            if k == "meshtastic" and isinstance(v, dict):
-                meshtastic_meta.update(v)
+            if k == "meshtastic" and isinstance(v, Mapping):
+                meshtastic_meta.update(dict(v))
             elif k in transport_keys:
                 meshtastic_meta[k] = v
             else:

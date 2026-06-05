@@ -209,16 +209,23 @@ class TestOnPacketCtxNoneGuard:
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
 
-        # Simulate ctx being cleared after start (e.g. partial teardown).
-        adapter.ctx = None
-        adapter._started = True
+        try:
+            # Simulate ctx being cleared after start (e.g. partial teardown).
+            adapter.ctx = None
+            adapter._started = True
 
-        # Patch classifier to detect if classify() is called.
-        with patch.object(adapter._classifier, "classify") as mock_classify:
-            adapter._on_packet(
-                {"fromId": "!node1", "id": 1, "decoded": {"portnum": "text_message"}}
-            )
-            mock_classify.assert_not_called()
+            # Patch classifier to detect if classify() is called.
+            with patch.object(adapter._classifier, "classify") as mock_classify:
+                adapter._on_packet(
+                    {
+                        "fromId": "!node1",
+                        "id": 1,
+                        "decoded": {"portnum": "text_message"},
+                    }
+                )
+                mock_classify.assert_not_called()
+        finally:
+            await adapter.stop()
 
     async def test_on_packet_not_started_no_classification(self) -> None:
         """_on_packet returns early when _started=False regardless of ctx."""

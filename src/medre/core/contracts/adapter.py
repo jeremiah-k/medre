@@ -19,6 +19,7 @@ Definitions:
 
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -89,7 +90,7 @@ class AdapterDeliveryResult:
     The pipeline owns receipts and storage; adapters only report what
     the platform returned.
 
-    ``delivery_status`` carries the adapter-level delivery state:
+    ``delivery_status`` carries the adapter delivery fact:
 
     * ``"sent"`` — the adapter completed the platform hand-off and
       obtained a native message ID (or confirmed the send).  This is the
@@ -126,9 +127,11 @@ class AdapterDeliveryResult:
         Human-readable context about the delivery.  Used by queue-based
         adapters to explain local-acceptance without a native ACK.
     delivery_status:
-        Adapter-level delivery state: ``"sent"`` (default, synchronous
-        adapters) or ``"enqueued"`` (queue-based adapters that accepted
-        locally but have not yet sent to the platform).
+        Adapter delivery fact: ``"sent"`` (default, synchronous adapters)
+        or ``"enqueued"`` (queue-based adapters that accepted locally but
+        have not yet sent to the platform). This is a narrow adapter
+        fact — the pipeline maps it to receipt status; it is not
+        lifecycle authority.
     metadata:
         Adapter-specific immutable metadata about the delivery.
     """
@@ -364,7 +367,7 @@ class OutboundNativeRefRecord:
         def _unwrap(obj: object) -> object:
             if isinstance(obj, MappingProxyType):
                 obj = dict(obj)
-            if isinstance(obj, dict):
+            if isinstance(obj, Mapping):
                 return {k: _unwrap(v) for k, v in obj.items()}
             if isinstance(obj, (list, tuple)):
                 return type(obj)(_unwrap(v) for v in obj)
@@ -372,8 +375,6 @@ class OutboundNativeRefRecord:
 
         frozen = _unwrap(self.metadata)
         try:
-            import json
-
             json.dumps(frozen)
         except (TypeError, ValueError) as exc:
             raise TypeError(

@@ -120,7 +120,7 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 ## Session Lifecycle
 
 1. **Disconnected** — Initial state; `_meshcore=None`.
-2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types. After subscriptions, the adapter issues `commands.send_appstart()` (CMD_APP_START) so the firmware accepts further commands. This MUST be called on every connect and re-connect.
+2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types. After subscriptions, the session issues `commands.send_appstart()` (CMD_APP_START) so the firmware accepts further commands. This MUST be called on every connect and reconnect.
 3. **Connected** — Client created, subscribed, and appstart succeeded; `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
 4. **Reconnecting** — SDK `DISCONNECTED` event triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success, re-subscribes.
 5. **Stopped** — `stop()` sets `_stop_requested`, unsubscribes, disconnects SDK client, nulls references. Idempotent.

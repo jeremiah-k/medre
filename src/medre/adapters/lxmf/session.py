@@ -298,10 +298,11 @@ def _map_delivery_method(raw_method: Any) -> str | None:
 class _SessionDiagnostics:
     """Mutable diagnostics snapshot owned by the session.
 
-    ``transient_delivery_failures`` counts transient failure events,
-    including each retry attempt plus the final exhaustion event when
-    all retries are exhausted.  For example, 3 failed attempts result
-    in a count of 4 (3 attempts + 1 exhaustion).
+    ``transient_delivery_failures`` counts one per transient retry
+    attempt.  Exhaustion itself does **not** add an increment --
+    per-attempt failures are the unit of measurement.  For example,
+    3 transient failed attempts in a single send call result in a
+    count of 3.
     """
 
     connected: bool = False
@@ -1307,7 +1308,7 @@ class LxmfSession:
                     f"Transient send failure (attempt {attempt}): {exc}"
                 )
                 self._logger.warning(
-                    "LxmfSession %s transient send failure " "(attempt %d/%d): %s",
+                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
                     self._adapter_id,
                     attempt,
                     _SEND_MAX_RETRIES,
@@ -1322,7 +1323,7 @@ class LxmfSession:
                     f"Transient send failure (attempt {attempt}): {exc}"
                 )
                 self._logger.warning(
-                    "LxmfSession %s transient send failure " "(attempt %d/%d): %s",
+                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
                     self._adapter_id,
                     attempt,
                     _SEND_MAX_RETRIES,
@@ -1331,9 +1332,9 @@ class LxmfSession:
                 if attempt < _SEND_MAX_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
 
-        # All retries exhausted — count the exhaustion event separately
-        # from the per-attempt increments above.
-        self._diag.transient_delivery_failures += 1
+        # All retries exhausted.
+        # Diagnostics already count per-attempt failures above; exhaustion
+        # itself is a summary event, not an additional transient failure.
         self._diag.last_error = (
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
         )

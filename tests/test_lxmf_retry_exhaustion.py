@@ -103,7 +103,8 @@ class TestRetryExhaustionTransient:
             exc_info.value.transient is True
         ), "Retry exhaustion must remain transient for outer pipeline retry"
 
-        # 3 transient increments inside the loop + 1 at exhaustion = 4
-        assert session._diag.transient_delivery_failures == 4
+        # One increment per failed transient attempt; exhaustion itself
+        # is not a separate transient failure event.
+        assert session._diag.transient_delivery_failures == 3
         assert session._diag.permanent_delivery_failures == 0
         await session.stop()

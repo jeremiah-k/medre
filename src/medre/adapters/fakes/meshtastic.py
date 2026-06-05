@@ -430,7 +430,7 @@ class FakeMeshtasticAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
-        classification = self._classifier.classify(packet)
+        classification = self._classifier.classify(packet, own_node_id=None)
         if classification.action != "relay":
             return
 

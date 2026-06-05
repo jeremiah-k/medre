@@ -8,6 +8,7 @@ of ``src/medre/core/contracts/adapter.py`` through the public constructor.
 
 from __future__ import annotations
 
+from collections import UserDict
 from types import MappingProxyType
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
@@ -93,3 +94,15 @@ def test_plain_dict_metadata_no_error() -> None:
     """Plain dict metadata passes through without error."""
     record = _make(packet_id=1, label="test")
     assert dict(record.metadata) == {"packet_id": 1, "label": "test"}
+
+
+def test_top_level_userdict_metadata_accepted() -> None:
+    """Non-dict Mapping metadata is normalized and accepted."""
+    record = OutboundNativeRefRecord(
+        event_id="evt-1",
+        adapter="mesh-1",
+        native_channel_id="0",
+        native_message_id="42",
+        metadata=UserDict({"packet_id": 7}),
+    )
+    assert dict(record.metadata) == {"packet_id": 7}

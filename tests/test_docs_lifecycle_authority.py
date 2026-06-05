@@ -72,6 +72,36 @@ def _adapter_py_files() -> list[Path]:
     return sorted(ADAPTERS_DIR.rglob("*.py"))
 
 
+def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | None:
+    """Best-effort resolution for local `name = {...}` bindings in the same scope.
+
+    Walks the enclosing FunctionDef body (or module-level assigns) in reverse
+    to find the *most recent* preceding assignment of `name` to a dict literal
+    that appears before the call site (by line number).
+    """
+    # Walk up to find the enclosing scope
+    parent = getattr(call_node, "parent", None)
+    while parent is not None and not isinstance(
+        parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)
+    ):
+        parent = getattr(parent, "parent", None)
+
+    if parent is None:
+        return None
+
+    call_line = getattr(call_node, "lineno", None)
+    for stmt in reversed(parent.body):
+        stmt_line = getattr(stmt, "lineno", None)
+        if call_line is not None and stmt_line is not None and stmt_line > call_line:
+            continue
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            target = stmt.targets[0]
+            if isinstance(target, ast.Name) and target.id == name:
+                if isinstance(stmt.value, ast.Dict):
+                    return stmt.value
+    return None
+
+
 def _parse_adapter_results(
     source: str, filename: str
 ) -> list[tuple[str | None, dict[str, str]]]:
@@ -90,6 +120,11 @@ def _parse_adapter_results(
     """
     tree = ast.parse(source, filename=filename)
     results: list[tuple[str | None, dict[str, str]]] = []
+
+    # Set parent references so _resolve_name_to_dict_literal can walk up.
+    for _parent in ast.walk(tree):
+        for _child in ast.iter_child_nodes(_parent):
+            _child.parent = _parent  # type: ignore[attr-defined]
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -142,12 +177,14 @@ def _parse_adapter_results(
                 ):
                     is_mapping_proxy = True
 
-                if (
-                    is_mapping_proxy
-                    and meta_call.args
-                    and isinstance(meta_call.args[0], ast.Dict)
-                ):
-                    d = meta_call.args[0]
+                if is_mapping_proxy and meta_call.args:
+                    arg0 = meta_call.args[0]
+                    # Handle MappingProxyType(local_name) where local_name is a dict literal
+                    if isinstance(arg0, ast.Name):
+                        arg0 = _resolve_name_to_dict_literal(node, arg0.id)  # type: ignore[assignment]
+                    if not isinstance(arg0, ast.Dict):
+                        continue
+                    d = arg0
                     for k, v in zip(d.keys, d.values, strict=True):
                         if isinstance(k, ast.Constant) and isinstance(k.value, str):
                             key_str = k.value
