@@ -59,7 +59,7 @@ class _OutboxMixin:
         (extreme edge case), the existing row is re-read and returned.
         """
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
-        effective_status = item.status or "pending"
+        effective_status = item.status if item.status is not None else "pending"
         # Production lifecycle authority: only pending (default durable
         # work) and in_progress (pipeline claim path) may be the initial
         # status.  All other statuses must be reached through explicit

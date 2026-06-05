@@ -121,7 +121,7 @@ FAILURE_KIND_TO_TAXON: dict[str, FailureTaxon] = {
     "capability_suppressed": FailureTaxon.CAPABILITY_SUPPRESSED,
     "outbox_not_owned": FailureTaxon.OUTBOX_NOT_OWNED,
 }
-"""Identity mapping for the 11 ``DeliveryFailureKind`` values.
+"""Identity mapping for all ``DeliveryFailureKind`` values.
 
 Every key is a ``DeliveryFailureKind.value`` string; every value is the
 corresponding :class:`FailureTaxon` member with the same string value.

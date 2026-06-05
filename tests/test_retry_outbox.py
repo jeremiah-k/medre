@@ -276,6 +276,7 @@ class TestRestartVisibility:
             claimed = await storage.claim_due_outbox_items(
                 now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
             )
+            assert len(claimed) == 1
             await storage.mark_outbox_dead_lettered(
                 claimed[0].outbox_id, failure_kind="test"
             )

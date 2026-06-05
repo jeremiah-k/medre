@@ -247,7 +247,7 @@ diagnostics.
   delivery, or when an outbox item is cancelled through explicit operator
   action. Graceful shutdown does not automatically transition non-terminal
   outbox items to `cancelled`. Non-terminal outbox rows remain as resumable
-  work for the next startup. See §12.
+  work for the next startup. See §13.
 - Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
   `connection_failed`, `route_disabled`, `route_listen_only`,
   `retry_exhausted`, `shutdown_pending`) are computed at report time from
@@ -259,7 +259,7 @@ diagnostics.
 
 ## 13. Shutdown Delivery Evidence
 
-### 12.1 Goals
+### 13.1 Goals
 
 When the runtime shuts down, the delivery evidence system aims to:
 
@@ -271,7 +271,7 @@ When the runtime shuts down, the delivery evidence system aims to:
 - Report honest shutdown evidence, including whether resumable work was left
   pending.
 
-### 12.2 Resumable Shutdown Policy
+### 13.2 Resumable Shutdown Policy
 
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
@@ -292,7 +292,7 @@ resumable outbox work is not performed because:
 Terminal outbox statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`)
 are already final and require no shutdown-side action.
 
-### 12.3 Outbox Shutdown Classification
+### 13.3 Outbox Shutdown Classification
 
 Each outbox status is classified for shutdown policy:
 
@@ -307,7 +307,7 @@ Each outbox status is classified for shutdown policy:
 | `cancelled`     | `terminal_cancelled`     | No        | None (already final) |
 | `abandoned`     | `terminal_abandoned`     | No        | None (already final) |
 
-### 12.4 ShutdownEvidence Model
+### 13.4 ShutdownEvidence Model
 
 The `ShutdownEvidence` frozen dataclass records structured shutdown evidence.
 It is built by `build_shutdown_evidence()`, a pure function with no I/O or
@@ -330,7 +330,7 @@ inspected at shutdown and non-terminal rows were intentionally preserved.
 Operators can use `resume_expected` to determine whether pending work will be
 resumed on next startup.
 
-### 12.5 Current Behaviour
+### 13.5 Current Behaviour
 
 | Scenario                                         | Evidence produced                                           |
 | ------------------------------------------------ | ----------------------------------------------------------- |
