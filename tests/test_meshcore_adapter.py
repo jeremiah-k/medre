@@ -6,6 +6,7 @@ rendering boundary enforcement, and session delegation.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 import pytest
@@ -726,13 +727,26 @@ class TestMalformedSDKResponse:
         adapter._started = True
         adapter.ctx = ctx
 
-        result = _make_rendering_result()
-        delivery = await adapter.deliver(result)
-        assert delivery is not None
-        assert delivery.metadata["meshcore"]["local_acceptance"] is True
-        assert "adapter_status" not in delivery.metadata
+        return adapter, fake_session
 
-        await fake_session.stop()
+    async def test_delivery_metadata_shape(self, make_adapter_context) -> None:
+        """Delivery metadata has frozen nested meshcore dict with local_acceptance."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_real_adapter_with_session(
+            make_adapter_context
+        )
+        try:
+            session.send_text = AsyncMock(return_value="pkt-malformed-1")
+            result = _make_rendering_result()
+            delivery = await adapter.deliver(result)
+            assert delivery is not None
+            meshcore_metadata = delivery.metadata["meshcore"]
+            assert isinstance(meshcore_metadata, Mapping)
+            assert meshcore_metadata["local_acceptance"] is True
+            assert "adapter_status" not in delivery.metadata
+        finally:
+            await session.stop()
 
 
 # ===================================================================

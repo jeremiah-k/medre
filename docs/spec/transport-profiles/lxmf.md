@@ -97,7 +97,7 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
   - `destination_hash` is the 16-byte recipient identity hash (hex-encoded, 32 chars), if available.
   - `native_channel_id` is always `None` — LXMF has no channel concept.
 
-- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `delivery_status` is the initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`).
+- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `AdapterDeliveryResult.delivery_status` is always `"sent"` (meaning the message was handed to the local LXMRouter). The initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`) is reported in `metadata["lxmf"]["delivery_state"]`, not in `delivery_status`.
 
 ---
 

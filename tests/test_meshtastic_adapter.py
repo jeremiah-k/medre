@@ -960,26 +960,28 @@ class TestMeshtasticAdapterSelfEcho:
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
+        try:
+            # Set the session's node_id so the adapter passes it to the classifier.
+            # In fake mode the session has no real client, so node_id is None.
+            # Inject it for testing.
+            adapter._session._node_id = "!own_node"
 
-        # Set the session's node_id so the adapter passes it to the classifier.
-        # In fake mode the session has no real client, so node_id is None.
-        # Inject it for testing.
-        adapter._session._node_id = "!own_node"
+            # Packet from our own node (broadcast text)
+            packet = make_meshtastic_text_packet(
+                text="echo from me", sender="!own_node"
+            )
+            await adapter.simulate_inbound(packet)
 
-        # Packet from our own node (broadcast text)
-        packet = make_meshtastic_text_packet(text="echo from me", sender="!own_node")
-        await adapter.simulate_inbound(packet)
+            # Should NOT be published
+            assert len(inbound_collector.events) == 0
 
-        # Should NOT be published
-        assert len(inbound_collector.events) == 0
-
-        # Should increment self-echo counter
-        diag = adapter.diagnostics()
-        assert diag["classifier_packets_self_echo_ignored"] == 1
-        assert diag["classifier_packets_seen"] == 1
-        assert diag["inbound_published"] == 0
-
-        await adapter.stop()
+            # Should increment self-echo counter
+            diag = adapter.diagnostics()
+            assert diag["classifier_packets_self_echo_ignored"] == 1
+            assert diag["classifier_packets_seen"] == 1
+            assert diag["inbound_published"] == 0
+        finally:
+            await adapter.stop()
 
     async def test_non_self_echo_published_normally(
         self, make_adapter_context, inbound_collector
@@ -989,14 +991,16 @@ class TestMeshtasticAdapterSelfEcho:
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
+        try:
+            adapter._session._node_id = "!own_node"
 
-        adapter._session._node_id = "!own_node"
+            packet = make_meshtastic_text_packet(
+                text="from other", sender="!other_node"
+            )
+            await adapter.simulate_inbound(packet)
 
-        packet = make_meshtastic_text_packet(text="from other", sender="!other_node")
-        await adapter.simulate_inbound(packet)
-
-        assert len(inbound_collector.events) == 1
-        assert inbound_collector.events[0].payload["body"] == "from other"
-        assert adapter.diagnostics()["classifier_packets_self_echo_ignored"] == 0
-
-        await adapter.stop()
+            assert len(inbound_collector.events) == 1
+            assert inbound_collector.events[0].payload["body"] == "from other"
+            assert adapter.diagnostics()["classifier_packets_self_echo_ignored"] == 0
+        finally:
+            await adapter.stop()

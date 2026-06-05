@@ -32,11 +32,17 @@
     },
     "delivery_status": {
       "type": "string",
+      "enum": ["sent", "enqueued"],
       "default": "sent",
       "description": "Adapter delivery fact: 'sent' (synchronous) or 'enqueued' (queue-based). Reports what the adapter did, not the final lifecycle state of the message. The pipeline maps this to receipt status; it is not lifecycle authority."
     },
     "metadata": {
       "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": ["delivery_status", "adapter_status", "status", "state"]
+        }
+      },
       "additionalProperties": true,
       "default": {},
       "description": "Immutable, namespaced delivery metadata. Transport-specific data MUST live under metadata[<transport>] (e.g. metadata.matrix, metadata.lxmf). No top-level MEDRE-standard keys are permitted."

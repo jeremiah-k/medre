@@ -927,7 +927,7 @@ The pipeline's `classify_failure` relies only on `AdapterSendError.transient` to
 3. Role is inferred from type, not operator-set.
 4. Lifecycle state changes **MUST** emit `system.lifecycle` events.
 5. Receipts are append-only. Every delivery attempt produces a new receipt row. Existing rows **MUST NOT** be updated or deleted.
-6. Adapters **MUST NOT** implement their own retry loops. If `deliver()` fails, it raises.
+6. Adapters **MUST NOT** own durable retry loops, schedule pipeline retries, write receipts, or mutate delivery lifecycle state. Bounded transport-call retries within a single `deliver()` invocation (e.g., up to 3 attempts for transient SDK send failures, as documented in the transport profile and §14.1 "Send retry") are permitted. After all bounded retries are exhausted, the adapter **MUST** raise `AdapterSendError` (transient) or `AdapterPermanentError` (permanent).
 7. The pipeline does not deduplicate delivery attempts. Adapters **MUST NOT** deduplicate.
 8. The adapter's `publish_inbound` is the only way to inject events into the pipeline.
 9. No adapter **MAY** swallow `CancelledError`.

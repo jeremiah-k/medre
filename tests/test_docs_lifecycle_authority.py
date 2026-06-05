@@ -1053,3 +1053,125 @@ class TestLxmfProfileContract:
                 f"LXMF profile must not claim delivery_status equals LXMF "
                 f"delivery state (found '{pattern}')"
             )
+
+
+# ===========================================================================
+# 13. §24 rule 6: bounded in-call retry wording
+# ===========================================================================
+
+
+class TestSection24RetryWording:
+    """§24 rule 6 must permit bounded in-call transport retries and forbid
+    durable retry, receipt writing, and lifecycle mutation."""
+
+    _ADAPTER_RUNTIME_MD = _ROOT / "docs" / "spec" / "adapter-runtime.md"
+
+    def test_rule6_mentions_bounded_retries(self) -> None:
+        """§24 rule 6 must mention bounded transport-call retries."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        # Find §24 section
+        section_start = content.find("## 24. Key Architectural Rules")
+        assert section_start != -1, "Cannot find §24 Key Architectural Rules"
+        section_end = content.find("## 25.", section_start)
+        assert section_end != -1, "Cannot find §25 after §24"
+        section = content[section_start:section_end]
+
+        assert "bounded transport-call retries" in section.lower() or (
+            "bounded" in section.lower() and "retry" in section.lower()
+        ), "§24 rule 6 must mention bounded retries"
+
+    def test_rule6_forbids_durable_retry(self) -> None:
+        """§24 rule 6 must forbid durable retry loops."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert "durable retry" in section.lower(), (
+            "§24 rule 6 must forbid durable retry loops"
+        )
+
+    def test_rule6_forbids_receipt_writing(self) -> None:
+        """§24 rule 6 must forbid adapters writing receipts."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert "receipt" in section.lower(), (
+            "§24 rule 6 must mention receipt writing prohibition"
+        )
+
+    def test_rule6_requires_raise_on_exhaustion(self) -> None:
+        """§24 rule 6 must require raising on retry exhaustion."""
+        content = _read(self._ADAPTER_RUNTIME_MD)
+        section_start = content.find("## 24. Key Architectural Rules")
+        section_end = content.find("## 25.", section_start)
+        section = content[section_start:section_end]
+
+        assert "AdapterSendError" in section, (
+            "§24 rule 6 must mention AdapterSendError on exhaustion"
+        )
+        assert "AdapterPermanentError" in section, (
+            "§24 rule 6 must mention AdapterPermanentError on exhaustion"
+        )
+
+
+class TestSchemaDeliveryStatusEnum:
+    """delivery-result.schema.json must restrict delivery_status to sent/enqueued."""
+
+    def test_schema_has_delivery_status_enum(self) -> None:
+        """delivery_status must have an enum restricting to sent and enqueued."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        ds = schema["properties"]["delivery_status"]
+        assert "enum" in ds, "delivery_status must have an enum constraint"
+        assert set(ds["enum"]) == {"sent", "enqueued"}, (
+            f"delivery_status enum must be ['sent', 'enqueued'], got {ds['enum']}"
+        )
+
+
+class TestSchemaMetadataPropertyNames:
+    """delivery-result.schema.json metadata must guard legacy top-level keys
+    via propertyNames."""
+
+    def test_schema_metadata_has_property_names_guard(self) -> None:
+        """metadata must use propertyNames to reject reserved bare keys."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+        meta = schema["properties"]["metadata"]
+        assert "propertyNames" in meta, (
+            "metadata must have propertyNames guard"
+        )
+        # The propertyNames.not.enum must include the reserved keys
+        not_enum = meta["propertyNames"].get("not", {}).get("enum", [])
+        expected_reserved = {"delivery_status", "status", "state"}
+        missing = expected_reserved - set(not_enum)
+        assert not missing, (
+            f"metadata propertyNames not.enum missing reserved keys: {sorted(missing)}"
+        )
+
+    def test_schema_metadata_allows_namespaced_keys(self) -> None:
+        """metadata propertyNames must NOT reject transport-namespaced keys.
+        Verify that a payload with metadata.matrix still validates."""
+        import json
+
+        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
+        schema = json.loads(schema_path.read_text("utf-8"))
+
+        # Load example which uses namespaced key "matrix"
+        example_path = (
+            _ROOT / "docs" / "schemas" / "examples" / "delivery-result-example.json"
+        )
+        example = json.loads(example_path.read_text("utf-8"))
+
+        try:
+            import jsonschema
+
+            jsonschema.validate(instance=example, schema=schema)
+        except ImportError:
+            pytest.skip("jsonschema not installed")
