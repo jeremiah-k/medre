@@ -1253,7 +1253,11 @@ class TestDelayedOutboundNativeRef:
         delivery = AdapterDeliveryResult(
             native_message_id="987654321",
             native_channel_id="0",
-            metadata=MappingProxyType({"packet_id": 987654321, "channel": 0}),
+            metadata=MappingProxyType(
+                {
+                    "meshtastic": {"packet_id": 987654321, "channel": 0},
+                }
+            ),
         )
         result = QueueDeliveryResult(item=item, delivery_result=delivery)
 
@@ -1271,8 +1275,8 @@ class TestDelayedOutboundNativeRef:
         assert ref.native_message_id == "987654321"
 
         # Metadata includes the merged delivery snapshot + payload context.
-        assert ref.metadata["packet_id"] == 987654321
-        assert ref.metadata["channel"] == 0
+        assert ref.metadata["meshtastic"]["packet_id"] == 987654321
+        assert ref.metadata["meshtastic"]["channel"] == 0
         assert ref.metadata["text"] == "hello mesh"
 
     async def test_no_callback_means_no_error(self) -> None:
@@ -1361,7 +1365,11 @@ class TestDelayedOutboundNativeRef:
         delivery = AdapterDeliveryResult(
             native_message_id="555",
             native_channel_id="2",
-            metadata=MappingProxyType({"packet_id": 555, "channel": 2, "reply_id": 42}),
+            metadata=MappingProxyType(
+                {
+                    "meshtastic": {"packet_id": 555, "channel": 2, "reply_id": 42},
+                }
+            ),
         )
         result = QueueDeliveryResult(item=item, delivery_result=delivery)
 
@@ -1374,8 +1382,8 @@ class TestDelayedOutboundNativeRef:
         assert ref.metadata["emoji"] == 1
         assert ref.metadata["meshnet_name"] == "TestMesh"
         assert ref.metadata["channel_name"] == "ch2"
-        # Delivery snapshot keys are merged too.
-        assert ref.metadata["packet_id"] == 555
+        # Delivery snapshot keys are merged inside meshtastic namespace.
+        assert ref.metadata["meshtastic"]["packet_id"] == 555
 
 
 # ===================================================================

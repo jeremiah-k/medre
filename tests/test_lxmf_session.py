@@ -352,20 +352,20 @@ class TestLxmfDeliveryStateModel:
             "failed",
             "rejected",
             "cancelled",
-            "unknown",
+            "unmapped",
         }
         actual = {s.value for s in LxmfDeliveryState}
         assert actual == expected
 
-    def test_map_unknown_int_returns_unknown(self) -> None:
-        assert _map_delivery_state(99999) == LxmfDeliveryState.UNKNOWN
+    def test_map_unknown_int_returns_unmapped(self) -> None:
+        assert _map_delivery_state(99999) == LxmfDeliveryState.UNMAPPED
 
     def test_map_string_state(self) -> None:
         assert _map_delivery_state("delivered") == LxmfDeliveryState.DELIVERED
         assert _map_delivery_state("FAILED") == LxmfDeliveryState.FAILED
 
-    def test_map_none_returns_unknown(self) -> None:
-        assert _map_delivery_state(None) == LxmfDeliveryState.UNKNOWN
+    def test_map_none_returns_unmapped(self) -> None:
+        assert _map_delivery_state(None) == LxmfDeliveryState.UNMAPPED
 
     def test_map_delivery_method_direct(self) -> None:
         assert _map_delivery_method("direct") == "direct"
@@ -749,6 +749,98 @@ class TestSendRealFieldsPreservation:
         }
         for word in forbidden:
             assert word not in envelope, f"Envelope must not contain {word!r}"
+        await session.stop()
+
+
+# ===================================================================
+# Real-mode _send_real destination identity recall
+# ===================================================================
+
+
+class TestSendRealDestinationRecall:
+    """_send_real() uses RNS.Identity.recall to construct destinations."""
+
+    async def test_unrecallable_destination_raises_non_transient(self) -> None:
+        """If RNS.Identity.recall returns None, raise LxmfSendError(transient=False)."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        mock_rns = MagicMock()
+        mock_rns.Identity.recall.return_value = None  # identity not found
+        mock_lxmf = MagicMock()
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            with pytest.raises(
+                LxmfSendError, match="Cannot recall identity"
+            ) as exc_info:
+                await session._send_real(
+                    destination_hash="ab" * 16,
+                    content="hello",
+                )
+
+        assert (
+            exc_info.value.transient is False
+        ), "Unrecallable destination should be a permanent (non-transient) error"
+        mock_rns.Identity.recall.assert_called_once_with(bytes.fromhex("ab" * 16))
+        await session.stop()
+
+    async def test_destination_constructed_with_recalled_identity(self) -> None:
+        """Destination must be constructed using the identity returned by recall."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        recalled_identity = MagicMock()
+
+        class FakeDestination:
+            OUT = "out"
+            SINGLE = "single"
+            hash = b"\x00" * 16
+
+            def __init__(self, identity, *args, **kwargs):
+                self.identity = identity
+
+        class FakeLXMessage:
+            OUTBOUND = 1
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.state = self.OUTBOUND
+                self.hash = b"\xab" * 16
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_rns.Identity.recall.return_value = recalled_identity
+        mock_rns.Destination = FakeDestination
+        mock_rns.Destination.OUT = "out"
+        mock_rns.Destination.SINGLE = "single"
+
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+            )
+
+        mock_rns.Identity.recall.assert_called_once_with(bytes.fromhex("ab" * 16))
         await session.stop()
 
 

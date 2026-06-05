@@ -330,8 +330,8 @@ class TestFakeAdapterDeliveryResultFields:
         # delivery_note must be a top-level field, not embedded in metadata
         assert isinstance(dr.delivery_note, str)
         assert dr.delivery_note != ""
-        # metadata should contain adapter_status, NOT delivery_note
-        assert "adapter_status" in dr.metadata
+        # metadata should contain meshcore namespace, NOT delivery_note
+        assert "meshcore" in dr.metadata
         assert "delivery_note" not in dr.metadata
         assert "delivery_status" not in dr.metadata
 
@@ -686,7 +686,7 @@ class TestRealAdapterDeliveryResultShape:
         assert dr.native_channel_id == "3"
         assert isinstance(dr.delivery_note, str)
         assert dr.delivery_note != ""
-        assert "adapter_status" in dr.metadata
+        assert "meshcore" in dr.metadata
         assert "delivery_note" not in dr.metadata
         assert "delivery_status" not in dr.metadata
 

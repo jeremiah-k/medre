@@ -182,7 +182,13 @@ class MeshtasticSession:
 
     @property
     def node_id(self) -> str | None:
-        """Our node ID extracted from the interface, if available."""
+        """The session's own node ID in the format matching ``fromId`` in inbound
+        packets (typically ``"!" + lowercase_hex(myNodeNum)``, e.g. ``"!a1b2c3d4"``).
+
+        Currently always ``None`` because node ID is not yet populated from
+        ``interface.myInfo.myNodeNum`` after connect. See Remaining Risks in
+        ``docs/dev/adapter-reality-audit.md`` for the population gap.
+        """
         return self._node_id
 
     @property

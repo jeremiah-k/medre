@@ -418,16 +418,23 @@ class MeshCoreAdapter(AdapterContract):
         if native_id is None:
             return None
 
+        if channel_index is not None:
+            delivery_note = (
+                "MeshCore: channel send local-accepted only (no ACK protocol)"
+            )
+        else:
+            delivery_note = (
+                "MeshCore: DM sent with expected_ack captured as native_id; "
+                "delivery confirmation not tracked"
+            )
+
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index) if channel_index is not None else None,
-            delivery_note=(
-                "MeshCore alpha — no end-to-end ACK; "
-                "status reflects local acceptance only"
-            ),
+            delivery_note=delivery_note,
             metadata=MappingProxyType(
                 {
-                    "adapter_status": "local_accepted",
+                    "meshcore": {"local_acceptance": True},
                 }
             ),
         )

@@ -103,15 +103,15 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 - **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=<str(channel_idx)>, native_message_id=<str(sender_timestamp)>)`
   - `packet_id` is the `sender_timestamp` (4-byte LE Unix timestamp).
   - `sender_id` is the `pubkey_prefix` (6-byte hex prefix of sender's public key).
-- **Outbound native ref:** `native_message_id` extracted from SDK send result when available; `delivery_status="sent"` (default), with `metadata.adapter_status="local_accepted"`.
+- **Outbound native ref:** `native_message_id` extracted from SDK send result when available; `delivery_status="sent"` (default), with `metadata["meshcore"]["local_acceptance"]=True`.
 
 ---
 
 ## Delivery Semantics
 
-**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session sends via the SDK with bounded retry (3 attempts, linear backoff 0.1 s × attempt). Success returns a `native_message_id` (if the SDK provides one) with `delivery_note="MeshCore alpha — no end-to-end ACK"`.
+**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session sends via the SDK with bounded retry (3 attempts, linear backoff 0.1 s × attempt). Success returns a `native_message_id` (if the SDK provides one). The `delivery_note` varies by send type: channel sends report `"MeshCore: channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore: DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
 
-**No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `delivery_status="sent"` (the default adapter-level value) and carries `metadata.adapter_status="local_accepted"` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
+**No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `delivery_status="sent"` (the default adapter-level value) and carries `metadata["meshcore"]["local_acceptance"]=True` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
 
 **Fake mode:** Returns `None` (no real delivery).
 
@@ -120,8 +120,8 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 ## Session Lifecycle
 
 1. **Disconnected** — Initial state; `_meshcore=None`.
-2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types.
-3. **Connected** — Client created and subscribed; `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
+2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types. After subscriptions, the adapter issues `commands.send_appstart()` (CMD_APP_START) so the firmware accepts further commands. This MUST be called on every connect and re-connect.
+3. **Connected** — Client created, subscribed, and appstart succeeded; `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
 4. **Reconnecting** — SDK `DISCONNECTED` event triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success, re-subscribes.
 5. **Stopped** — `stop()` sets `_stop_requested`, unsubscribes, disconnects SDK client, nulls references. Idempotent.
 
@@ -182,7 +182,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Known Limitations
 
-- **Alpha maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata.adapter_status` is `"local_accepted"`.
+- **Alpha maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. MeshCore has no built-in threading/reply mechanism.
 - **Sender identity is a pubkey prefix.** 6-byte hex prefix is not human-readable; downstream consumers must map to display names externally.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.

@@ -145,6 +145,29 @@ class _MeshCoreModule(Protocol):
     EventType: Any
 
 
+def _extract_expected_ack(raw: Any) -> str | None:
+    """Extract deterministic hex string from expected_ack bytes.
+
+    Per meshcore_py, expected_ack is a 4-byte hash. Returns lowercase
+    hex string, or None if raw is not 4 bytes (which would indicate
+    an SDK API change).
+    """
+    if isinstance(raw, bytes):
+        if len(raw) != 4:
+            # Possible SDK API change (e.g., extended to 8 bytes in a
+            # future meshcore_py version).  Surface a warning so this
+            # doesn't silently break native_id extraction.
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "MeshCore expected_ack length %d != 4 (SDK API change?); "
+                "falling back to message_id or None",
+                len(raw),
+            )
+            return None
+        return raw.hex()
+    return None
+
+
 class MeshCoreSession:
     """Transport-owned session boundary wrapping a MeshCore SDK client.
 
@@ -492,7 +515,27 @@ class MeshCoreSession:
                 f"Failed to subscribe to events: {exc}"
             ) from exc
 
-        # Only mark connected AFTER subscriptions succeed.
+        # Send APP_START so the firmware accepts further commands.
+        # Per meshcore_py, this MUST be called after every successful
+        # connect (and re-connect).
+        try:
+            appstart_result = await self._meshcore.commands.send_appstart()
+            if hasattr(appstart_result, "is_error") and appstart_result.is_error():
+                raise RuntimeError(
+                    f"send_appstart rejected: {appstart_result.payload!r}"
+                )
+        except Exception as exc:
+            self._diag.last_error = str(exc)
+            if self._meshcore is not None:
+                try:
+                    await self._meshcore.disconnect()
+                except Exception:
+                    pass
+                self._meshcore = None
+            self._subscriptions.clear()
+            raise MeshCoreConnectionError(f"send_appstart failed: {exc}") from exc
+
+        # Only mark connected AFTER subscriptions + appstart succeed.
         self._diag.connected = True
 
     def _subscribe_events(self, mc: Any) -> None:
@@ -713,22 +756,43 @@ class MeshCoreSession:
                     )
 
                 # Extract native message ID if available.
-                # SDK responses may carry message_id in payload OR
-                # attributes depending on the event type.  When the
-                # result is an Event object, check payload first then
-                # fall back to attributes.
+                # Per meshcore_py, MSG_SENT returns {'expected_ack': bytes(4),
+                # 'suggested_timeout': int}. Channel sends return OK with no ID.
+                # Use expected_ack as the native_id for DMs (channel sends
+                # honestly have no canonical identity from the SDK).
                 native_id: str | None = None
                 if isinstance(result, dict):
-                    native_id = result.get("message_id")
+                    raw_ack = result.get("expected_ack")
+                    native_id = _extract_expected_ack(raw_ack)
+                    if native_id is None:
+                        # Defensive fallback for older SDKs.
+                        raw_mid = result.get("message_id")
+                        if isinstance(raw_mid, bytes):
+                            native_id = raw_mid.hex()
+                        elif raw_mid is not None:
+                            native_id = str(raw_mid)
                 else:
-                    if hasattr(result, "payload") and isinstance(result.payload, dict):
-                        native_id = result.payload.get("message_id")
-                    if (
-                        native_id is None
-                        and hasattr(result, "attributes")
-                        and isinstance(result.attributes, dict)
-                    ):
-                        native_id = result.attributes.get("message_id")
+                    payload = getattr(result, "payload", None)
+                    if isinstance(payload, dict):
+                        raw_ack = payload.get("expected_ack")
+                        native_id = _extract_expected_ack(raw_ack)
+                        if native_id is None:
+                            raw_mid = payload.get("message_id")
+                            if isinstance(raw_mid, bytes):
+                                native_id = raw_mid.hex()
+                            elif raw_mid is not None:
+                                native_id = str(raw_mid)
+                    if native_id is None:
+                        attrs = getattr(result, "attributes", None)
+                        if isinstance(attrs, dict):
+                            raw_ack = attrs.get("expected_ack")
+                            native_id = _extract_expected_ack(raw_ack)
+                            if native_id is None:
+                                raw_mid = attrs.get("message_id")
+                                if isinstance(raw_mid, bytes):
+                                    native_id = raw_mid.hex()
+                                elif raw_mid is not None:
+                                    native_id = str(raw_mid)
 
                 return str(native_id) if native_id is not None else None
 

@@ -291,9 +291,10 @@ class TestAdapterMetadataNaming:
 
     The ``delivery_status`` keyword is reserved for
     ``AdapterDeliveryResult.delivery_status`` (the top-level field).
-    Adapter-level status evidence in metadata must use ``adapter_status``
-    or ``adapter_*`` names to avoid namespace collision with pipeline-level
-    receipt / outbox status.
+    Adapter-level status evidence in metadata must use transport-namespaced
+    keys (e.g. ``metadata["meshcore"]``, ``metadata["lxmf"]``) rather than
+    bare ``adapter_status`` or ``adapter_*`` names, to avoid namespace
+    collision with pipeline-level receipt / outbox status.
     """
 
     @pytest.fixture(scope="class")
@@ -307,7 +308,8 @@ class TestAdapterMetadataNaming:
                 if "delivery_status" in meta_keys:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use 'adapter_status' instead"
+                        f"key 'delivery_status' — use a transport-namespaced "
+                        f"key (e.g. metadata['meshcore']) instead"
                     )
         return violations
 
@@ -339,7 +341,8 @@ class TestTestMockMetadataNaming:
                 if "delivery_status" in meta_keys:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"key 'delivery_status' — use 'adapter_status' instead"
+                        f"key 'delivery_status' — use a transport-namespaced "
+                        f"key (e.g. metadata['meshtastic']) instead"
                     )
         return violations
 
@@ -371,10 +374,10 @@ class TestAmbiguousTopLevelMetadataKeys:
     as top-level keys.
 
     These ambiguous names could be confused with pipeline-level receipt
-    or outbox statuses.  Adapters should use namespace-prefixed names
-    (e.g. ``adapter_status``, ``meshtastic_channel_index``) or nest
+    or outbox statuses.  Adapters should use transport-namespaced keys
+    (e.g. ``metadata["meshcore"]``, ``metadata["lxmf"]``) or nest
     protocol-specific state under a protocol namespace key (e.g.
-    ``metadata["lxmf"]["delivery_state"]``).
+    ``metadata["meshtastic"]["channel_index"]``).
     """
 
     @pytest.fixture(scope="class")
@@ -390,7 +393,7 @@ class TestAmbiguousTopLevelMetadataKeys:
                         violations.append(
                             f"{py_file.relative_to(_ROOT)}: metadata contains "
                             f"ambiguous top-level key {key!r} — use a "
-                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                            f"transport-namespaced key (e.g. metadata['meshcore'])"
                         )
         return violations
 
@@ -418,7 +421,7 @@ class TestAmbiguousTopLevelMetadataKeys:
                         violations.append(
                             f"{py_file.relative_to(_ROOT)}: metadata contains "
                             f"ambiguous top-level key {key!r} — use a "
-                            f"namespace-prefixed name (e.g. 'adapter_status')"
+                            f"transport-namespaced key (e.g. metadata['meshtastic'])"
                         )
         return violations
 
@@ -439,11 +442,11 @@ class TestAmbiguousTopLevelMetadataKeys:
 
 
 class TestMeshCoreMetadataRegression:
-    """MeshCore adapter metadata must use ``adapter_status``, not
-    ``delivery_status``."""
+    """MeshCore adapter metadata must use ``meshcore`` namespace key, not
+    ``delivery_status`` or ``adapter_status``."""
 
-    def test_meshcore_uses_adapter_status(self) -> None:
-        """MeshCore real adapter metadata uses ``adapter_status`` key."""
+    def test_meshcore_uses_meshcore_namespace(self) -> None:
+        """MeshCore real adapter metadata uses ``meshcore`` namespace key."""
         meshcore_path = ADAPTERS_DIR / "meshcore" / "adapter.py"
         if not meshcore_path.exists():
             pytest.skip("MeshCore adapter not found")
@@ -452,23 +455,23 @@ class TestMeshCoreMetadataRegression:
         results = _parse_adapter_results(source, str(meshcore_path))
 
         # Must have at least one AdapterDeliveryResult with metadata
-        adapter_status_found = False
+        meshcore_ns_found = False
         for _ds_value, meta_keys in results:
-            if "adapter_status" in meta_keys:
-                adapter_status_found = True
+            if "meshcore" in meta_keys:
+                meshcore_ns_found = True
             # Should never have delivery_status in metadata
             assert "delivery_status" not in meta_keys, (
                 "MeshCore adapter metadata uses 'delivery_status' key "
-                "instead of 'adapter_status'"
+                "instead of 'meshcore' namespace"
             )
 
-        assert adapter_status_found, (
-            "MeshCore adapter does not use 'adapter_status' in any "
+        assert meshcore_ns_found, (
+            "MeshCore adapter does not use 'meshcore' namespace in any "
             "AdapterDeliveryResult metadata"
         )
 
-    def test_meshcore_fake_uses_adapter_status(self) -> None:
-        """MeshCore fake adapter metadata uses ``adapter_status`` key."""
+    def test_meshcore_fake_uses_meshcore_namespace(self) -> None:
+        """MeshCore fake adapter metadata uses ``meshcore`` namespace key."""
         fake_path = ADAPTERS_DIR / "fakes" / "meshcore.py"
         if not fake_path.exists():
             pytest.skip("MeshCore fake adapter not found")
@@ -476,17 +479,17 @@ class TestMeshCoreMetadataRegression:
         source = fake_path.read_text("utf-8")
         results = _parse_adapter_results(source, str(fake_path))
 
-        adapter_status_found = False
+        meshcore_ns_found = False
         for _ds_value, meta_keys in results:
-            if "adapter_status" in meta_keys:
-                adapter_status_found = True
+            if "meshcore" in meta_keys:
+                meshcore_ns_found = True
             assert "delivery_status" not in meta_keys, (
                 "MeshCore fake adapter metadata uses 'delivery_status' "
-                "instead of 'adapter_status'"
+                "instead of 'meshcore' namespace"
             )
 
-        assert adapter_status_found, (
-            "MeshCore fake adapter does not use 'adapter_status' in any "
+        assert meshcore_ns_found, (
+            "MeshCore fake adapter does not use 'meshcore' namespace in any "
             "AdapterDeliveryResult metadata"
         )
 

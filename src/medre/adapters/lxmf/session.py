@@ -182,7 +182,7 @@ class LxmfDeliveryState(str, Enum):
     FAILED = "failed"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
-    UNKNOWN = "unknown"
+    UNMAPPED = "unmapped"
 
 
 # Map of known LXMF.LXMessage state attribute names to our enum.
@@ -234,19 +234,19 @@ def _build_state_map() -> dict[int, LxmfDeliveryState]:
 def _map_delivery_state(raw_state: Any) -> LxmfDeliveryState:
     """Map a raw LXMF delivery state value to our enum.
 
-    Maps conservatively: unknown values become ``UNKNOWN``.
+    Maps conservatively: unknown values become ``UNMAPPED``.
     """
     if isinstance(raw_state, int):
         mapping = _build_state_map()
-        return mapping.get(raw_state, LxmfDeliveryState.UNKNOWN)
+        return mapping.get(raw_state, LxmfDeliveryState.UNMAPPED)
     if isinstance(raw_state, LxmfDeliveryState):
         return raw_state
     if isinstance(raw_state, str):
         try:
             return LxmfDeliveryState(raw_state.lower())
         except ValueError:
-            return LxmfDeliveryState.UNKNOWN
-    return LxmfDeliveryState.UNKNOWN
+            return LxmfDeliveryState.UNMAPPED
+    return LxmfDeliveryState.UNMAPPED
 
 
 def _map_delivery_method(raw_method: Any) -> str | None:
@@ -841,13 +841,6 @@ class LxmfSession:
                     f"Failed to register delivery callback on LXMRouter: {exc}"
                 ) from exc
 
-            # 5. Optional: register announce callback.
-            try:
-                self._router.register_announce_callback(self._on_lxmf_announce)
-            except (AttributeError, TypeError):
-                # Not all LXMF versions support announce callbacks.
-                pass
-
         except LxmfConnectionError:
             raise
         except Exception as exc:
@@ -998,17 +991,6 @@ class LxmfSession:
                 self._adapter_id,
             )
             result.close()
-
-    def _on_lxmf_announce(self, *args: Any, **kwargs: Any) -> None:
-        """Handle LXMF announce events.
-
-        Announce handling is informational only — it updates
-        path/diagnostics but does not generate canonical events.
-        """
-        self._logger.debug(
-            "LxmfSession %s: LXMF announce received",
-            self._adapter_id,
-        )
 
     def _on_delivery_state_update(self, message: Any) -> None:
         """Handle delivery state updates for outbound messages.
@@ -1234,22 +1216,27 @@ class LxmfSession:
                 transient=False,
             ) from exc
 
+        # Recall identity once (cached by RNS, but no need to re-call per attempt).
+        dest_identity = RNS.Identity.recall(dest_bytes)
+        if dest_identity is None:
+            raise LxmfSendError(
+                f"Cannot recall identity for destination hash " f"{destination_hash!r}",
+                transient=False,
+            )
+
+        # Construct destination once — deterministic and cheap, no need to
+        # rebuild on every retry.
+        dest = RNS.Destination(
+            dest_identity,
+            RNS.Destination.OUT,
+            RNS.Destination.SINGLE,
+            "lxmf",
+            "delivery",
+        )
+
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
             try:
-                # Create destination object from hash.
-                dest = RNS.Destination(
-                    self._identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "lxmf",
-                    "delivery",
-                )
-                # Override with the actual destination hash.
-                # NOTE: In production, the destination lookup is more nuanced.
-                # This is the standard pattern from LXMF examples.
-                dest.hash = dest_bytes
-
                 # Build the LXMessage — include fields so rendered
                 # metadata (MEDRE envelope, provenance hints, etc.)
                 # is preserved through serialisation (pack()).
@@ -1299,6 +1286,25 @@ class LxmfSession:
                     f"Permanent send failure: {exc}",
                     transient=False,
                 ) from exc
+            except LxmfSendError as exc:
+                if not exc.transient:
+                    self._diag.permanent_delivery_failures += 1
+                    self._diag.last_error = f"Permanent send failure: {exc}"
+                    raise
+                last_exc = exc
+                self._diag.transient_delivery_failures += 1
+                self._diag.last_error = (
+                    f"Transient send failure (attempt {attempt}): {exc}"
+                )
+                self._logger.warning(
+                    "LxmfSession %s transient send failure " "(attempt %d/%d): %s",
+                    self._adapter_id,
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    exc,
+                )
+                if attempt < _SEND_MAX_RETRIES:
+                    await asyncio.sleep(0.1 * attempt)
             except Exception as exc:
                 last_exc = exc
                 self._diag.transient_delivery_failures += 1
@@ -1321,7 +1327,8 @@ class LxmfSession:
             f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
         )
         raise LxmfSendError(
-            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
+            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}",
+            transient=False,
         ) from last_exc
 
     @staticmethod

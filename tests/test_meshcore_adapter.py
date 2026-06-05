@@ -533,19 +533,20 @@ class TestHonestDeliverySemantics:
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        assert delivery.metadata["adapter_status"] == "local_accepted"
+        assert delivery.metadata["meshcore"]["local_acceptance"] is True
         # delivery_note is a top-level field on AdapterDeliveryResult, not in metadata
         assert isinstance(delivery.delivery_note, str)
         assert delivery.delivery_note != ""
 
     async def test_fake_adapter_no_false_delivery_claim(self) -> None:
-        """adapter_status must not say 'delivered' or 'confirmed'."""
+        """metadata must not say 'delivered' or 'confirmed'."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        status = delivery.metadata["adapter_status"]
-        assert status not in ("delivered", "confirmed", "acknowledged")
+        meshcore_meta = delivery.metadata["meshcore"]
+        # local_acceptance is a boolean True — not a string status
+        assert meshcore_meta["local_acceptance"] is True
 
     async def test_real_adapter_fake_mode_delivery_is_none(self) -> None:
         """Real adapter in fake mode returns None — no false delivery claim."""
@@ -596,7 +597,7 @@ class TestHonestDeliverySemantics:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert delivery.native_message_id == "pkt-42"
-        assert delivery.metadata["adapter_status"] == "local_accepted"
+        assert delivery.metadata["meshcore"]["local_acceptance"] is True
 
         await fake_session.stop()
 
@@ -952,3 +953,52 @@ class TestRepeatedStartStop:
         delivery2 = await adapter.deliver(result2)
         assert delivery2 is not None
         assert delivery2.native_message_id == "2"
+
+
+# ===================================================================
+# Adapter Reality Audit — namespaced metadata
+# ===================================================================
+
+
+class TestMeshCoreNamespacedMetadata:
+    """Metadata uses meshcore namespace instead of adapter_status."""
+
+    async def test_metadata_meshcore_local_acceptance(self) -> None:
+        """deliver() returns metadata with meshcore.local_acceptance=True."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.metadata["meshcore"]["local_acceptance"] is True
+        # Verify old key is gone
+        assert "adapter_status" not in delivery.metadata
+
+    async def test_real_adapter_metadata_meshcore_local_acceptance(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter with mocked session returns meshcore namespace metadata."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshcore.session import MeshCoreSession
+
+        fake_session = MeshCoreSession(
+            config=_make_config(connection_type="fake"),
+            adapter_id="meshcore-1",
+        )
+        await fake_session.start(message_callback=lambda pkt: None)
+        fake_session.send_text = AsyncMock(return_value="pkt-42")  # type: ignore[attr-defined]
+        adapter._session = fake_session
+        adapter._started = True
+        adapter.ctx = ctx
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.metadata["meshcore"]["local_acceptance"] is True
+        assert "adapter_status" not in delivery.metadata
+
+        await fake_session.stop()

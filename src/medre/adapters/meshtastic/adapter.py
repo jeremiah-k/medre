@@ -86,6 +86,7 @@ from medre.adapters.meshtastic.packet_classifier import (
     REASON_EMPTY_TEXT,
     REASON_ENCRYPTED,
     REASON_MALFORMED,
+    REASON_SELF_ECHO,
     REASON_UNKNOWN_PORTNUM,
     MeshtasticPacketClassifier,
 )
@@ -187,6 +188,7 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_dm_ignored: int = 0
         self._classifier_packets_empty_text_ignored: int = 0
         self._classifier_packets_unknown_portnum_deferred: int = 0
+        self._classifier_packets_self_echo_ignored: int = 0
         self._inbound_published: int = 0
 
         # Startup backlog suppression
@@ -411,7 +413,13 @@ class MeshtasticAdapter(AdapterContract):
             native_channel_id=str(channel_index),
             delivery_note="locally enqueued",
             delivery_status="enqueued",
-            metadata=MappingProxyType({"meshtastic_channel_index": channel_index}),
+            metadata=MappingProxyType(
+                {
+                    "meshtastic": {
+                        "channel_index": channel_index,
+                    }
+                }
+            ),
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -451,6 +459,8 @@ class MeshtasticAdapter(AdapterContract):
             self._classifier_packets_empty_text_ignored += 1
         if classification.reason == REASON_UNKNOWN_PORTNUM:
             self._classifier_packets_unknown_portnum_deferred += 1
+        if classification.reason == REASON_SELF_ECHO:
+            self._classifier_packets_self_echo_ignored += 1
 
     def _log_classification(self, classification: Any) -> None:
         """Log a structured classification decision.
@@ -605,7 +615,8 @@ class MeshtasticAdapter(AdapterContract):
             return
 
         try:
-            classification = self._classifier.classify(packet)
+            own_node_id = self._session.node_id if self._session is not None else None
+            classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
             self._log_classification(classification)
 
@@ -694,7 +705,10 @@ class MeshtasticAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
-        classification = self._classifier.classify(packet)
+        classification = self._classifier.classify(
+            packet,
+            own_node_id=(self._session.node_id if self._session is not None else None),
+        )
         self._increment_classifier_counters(classification)
         self._log_classification(classification)
 
@@ -760,6 +774,7 @@ class MeshtasticAdapter(AdapterContract):
             "classifier_packets_dm_ignored": self._classifier_packets_dm_ignored,
             "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
             "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
+            "classifier_packets_self_echo_ignored": self._classifier_packets_self_echo_ignored,
             "inbound_published": self._inbound_published,
             # Startup backlog suppression
             "startup_backlog_packets_seen": self._startup_backlog_packets_seen,

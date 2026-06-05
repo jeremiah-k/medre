@@ -386,12 +386,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         packet_id = send_result["packet_id"]
 
         result_metadata: dict[str, object] = {}
+        meshtastic_meta: dict[str, object] = {}
         if reply_id_val is not None:
-            result_metadata["reply_id"] = reply_id_val
+            meshtastic_meta["reply_id"] = reply_id_val
         if emoji_val is not None:
-            result_metadata["emoji"] = emoji_val
-        result_metadata["packet_id"] = packet_id
-        result_metadata["channel"] = channel_index
+            meshtastic_meta["emoji"] = emoji_val
+        meshtastic_meta["packet_id"] = packet_id
+        meshtastic_meta["channel"] = channel_index
+        result_metadata["meshtastic"] = MappingProxyType(meshtastic_meta)
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),

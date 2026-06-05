@@ -254,7 +254,7 @@ class TestSuccessReturnsNativeMessageId:
 
 
 class TestSuccessMetadataIncludesTxnId:
-    """AdapterDeliveryResult.metadata contains matrix_txn_id."""
+    """AdapterDeliveryResult.metadata contains matrix.txn_id."""
 
     async def test_metadata_has_matrix_txn_id(self) -> None:
         config = _make_config()
@@ -267,10 +267,11 @@ class TestSuccessMetadataIncludesTxnId:
         delivery = await adapter.deliver(result)
 
         assert delivery is not None
-        assert "matrix_txn_id" in delivery.metadata
+        assert "matrix" in delivery.metadata
+        assert "txn_id" in delivery.metadata["matrix"]
         room_id = result.target_channel or "!room:example.com"
         expected_txn = _matrix_txn_id(result, room_id)
-        assert delivery.metadata["matrix_txn_id"] == expected_txn
+        assert delivery.metadata["matrix"]["txn_id"] == expected_txn
 
 
 # ---------------------------------------------------------------------------
@@ -464,8 +465,9 @@ class TestNoSecretsInMetadata:
         assert "password" not in meta
         assert "secret" not in meta
         assert "key" not in meta
-        # matrix_txn_id is allowed
-        assert "matrix_txn_id" in meta
+        # matrix txn_id is allowed
+        assert "matrix" in meta
+        assert "txn_id" in meta["matrix"]
 
 
 # ---------------------------------------------------------------------------
