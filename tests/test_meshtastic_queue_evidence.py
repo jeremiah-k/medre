@@ -1000,3 +1000,259 @@ class TestDeliveryPlanIdQueuePropagation:
             assert ref.native_message_id == "pkt-123"
         finally:
             await adapter.stop()
+
+
+class TestMetadataKeySplitting:
+    """_record_delayed_outbound_ref splits delivery.metadata into namespaces.
+
+    Covers adapter.py lines 975-981: the 3-branch loop body that sorts
+    metadata keys into ``meshtastic_meta`` or ``send_meta``.
+
+    - key == "meshtastic" + isinstance(v, dict) → merge into meshtastic namespace
+    - key in transport_keys → put into meshtastic namespace
+    - everything else → keep in send_meta top-level
+    """
+
+    async def test_nested_meshtastic_dict_merged(self) -> None:
+        """Metadata key ``meshtastic`` with dict value merges into namespace."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-meta1", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded_refs: list[object] = []
+
+        async def mock_record_callback(record: object) -> None:
+            recorded_refs.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-meta1",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=mock_record_callback,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={"payload": {"text": "hi"}, "channel_index": 0},
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="pkt-m1",
+                    native_channel_id="0",
+                    metadata=MappingProxyType(
+                        {"meshtastic": {"hop_limit": 3, "priority": "high"}}
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-m1",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded_refs) == 1
+            ref = recorded_refs[0]
+            # Nested dict merged under "meshtastic" key
+            assert ref.metadata["meshtastic"] == {"hop_limit": 3, "priority": "high"}
+        finally:
+            await adapter.stop()
+
+    async def test_transport_key_goes_to_meshtastic_namespace(self) -> None:
+        """Transport keys (channel, packet_id, etc.) go into meshtastic namespace."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-meta2", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded_refs: list[object] = []
+
+        async def mock_record_callback(record: object) -> None:
+            recorded_refs.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-meta2",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=mock_record_callback,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={"payload": {"text": "hi"}, "channel_index": 0},
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="pkt-m2",
+                    native_channel_id="0",
+                    metadata=MappingProxyType({"channel": 1, "packet_id": 99}),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-m2",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded_refs) == 1
+            ref = recorded_refs[0]
+            # Transport keys grouped under "meshtastic"
+            assert ref.metadata["meshtastic"]["channel"] == 1
+            assert ref.metadata["meshtastic"]["packet_id"] == 99
+        finally:
+            await adapter.stop()
+
+    async def test_other_key_stays_in_send_meta(self) -> None:
+        """Non-transport, non-meshtastic keys stay at top level of send_meta."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-meta3", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded_refs: list[object] = []
+
+        async def mock_record_callback(record: object) -> None:
+            recorded_refs.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-meta3",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=mock_record_callback,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={"payload": {"text": "hi"}, "channel_index": 0},
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="pkt-m3",
+                    native_channel_id="0",
+                    metadata=MappingProxyType({"source_bridge": "matrix", "seq": 7}),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-m3",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded_refs) == 1
+            ref = recorded_refs[0]
+            # Non-transport keys stay at top level
+            assert ref.metadata["source_bridge"] == "matrix"
+            assert ref.metadata["seq"] == 7
+            # No meshtastic namespace created since no meshtastic/transport keys
+            assert "meshtastic" not in ref.metadata
+        finally:
+            await adapter.stop()
+
+    async def test_mixed_metadata_all_three_branches(self) -> None:
+        """All three branches exercised in a single call."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-meta4", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded_refs: list[object] = []
+
+        async def mock_record_callback(record: object) -> None:
+            recorded_refs.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-meta4",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=mock_record_callback,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={"payload": {"text": "hi"}, "channel_index": 0},
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="pkt-m4",
+                    native_channel_id="0",
+                    metadata=MappingProxyType(
+                        {
+                            "meshtastic": {"hop_limit": 3},
+                            "channel": 2,
+                            "custom": "value",
+                        }
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-m4",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded_refs) == 1
+            ref = recorded_refs[0]
+            # Nested meshtastic dict merged with transport key
+            mesh_ns = ref.metadata["meshtastic"]
+            assert mesh_ns["hop_limit"] == 3
+            assert mesh_ns["channel"] == 2
+            # Other key at top level
+            assert ref.metadata["custom"] == "value"
+        finally:
+            await adapter.stop()

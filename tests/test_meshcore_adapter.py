@@ -1002,3 +1002,223 @@ class TestMeshCoreNamespacedMetadata:
         assert "adapter_status" not in delivery.metadata
 
         await fake_session.stop()
+
+
+# ===================================================================
+# Error mapping and delivery_note (lines 412-433)
+# ===================================================================
+
+
+class TestAdapterErrorMapping:
+    """Verify adapter.deliver() maps session errors to adapter errors correctly.
+
+    Covers:
+    - CancelledError re-raised (line 412-413)
+    - MeshCoreSendError transient → AdapterSendError (line 414-416)
+    - MeshCoreSendError permanent → AdapterPermanentError (line 414, 417-418)
+    - TimeoutError/ConnectionError/OSError → AdapterSendError(transient=True) (line 419-420)
+    - native_id None → return None (line 422-423)
+    - delivery_note for channel vs DM (lines 425-433)
+    """
+
+    async def _make_adapter_with_mock_session(
+        self, make_adapter_context
+    ) -> tuple[MeshCoreAdapter, MeshCoreSession]:
+        """Create a real adapter with an injected fake session for error testing."""
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        fake_session = MeshCoreSession(
+            config=_make_config(connection_type="fake"),
+            adapter_id="meshcore-1",
+        )
+        # Start fake session so it's connected.
+        await fake_session.start(message_callback=lambda pkt: None)
+
+        adapter._session = fake_session
+        adapter._started = True
+        adapter.ctx = ctx
+        return adapter, fake_session
+
+    async def test_cancelled_error_reraises(self, make_adapter_context) -> None:
+        """CancelledError from session.send_text is re-raised, not wrapped."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(side_effect=asyncio.CancelledError)  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await adapter.deliver(result)
+
+        await session.stop()
+
+    async def test_transient_send_error_mapped(self, make_adapter_context) -> None:
+        """MeshCoreSendError(transient=True) → AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshcore.errors import MeshCoreSendError
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=MeshCoreSendError("transient oops", transient=True)
+        )
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(AdapterSendError, match="transient oops") as exc_info:
+            await adapter.deliver(result)
+
+        assert exc_info.value.transient is True
+
+        await session.stop()
+
+    async def test_permanent_send_error_mapped(self, make_adapter_context) -> None:
+        """MeshCoreSendError(transient=False) → AdapterPermanentError."""
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshcore.errors import MeshCoreSendError
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=MeshCoreSendError("permanent oops", transient=False)
+        )
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(AdapterPermanentError, match="permanent oops"):
+            await adapter.deliver(result)
+
+        await session.stop()
+
+    async def test_timeout_error_mapped_to_send_error(
+        self, make_adapter_context
+    ) -> None:
+        """TimeoutError → AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(AdapterSendError, match="timed out") as exc_info:
+            await adapter.deliver(result)
+
+        assert exc_info.value.transient is True
+
+        await session.stop()
+
+    async def test_connection_error_mapped_to_send_error(
+        self, make_adapter_context
+    ) -> None:
+        """ConnectionError → AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=ConnectionError("refused")
+        )
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(AdapterSendError, match="refused") as exc_info:
+            await adapter.deliver(result)
+
+        assert exc_info.value.transient is True
+
+        await session.stop()
+
+    async def test_os_error_mapped_to_send_error(self, make_adapter_context) -> None:
+        """OSError → AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(side_effect=OSError("broken pipe"))  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        with pytest.raises(AdapterSendError, match="broken pipe") as exc_info:
+            await adapter.deliver(result)
+
+        assert exc_info.value.transient is True
+
+        await session.stop()
+
+    async def test_native_id_none_returns_none(self, make_adapter_context) -> None:
+        """When session.send_text returns None, adapter returns None."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is None
+
+        await session.stop()
+
+    async def test_channel_delivery_note(self, make_adapter_context) -> None:
+        """Channel send returns delivery_note mentioning 'channel send'."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(return_value="pkt-42")  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "chan msg", "contact_id": "abc", "channel_index": 3}
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id == "pkt-42"
+        assert delivery.native_channel_id == "3"
+        assert "channel send" in delivery.delivery_note
+
+        await session.stop()
+
+    async def test_dm_delivery_note(self, make_adapter_context) -> None:
+        """DM send (no channel_index) returns delivery_note mentioning 'DM sent'."""
+        from unittest.mock import AsyncMock
+
+        adapter, session = await self._make_adapter_with_mock_session(
+            make_adapter_context
+        )
+        session.send_text = AsyncMock(return_value="pkt-dm-01")  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(
+            payload={"text": "dm msg", "contact_id": "abcdef", "channel_index": None}
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id == "pkt-dm-01"
+        assert delivery.native_channel_id is None
+        assert "DM sent" in delivery.delivery_note
+
+        await session.stop()

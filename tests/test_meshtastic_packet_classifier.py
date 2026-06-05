@@ -558,4 +558,87 @@ class TestClassifierReplyIdZero:
         assert result.reaction_key == "42"
 
 
+class TestSenderIdTypeBranches:
+    """sender_id derivation from numeric ``from`` field: int/str/bool/None.
+
+    Covers packet_classifier.py lines 383-395: the type-dispatch chain that
+    converts ``packet["from"]`` to a canonical sender_id when ``fromId`` is
+    absent.
+    """
+
+    def test_int_converts_to_hex_with_width_padding(self) -> None:
+        """Integer ``from`` → canonical ``!{num:08x}`` format."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": 0xDEADBEEF,
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "hi"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id == "!deadbeef"
+
+    def test_int_zero_produces_all_zero_hex(self) -> None:
+        """Integer 0 → ``!00000000``."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": 0,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id == "!00000000"
+
+    def test_string_passthrough(self) -> None:
+        """String ``from`` passes through unchanged."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": "!custom_id",
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id == "!custom_id"
+
+    def test_bool_true_returns_none(self) -> None:
+        """bool ``True`` (subclass of int) → sender_id is None."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": True,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id is None
+
+    def test_bool_false_returns_none(self) -> None:
+        """bool ``False`` (subclass of int) → sender_id is None."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": False,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id is None
+
+    def test_none_from_returns_none(self) -> None:
+        """No ``from`` key and no ``fromId`` → sender_id is None."""
+        cls = MeshtasticPacketClassifier()
+        packet = {"id": 1, "decoded": {"portnum": "text_message"}}
+        result = cls.classify(packet)
+        assert result.from_id is None
+
+    def test_fromid_present_skips_numeric_branch(self) -> None:
+        """When fromId is present, the numeric ``from`` branch is skipped."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!fromid_value",
+            "from": 0xBAD,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result.from_id == "!fromid_value"
+
+
 # ===================================================================

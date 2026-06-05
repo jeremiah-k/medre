@@ -8,10 +8,11 @@ Covers uncovered lines in session.py:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -382,3 +383,152 @@ class TestRefreshNodeId:
         session._refresh_node_id()
 
         assert session._node_id == "!aabbccdd"
+
+
+# ===================================================================
+# _unsubscribe_callbacks exception path (line 725)
+# ===================================================================
+
+
+class TestUnsubscribeCallbacksExceptionPath:
+    """_unsubscribe_callbacks swallows exceptions from pubsub import/unsub.
+
+    Covers session.py line 725: the ``pass`` in the ``except Exception``
+    block.  When ``from pubsub import pub`` fails or ``pub.unsubscribe``
+    raises, the method must not propagate the error.
+    """
+
+    def test_pubsub_import_fails_swallows_exception(self, monkeypatch) -> None:
+        """Importing pubsub fails → _unsubscribe_callbacks does not raise."""
+        # Make pubsub import fail by removing it from sys.modules and
+        # patching the import to raise.
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._subscribed = True
+
+        monkeypatch.setitem(sys.modules, "pubsub", None)
+
+        # Must not raise
+        session._unsubscribe_callbacks()
+        assert session._subscribed is False
+
+    def test_pubsub_unsubscribe_raises_swallows_exception(self, monkeypatch) -> None:
+        """pub.unsubscribe raises → _unsubscribe_callbacks does not raise."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._subscribed = True
+
+        fake_pub = MagicMock()
+        fake_pub.unsubscribe.side_effect = RuntimeError("pubsub internal error")
+
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+
+        # Must not raise
+        session._unsubscribe_callbacks()
+        assert session._subscribed is False
+
+    def test_not_subscribed_returns_early(self) -> None:
+        """_subscribed=False → no pubsub interaction at all."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._subscribed = False
+
+        session._unsubscribe_callbacks()
+        assert session._subscribed is False
+
+
+# ===================================================================
+# Reconnect success path (lines 834-838)
+# ===================================================================
+
+
+class TestReconnectSuccessPath:
+    """_reconnect_loop success resets reconnect state.
+
+    Covers session.py lines 834-838: after a successful reconnect, the
+    session resubscribes, creates a new client, refreshes node ID,
+    and resets ``_reconnect_attempts``, ``_reconnecting``, ``_last_error``.
+    """
+
+    async def test_reconnect_success_resets_state(self, monkeypatch) -> None:
+        """Successful reconnect resets counters and flags."""
+        config = MeshtasticConfig(adapter_id="mesh-1", connection_type="tcp")
+        session = _make_session(config)
+
+        # Pre-set error state to verify it gets cleared.
+        session._reconnect_attempts = 2
+        session._reconnecting = True
+        session._last_error = "Connection lost"
+
+        # Mock sleep to avoid actual delays.
+        async def fake_sleep(duration):
+            pass
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        # Mock lifecycle methods via patch.object (class uses __slots__).
+        fake_client = MagicMock()
+        mock_unsub = MagicMock()
+        mock_sub = MagicMock()
+        mock_refresh = MagicMock()
+
+        with (
+            patch.object(type(session), "_create_client", return_value=fake_client),
+            patch.object(type(session), "_unsubscribe_callbacks", mock_unsub),
+            patch.object(type(session), "_subscribe_callbacks", mock_sub),
+            patch.object(type(session), "_refresh_node_id", mock_refresh),
+        ):
+            await session._reconnect_loop()
+
+        # Verify reconnect success state reset.
+        assert session._reconnect_attempts == 0
+        assert session._reconnecting is False
+        assert session._last_error is None
+        assert session._client is fake_client
+        mock_sub.assert_called_once()
+        mock_refresh.assert_called_once()
+
+    async def test_reconnect_success_unsubscribes_first(self, monkeypatch) -> None:
+        """Reconnect calls _unsubscribe_callbacks before creating new client."""
+        config = MeshtasticConfig(adapter_id="mesh-1", connection_type="tcp")
+        session = _make_session(config)
+        session._reconnect_attempts = 0
+        session._reconnecting = True
+
+        async def fake_sleep(duration):
+            pass
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        fake_client = MagicMock()
+        call_order: list[str] = []
+
+        def tracking_unsub(self):
+            call_order.append("unsubscribe")
+
+        def tracking_create(self):
+            call_order.append("create_client")
+            return fake_client
+
+        def tracking_sub(self):
+            call_order.append("subscribe")
+
+        def tracking_refresh(self):
+            call_order.append("refresh_node_id")
+
+        with (
+            patch.object(type(session), "_create_client", tracking_create),
+            patch.object(type(session), "_unsubscribe_callbacks", tracking_unsub),
+            patch.object(type(session), "_subscribe_callbacks", tracking_sub),
+            patch.object(type(session), "_refresh_node_id", tracking_refresh),
+        ):
+            await session._reconnect_loop()
+
+        assert call_order == [
+            "unsubscribe",
+            "create_client",
+            "subscribe",
+            "refresh_node_id",
+        ]

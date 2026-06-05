@@ -186,3 +186,49 @@ class TestRecordDelayedOutboundRefGuard:
                 event_id="evt-1",
                 delivery=delivery,
             )
+
+
+# ===================================================================
+# _on_packet ctx=None guard (line 615)
+# ===================================================================
+
+
+class TestOnPacketCtxNoneGuard:
+    """_on_packet silently drops packets when ctx is None.
+
+    When the adapter is started but ctx has not been set (or was cleared),
+    inbound packets must not proceed to classification or coroutine scheduling.
+    """
+
+    async def test_on_packet_ctx_none_no_classification(
+        self, make_adapter_context
+    ) -> None:
+        """_on_packet returns early when _started=True but ctx=None."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        # Simulate ctx being cleared after start (e.g. partial teardown).
+        adapter.ctx = None
+        adapter._started = True
+
+        # Patch classifier to detect if classify() is called.
+        with patch.object(adapter._classifier, "classify") as mock_classify:
+            adapter._on_packet(
+                {"fromId": "!node1", "id": 1, "decoded": {"portnum": "text_message"}}
+            )
+            mock_classify.assert_not_called()
+
+    async def test_on_packet_not_started_no_classification(self) -> None:
+        """_on_packet returns early when _started=False regardless of ctx."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter._started = False
+        adapter.ctx = None
+
+        with patch.object(adapter._classifier, "classify") as mock_classify:
+            adapter._on_packet(
+                {"fromId": "!node1", "id": 1, "decoded": {"portnum": "text_message"}}
+            )
+            mock_classify.assert_not_called()

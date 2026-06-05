@@ -621,3 +621,61 @@ class TestMockedSDKSendMsgWithId:
         assert result is None
 
         await session.stop()
+
+
+# ===================================================================
+# send_appstart failure cleanup (lines 529-533)
+# ===================================================================
+
+
+class TestSendAppstartFailureCleanup:
+    """When send_appstart raises, disconnect/cleanup happens correctly."""
+
+    async def test_appstart_error_disconnects_and_clears_state(self) -> None:
+        """send_appstart raising causes disconnect, _meshcore=None, subscriptions cleared."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        # Make send_appstart raise an exception.
+        mock_inst.commands.send_appstart.side_effect = RuntimeError("appstart rejected")
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "appstart-fail-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
+                await session.start(lambda pkt: None)
+
+        # _meshcore must be cleaned up (set to None).
+        assert session._meshcore is None
+        # Connected flag must be False.
+        assert session.connected is False
+        # Subscriptions must be cleared.
+        assert len(session._subscriptions) == 0
+        # SDK disconnect should have been called.
+        mock_inst.disconnect.assert_awaited_once()
+        # last_error must reflect the failure.
+        assert session.last_error is not None
+        assert "appstart rejected" in str(session.last_error)
+
+    async def test_appstart_disconnect_error_suppressed(self) -> None:
+        """When send_appstart fails AND disconnect also fails, no secondary exception."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        mock_inst.commands.send_appstart.side_effect = RuntimeError("appstart boom")
+        # disconnect also raises — should be suppressed.
+        mock_inst.disconnect.side_effect = OSError("socket closed")
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "appstart-dc-err-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
+                await session.start(lambda pkt: None)
+
+        # Despite disconnect error, cleanup still occurs.
+        assert session._meshcore is None
+        assert session.connected is False

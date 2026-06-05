@@ -5,13 +5,18 @@ All tests use fake mode (no SDK or hardware required).
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
     MeshCoreSendError,
 )
-from medre.adapters.meshcore.session import MeshCoreSession
+from medre.adapters.meshcore.session import (
+    MeshCoreSession,
+    _extract_expected_ack,
+)
 from medre.config.adapters.meshcore import MeshCoreConfig
 
 
@@ -327,3 +332,136 @@ class TestMeshCoreSessionCounters:
         diag = session.diagnostics()
         assert "transient_delivery_failures" in diag
         assert "permanent_delivery_failures" in diag
+
+
+# ===================================================================
+# _extract_expected_ack edge cases (lines 156-166)
+# ===================================================================
+
+
+class TestExtractExpectedAck:
+    """Cover _extract_expected_ack for non-4-byte, None, and non-bytes inputs."""
+
+    def test_3_bytes_returns_none(self) -> None:
+        """3-byte input logs warning and returns None."""
+        assert _extract_expected_ack(b"abc") is None
+
+    def test_8_bytes_returns_none(self) -> None:
+        """8-byte input logs warning and returns None."""
+        assert _extract_expected_ack(b"abcdefgh") is None
+
+    def test_4_bytes_returns_hex(self) -> None:
+        """4-byte input returns lowercase hex string."""
+        result = _extract_expected_ack(b"\x00\x01\x02\x03")
+        assert result == "00010203"
+
+    def test_none_returns_none(self) -> None:
+        """None input returns None (not bytes)."""
+        assert _extract_expected_ack(None) is None
+
+    def test_string_returns_none(self) -> None:
+        """String input returns None (not bytes)."""
+        assert _extract_expected_ack("not bytes") is None
+
+    def test_empty_bytes_returns_none(self) -> None:
+        """Empty bytes input returns None."""
+        assert _extract_expected_ack(b"") is None
+
+
+# ===================================================================
+# Native ID extraction from result shapes (lines 764-795)
+# ===================================================================
+
+
+class TestNativeIdExtraction:
+    """Cover native_id extraction from dict, .payload, .attributes result shapes.
+
+    These tests exercise the _send_real result parsing paths.  We use TCP
+    config (not fake) so send_text dispatches to _send_real, then inject a
+    mock _meshcore with controlled return values.
+    """
+
+    def _make_session_with_mock(self) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with connected=True and a mock _meshcore."""
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "nid-test")
+        # Mark connected without going through start (no real SDK needed).
+        session._diag.connected = True
+
+        mock_meshcore = AsyncMock()
+        mock_meshcore.commands = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
+        session._meshcore = mock_meshcore
+
+        return session, mock_meshcore
+
+    async def test_dict_result_with_expected_ack(self) -> None:
+        """Dict result with expected_ack 4 bytes → hex string native_id."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        result = await session.send_text("contact1", "test")
+        assert result == "01020304"
+
+    async def test_dict_result_with_message_id_bytes_fallback(self) -> None:
+        """Dict result with expected_ack=None, message_id bytes → hex fallback."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": None,
+            "message_id": b"\xaa\xbb",
+        }
+
+        result = await session.send_text("contact1", "test")
+        assert result == "aabb"
+
+    async def test_dict_result_with_message_id_str_fallback(self) -> None:
+        """Dict result with expected_ack=None, message_id str → str fallback."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": None,
+            "message_id": "str-id",
+        }
+
+        result = await session.send_text("contact1", "test")
+        assert result == "str-id"
+
+    async def test_object_result_with_payload_dict(self) -> None:
+        """Object result with .payload dict containing expected_ack → hex."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = MockEvent(
+            type=MockEventType.MSG_SENT,
+            payload={"expected_ack": b"\x01\x02\x03\x04"},
+        )
+
+        result = await session.send_text("contact1", "test")
+        assert result == "01020304"
+
+    async def test_object_result_with_attributes_dict(self) -> None:
+        """Object result with .attributes dict containing expected_ack → hex."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = MockEvent(
+            type=MockEventType.MSG_SENT,
+            payload={},
+            attributes={"expected_ack": b"\x01\x02\x03\x04"},
+        )
+
+        result = await session.send_text("contact1", "test")
+        assert result == "01020304"
+
+    async def test_object_result_none_when_no_id(self) -> None:
+        """Object result with no expected_ack/message_id → native_id is None."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = MockEvent(
+            type=MockEventType.MSG_SENT,
+            payload={},
+            attributes={},
+        )
+
+        result = await session.send_text("contact1", "test")
+        assert result is None
