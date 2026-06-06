@@ -440,3 +440,88 @@ class TestNoGetOnStorage:
         # No get method → target lookup fails → degrade to self.
         assert result.root_event_id == "evt-1"
         assert result.conversation_id == "evt-1"
+
+
+class TestMultiRelationMissingFirstTarget:
+    """Event with multiple relations where the first target is missing.
+
+    The authority must iterate through ALL relations before self-rooting.
+    If the first relation's target is absent from storage but the second
+    relation's target is present, the root must be inherited from the
+    second target.
+    """
+
+    @pytest.mark.asyncio
+    async def test_first_missing_second_present_inherits_root(self) -> None:
+        # A known root already stored with identity fields.
+        root = _make_event(
+            event_id="root-1",
+            root_event_id="root-1",
+            conversation_id="root-1",
+        )
+        # Second target is present and carries root.
+        target_b = _make_event(
+            event_id="target-b",
+            root_event_id="root-1",
+            conversation_id="root-1",
+        )
+
+        # Event has 2 relations: first target is NOT in storage,
+        # second target IS in storage.
+        rel_missing = EventRelation(
+            relation_type="reply",
+            target_event_id="target-a",  # not in storage
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        rel_present = EventRelation(
+            relation_type="reply",
+            target_event_id="target-b",  # in storage
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="evt-1",
+            relations=(rel_missing, rel_present),
+        )
+
+        storage = FakeStorage(events={"root-1": root, "target-b": target_b})
+        authority = ConversationGraphAuthority(storage=storage)
+
+        result = await authority.resolve_conversation_identity(event)
+
+        # Should inherit from target-b → root-1, NOT self-root.
+        assert result.root_event_id == "root-1"
+        assert result.conversation_id == "root-1"
+
+    @pytest.mark.asyncio
+    async def test_all_targets_missing_self_roots(self) -> None:
+        """When ALL relation targets are missing, self-root."""
+        rel_a = EventRelation(
+            relation_type="reply",
+            target_event_id="missing-a",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        rel_b = EventRelation(
+            relation_type="reply",
+            target_event_id="missing-b",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="evt-1",
+            relations=(rel_a, rel_b),
+        )
+
+        storage = FakeStorage()  # empty
+        authority = ConversationGraphAuthority(storage=storage)
+
+        result = await authority.resolve_conversation_identity(event)
+
+        assert result.root_event_id == "evt-1"
+        assert result.conversation_id == "evt-1"

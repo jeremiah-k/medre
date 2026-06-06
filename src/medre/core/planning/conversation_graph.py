@@ -95,38 +95,27 @@ class ConversationGraphAuthority:
 
         get_fn = cached_get_fn or getattr(self._storage, "get", None)
 
-        # Find the first resolved relation target_event_id.
-        target_id: str | None = None
+        # Iterate through all resolved relations to find a target that
+        # exists in storage.  Only self-root when every relation target
+        # is missing.
         if event.relations:
             for rel in event.relations:
-                if rel.target_event_id is not None:
-                    target_id = rel.target_event_id
-                    break
+                if rel.target_event_id is None:
+                    continue
+                target_event = await self._safe_get(rel.target_event_id, get_fn=get_fn)
+                if target_event is not None:
+                    # Walk from the resolved target to find the root.
+                    root_id = await self._resolve_root_from(
+                        target_event,
+                        get_fn=get_fn,
+                        visited=set(),
+                        depth=0,
+                    )
+                    return self._assign_identity(event, root_id)
 
-        # No resolved relation target → this event is the root.
-        if target_id is None:
-            return self._assign_identity(event, event.event_id)
-
-        # Attempt to resolve root via target.  When the target is not
-        # found in storage, degrade to the current event as its own root.
-        target_event = await self._safe_get(target_id, get_fn=get_fn)
-        if target_event is None:
-            self._log.debug(
-                "conversation identity: target event %s not found; "
-                "using current event %s as root",
-                target_id,
-                event.event_id,
-            )
-            return self._assign_identity(event, event.event_id)
-
-        # Walk from the resolved target to find the root.
-        root_id = await self._resolve_root_from(
-            target_event,
-            get_fn=get_fn,
-            visited=set(),
-            depth=0,
-        )
-        return self._assign_identity(event, root_id)
+        # No resolved relation target, or all targets missing → this event
+        # is its own root.
+        return self._assign_identity(event, event.event_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -172,20 +161,22 @@ class ConversationGraphAuthority:
         if event.root_event_id is not None:
             return event.root_event_id
 
-        # Target has no root — walk its relations.
+        # Target has no root — walk its relations.  Try each relation
+        # and continue to the next if the parent is missing, rather than
+        # self-rooting on the first missing parent.
         if event.relations:
             for rel in event.relations:
-                if rel.target_event_id is not None:
-                    parent = await self._safe_get(rel.target_event_id, get_fn=get_fn)
-                    if parent is not None:
-                        return await self._resolve_root_from(
-                            parent,
-                            get_fn=get_fn,
-                            visited=visited,
-                            depth=depth + 1,
-                        )
-                    # Parent not found — this event is the deepest reachable.
-                    return event.event_id
+                if rel.target_event_id is None:
+                    continue
+                parent = await self._safe_get(rel.target_event_id, get_fn=get_fn)
+                if parent is not None:
+                    return await self._resolve_root_from(
+                        parent,
+                        get_fn=get_fn,
+                        visited=visited,
+                        depth=depth + 1,
+                    )
+                # Parent not found for this relation — try the next one.
 
         # Target has no relations and no root — it is the root.
         return event.event_id
