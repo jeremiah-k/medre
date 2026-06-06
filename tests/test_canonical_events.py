@@ -113,6 +113,29 @@ class TestCanonicalEvent:
         assert event.depth == 0
         assert event.trace_id is None
         assert event.source_native_ref is None
+        assert event.root_event_id is None
+        assert event.conversation_id is None
+
+    def test_root_event_id_and_conversation_id_set(self) -> None:
+        """root_event_id and conversation_id can be set explicitly."""
+        event = CanonicalEvent(
+            event_id="evt-conv-1",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="a",
+            source_transport_id="t",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={},
+            metadata=EventMetadata(),
+            root_event_id="root-evt-001",
+            conversation_id="root-evt-001",
+        )
+        assert event.root_event_id == "root-evt-001"
+        assert event.conversation_id == "root-evt-001"
 
     def test_source_native_ref_default_none(self) -> None:
         """source_native_ref defaults to None when not provided."""

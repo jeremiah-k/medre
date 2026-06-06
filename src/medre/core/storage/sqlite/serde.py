@@ -76,6 +76,8 @@ def _row_to_event(
         metadata=_deserialize_metadata(row["metadata"]),
         depth=row["depth"],
         trace_id=row["trace_id"],
+        root_event_id=row.get("root_event_id"),
+        conversation_id=row.get("conversation_id"),
         source_native_ref=source_native_ref,
     )
 

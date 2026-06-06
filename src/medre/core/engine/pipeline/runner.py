@@ -301,6 +301,13 @@ class PipelineRunner:
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
         self._running: bool = False
 
+        # -- Per-ingress lookup caches (cleared each handle_ingress call) ---
+        # These avoid redundant storage.get() and list_native_refs_for_event()
+        # calls across reaction-to-reaction checks and per-target relation
+        # enrichment within a single ingress processing pass.
+        self._ingress_event_cache: dict[str, CanonicalEvent | None] = {}
+        self._ingress_refs_cache: dict[str, list[NativeMessageRef]] = {}
+
         # -- Phase instrumentation ------------------------------------------
         self._current_phase: PipelinePhase | None = None
         self._phase_counts: dict[PipelinePhase, int] = {
@@ -461,6 +468,10 @@ class PipelineRunner:
             event.event_kind,
             event.source_adapter,
         )
+
+        # Clear per-ingress lookup caches to prevent cross-event stale data.
+        self._ingress_event_cache.clear()
+        self._ingress_refs_cache.clear()
 
         # ── Phase: INGRESS ──────────────────────────────────────────────
         self._current_phase = PipelinePhase.INGRESS
@@ -652,11 +663,18 @@ class PipelineRunner:
 
         Delegates to :class:`~medre.core.planning.relation_enricher.RelationEnricher`.
         See that class for enrichment semantics.
+
+        Passes per-ingress cached ``get`` and ``list_native_refs_for_event``
+        callables so that lookups performed during reaction-to-reaction
+        checks are reused here, and lookups across multiple target
+        enrichments share results.
         """
         return await self._relation_enricher.enrich_for_target(
             event,
             target_adapter=target_adapter,
             target_channel=target_channel,
+            cached_get_fn=self._cached_get,
+            cached_list_fn=self._cached_list_native_refs,
         )
 
     # -- Stage 4: Inbound native ref persistence -------------------------
@@ -689,6 +707,46 @@ class PipelineRunner:
         )
         await self._config.storage.store_native_ref(inbound_ref)
 
+    # -- Per-ingress lookup cache helpers ------------------------------------
+
+    async def _cached_get(self, event_id: str) -> CanonicalEvent | None:
+        """Memoized ``storage.get(event_id)`` for the current ingress.
+
+        Returns the cached result when *event_id* was already looked up
+        during this ingress pass; otherwise delegates to
+        ``storage.get()``, caches the result (including ``None``), and
+        returns it.  Failures are **not** cached so transient errors can
+        be retried within the same ingress.
+        """
+        if event_id in self._ingress_event_cache:
+            return self._ingress_event_cache[event_id]
+        get_fn = getattr(self._config.storage, "get", None)
+        if not callable(get_fn):
+            return None
+        result = await cast(Callable[[str], Awaitable[CanonicalEvent | None]], get_fn)(
+            event_id
+        )
+        self._ingress_event_cache[event_id] = result
+        return result
+
+    async def _cached_list_native_refs(self, event_id: str) -> list[NativeMessageRef]:
+        """Memoized ``storage.list_native_refs_for_event(event_id)`` for the current ingress.
+
+        Returns the cached list when *event_id* was already looked up
+        during this ingress pass; otherwise delegates to storage, caches
+        the result, and returns it.  Failures are **not** cached.
+        """
+        if event_id in self._ingress_refs_cache:
+            return self._ingress_refs_cache[event_id]
+        list_fn = getattr(self._config.storage, "list_native_refs_for_event", None)
+        if not callable(list_fn):
+            return []
+        result = await cast(
+            Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
+        )(event_id)
+        self._ingress_refs_cache[event_id] = result
+        return result
+
     async def _is_reaction_to_reaction(self, event: CanonicalEvent) -> bool:
         """Return ``True`` when *event* is a reaction whose target is itself a reaction.
 
@@ -698,15 +756,16 @@ class PipelineRunner:
         relation itself, the inbound event is considered a
         *reaction-to-reaction* and should be suppressed from routing.
 
+        Uses the per-ingress cache via :meth:`_cached_get` so that
+        lookups performed here are reused by subsequent relation
+        enrichment for the same target_event_id.
+
         Failures to fetch the target event are logged and silently skipped
         so that storage errors never prevent delivery.
         """
         if event.event_kind != EventKind.MESSAGE_REACTED:
             return False
         if not event.relations:
-            return False
-        get_fn = getattr(self._config.storage, "get", None)
-        if not callable(get_fn):
             return False
         for rel in event.relations:
             if rel.relation_type != "reaction":
@@ -715,9 +774,7 @@ class PipelineRunner:
             if not target_id:
                 continue
             try:
-                target_event = await cast(Callable[[str], Awaitable[object]], get_fn)(
-                    target_id
-                )
+                target_event = await self._cached_get(target_id)
             except Exception:
                 self._log.debug(
                     "Failed to fetch target event for reaction-to-reaction check: %s",

@@ -39,6 +39,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     metadata: EventMetadata                # Structured metadata namespaces
     depth: int = 0                         # Depth in derivation tree (0 for source events)
     trace_id: str | None = None            # Distributed tracing correlation ID
+    root_event_id: str | None = None       # Root event in relation chain (computed by pipeline)
+    conversation_id: str | None = None     # Conversation identifier (expected to equal root_event_id)
 ```
 
 ### 1.2 Field Reference
@@ -60,6 +62,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 | `metadata`            | `EventMetadata`             | —       | Structured metadata organized into namespaces (Section 4).                                                                                                                                    |
 | `depth`               | `int`                       | `0`     | Depth in the derivation tree. MUST be `>= 0`. `0` for source events.                                                                                                                          |
 | `trace_id`            | `str \| None`               | `None`  | Distributed tracing correlation ID, reserved for future protocol-neutral use.                                                                                                                 |
+| `root_event_id`       | `str \| None`               | `None`  | Canonical event ID of the root event in a relation chain. `None` when not yet computed or when the event has no relation ancestry. Populated by a later pipeline agent.                       |
+| `conversation_id`     | `str \| None`               | `None`  | Canonical conversation identifier. Expected to equal `root_event_id` for now, but the field exists independently to allow future divergence. Populated by a later pipeline agent.             |
 
 ### 1.3 Source Identity Examples
 
@@ -544,6 +548,8 @@ CREATE TABLE canonical_events (
     metadata TEXT NOT NULL,             -- JSON
     depth INTEGER NOT NULL DEFAULT 0,
     trace_id TEXT,
+    root_event_id TEXT,                 -- Root event in relation chain
+    conversation_id TEXT,               -- Conversation identifier
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 

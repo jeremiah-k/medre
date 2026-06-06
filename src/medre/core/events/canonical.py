@@ -301,6 +301,15 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
         Depth in the derivation tree (0 for source events).
     trace_id:
         Distributed tracing correlation ID.
+    root_event_id:
+        Canonical event ID of the root event in a relation chain.
+        ``None`` when not yet computed or when the event has no
+        relation ancestry.  A later pipeline agent populates this
+        field; this model only carries it.
+    conversation_id:
+        Canonical conversation identifier.  Expected to equal
+        ``root_event_id`` for now, but this agent only adds the
+        field — computation belongs to a later agent.
     """
 
     event_id: str
@@ -318,6 +327,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     source_native_ref: NativeRef | None = None
     depth: int = 0
     trace_id: str | None = None
+    root_event_id: str | None = None
+    conversation_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate invariants and enforce deep immutability after construction.

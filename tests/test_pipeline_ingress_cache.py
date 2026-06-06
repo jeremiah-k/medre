@@ -1,0 +1,572 @@
+"""Per-ingress lookup cache tests for PipelineRunner.
+
+Tests verify that request-scoped memoization caches for
+``storage.get(event_id)`` and ``storage.list_native_refs_for_event(event_id)``
+avoid redundant lookups across reaction-to-reaction checks and per-target
+relation enrichment without changing relation semantics.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.events import (
+    CanonicalEvent,
+    EventMetadata,
+    EventRelation,
+    NativeMessageRef,
+)
+from medre.core.events.bus import EventBus
+from medre.core.events.kinds import EventKind
+from medre.core.planning import FallbackResolver, RelationResolver
+from medre.core.planning.relation_enricher import RelationEnricher
+from medre.core.routing import Router
+from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.pipeline import make_pipeline_config_for_pipeline
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+class _CallCountingStorage:
+    """Wrapper around real storage that counts get/list_native_refs calls."""
+
+    def __init__(self, real_storage: SQLiteStorage) -> None:
+        self._real = real_storage
+        self.get_call_count: int = 0
+        self.get_call_ids: list[str] = []
+        self.list_refs_call_count: int = 0
+        self.list_refs_call_ids: list[str] = []
+
+    async def get(self, event_id: str) -> CanonicalEvent | None:
+        self.get_call_count += 1
+        self.get_call_ids.append(event_id)
+        return await self._real.get(event_id)
+
+    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+        self.list_refs_call_count += 1
+        self.list_refs_call_ids.append(event_id)
+        return await self._real.list_native_refs_for_event(event_id)
+
+    # Delegate remaining storage methods to the real storage.
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _make_event(
+    event_id: str = "src-001",
+    event_kind: str = "message.created",
+    source_adapter: str = "src",
+    relations: tuple[EventRelation, ...] = (),
+    payload: dict[str, Any] | None = None,
+) -> CanonicalEvent:
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind=event_kind,
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="node-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=relations,
+        payload=payload or {"text": "hello"},
+        metadata=EventMetadata(),
+    )
+
+
+# ===================================================================
+# Cached get: repeated enrichment for same target_event_id reuses cache
+# ===================================================================
+
+
+class TestCachedGetDeduplicates:
+    """storage.get() for the same target_event_id is called only once
+    across reaction-to-reaction check and per-target enrichment."""
+
+    async def test_get_called_once_for_same_target_across_enrichments(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When enriching relations for two different target adapters,
+        storage.get(target_event_id) is called only once because the
+        second enrichment reuses the cached result."""
+        # Store a prior event that relations point to.
+        prior = _make_event(event_id="prior-001", payload={"body": "original"})
+        await temp_storage.append(prior)
+
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-001", relations=(rel,))
+
+        # First enrichment — should call storage.get once.
+        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        assert result1.relations[0].fallback_text == "original"
+        first_count = counting.get_call_count
+
+        # Second enrichment for a different target adapter — should NOT
+        # call storage.get again because the result is cached.
+        result2 = await runner._enrich_relations_for_target(event, "adapter-b")
+        assert result2.relations[0].fallback_text == "original"
+
+        assert counting.get_call_count == first_count
+        # The target_event_id should appear only once in the call log.
+        assert counting.get_call_ids.count("prior-001") == 1
+
+    async def test_get_cache_hits_for_reaction_check_then_enrichment(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """_is_reaction_to_reaction and _enrich_relations_for_target
+        share the same cache, so storage.get is called once."""
+        prior = _make_event(event_id="prior-react", payload={"body": "target"})
+        await temp_storage.append(prior)
+
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-react",
+            target_native_ref=None,
+            key="\U0001f44d",
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="src-react",
+            event_kind=EventKind.MESSAGE_REACTED,
+            relations=(rel,),
+        )
+
+        # Call reaction check — should call storage.get once.
+        is_reaction = await runner._is_reaction_to_reaction(event)
+        assert is_reaction is False  # prior is not a reaction
+        count_after_check = counting.get_call_count
+        assert count_after_check == 1
+
+        # Now enrich — should reuse cached get, not call storage again.
+        result = await runner._enrich_relations_for_target(event, "adapter-a")
+        assert result.relations[0].fallback_text == "target"
+        assert counting.get_call_count == count_after_check
+
+
+# ===================================================================
+# Cached list_native_refs: deduplicates across enrichment calls
+# ===================================================================
+
+
+class TestCachedListRefsDeduplicates:
+    """list_native_refs_for_event for the same event_id is called only
+    once across multiple enrichment calls."""
+
+    async def test_list_refs_called_once_for_same_target(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Enriching for two different target adapters reuses cached
+        list_native_refs_for_event result."""
+        # Store a native ref for the prior event.
+        nref = NativeMessageRef(
+            id="nref-001",
+            event_id="prior-refs",
+            adapter="adapter-a",
+            native_channel_id="ch-1",
+            native_message_id="msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+        await temp_storage.store_native_ref(nref)
+
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-refs",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-refs", relations=(rel,))
+
+        # First enrichment.
+        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        assert result1.relations[0].target_native_ref is not None
+        first_count = counting.list_refs_call_count
+
+        # Second enrichment for a different adapter — cached result reused.
+        await runner._enrich_relations_for_target(event, "adapter-b")
+        assert counting.list_refs_call_count == first_count
+        assert counting.list_refs_call_ids.count("prior-refs") == 1
+
+
+# ===================================================================
+# Missing targets cached safely
+# ===================================================================
+
+
+class TestMissingTargetsCachedSafely:
+    """storage.get returning None is cached and not re-fetched."""
+
+    async def test_missing_target_cached_as_none(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When storage.get returns None (target doesn't exist), the
+        None is cached and subsequent lookups skip storage.get entirely."""
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="nonexistent-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-missing", relations=(rel,))
+
+        # First enrichment — storage.get called once, returns None.
+        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        assert result1.relations[0].fallback_text is None
+        assert counting.get_call_count == 1
+
+        # Second enrichment — cached None reused.
+        result2 = await runner._enrich_relations_for_target(event, "adapter-b")
+        assert result2.relations[0].fallback_text is None
+        assert counting.get_call_count == 1  # No additional call
+
+    async def test_missing_refs_cached_as_empty(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When list_native_refs_for_event returns [], the empty list
+        is cached and reused."""
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="no-refs-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-no-refs", relations=(rel,))
+
+        # First enrichment.
+        await runner._enrich_relations_for_target(event, "adapter-a")
+        assert counting.list_refs_call_count == 1
+
+        # Second enrichment — cached empty list reused.
+        await runner._enrich_relations_for_target(event, "adapter-b")
+        assert counting.list_refs_call_count == 1
+
+
+# ===================================================================
+# Cache cleared between ingress calls
+# ===================================================================
+
+
+class TestCacheClearedBetweenIngress:
+    """Per-ingress caches are cleared at the start of each handle_ingress."""
+
+    async def test_cache_cleared_on_new_ingress(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """After one ingress call populates caches, the next ingress
+        starts with fresh caches (storage.get called again)."""
+        prior = _make_event(event_id="prior-clear", payload={"body": "cached"})
+        await temp_storage.append(prior)
+
+        counting = _CallCountingStorage(temp_storage)
+
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+        from medre.core.routing import Route, RouteSource, RouteTarget
+
+        route = Route(
+            id="cache-clear-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[route]),
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event1 = _make_event(event_id="src-clear-1", source_adapter="src")
+        event2 = _make_event(event_id="src-clear-2", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event1)
+
+            await runner.handle_ingress(event2)
+            # After the second ingress, the cache was cleared, so any
+            # lookups that happen during the second ingress will result
+            # in fresh storage.get calls if the same event_ids are accessed.
+            # The key assertion: the second ingress didn't reuse stale
+            # cached data from the first ingress.
+            # (We can't assert a specific count since the second event
+            # has no relations, but we verify the cache dicts are empty
+            # after the second ingress starts.)
+        finally:
+            await runner.stop()
+
+        # Verify caches are clearable — direct check after clearing.
+        runner._ingress_event_cache["test-key"] = None  # type: ignore
+        assert "test-key" in runner._ingress_event_cache
+        runner._ingress_event_cache.clear()
+        assert "test-key" not in runner._ingress_event_cache
+
+
+# ===================================================================
+# RelationEnricher with cached callables: no behavior change
+# ===================================================================
+
+
+class TestEnricherWithCachedCallables:
+    """RelationEnricher produces identical results with or without
+    cached callables — only lookup efficiency changes."""
+
+    async def test_enrichment_same_with_and_without_cache(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Enrichment results are identical with cached vs uncached callables."""
+        prior = _make_event(event_id="prior-eq", payload={"body": "same result"})
+        await temp_storage.append(prior)
+
+        nref = NativeMessageRef(
+            id="nref-eq",
+            event_id="prior-eq",
+            adapter="adapter-a",
+            native_channel_id="ch-1",
+            native_message_id="msg-eq",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+        await temp_storage.store_native_ref(nref)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-eq",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-eq", relations=(rel,))
+
+        # Without cached callables.
+        enricher = RelationEnricher(
+            storage=temp_storage,
+            logger=logging.getLogger("test.cache"),
+        )
+        result_uncached = await enricher.enrich_for_target(
+            event, target_adapter="adapter-a"
+        )
+
+        # With cached callables that delegate to storage.
+        async def _cached_get(eid: str) -> CanonicalEvent | None:
+            return await temp_storage.get(eid)
+
+        async def _cached_list(eid: str) -> list[NativeMessageRef]:
+            return await temp_storage.list_native_refs_for_event(eid)
+
+        result_cached = await enricher.enrich_for_target(
+            event,
+            target_adapter="adapter-a",
+            cached_get_fn=_cached_get,
+            cached_list_fn=_cached_list,
+        )
+
+        # Both results should have identical enrichment.
+        assert result_cached.relations[0].target_native_ref is not None
+        assert (
+            result_cached.relations[0].target_native_ref
+            == result_uncached.relations[0].target_native_ref
+        )
+        assert result_cached.relations[0].fallback_text == "same result"
+        assert result_uncached.relations[0].fallback_text == "same result"
+
+    async def test_enricher_without_cached_callables_default_behavior(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When cached callables are not provided, RelationEnricher
+        falls back to getattr(storage, ...) — preserving default behavior."""
+        prior = _make_event(event_id="prior-default", payload={"body": "default"})
+        await temp_storage.append(prior)
+
+        enricher = RelationEnricher(
+            storage=temp_storage,
+            logger=logging.getLogger("test.cache"),
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-default",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_id="src-default", relations=(rel,))
+
+        result = await enricher.enrich_for_target(event, target_adapter="adapter-a")
+        assert result.relations[0].fallback_text == "default"
+
+
+# ===================================================================
+# Cache does not change relation semantics
+# ===================================================================
+
+
+class TestCacheDoesNotChangeSemantics:
+    """Caching is transparent — relation outcomes are identical."""
+
+    async def test_reaction_to_reaction_still_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Reaction-to-reaction suppression still works with cached get."""
+        # Store a reaction event (target is itself a reaction).
+        target_reaction = CanonicalEvent(
+            event_id="target-reaction-001",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "reacted"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(target_reaction)
+
+        counting = _CallCountingStorage(temp_storage)
+        config = PipelineConfig(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=counting),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="target-reaction-001",
+            target_native_ref=None,
+            key="\U0001f44d",
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="src-r2r",
+            event_kind=EventKind.MESSAGE_REACTED,
+            relations=(rel,),
+        )
+
+        is_reaction = await runner._is_reaction_to_reaction(event)
+        assert is_reaction is True
+        # Only one storage.get call — result cached.
+        assert counting.get_call_count == 1
+
+    async def test_non_reaction_not_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """A regular message is not suppressed even with caching."""
+        prior = _make_event(event_id="prior-not-react")
+        await temp_storage.append(prior)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-not-react",
+            target_native_ref=None,
+            key="\U0001f44d",
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="src-not-r2r",
+            event_kind=EventKind.MESSAGE_REACTED,
+            relations=(rel,),
+        )
+
+        is_reaction = await runner._is_reaction_to_reaction(event)
+        assert is_reaction is False

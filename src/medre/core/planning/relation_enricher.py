@@ -63,6 +63,10 @@ class RelationEnricher:
         *,
         target_adapter: str,
         target_channel: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
     ) -> CanonicalEvent:
         """Enrich relations with target-adapter native refs for rendering.
 
@@ -79,6 +83,16 @@ class RelationEnricher:
             target_adapter: Adapter ID to match native refs against.
             target_channel: Optional native channel ID — when given, prefer
                 refs whose ``native_channel_id`` equals this value.
+            cached_get_fn: Optional pre-wired/cached ``storage.get`` callable.
+                When provided, used instead of ``getattr(storage, "get")`` so
+                callers (e.g. :class:`PipelineRunner`) can memoize lookups
+                across multiple enrichment calls within a single ingress.
+                Must have the same signature as ``storage.get(event_id)``.
+            cached_list_fn: Optional pre-wired/cached
+                ``storage.list_native_refs_for_event`` callable.  When
+                provided, used instead of ``getattr(storage,
+                "list_native_refs_for_event")`` for the same memoization
+                purpose.
 
         Returns a new event when any relation is enriched; returns the
         original event unchanged otherwise.  **Never mutates** the stored
@@ -88,8 +102,8 @@ class RelationEnricher:
             return event
 
         storage = self._storage
-        list_fn = getattr(storage, "list_native_refs_for_event", None)
-        get_fn = getattr(storage, "get", None)
+        list_fn = cached_list_fn or getattr(storage, "list_native_refs_for_event", None)
+        get_fn = cached_get_fn or getattr(storage, "get", None)
 
         changed = False
         new_relations: list[EventRelation] = []
@@ -275,9 +289,8 @@ class RelationEnricher:
                         if "original_sender_displayname" not in sender_meta:
                             _dn = None
                             if target_data is not None:
-                                _dn = (
-                                    target_data.get("displayname")
-                                    or target_data.get("longname")
+                                _dn = target_data.get("displayname") or target_data.get(
+                                    "longname"
                                 )
                             if _dn:
                                 sender_meta["original_sender_displayname"] = str(_dn)
