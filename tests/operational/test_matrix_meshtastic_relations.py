@@ -54,7 +54,6 @@ from tests.operational.test_matrix_meshtastic_flow import (
     _meshtastic_inbound_event,
 )
 
-
 # ===========================================================================
 # Matrix -> Meshtastic reply rendering
 # ===========================================================================
@@ -586,5 +585,5 @@ class TestRenderingEvidence:
         d = evidence.to_dict()
         for k, v in d.items():
             assert isinstance(
-                v, (str, int, float, bool, type(None))
+                v, (str, int, float, bool, type(None), list)
             ), f"Key {k!r} has non-JSON-safe value: {type(v)}"

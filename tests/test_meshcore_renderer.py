@@ -915,3 +915,163 @@ class TestMeshCoreRendererReactionEmojiFallback:
             ),
         )
         assert "[reaction 🔥 to:" in result.payload["text"]
+
+
+# ===================================================================
+# Native-target selection rules: fallback-only, all relations iterated
+# ===================================================================
+
+
+class TestMeshCoreTargetSelectionRules:
+    """Lock the target-selection contracts for MeshCoreRenderer.
+
+    These tests assert the *current* behaviour — guards against accidental
+    changes, not aspirational specifications.
+
+    Key contracts:
+    - MeshCoreRenderer has **no** native relation support.  No reply_id,
+      emoji, or any transport-specific relation field is ever emitted.
+    - All relations are degraded to inline text via
+      ``degrade_relations_inline`` (iterates all relations, not just
+      ``relations[0]``).
+    - Both ``direct`` and ``fallback_text`` strategies produce the same
+      relation-free payload for MeshCore (no native rendering path).
+    - The payload always contains exactly ``text``, ``channel_index``,
+      and ``meshnet_name`` — never ``reply_id``, ``emoji``, or
+      ``m.relates_to``.
+    """
+
+    async def test_all_relations_degraded_inline(self) -> None:
+        """All relations appear in degraded inline text, not just relations[0].
+
+        MeshCore's ``degrade_relations_inline`` iterates every relation,
+        unlike Matrix/Meshtastic which only inspect ``relations[0]``.
+        """
+        renderer = _make_renderer()
+        reply_rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-reply-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original msg",
+        )
+        reaction_rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="evt-react-target",
+            target_native_ref=None,
+            key="👍",
+            fallback_text="reacted msg",
+        )
+        event = CanonicalEvent(
+            event_id="evt-multi-rel",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="meshcore-1",
+            source_transport_id="abc123",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_rel, reaction_rel),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        text = result.payload["text"]
+        # Both relations must appear in degraded inline text
+        assert "[reply to:" in text
+        assert "[reaction 👍 to:" in text
+
+    async def test_no_native_target_fields_ever_emitted(self) -> None:
+        """MeshCore payload never contains native relation fields.
+
+        Regardless of relation type or native ref presence, the payload
+        contains only text, channel_index, and meshnet_name.
+        """
+        renderer = _make_renderer()
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original",
+        )
+        event = CanonicalEvent(
+            event_id="evt-no-native",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="meshcore-1",
+            source_transport_id="abc123",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="direct",
+            ),
+        )
+        payload_keys = set(result.payload.keys())
+        # Only these keys are ever emitted
+        assert payload_keys == {"text", "channel_index", "meshnet_name"}
+        # Explicitly no native relation fields
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert "m.relates_to" not in result.payload
+
+    async def test_native_ref_on_relation_is_ignored_for_direct(self) -> None:
+        """Even when a native ref is present on the relation, MeshCore
+        does not use it — no native rendering path exists."""
+        from medre.core.events import NativeRef
+
+        renderer = _make_renderer()
+        native_ref = NativeRef(
+            adapter="meshcore_node",
+            native_channel_id="0",
+            native_message_id="pkt-123",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-001",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text="original",
+        )
+        event = CanonicalEvent(
+            event_id="evt-has-ref",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="meshcore-1",
+            source_transport_id="abc123",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply text"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node",
+                delivery_strategy="direct",
+            ),
+        )
+        # No native relation fields — MeshCore ignores the native ref
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        # Just plain text (no degraded inline in direct mode)
+        assert result.payload["text"] == "reply text"

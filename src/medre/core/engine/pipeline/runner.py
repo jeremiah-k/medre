@@ -55,6 +55,7 @@ from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
 )
 from medre.core.planning.capability_decision import resolver as _cap_resolver
+from medre.core.planning.conversation_graph import ConversationGraphAuthority
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -281,6 +282,10 @@ class PipelineRunner:
             config.rendering_pipeline or _default_rendering_pipeline()
         )
         self._relation_enricher = RelationEnricher(
+            storage=config.storage,
+            logger=self._log,
+        )
+        self._conversation_authority = ConversationGraphAuthority(
             storage=config.storage,
             logger=self._log,
         )
@@ -528,6 +533,10 @@ class PipelineRunner:
         # Stage 2 – resolve relations (pipeline-owned, not adapter/codec).
         event = await self._resolve_relations(event)
 
+        # Stage 2.5 – assign conversation identity (root_event_id,
+        # conversation_id) based on resolved relation targets.
+        event = await self._assign_conversation_identity(event)
+
         # ── Phase: STORE ────────────────────────────────────────────────
         self._current_phase = PipelinePhase.STORE
         self._phase_counts[PipelinePhase.STORE] += 1
@@ -652,6 +661,23 @@ class PipelineRunner:
         changes are needed; returns a new (immutable) event otherwise.
         """
         return await self._config.relation_resolver.resolve_event_relations(event)
+
+    async def _assign_conversation_identity(
+        self, event: CanonicalEvent
+    ) -> CanonicalEvent:
+        """Assign root_event_id and conversation_id based on relation graph.
+
+        Delegates to
+        :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
+        to walk the relation ancestry and determine the root event and
+        conversation identity.  Uses the per-ingress cache via
+        :meth:`_cached_get` so ancestor lookups are reused across
+        subsequent enrichment calls.
+        """
+        return await self._conversation_authority.resolve_conversation_identity(
+            event,
+            cached_get_fn=self._cached_get,
+        )
 
     async def _enrich_relations_for_target(
         self,

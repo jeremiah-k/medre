@@ -1491,3 +1491,178 @@ class TestRelationDegradationAndTruncationEvidence:
         )
         assert "reacted ❤️" in result.payload["text"]
         assert result.truncated is True
+
+
+# ===================================================================
+# Native-target selection rules: relations[0], stale, metadata fallback
+# ===================================================================
+
+
+class TestMeshtasticTargetSelectionRules:
+    """Lock the target-selection contracts for MeshtasticRenderer.
+
+    These tests assert the *current* behaviour — guards against accidental
+    changes, not aspirational specifications.
+
+    Key contracts:
+    - MeshtasticRenderer inspects **only** ``event.relations[0]``.
+    - Native reply ID comes from ``target_native_ref.native_message_id``
+      owned by ``target_adapter`` (numeric), or from
+      ``relation.metadata["meshtastic_reply_id"]`` as a fallback.
+    - No staleness or liveness check is performed on the native target.
+    - Foreign-adapter native refs are ignored.
+    """
+
+    async def test_uses_relations_zero_only_reply_over_reaction(self) -> None:
+        """When multiple relations exist, only relations[0] is rendered.
+
+        A reply at index 0 is rendered with reply_id; a reaction at
+        index 1 is completely ignored.
+        """
+        renderer = _make_renderer("mesh-1")
+        reply_rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-reply",
+            target_native_ref=NativeRef(
+                adapter="mesh-1", native_channel_id="0", native_message_id="42"
+            ),
+            key=None,
+            fallback_text="orig reply msg",
+        )
+        ignored_reaction = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-react",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(reply_rel, ignored_reaction),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        # Reply is rendered with reply_id
+        assert result.payload["reply_id"] == 42
+        assert result.payload["text"] == "my reply"
+        # No reaction artifacts
+        assert "emoji" not in result.payload
+        assert "[reacted:" not in result.payload["text"]
+
+    async def test_uses_relations_zero_only_reaction_over_reply(self) -> None:
+        """When relations[0] is a reaction, only it is rendered;
+        a reply at index 1 is ignored."""
+        renderer = _make_renderer("mesh-1")
+        reaction_rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-react",
+            target_native_ref=NativeRef(
+                adapter="mesh-1", native_channel_id="0", native_message_id="77"
+            ),
+            key="❤️",
+            fallback_text=None,
+        )
+        ignored_reply = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-reply",
+            target_native_ref=NativeRef(
+                adapter="mesh-1", native_channel_id="0", native_message_id="99"
+            ),
+            key=None,
+            fallback_text="orig msg",
+        )
+        event = _make_event(
+            payload={"body": "❤️"},
+            relations=(reaction_rel, ignored_reply),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        # Reaction rendered natively
+        assert result.payload["reply_id"] == 77
+        assert result.payload["emoji"] == 1
+        assert result.payload["text"] == "❤️"
+
+    async def test_stale_native_target_used_without_prevalidation(self) -> None:
+        """A native ref whose message_id may be stale is still used.
+
+        MeshtasticRenderer performs no staleness or liveness check on
+        the native_message_id.  It passes the ID through as reply_id
+        verbatim — the radio layer is responsible for handling unknown
+        packet IDs.
+        """
+        renderer = _make_renderer("mesh-1")
+        stale_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="999999999",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=stale_ref,
+            key=None,
+            fallback_text="original",
+        )
+        event = _make_event(
+            payload={"body": "reply to stale"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["reply_id"] == 999999999
+
+    async def test_metadata_fallback_when_no_native_ref(self) -> None:
+        """When target_native_ref is None but metadata has
+        meshtastic_reply_id, the metadata value is used as reply_id.
+
+        This is the MMRelay cross-transport fallback path.
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original",
+            metadata={"meshtastic_reply_id": "12345"},
+        )
+        event = _make_event(
+            payload={"body": "cross-transport reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["reply_id"] == 12345
+
+    async def test_native_ref_takes_priority_over_metadata(self) -> None:
+        """target_native_reply_id takes priority over metadata fallback.
+
+        When both sources exist, the native ref value wins.
+        """
+        renderer = _make_renderer("mesh-1")
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="100",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text="original",
+            metadata={"meshtastic_reply_id": "200"},
+        )
+        event = _make_event(
+            payload={"body": "priority test"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        # Native ref wins: 100, not 200
+        assert result.payload["reply_id"] == 100

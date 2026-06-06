@@ -93,7 +93,7 @@ Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defin
 
 ### 4.1 Inbound: Adapter → Canonical Event → Storage
 
-```
+```text
 1. Adapter codec decodes native wire format
 2. Codec creates CanonicalEvent with:
      - source_native_ref = NativeRef(adapter, native_channel_id, native_message_id)
@@ -112,7 +112,7 @@ Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defin
 
 ### 4.2 Outbound: Canonical Event → Renderer → Adapter → Native Ref
 
-```
+```text
 1. Router matches event to delivery plan(s), each targeting (adapter, channel)
 2. For each target:
    a. RelationEnricher.enrich_for_target(event, target_adapter, target_channel)
