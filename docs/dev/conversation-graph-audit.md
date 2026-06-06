@@ -43,6 +43,8 @@ It records what exists today — types, ownership, lookup paths, and boundaries 
 | `root_event_id`     | `str \| None`               | Root event in relation chain                   | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; equals `event_id` for root events |
 | `conversation_id`   | `str \| None`               | Conversation identifier                        | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; currently equals `root_event_id`  |
 
+**Root selection rule (first-resolved-relation-wins)**: When an event carries multiple relations, `ConversationGraphAuthority` walks them in storage order and selects the root from the _first_ relation whose `target_event_id` is present in storage. Subsequent relations are ignored for root selection. This keeps root assignment deterministic and avoids ambiguity when different relation targets could lead to different conversation roots. If no resolved target is found in storage, the event roots to itself.
+
 ### 2.2 EventRelation fields
 
 | Field               | Type                                                   | Purpose                                                 |
@@ -219,7 +221,7 @@ LXMF `FIELD_THREAD` (`0x08`) exists in field constants but has zero documentatio
 
 ## 7. Transport-Specific Metadata Boundaries
 
-The following boundary is consistent with prior tranche findings:
+The following boundary is consistent with prior audit findings:
 
 | Concern                       | Authority                                            | Boundary rule                                                                                                          |
 | ----------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -271,7 +273,7 @@ Keys like `meshtastic_reply_id` in `EventRelation.metadata` are set by the Matri
 
 ## 9. Non-Goals
 
-This tranche does **not** include:
+This document does **not** include:
 
 - Diverging `conversation_id` from `root_event_id` (they are currently equal)
 - Retroactively repairing `root_event_id` on events that self-rooted due to out-of-order arrival

@@ -350,8 +350,15 @@ class TestCachedGetUsage:
         )
         event = _make_event(event_id="evt-1", relations=(rel,))
 
-        # Storage has events, but cached_get_fn should be used instead.
-        storage = FakeStorage(events={"target-1": _make_event(event_id="target-1")})
+        # Storage whose get() raises — proves cached_get_fn is used
+        # exclusively and storage.get is never called.
+        class _AssertingStorage(FakeStorage):
+            async def get(self, event_id: str) -> CanonicalEvent | None:
+                raise AssertionError(
+                    "storage.get must not be called when cached_get_fn is provided"
+                )
+
+        storage = _AssertingStorage()
         authority = ConversationGraphAuthority(storage=storage)
 
         result = await authority.resolve_conversation_identity(
@@ -525,3 +532,78 @@ class TestMultiRelationMissingFirstTarget:
 
         assert result.root_event_id == "evt-1"
         assert result.conversation_id == "evt-1"
+
+
+class TestFirstResolvedStoredRelationWins:
+    """When multiple relations have targets in storage pointing to different
+    roots, the FIRST relation's root is chosen (first-resolved-stored-wins).
+
+    This is intentional: the authority iterates relations in order and
+    returns on the first storage hit, so the ordering of relations
+    determines root selection when targets diverge.
+    """
+
+    @pytest.mark.asyncio
+    async def test_first_relation_root_chosen_when_both_stored(self) -> None:
+        """Two resolved relations, both in storage, different roots →
+        first relation's root wins."""
+        # Root A (for first relation's target).
+        root_a = _make_event(
+            event_id="root-a",
+            root_event_id="root-a",
+            conversation_id="root-a",
+        )
+        # Root B (for second relation's target).
+        root_b = _make_event(
+            event_id="root-b",
+            root_event_id="root-b",
+            conversation_id="root-b",
+        )
+        # Target A points to root-a.
+        target_a = _make_event(
+            event_id="target-a",
+            root_event_id="root-a",
+            conversation_id="root-a",
+        )
+        # Target B points to root-b.
+        target_b = _make_event(
+            event_id="target-b",
+            root_event_id="root-b",
+            conversation_id="root-b",
+        )
+
+        # Event with 2 relations: first targets A, second targets B.
+        rel_first = EventRelation(
+            relation_type="reply",
+            target_event_id="target-a",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        rel_second = EventRelation(
+            relation_type="reply",
+            target_event_id="target-b",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="evt-1",
+            relations=(rel_first, rel_second),
+        )
+
+        storage = FakeStorage(
+            events={
+                "root-a": root_a,
+                "root-b": root_b,
+                "target-a": target_a,
+                "target-b": target_b,
+            }
+        )
+        authority = ConversationGraphAuthority(storage=storage)
+
+        result = await authority.resolve_conversation_identity(event)
+
+        # First relation's target (target-a → root-a) wins.
+        assert result.root_event_id == "root-a"
+        assert result.conversation_id == "root-a"

@@ -535,7 +535,7 @@ class TestReactionFallback:
     """
 
     async def test_reaction_falls_back_with_conversation_identity(
-        self, temp_storage: SQLiteStorage
+        self,
     ) -> None:
         from medre.adapters.lxmf.renderer import LxmfRenderer
 

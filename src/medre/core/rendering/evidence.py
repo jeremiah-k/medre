@@ -168,18 +168,24 @@ def _derive_relation_render_mode(
     delivery_strategy: DeliveryStrategyMethod,
     capability_level: CapabilityLevel,
     fallback_applied: FallbackApplied | None,
+    *,
+    target_event_id: str | None = None,
+    target_native_message_id: str | None = None,
 ) -> str:
     """Derive the render mode for a single relation.
 
     Returns ``"native"`` or ``"fallback"`` based on the overall rendering
-    context.  The logic is:
+    context and target availability.  The logic is:
 
     1. ``delivery_strategy == "fallback_text"`` → all relations fallback.
     2. ``capability_level`` in ``("fallback", "unsupported")`` → all
        relations fallback.
     3. ``fallback_applied`` starts with ``"relation_"`` and its suffix
        matches the relation type → this specific relation fallback.
-    4. Otherwise → native.
+    4. ``target_event_id`` is ``None`` → no resolved target → fallback.
+    5. ``target_native_message_id`` is ``None`` or empty → no usable
+       native ref → fallback.
+    6. Otherwise → native.
     """
     if delivery_strategy == "fallback_text":
         return "fallback"
@@ -189,6 +195,10 @@ def _derive_relation_render_mode(
         suffix = fallback_applied[len("relation_") :]
         if suffix == relation_type:
             return "fallback"
+    if target_event_id is None:
+        return "fallback"
+    if not target_native_message_id:
+        return "fallback"
     return "native"
 
 
@@ -203,15 +213,18 @@ def _build_relation_evidence(
 
     entries: list[RelationTargetEvidence] = []
     for rel in event.relations:
+        target_native_msg_id: str | None = None
+        if rel.target_native_ref is not None:
+            target_native_msg_id = rel.target_native_ref.native_message_id
+
         render_mode = _derive_relation_render_mode(
             relation_type=rel.relation_type,
             delivery_strategy=ctx.delivery_strategy,
             capability_level=ctx.capability_level,
             fallback_applied=fallback_applied,
+            target_event_id=rel.target_event_id,
+            target_native_message_id=target_native_msg_id,
         )
-        target_native_msg_id: str | None = None
-        if rel.target_native_ref is not None:
-            target_native_msg_id = rel.target_native_ref.native_message_id
 
         target_available: bool | None = None
         if rel.target_event_id is not None:

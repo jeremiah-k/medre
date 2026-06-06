@@ -71,6 +71,14 @@ properties:
     type: ["string", "null"]
     default: null
     description: Distributed tracing correlation ID.
+  root_event_id:
+    type: ["string", "null"]
+    default: null
+    description: Canonical event ID of the root event in a relation chain. Populated by ConversationGraphAuthority during pipeline ingress.
+  conversation_id:
+    type: ["string", "null"]
+    default: null
+    description: Canonical conversation identifier. Currently equals root_event_id; reserved for future divergence.
 required:
   - event_id
   - event_kind

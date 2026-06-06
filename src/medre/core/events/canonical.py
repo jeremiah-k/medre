@@ -303,13 +303,15 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
         Distributed tracing correlation ID.
     root_event_id:
         Canonical event ID of the root event in a relation chain.
+        Assigned by :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
+        during pipeline ingress after relation resolution.
         ``None`` when not yet computed or when the event has no
-        relation ancestry.  A later pipeline agent populates this
-        field; this model only carries it.
+        relation ancestry.
     conversation_id:
-        Canonical conversation identifier.  Expected to equal
-        ``root_event_id`` for now, but this agent only adds the
-        field — computation belongs to a later agent.
+        Canonical conversation identifier.  Currently equals
+        ``root_event_id`` but exists independently for future
+        grouping semantics (e.g. merged threads, cross-transport
+        conversation grouping).
     """
 
     event_id: str

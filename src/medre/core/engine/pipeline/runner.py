@@ -306,13 +306,6 @@ class PipelineRunner:
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
         self._running: bool = False
 
-        # -- Per-ingress lookup caches (cleared each handle_ingress call) ---
-        # These avoid redundant storage.get() and list_native_refs_for_event()
-        # calls across reaction-to-reaction checks and per-target relation
-        # enrichment within a single ingress processing pass.
-        self._ingress_event_cache: dict[str, CanonicalEvent | None] = {}
-        self._ingress_refs_cache: dict[str, list[NativeMessageRef]] = {}
-
         # -- Phase instrumentation ------------------------------------------
         self._current_phase: PipelinePhase | None = None
         self._phase_counts: dict[PipelinePhase, int] = {
@@ -474,9 +467,40 @@ class PipelineRunner:
             event.source_adapter,
         )
 
-        # Clear per-ingress lookup caches to prevent cross-event stale data.
-        self._ingress_event_cache.clear()
-        self._ingress_refs_cache.clear()
+        # -- Per-ingress lookup caches (call-local, not instance-level) ---
+        # Each handle_ingress call gets its own cache dicts so concurrent
+        # calls on the same PipelineRunner instance cannot share, clear,
+        # or contaminate each other's caches.
+        _event_cache: dict[str, CanonicalEvent | None] = {}
+        _refs_cache: dict[str, list[NativeMessageRef]] = {}
+
+        async def _cached_get(event_id: str) -> CanonicalEvent | None:
+            """Memoized storage.get for this ingress pass."""
+            if event_id in _event_cache:
+                return _event_cache[event_id]
+            get_fn = getattr(self._config.storage, "get", None)
+            if not callable(get_fn):
+                return None
+            result = await cast(
+                Callable[[str], Awaitable[CanonicalEvent | None]], get_fn
+            )(event_id)
+            _event_cache[event_id] = result
+            return result
+
+        async def _cached_list_native_refs(
+            event_id: str,
+        ) -> list[NativeMessageRef]:
+            """Memoized storage.list_native_refs_for_event for this ingress pass."""
+            if event_id in _refs_cache:
+                return _refs_cache[event_id]
+            list_fn = getattr(self._config.storage, "list_native_refs_for_event", None)
+            if not callable(list_fn):
+                return []
+            result = await cast(
+                Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
+            )(event_id)
+            _refs_cache[event_id] = result
+            return result
 
         # ── Phase: INGRESS ──────────────────────────────────────────────
         self._current_phase = PipelinePhase.INGRESS
@@ -535,7 +559,7 @@ class PipelineRunner:
 
         # Stage 2.5 – assign conversation identity (root_event_id,
         # conversation_id) based on resolved relation targets.
-        event = await self._assign_conversation_identity(event)
+        event = await self._assign_conversation_identity(event, get_fn=_cached_get)
 
         # ── Phase: STORE ────────────────────────────────────────────────
         self._current_phase = PipelinePhase.STORE
@@ -548,7 +572,7 @@ class PipelineRunner:
         await self._persist_inbound_native_ref(event)
 
         # Stage 4.5 – suppress reaction-to-reaction
-        if await self._is_reaction_to_reaction(event):
+        if await self._is_reaction_to_reaction(event, get_fn=_cached_get):
             self._log.info(
                 "Reaction-to-reaction suppressed: event_id=%s targets another reaction",
                 event.event_id,
@@ -595,7 +619,12 @@ class PipelineRunner:
         self._current_phase = PipelinePhase.DELIVER
         self._phase_counts[PipelinePhase.DELIVER] += 1
 
-        outcomes = await self.deliver_to_targets(event, deliveries)
+        outcomes = await self.deliver_to_targets(
+            event,
+            deliveries,
+            cached_get_fn=_cached_get,
+            cached_list_fn=_cached_list_native_refs,
+        )
 
         accepted = sum(1 for o in outcomes if _is_accepted_outcome_status(o.status))
         skipped = sum(1 for o in outcomes if o.status == "skipped")
@@ -663,20 +692,22 @@ class PipelineRunner:
         return await self._config.relation_resolver.resolve_event_relations(event)
 
     async def _assign_conversation_identity(
-        self, event: CanonicalEvent
+        self,
+        event: CanonicalEvent,
+        *,
+        get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
     ) -> CanonicalEvent:
         """Assign root_event_id and conversation_id based on relation graph.
 
         Delegates to
         :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
         to walk the relation ancestry and determine the root event and
-        conversation identity.  Uses the per-ingress cache via
-        :meth:`_cached_get` so ancestor lookups are reused across
-        subsequent enrichment calls.
+        conversation identity.  Uses the per-ingress cache via *get_fn*
+        so ancestor lookups are reused across subsequent enrichment calls.
         """
         return await self._conversation_authority.resolve_conversation_identity(
             event,
-            cached_get_fn=self._cached_get,
+            cached_get_fn=get_fn,
         )
 
     async def _enrich_relations_for_target(
@@ -684,6 +715,9 @@ class PipelineRunner:
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        list_fn: Callable[[str], Awaitable[list[NativeMessageRef]]] | None = None,
     ) -> CanonicalEvent:
         """Enrich relations with target-adapter native refs for rendering.
 
@@ -699,8 +733,8 @@ class PipelineRunner:
             event,
             target_adapter=target_adapter,
             target_channel=target_channel,
-            cached_get_fn=self._cached_get,
-            cached_list_fn=self._cached_list_native_refs,
+            cached_get_fn=get_fn,
+            cached_list_fn=list_fn,
         )
 
     # -- Stage 4: Inbound native ref persistence -------------------------
@@ -735,45 +769,12 @@ class PipelineRunner:
 
     # -- Per-ingress lookup cache helpers ------------------------------------
 
-    async def _cached_get(self, event_id: str) -> CanonicalEvent | None:
-        """Memoized ``storage.get(event_id)`` for the current ingress.
-
-        Returns the cached result when *event_id* was already looked up
-        during this ingress pass; otherwise delegates to
-        ``storage.get()``, caches the result (including ``None``), and
-        returns it.  Failures are **not** cached so transient errors can
-        be retried within the same ingress.
-        """
-        if event_id in self._ingress_event_cache:
-            return self._ingress_event_cache[event_id]
-        get_fn = getattr(self._config.storage, "get", None)
-        if not callable(get_fn):
-            return None
-        result = await cast(Callable[[str], Awaitable[CanonicalEvent | None]], get_fn)(
-            event_id
-        )
-        self._ingress_event_cache[event_id] = result
-        return result
-
-    async def _cached_list_native_refs(self, event_id: str) -> list[NativeMessageRef]:
-        """Memoized ``storage.list_native_refs_for_event(event_id)`` for the current ingress.
-
-        Returns the cached list when *event_id* was already looked up
-        during this ingress pass; otherwise delegates to storage, caches
-        the result, and returns it.  Failures are **not** cached.
-        """
-        if event_id in self._ingress_refs_cache:
-            return self._ingress_refs_cache[event_id]
-        list_fn = getattr(self._config.storage, "list_native_refs_for_event", None)
-        if not callable(list_fn):
-            return []
-        result = await cast(
-            Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
-        )(event_id)
-        self._ingress_refs_cache[event_id] = result
-        return result
-
-    async def _is_reaction_to_reaction(self, event: CanonicalEvent) -> bool:
+    async def _is_reaction_to_reaction(
+        self,
+        event: CanonicalEvent,
+        *,
+        get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+    ) -> bool:
         """Return ``True`` when *event* is a reaction whose target is itself a reaction.
 
         Checks each relation with ``relation_type == "reaction"`` for a
@@ -782,9 +783,9 @@ class PipelineRunner:
         relation itself, the inbound event is considered a
         *reaction-to-reaction* and should be suppressed from routing.
 
-        Uses the per-ingress cache via :meth:`_cached_get` so that
-        lookups performed here are reused by subsequent relation
-        enrichment for the same target_event_id.
+        When *get_fn* is provided, uses it as a cached ``storage.get``
+        callable so that lookups performed here are reused by subsequent
+        relation enrichment for the same target_event_id.
 
         Failures to fetch the target event are logged and silently skipped
         so that storage errors never prevent delivery.
@@ -793,6 +794,7 @@ class PipelineRunner:
             return False
         if not event.relations:
             return False
+        _get = get_fn or getattr(self._config.storage, "get", None)
         for rel in event.relations:
             if rel.relation_type != "reaction":
                 continue
@@ -800,7 +802,12 @@ class PipelineRunner:
             if not target_id:
                 continue
             try:
-                target_event = await self._cached_get(target_id)
+                if _get is not None:
+                    target_event = await cast(
+                        Callable[[str], Awaitable[CanonicalEvent | None]], _get
+                    )(target_id)
+                else:
+                    target_event = None
             except Exception:
                 self._log.debug(
                     "Failed to fetch target event for reaction-to-reaction check: %s",
@@ -1011,6 +1018,10 @@ class PipelineRunner:
         *,
         source: str = "live",
         replay_run_id: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
     ) -> list[DeliveryOutcome]:
         """Deliver *event* to every target and return categorised outcomes.
 
@@ -1030,6 +1041,12 @@ class PipelineRunner:
             Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             When ``source="replay"``, the replay run identifier.
+        cached_get_fn:
+            Optional memoized ``storage.get`` callable scoped to a
+            single ingress pass.
+        cached_list_fn:
+            Optional memoized ``storage.list_native_refs_for_event``
+            callable scoped to a single ingress pass.
 
         Returns
         -------
@@ -1043,6 +1060,8 @@ class PipelineRunner:
             route_targets,
             source=source,
             replay_run_id=replay_run_id,
+            cached_get_fn=cached_get_fn,
+            cached_list_fn=cached_list_fn,
         )
 
     async def _persist_suppression_receipt(
@@ -1086,6 +1105,10 @@ class PipelineRunner:
         *,
         source: str = "live",
         replay_run_id: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
     ) -> list[DeliveryOutcome]:
 
         async def _deliver_one(
@@ -1508,6 +1531,8 @@ class PipelineRunner:
                         route_plan,
                         source=source,
                         replay_run_id=replay_run_id,
+                        cached_get_fn=cached_get_fn,
+                        cached_list_fn=cached_list_fn,
                     )
                     _outcome_receipt = receipt
                     elapsed = (time.monotonic() - t0) * 1000.0
@@ -1891,6 +1916,10 @@ class PipelineRunner:
         previous_receipt: DeliveryReceipt | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -1912,6 +1941,8 @@ class PipelineRunner:
             event,
             target_adapter=adapter_id,
             target_channel=target.channel,
+            get_fn=cached_get_fn,
+            list_fn=cached_list_fn,
         )
         return await self._target_delivery.deliver_to_target(
             event,

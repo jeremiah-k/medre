@@ -8,6 +8,7 @@ relation enrichment without changing relation semantics.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -81,6 +82,34 @@ def _make_event(
     )
 
 
+def _make_cached_get(storage: _CallCountingStorage):
+    """Create a call-local event cache and memoized get closure."""
+    cache: dict[str, CanonicalEvent | None] = {}
+
+    async def cached_get(event_id: str) -> CanonicalEvent | None:
+        if event_id in cache:
+            return cache[event_id]
+        result = await storage.get(event_id)
+        cache[event_id] = result
+        return result
+
+    return cached_get
+
+
+def _make_cached_list_refs(storage: _CallCountingStorage):
+    """Create a call-local refs cache and memoized list closure."""
+    cache: dict[str, list[NativeMessageRef]] = {}
+
+    async def cached_list(event_id: str) -> list[NativeMessageRef]:
+        if event_id in cache:
+            return cache[event_id]
+        result = await storage.list_native_refs_for_event(event_id)
+        cache[event_id] = result
+        return result
+
+    return cached_list
+
+
 # ===================================================================
 # Cached get: repeated enrichment for same target_event_id reuses cache
 # ===================================================================
@@ -121,14 +150,21 @@ class TestCachedGetDeduplicates:
         )
         event = _make_event(event_id="src-001", relations=(rel,))
 
+        # Create a call-local cached get closure.
+        cached_get = _make_cached_get(counting)
+
         # First enrichment — should call storage.get once.
-        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        result1 = await runner._enrich_relations_for_target(
+            event, "adapter-a", get_fn=cached_get
+        )
         assert result1.relations[0].fallback_text == "original"
         first_count = counting.get_call_count
 
         # Second enrichment for a different target adapter — should NOT
         # call storage.get again because the result is cached.
-        result2 = await runner._enrich_relations_for_target(event, "adapter-b")
+        result2 = await runner._enrich_relations_for_target(
+            event, "adapter-b", get_fn=cached_get
+        )
         assert result2.relations[0].fallback_text == "original"
 
         assert counting.get_call_count == first_count
@@ -168,14 +204,19 @@ class TestCachedGetDeduplicates:
             relations=(rel,),
         )
 
+        # Create a shared cached get closure.
+        cached_get = _make_cached_get(counting)
+
         # Call reaction check — should call storage.get once.
-        is_reaction = await runner._is_reaction_to_reaction(event)
+        is_reaction = await runner._is_reaction_to_reaction(event, get_fn=cached_get)
         assert is_reaction is False  # prior is not a reaction
         count_after_check = counting.get_call_count
         assert count_after_check == 1
 
         # Now enrich — should reuse cached get, not call storage again.
-        result = await runner._enrich_relations_for_target(event, "adapter-a")
+        result = await runner._enrich_relations_for_target(
+            event, "adapter-a", get_fn=cached_get
+        )
         assert result.relations[0].fallback_text == "target"
         assert counting.get_call_count == count_after_check
 
@@ -228,13 +269,20 @@ class TestCachedListRefsDeduplicates:
         )
         event = _make_event(event_id="src-refs", relations=(rel,))
 
+        # Create a call-local cached list closure.
+        cached_list = _make_cached_list_refs(counting)
+
         # First enrichment.
-        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        result1 = await runner._enrich_relations_for_target(
+            event, "adapter-a", list_fn=cached_list
+        )
         assert result1.relations[0].target_native_ref is not None
         first_count = counting.list_refs_call_count
 
         # Second enrichment for a different adapter — cached result reused.
-        await runner._enrich_relations_for_target(event, "adapter-b")
+        await runner._enrich_relations_for_target(
+            event, "adapter-b", list_fn=cached_list
+        )
         assert counting.list_refs_call_count == first_count
         assert counting.list_refs_call_ids.count("prior-refs") == 1
 
@@ -273,13 +321,20 @@ class TestMissingTargetsCachedSafely:
         )
         event = _make_event(event_id="src-missing", relations=(rel,))
 
+        # Create a call-local cached get closure.
+        cached_get = _make_cached_get(counting)
+
         # First enrichment — storage.get called once, returns None.
-        result1 = await runner._enrich_relations_for_target(event, "adapter-a")
+        result1 = await runner._enrich_relations_for_target(
+            event, "adapter-a", get_fn=cached_get
+        )
         assert result1.relations[0].fallback_text is None
         assert counting.get_call_count == 1
 
         # Second enrichment — cached None reused.
-        result2 = await runner._enrich_relations_for_target(event, "adapter-b")
+        result2 = await runner._enrich_relations_for_target(
+            event, "adapter-b", get_fn=cached_get
+        )
         assert result2.relations[0].fallback_text is None
         assert counting.get_call_count == 1  # No additional call
 
@@ -309,29 +364,37 @@ class TestMissingTargetsCachedSafely:
         )
         event = _make_event(event_id="src-no-refs", relations=(rel,))
 
+        # Create a call-local cached list closure.
+        cached_list = _make_cached_list_refs(counting)
+
         # First enrichment.
-        await runner._enrich_relations_for_target(event, "adapter-a")
+        await runner._enrich_relations_for_target(
+            event, "adapter-a", list_fn=cached_list
+        )
         assert counting.list_refs_call_count == 1
 
         # Second enrichment — cached empty list reused.
-        await runner._enrich_relations_for_target(event, "adapter-b")
+        await runner._enrich_relations_for_target(
+            event, "adapter-b", list_fn=cached_list
+        )
         assert counting.list_refs_call_count == 1
 
 
 # ===================================================================
-# Cache cleared between ingress calls
+# Cache isolation between ingress calls (call-local scoping)
 # ===================================================================
 
 
-class TestCacheClearedBetweenIngress:
-    """Per-ingress caches are cleared at the start of each handle_ingress."""
+class TestCacheIsolationBetweenIngress:
+    """Per-ingress caches are call-local — each handle_ingress gets
+    fresh caches without sharing or contamination."""
 
-    async def test_cache_cleared_on_new_ingress(
+    async def test_sequential_ingress_calls_get_fresh_caches(
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """After one ingress call populates caches, the next ingress
-        starts with fresh caches (storage.get called again)."""
+        """Two sequential handle_ingress calls each get their own
+        caches. The second call does not reuse cached data from the first."""
         prior = _make_event(event_id="prior-clear", payload={"body": "cached"})
         await temp_storage.append(prior)
 
@@ -362,24 +425,117 @@ class TestCacheClearedBetweenIngress:
 
         try:
             await runner.handle_ingress(event1)
-
             await runner.handle_ingress(event2)
-            # After the second ingress, the cache was cleared, so any
-            # lookups that happen during the second ingress will result
-            # in fresh storage.get calls if the same event_ids are accessed.
-            # The key assertion: the second ingress didn't reuse stale
-            # cached data from the first ingress.
-            # (We can't assert a specific count since the second event
-            # has no relations, but we verify the cache dicts are empty
-            # after the second ingress starts.)
+            # Both calls completed without error. Each call used its own
+            # call-local cache — no shared state between them.
         finally:
             await runner.stop()
 
-        # Verify caches are clearable — direct check after clearing.
-        runner._ingress_event_cache["test-key"] = None  # type: ignore
-        assert "test-key" in runner._ingress_event_cache
-        runner._ingress_event_cache.clear()
-        assert "test-key" not in runner._ingress_event_cache
+    async def test_no_instance_level_cache_attributes(self) -> None:
+        """PipelineRunner no longer has instance-level ingress cache
+        attributes (caches are call-local)."""
+        config = PipelineConfig(
+            storage=None,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=None),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+        assert not hasattr(runner, "_ingress_event_cache")
+        assert not hasattr(runner, "_ingress_refs_cache")
+        assert not hasattr(runner, "_cached_get")
+        assert not hasattr(runner, "_cached_list_native_refs")
+
+
+# ===================================================================
+# Concurrent handle_ingress calls do not share caches
+# ===================================================================
+
+
+class TestConcurrentIngressCacheIsolation:
+    """Concurrent handle_ingress calls on the same PipelineRunner
+    instance cannot share, clear, or contaminate each other's caches."""
+
+    async def test_concurrent_ingress_no_cache_contamination(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Two handle_ingress calls running concurrently with different
+        events do not share or contaminate each other's lookup caches."""
+        # Store two distinct prior events as relation targets.
+        prior_a = _make_event(event_id="prior-conc-a", payload={"body": "target-a"})
+        prior_b = _make_event(event_id="prior-conc-b", payload={"body": "target-b"})
+        await temp_storage.append(prior_a)
+        await temp_storage.append(prior_b)
+
+        counting = _CallCountingStorage(temp_storage)
+
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+        from medre.core.routing import Route, RouteSource, RouteTarget
+
+        route = Route(
+            id="concurrency-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=counting,  # type: ignore[arg-type]
+            router=Router(routes=[route]),
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Two events with relations to different targets.
+        rel_a = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-conc-a",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event_a = _make_event(
+            event_id="src-conc-a",
+            source_adapter="src",
+            relations=(rel_a,),
+        )
+
+        rel_b = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-conc-b",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event_b = _make_event(
+            event_id="src-conc-b",
+            source_adapter="src",
+            relations=(rel_b,),
+        )
+
+        try:
+            results = await asyncio.gather(
+                runner.handle_ingress(event_a),
+                runner.handle_ingress(event_b),
+            )
+        finally:
+            await runner.stop()
+
+        # Both calls complete successfully with outcomes.
+        outcomes_a, outcomes_b = results
+        assert len(outcomes_a) == 1
+        assert len(outcomes_b) == 1
+
+        # Each target event_id was looked up exactly once (no cross-call
+        # contamination, no double-lookups from cache clearing).
+        assert counting.get_call_ids.count("prior-conc-a") == 1
+        assert counting.get_call_ids.count("prior-conc-b") == 1
 
 
 # ===================================================================
@@ -532,7 +688,9 @@ class TestCacheDoesNotChangeSemantics:
             relations=(rel,),
         )
 
-        is_reaction = await runner._is_reaction_to_reaction(event)
+        # With cached get — suppression still works.
+        cached_get = _make_cached_get(counting)
+        is_reaction = await runner._is_reaction_to_reaction(event, get_fn=cached_get)
         assert is_reaction is True
         # Only one storage.get call — result cached.
         assert counting.get_call_count == 1

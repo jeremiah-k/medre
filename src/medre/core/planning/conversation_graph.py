@@ -29,7 +29,7 @@ This class is **not** part of the public API.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 import msgspec
 
@@ -98,6 +98,14 @@ class ConversationGraphAuthority:
         # Iterate through all resolved relations to find a target that
         # exists in storage.  Only self-root when every relation target
         # is missing.
+        #
+        # Root selection rule: the *first* relation with a resolved
+        # ``target_event_id`` that is present in storage wins.  If an
+        # event carries multiple relations (e.g. reply + reaction), only
+        # the first stored target is walked.  This is intentional — it
+        # keeps root selection deterministic and avoids ambiguity when
+        # different relation targets point to different conversation
+        # roots.
         if event.relations:
             for rel in event.relations:
                 if rel.target_event_id is None:

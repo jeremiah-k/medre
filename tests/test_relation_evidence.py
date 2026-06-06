@@ -174,6 +174,8 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="native",
             fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "native"
 
@@ -183,6 +185,8 @@ class TestRenderModeDerivation:
             delivery_strategy="fallback_text",
             capability_level="native",
             fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "fallback"
 
@@ -192,6 +196,8 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="fallback",
             fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "fallback"
 
@@ -201,6 +207,8 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="unsupported",
             fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "fallback"
 
@@ -210,6 +218,8 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="native",
             fallback_applied="relation_reply",
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "fallback"
 
@@ -220,6 +230,8 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="native",
             fallback_applied="relation_reaction",
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "native"
 
@@ -231,6 +243,8 @@ class TestRenderModeDerivation:
                 delivery_strategy="direct",
                 capability_level="native",
                 fallback_applied=fb,
+                target_event_id="evt-target-1",
+                target_native_message_id="msg-1",
             )
             assert mode == "fallback", f"Expected fallback for {rtype}"
 
@@ -241,8 +255,67 @@ class TestRenderModeDerivation:
             delivery_strategy="direct",
             capability_level="native",
             fallback_applied="strategy_fallback_text",
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
         )
         assert mode == "native"
+
+    def test_no_target_event_id_yields_fallback(self) -> None:
+        """Even with native strategy/capability, no target_event_id → fallback."""
+        mode = _derive_relation_render_mode(
+            relation_type="reply",
+            delivery_strategy="direct",
+            capability_level="native",
+            fallback_applied=None,
+            target_event_id=None,
+        )
+        assert mode == "fallback"
+
+    def test_no_native_message_id_yields_fallback(self) -> None:
+        """target_event_id present but no usable native_message_id → fallback."""
+        mode = _derive_relation_render_mode(
+            relation_type="reply",
+            delivery_strategy="direct",
+            capability_level="native",
+            fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id=None,
+        )
+        assert mode == "fallback"
+
+    def test_empty_native_message_id_yields_fallback(self) -> None:
+        """target_event_id present but empty native_message_id → fallback."""
+        mode = _derive_relation_render_mode(
+            relation_type="reply",
+            delivery_strategy="direct",
+            capability_level="native",
+            fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="",
+        )
+        assert mode == "fallback"
+
+    def test_usable_native_ref_with_native_strategy_yields_native(self) -> None:
+        """Both target_event_id and truthy native_message_id → native."""
+        mode = _derive_relation_render_mode(
+            relation_type="reply",
+            delivery_strategy="direct",
+            capability_level="native",
+            fallback_applied=None,
+            target_event_id="evt-target-1",
+            target_native_message_id="msg-1",
+        )
+        assert mode == "native"
+
+    def test_no_target_default_params_yields_fallback(self) -> None:
+        """Omitting target params (defaults to None) → fallback."""
+        mode = _derive_relation_render_mode(
+            relation_type="reply",
+            delivery_strategy="direct",
+            capability_level="native",
+            fallback_applied=None,
+        )
+        assert mode == "fallback"
 
 
 # ===================================================================
@@ -479,7 +552,14 @@ class TestMultiRelationEvidence:
         event = _make_event_with_relations(
             relations=(
                 _make_relation(relation_type="reply", target_event_id="evt-1"),
-                _make_relation(relation_type="reaction", target_event_id="evt-2"),
+                _make_relation(
+                    relation_type="reaction",
+                    target_event_id="evt-2",
+                    target_native_ref=_native_ref(
+                        adapter="src-adapter",
+                        native_message_id="msg-react-1",
+                    ),
+                ),
             ),
         )
         ctx = make_context(target_adapter="target-1")
