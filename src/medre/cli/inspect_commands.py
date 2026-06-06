@@ -90,7 +90,9 @@ async def _inspect_event(
             if recovery:
                 from .recover_commands import _build_event_recovery_runbook
 
-                runbook = await _build_event_recovery_runbook(storage, event_id)
+                runbook = await _build_event_recovery_runbook(
+                    storage, event_id, storage_path=storage_path
+                )
                 # Event exists, so runbook is not None.
                 result["recovery"] = runbook
 

@@ -195,7 +195,9 @@ async def _collect_storage_data_from_backend(
                 )
 
                 # Specialised lower-level command for evidence bundle.
-                evidence_cmd = f"medre evidence --event {event_id} --json"
+                evidence_cmd = (
+                    f"medre evidence --event {event_id} --storage-path {db_path} --json"
+                )
 
                 # Primary commands are the inspect-first recommendations.
                 # Specialised commands are lower-level tools (evidence, trace).
@@ -207,7 +209,7 @@ async def _collect_storage_data_from_backend(
                 # If a replay run is in context, add inspect_replay to primary.
                 if replay_run_id is not None:
                     structured_commands["primary"] = list(cmds) + [
-                        f"medre inspect event {event_id} --replay-run {replay_run_id}",
+                        f"medre inspect replay {replay_run_id} --storage-path {db_path}",
                     ]
 
                 # --- Incident summary enrichment (additive) ---

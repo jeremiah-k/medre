@@ -26,6 +26,8 @@ from .transport_constants import RADIO_TRANSPORTS
 async def _build_event_recovery_runbook(
     storage: Any,
     event_id: str,
+    *,
+    storage_path: str | None = None,
 ) -> dict[str, Any] | None:
     """Build a recovery runbook dict for a single event.
 
@@ -150,7 +152,11 @@ async def _build_event_recovery_runbook(
         "commands": {
             "primary": unique_commands,
             "specialized": [
-                f"medre recover --event {event_id}",
+                (
+                    f"medre recover --event {event_id} --storage-path {storage_path}"
+                    if storage_path
+                    else f"medre recover --event {event_id}"
+                ),
             ],
         },
         "timeline": timeline_entries,
@@ -210,7 +216,9 @@ async def _recover(
         failed_targets: list[dict[str, Any]] = []
         if event_id is not None:
             # Single-event recovery.
-            result = await _build_event_recovery_runbook(storage, event_id)
+            result = await _build_event_recovery_runbook(
+                storage, event_id, storage_path=storage_path
+            )
             if result is None:
                 print(
                     f"Error: event not found: {event_id}",

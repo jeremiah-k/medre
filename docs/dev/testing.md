@@ -39,7 +39,9 @@ table as historical record, not as active allowlist entries.
 These files are approaching the 1,500-line hard cap and should be split
 opportunistically by behavioral domain:
 
-- `test_runtime_snapshot.py` (1,462 lines) -- highest priority
+- `test_runtime_snapshot.py` (1,462 lines)
+- `test_trace.py` (1,425 lines)
+- `test_replay_recover.py` (1,454 lines)
 - Any other 1,000+ line file should be split when convenient
 
 ### Splitting procedure

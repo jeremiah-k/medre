@@ -116,7 +116,7 @@ def _build_cross_linked_commands(
 
     # recover_event is read-only → storage-path
     for key, argv in [
-        ("recover_event", ["medre", "recover", "--event", event_id, *ro_flag_argv]),
+        ("recover_event", ["medre", "recover", "--event", event_id] + ro_flag_argv),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 
