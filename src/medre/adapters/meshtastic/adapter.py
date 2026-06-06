@@ -1007,8 +1007,9 @@ class MeshtasticAdapter(AdapterContract):
         if emoji is not None:
             meshtastic_meta["emoji"] = emoji
 
-        if meshtastic_meta:
-            send_meta["meshtastic"] = meshtastic_meta
+        # Always carry the transport key so the record is self-identifying
+        # even when no Meshtastic-specific metadata is available.
+        send_meta["meshtastic"] = meshtastic_meta
 
         # Caller guarantees native_message_id is non-None, but the type
         # checker cannot see the guard in _process_queue through the

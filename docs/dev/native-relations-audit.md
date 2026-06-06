@@ -100,7 +100,7 @@ Codec sets `target_native_ref` on `EventRelation` for replies/reactions → pipe
 | **Synchronous adapters** (Matrix, MeshCore, LXMF) | `AdapterDeliveryResult.delivery_status="sent"` AND `native_message_id is not None` | `TargetDeliveryService` stores `NativeMessageRef(direction="outbound")`                                                                                                                                 |
 | **Queue-based adapters** (Meshtastic)             | Adapter returns `delivery_status="enqueued"`, `native_message_id=None`             | Pipeline records receipt as `status="queued"`. Queue drain later obtains real native ID via `OutboundNativeRefRecord` → `NativeMessageRef(direction="outbound")` + supplemental `status="sent"` receipt |
 
-**Current implementation risk**: if the in-memory Meshtastic queue is accepted but does not drain before shutdown, MEDRE may never receive the delayed packet ID and therefore cannot persist the outbound native ref for that delivery attempt. Future durable queue recovery would mitigate this.
+**Current implementation risk**: See Section 7 for the in-memory queue loss risk on shutdown.
 
 ---
 
@@ -161,7 +161,7 @@ Convention: `metadata.matrix`, `metadata.meshtastic`, `metadata.meshcore`, `meta
 
 ### Metadata in `NativeMessageRef.metadata`
 
-- **Inbound**: copy of `event.metadata.native.data` — preserves the per-adapter shape from the inbound codec, which may be flat (e.g. Meshtastic `packet_id`, `from_id`, `channel` at top level of the adapter data dict). This is NOT namespaced as `metadata[<transport>]`; it mirrors whatever the codec produced in `native.data`.
+- **Inbound**: copy of `event.metadata.native.data` — preserves the codec's raw adapter data shape for traceability (e.g. Meshtastic `packet_id`, `from_id`, `channel` at top level of the adapter data dict). This is NOT namespaced as `metadata[<transport>]`; it mirrors whatever the codec produced in `native.data`, keeping the original flat structure intact so that the inbound evidence chain can be audited back to the transport SDK output without namespace transformation.
 - **Outbound (synchronous adapters)**: transport-namespaced from `AdapterDeliveryResult.metadata` — follows the `metadata[<transport>]` convention.
 - **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`, plus defensively normalised legacy/non-namespaced delivery keys.
 
@@ -181,7 +181,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 7. PipelineRunner appends supplemental status="sent" receipt
 ```
 
-**Current implementation risk**: if the in-memory queue is accepted but does not drain before process exit, the outbound native mapping for those items cannot be persisted. No flush/retry on shutdown.
+**Current implementation risk**: if the in-memory queue is accepted but does not drain before process exit, the outbound native mapping for those items cannot be persisted. No flush/retry on shutdown. Future durable queue recovery would mitigate this.
 
 ---
 
