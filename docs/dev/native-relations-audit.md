@@ -314,7 +314,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 | MEDRE fields envelope           | Embedded in `LXMessage.fields` under key `0xFD` — carries `target_native_ref` (adapter, native_channel_id, native_message_id) for cross-transport relation rendering                                   |
 | `delivery_state`                | Not a namespaced field. LXMF uses `LXMessage.state` (integer constants: GENERATING→OUTBOUND→SENDING→SENT→DELIVERED or FAILED/REJECTED/CANCELLED). This is an object-level state machine, not metadata. |
 | `transient_id`                  | Used only by propagation nodes for encrypted storage. Not the same as `message_id`.                                                                                                                    |
-| `FIELD_THREAD` (0x08)           | Defined in LXMF.py but **unspec'd and unused** — no documentation, no enforcement, no known client implements it                                                                                       |
+| `FIELD_THREAD` (0x08)           | Defined in LXMF.py but **unspecified and unused** — no documentation, no enforcement, no known client implements it                                                                                       |
 
 **MEDRE current behavior**: LXMF is treated as **unsupported/fallback/envelope-only** for native relations. MEDRE embeds outbound relation data in the `0xFD` fields envelope for round-trip correlation, but does NOT read or write LXMF's native `FIELD_THREAD`. Do not imply MEDRE supports LXMF native relations.
 
@@ -326,7 +326,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 | Inbound relation            | **Fallback-only** — MEDRE does not decode LXMF native relations          |
 | Outbound source ref         | **Immediate native ref** (`hash` computed on send)                       |
 | Outbound relation rendering | **Fallback-only** — uses `0xFD` envelope, not LXMF native `FIELD_THREAD` |
-| `FIELD_THREAD` (0x08)       | **Unavailable by transport design** — defined but unspec'd in LXMF       |
+| `FIELD_THREAD` (0x08)       | **Unavailable by transport design** — defined but unspecified in LXMF       |
 
 **Reference repo findings**:
 

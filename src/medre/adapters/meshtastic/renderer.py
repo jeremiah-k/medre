@@ -289,7 +289,7 @@ class MeshtasticRenderer:
         to text only; ``reply_id``/``emoji`` protobuf fields are encoded
         separately and consume up to ~8 bytes of the 233-byte wire limit.
         Operators sending relation-heavy traffic should consider lowering
-        ``max_text_bytes`` to ~219–225.
+        ``max_text_bytes`` to ~219-225.
 
         Parameters
         ----------

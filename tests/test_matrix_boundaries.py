@@ -831,7 +831,7 @@ class TestMatrixCapabilitiesEditsDeletes:
         caps = adapter._capabilities
         assert caps.reactions == "native"
 
-    def test_renderer_ignores_edit_relations(self) -> None:
+    async def test_renderer_ignores_edit_relations(self) -> None:
         """MatrixRenderer does not crash or produce malformed output for edit relations.
 
         Since edits are unsupported, an edit relation should not cause
@@ -866,16 +866,13 @@ class TestMatrixCapabilitiesEditsDeletes:
             payload={"body": "edited message"},
             metadata=EventMetadata(),
         )
-        result = renderer.render(
+        rendering = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # The render coroutine must return a valid result without crashing
         # The renderer handles edit relations the same as unrecognized
         # relation types — no special m.relates_to for edits.
-        import asyncio
-
-        rendering = asyncio.get_event_loop().run_until_complete(result)
         assert rendering.payload["msgtype"] == "m.text"
         assert rendering.payload["body"] == "edited message"
         # No m.relates_to for edit (unsupported)

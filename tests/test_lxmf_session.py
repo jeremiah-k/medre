@@ -1286,11 +1286,8 @@ class TestDeliveryStateMetadataNamespacing:
         # The value is a string (enum .value), not the enum itself
         assert isinstance(lxmf_meta["delivery_state"], str)
         assert lxmf_meta["delivery_state"] == LxmfDeliveryState.OUTBOUND.value
-        # NOT at top level of metadata as a bare string
-        top_level_ds = delivery.metadata.get("delivery_state")
-        if top_level_ds is not None:
-            # If it exists at top level, it must be a namespace dict, not a string
-            assert not isinstance(top_level_ds, str)
+        # NOT at top level of metadata — namespace contract.
+        assert "delivery_state" not in delivery.metadata
 
         await adapter.stop()
 

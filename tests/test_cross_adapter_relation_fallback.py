@@ -810,6 +810,13 @@ class TestMeshtasticToMatrixReactionResolution:
             # meshtastic_emoji flag set.
             assert payload.get("meshtastic_emoji") == 1
 
+            # Native Matrix reaction annotation is NOT present — the
+            # cross-adapter path uses meshtastic_* fields, not m.reaction.
+            assert payload.get("_matrix_event_type") != "m.reaction"
+            relates_to = payload.get("m.relates_to")
+            if relates_to:
+                assert relates_to.get("rel_type") != "m.annotation"
+
             # -- Verify stored relation resolved to correct event --------
             stored = await temp_storage.get(reaction_event.event_id)
             assert stored is not None

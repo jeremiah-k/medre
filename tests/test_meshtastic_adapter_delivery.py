@@ -1423,6 +1423,7 @@ class TestDeliverInitialMetadataEvidence:
         # reply_id/emoji are NOT in the initial metadata — they're in the
         # payload dict, available only after queue drain.
         assert "reply_id" not in delivery.metadata.get("meshtastic", {})
+        assert "emoji" not in delivery.metadata.get("meshtastic", {})
 
 
 class TestBooleanReplyIdRejected:

@@ -363,6 +363,10 @@ class LxmfAdapter(AdapterContract):
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 
+        resolved_delivery_method = (
+            str(delivery_method) if delivery_method else None
+        ) or self._config.default_delivery_method
+
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(destination_hash) if destination_hash else None,
@@ -372,11 +376,7 @@ class LxmfAdapter(AdapterContract):
                     "lxmf": MappingProxyType(
                         {
                             "delivery_state": delivery_state.value,
-                            "delivery_method": (
-                                delivery_method
-                                if isinstance(delivery_method, str)
-                                else self._config.default_delivery_method
-                            ),
+                            "delivery_method": resolved_delivery_method,
                         }
                     ),
                 }

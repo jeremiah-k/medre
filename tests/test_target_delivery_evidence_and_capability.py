@@ -972,7 +972,7 @@ class TestRenderingBoundaryNoPayloadMutation:
                     payload=dict(original_payload),
                 )
 
-        svc, storage = _make_service(
+        svc, _ = _make_service(
             adapters={"rec_adapter": adapter},
             rendering_pipeline=_FixedPayloadPipeline(),
         )

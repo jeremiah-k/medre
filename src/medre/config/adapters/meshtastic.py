@@ -96,7 +96,7 @@ class MeshtasticConfig:
         budget this leaves marginal headroom for the worst-case
         relation-structured send.  Operators tuning for
         relation-heavy workloads should consider lowering this to
-        ~219–225.  The field is per-adapter so different radios can
+        ~219-225.  The field is per-adapter so different radios can
         use different budgets.  ``0`` means the final text renders
         as an empty string.  Env override:
         ``MEDRE_ADAPTER__<TOKEN>__MAX_TEXT_BYTES``.
