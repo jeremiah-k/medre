@@ -230,9 +230,10 @@ diagnostics.
 | `loop_suppressed`       | DeliveryFailureKind           | Runtime     | Self-loop or route-trace guard fired. See §8.                                                                      |
 | `delivery_failed`       | DeliveryFailureKind           | Runtime     | Generic adapter delivery failure. Classified further by transport-specific error text.                             |
 | `retry_exhausted`       | Derived (receipt analysis)    | Runtime     | All retry attempts consumed. Final receipt has `status="dead_lettered"`.                                           |
-| `cancelled`             | Outbox terminal status        | Runtime     | Delivery was explicitly cancelled by operator action. Not automatically applied during graceful shutdown. See §12. |
-| `shutdown_pending`      | Derived (runtime state)       | Runtime     | Delivery attempted while shutdown is in progress. Capacity controller rejecting new work.                          |
+| `cancelled`             | Outbox terminal status        | Runtime     | Delivery was explicitly cancelled by operator action. Not automatically applied during graceful shutdown. See §13. |
+| `shutdown_rejection`    | DeliveryFailureKind           | Runtime     | Delivery rejected during runtime shutdown. Capacity controller stopped accepting, or drain timeout exceeded.       |
 | `not_executed`          | Not a failure kind            | Meta        | No evidence exists. No delivery was attempted. See Evidence Levels §2 rule 6.                                      |
+| `outbox_not_owned`      | DeliveryFailureKind           | Runtime     | Durable outbox row was terminal or already active under another worker. No adapter delivery attempted. See §10.    |
 
 **Implementation status:**
 
@@ -250,7 +251,7 @@ diagnostics.
   work for the next startup. See §13.
 - Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
   `connection_failed`, `route_disabled`, `route_listen_only`,
-  `retry_exhausted`, `shutdown_pending`) are computed at report time from
+  `retry_exhausted`, `shutdown_rejection`) are computed at report time from
   receipt fields, error text parsing, config state, or adapter health. They are
   not stored as enum values on receipt rows.
 - `not_executed` is a meta-classification indicating absence of evidence, not

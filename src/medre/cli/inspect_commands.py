@@ -15,6 +15,7 @@ import msgspec
 
 import medre.runtime.timeline as _timeline
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
@@ -150,14 +151,37 @@ async def _inspect_native_ref(
             _exit_code = EXIT_NOT_FOUND
 
         if _exit_code is None:
+            # Build a minimal NativeMessageRef from CLI args + resolved
+            # event_id for the canonical reporting helper shape.
+            from datetime import datetime, timezone
+
+            from medre.core.events.canonical import NativeMessageRef
+
+            nref = NativeMessageRef(
+                id="",
+                event_id=event_id,
+                adapter=adapter,
+                native_channel_id=channel,
+                native_message_id=message,
+                native_thread_id=None,
+                native_relation_id=None,
+                direction=None,
+                created_at=datetime.now(tz=timezone.utc),
+            )
+            result: dict[str, object] = native_ref_to_report_dict(
+                nref=nref,
+                resolved_to_event_id=event_id,
+            )
+            # Add event_id alias for backward compatibility with existing
+            # consumers (the canonical key is "resolves_to").
+            result["event_id"] = event_id
+            # Preserve the original channel value (None when channelless)
+            # rather than the helper's normalized "" default.
+            if channel is None:
+                result["native_channel_id"] = None
+                result["channel"] = None
             # Fetch the full event for richer output.
             event = await storage.get(event_id)
-            result: dict[str, object] = {
-                "adapter": adapter,
-                "native_channel_id": channel,
-                "native_message_id": message,
-                "event_id": event_id,
-            }
             if event is not None:
                 result["event"] = json.loads(msgspec.json.encode(event))
             print(json.dumps(result, sort_keys=True, indent=2))

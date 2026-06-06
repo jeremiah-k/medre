@@ -16,6 +16,7 @@ from medre.core.observability.classification import (
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
+from medre.runtime.reporting import _derive_capability_evidence
 
 from .exit_codes import EXIT_NOT_FOUND
 from .storage_helpers import _open_readonly_storage
@@ -61,6 +62,7 @@ async def _build_event_recovery_runbook(
             "receipt_id": r.receipt_id,
             "failure_kind": inferred,
             "category": cat,
+            "delivery_plan_id": getattr(r, "delivery_plan_id", None),
         }
         if getattr(r, "target_channel", None):
             entry["target_channel"] = r.target_channel
@@ -68,6 +70,31 @@ async def _build_event_recovery_runbook(
             entry["route_id"] = r.route_id
         if error_msg:
             entry["error"] = error_msg
+        # Derive suppression reason for operator visibility.
+        cap = _derive_capability_evidence(
+            error_msg,
+            getattr(r, "rendering_evidence", None),
+            inferred,
+            r.status,
+        )
+        if cap.get("suppression_reason"):
+            entry["suppression_reason"] = cap["suppression_reason"]
+        else:
+            # Check receipt's own failure_kind for capability/policy suppression
+            # when the inferred kind doesn't capture it.
+            rk = getattr(r, "failure_kind", None)
+            if (
+                rk in ("capability_suppressed", "policy_suppressed", "loop_suppressed")
+                and error_msg
+            ):
+                import re as _re
+
+                cap_match = _re.match(
+                    r"^(?:capability_suppressed|policy_suppressed|loop_suppressed):\s*(.+)$",
+                    error_msg,
+                )
+                if cap_match:
+                    entry["suppression_reason"] = cap_match.group(1).strip()
         # Include replay context if present.
         r_source = getattr(r, "source", "live")
         r_run_id = getattr(r, "replay_run_id", None)
@@ -172,9 +199,11 @@ async def _recover(
     since: str | None,
     dry_run: bool,
     json_output: bool,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Analyze failed deliveries and generate a recovery runbook."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         # Determine scope: single event or broad scan.
         runbook: dict[str, Any]
@@ -249,6 +278,8 @@ async def _recover(
                             f"    {target_line}: {ft['status']} "
                             f"({fk}, attempt {ft['attempt_number']})"
                         )
+                        if ft.get("suppression_reason"):
+                            print(f"      suppressed: {ft['suppression_reason']}")
                     # Show classification summary.
                     fc = runbook.get("failure_classification", {})
                     if fc:

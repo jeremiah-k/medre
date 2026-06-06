@@ -19,6 +19,8 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 OPS_DIR = _ROOT / "docs" / "ops"
+SPEC_DIR = _ROOT / "docs" / "spec"
+FAILURE_TAXONOMY = SPEC_DIR / "appendices" / "failure-taxonomy.md"
 
 TARGET_DOCS = [
     OPS_DIR / "operator-workflows.md",
@@ -369,4 +371,109 @@ class TestLiveConfigHelperUsesPort:
         assert "tcp_port" not in text, (
             "tests/helpers/live_config.py must not contain 'tcp_port'. "
             "The config schema uses 'port', not 'tcp_port'."
+        )
+
+
+# ===========================================================================
+# 31. Failure taxonomy naming consistency
+# ===========================================================================
+
+
+class TestFailureTaxonomyNaming:
+    """The failure taxonomy appendix must use canonical failure-kind names
+    that match the codebase and other docs. Specifically:
+
+    - ``shutdown_rejection`` (not ``shutdown_pending``) as the failure kind
+      emitted by the runtime on shutdown delivery rejection.
+    - ``outbox_not_owned`` must appear in the evidence taxonomy table.
+    - ``cancelled`` must cross-reference §13 (shutdown evidence), not itself.
+    """
+
+    def test_shutdown_rejection_not_shutdown_pending_in_taxon_table(self) -> None:
+        """The §12 evidence taxonomy table must use ``shutdown_rejection``
+        as the failure kind, matching the DeliveryFailureKind enum and all
+        operator-facing docs."""
+        if not FAILURE_TAXONOMY.exists():
+            pytest.skip("failure-taxonomy.md not found")
+        text = _read(FAILURE_TAXONOMY)
+
+        # The table header area (§12) must contain shutdown_rejection
+        assert "shutdown_rejection" in text, (
+            "failure-taxonomy.md must mention 'shutdown_rejection' as the "
+            "canonical failure kind for shutdown delivery rejection."
+        )
+
+        # The old incorrect name must not appear in the §12 taxonomy table.
+        # Note: shutdown_pending is valid as a ShutdownEvidence status value
+        # (§13.4 / §20.4) but must not appear as a failure evidence taxon
+        # in the §12 table. We check only the "Derived taxons" bullet list.
+        derived_bullet = text[
+            text.find("- Derived taxons (`not_configured`") : text.find(
+                "not stored as enum values on receipt rows."
+            )
+            + len("not stored as enum values on receipt rows.")
+        ]
+        stale = re.findall(r"`shutdown_pending`", derived_bullet)
+        assert not stale, (
+            "failure-taxonomy.md §12 lists 'shutdown_pending' as a derived "
+            "taxon. The canonical failure kind is 'shutdown_rejection'. "
+            "'shutdown_pending' is a ShutdownEvidence status value, not a "
+            "failure taxon."
+        )
+
+    def test_outbox_not_owned_in_evidence_taxonomy(self) -> None:
+        """The §12 evidence taxonomy table must include ``outbox_not_owned``
+        as a failure kind that appears in delivery evidence and operator
+        diagnostics (even though no receipt is created)."""
+        if not FAILURE_TAXONOMY.exists():
+            pytest.skip("failure-taxonomy.md not found")
+        text = _read(FAILURE_TAXONOMY)
+
+        # The evidence taxonomy table (§12) should reference outbox_not_owned
+        # It's defined in §10; §12 should cross-reference it.
+        taxonomy_section = text[text.find("## 12. Delivery Failure Evidence") :]
+        taxonomy_section = taxonomy_section[
+            : (
+                taxonomy_section.find("## 13.")
+                if "## 13." in taxonomy_section
+                else len(taxonomy_section)
+            )
+        ]
+        assert "`outbox_not_owned`" in taxonomy_section, (
+            "failure-taxonomy.md §12 evidence taxonomy table must include "
+            "'outbox_not_owned'. It is a DeliveryFailureKind that appears in "
+            "delivery outcomes and operator diagnostics (defined in §10)."
+        )
+
+    def test_cancelled_references_section_13(self) -> None:
+        """The ``cancelled`` entry in §12 must cross-reference §13 (Shutdown
+        Delivery Evidence), not §12 (itself)."""
+        if not FAILURE_TAXONOMY.exists():
+            pytest.skip("failure-taxonomy.md not found")
+        text = _read(FAILURE_TAXONOMY)
+
+        # Find the cancelled row in the §12 table
+        cancelled_match = re.search(r"\| `cancelled`.*See §(\d+)\.", text)
+        if not cancelled_match:
+            # If the pattern doesn't match exactly, just check that
+            # the §12 table area doesn't self-reference
+            taxonomy_section = text[text.find("## 12. Delivery Failure Evidence") :]
+            taxonomy_section = taxonomy_section[
+                : (
+                    taxonomy_section.find("## 13.")
+                    if "## 13." in taxonomy_section
+                    else len(taxonomy_section)
+                )
+            ]
+            assert "See §12" not in taxonomy_section, (
+                "failure-taxonomy.md §12 must not contain self-referencing "
+                "'See §12'. The 'cancelled' entry should reference §13."
+            )
+            return
+
+        section_ref = cancelled_match.group(1)
+        assert section_ref == "13", (
+            f"failure-taxonomy.md §12 'cancelled' entry references §{section_ref}. "
+            f"It should reference §13 (Shutdown Delivery Evidence) which explains "
+            f"that graceful shutdown does not cancel non-terminal outbox items."
         )

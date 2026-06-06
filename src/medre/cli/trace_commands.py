@@ -50,7 +50,14 @@ async def _trace_event(
                     data = entry["data"]
                     if etype == "relation":
                         rtype = data.get("relation_type", "")
-                        print(f"  {ts}  [{etype}] {rtype}")
+                        target_eid = data.get("target_event_id")
+                        parts = [rtype]
+                        if target_eid:
+                            parts.append(f"-> {target_eid}")
+                        key = data.get("key")
+                        if key:
+                            parts.append(f"key={key}")
+                        print(f"  {ts}  [{etype}] {' '.join(parts)}")
                     elif etype == "event":
                         kind = data.get("event_kind", "")
                         src = data.get("source_adapter", "")
@@ -64,7 +71,10 @@ async def _trace_event(
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
                         attempt = data.get("attempt_number", 1)
+                        plan_id = data.get("delivery_plan_id", "")
                         line = f"  {ts}  [{etype}] {status} -> {target}"
+                        if plan_id:
+                            line += f" plan={plan_id}"
                         channel = data.get("target_channel") or data.get(
                             "native_channel_id"
                         )

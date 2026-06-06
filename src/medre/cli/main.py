@@ -355,6 +355,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=100, help="Max events to replay (default: 100)"
     )
     replay_p.add_argument(
+        "--run-id",
+        default=None,
+        metavar="RUN_ID",
+        help="Operator-assigned identifier for this replay execution",
+    )
+    replay_p.add_argument(
         "--storage-path",
         default=None,
         metavar="PATH",
@@ -364,9 +370,16 @@ def _build_parser() -> argparse.ArgumentParser:
     # recover
     recover_p = sub.add_parser(
         "recover",
-        help="Specialized recovery classification, usually inspect event --recovery (read-only; requires --config)",
+        help="Specialized recovery classification, usually inspect event --recovery (read-only; accepts --storage-path)",
     )
-    recover_p.add_argument("--config", default=None, help="Path to config file")
+    recover_mx = recover_p.add_mutually_exclusive_group()
+    recover_mx.add_argument("--config", default=None, help="Path to config file")
+    recover_mx.add_argument(
+        "--storage-path",
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)",
+    )
     recover_p.add_argument(
         "--event", default=None, metavar="EVENT_ID", help="Event ID to analyze"
     )
@@ -579,6 +592,7 @@ def main(argv: list[str] | None = None) -> None:
                 target_adapters=args.target_adapters,
                 route_ids=args.route_ids,
                 limit=args.limit,
+                run_id=getattr(args, "run_id", None) or "",
             )
         )
     elif args.command == "recover":
@@ -592,6 +606,7 @@ def main(argv: list[str] | None = None) -> None:
                 since=args.since,
                 dry_run=args.dry_run,
                 json_output=args.json,
+                storage_path=getattr(args, "storage_path", None),
             )
         )
     elif args.command == "adapter":

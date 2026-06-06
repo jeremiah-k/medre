@@ -189,7 +189,7 @@ async def _run_session(
         if acc:
             # Same 5 field names as run_commands.py accounting printer.
             print(
-                f"  Accounting:  inbound={acc.get('inbound', 0)} "
+                f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} "
                 f"outbound_delivered={acc.get('outbound_delivered', 0)} "
                 f"outbound_failed={acc.get('outbound_failed', 0)} "
                 f"loop_prevented={acc.get('loop_prevented', 0)} "
