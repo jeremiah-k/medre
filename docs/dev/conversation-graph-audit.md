@@ -13,13 +13,13 @@ This document lets a contributor trace the full data path:
 
 > **incoming event** → conversation graph → relation resolution → native target selection → renderer decision → adapter delivery → native ref persistence
 
-It records what exists today — types, ownership, lookup paths, and boundaries — so that future conversation-graph work (threading, `root_event_id`, `conversation_id`) builds on verified ground rather than assumed behaviour.
+It records what exists today — types, ownership, lookup paths, and boundaries — so that future conversation-graph work (threading) builds on verified ground rather than assumed behaviour.
 
 ---
 
 ## 2. Current Conversation Model
 
-MEDRE has no `conversation_id` or `root_event_id` field. Conversation structure is reconstructed at query time from two orthogonal mechanisms:
+`conversation_id` and `root_event_id` are populated at pipeline Stage 2.5 by `ConversationGraphAuthority` after relation resolution. Conversation structure is reconstructed at query time from two orthogonal mechanisms:
 
 | Mechanism              | Field                                        | What it represents                                                   | Source file                          |
 | ---------------------- | -------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------ |
@@ -32,16 +32,16 @@ MEDRE has no `conversation_id` or `root_event_id` field. Conversation structure 
 
 ### 2.1 CanonicalEvent fields relevant to conversation graph
 
-| Field               | Type                        | Conversation role                              | Current state                                                               |
-| ------------------- | --------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| `event_id`          | `str`                       | THE identity of this node in the graph         | UUIDv7, immutable                                                           |
-| `parent_event_id`   | `str \| None`               | Derivation parent, **not** conversation parent | Set by enrichment/transform                                                 |
-| `lineage`           | `tuple[str, ...]`           | Ordered derivation ancestry                    | Ordered chain of ancestor event IDs                                         |
-| `relations`         | `tuple[EventRelation, ...]` | Semantic edges to other events                 | Populated by adapter codec                                                  |
-| `source_channel_id` | `str \| None`               | Native channel where event originated          | Set by codec (room ID, channel index, etc.)                                 |
-| `source_native_ref` | `NativeRef \| None`         | Inbound native message reference               | Set by codec                                                                |
-| `root_event_id`     | `str \| None`               | Root event in relation chain                   | **RESERVED** — model field exists, pipeline computation not yet implemented |
-| `conversation_id`   | `str \| None`               | Conversation identifier                        | **RESERVED** — model field exists, pipeline computation not yet implemented |
+| Field               | Type                        | Conversation role                              | Current state                                                                                      |
+| ------------------- | --------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `event_id`          | `str`                       | THE identity of this node in the graph         | UUIDv7, immutable                                                                                  |
+| `parent_event_id`   | `str \| None`               | Derivation parent, **not** conversation parent | Set by enrichment/transform                                                                        |
+| `lineage`           | `tuple[str, ...]`           | Ordered derivation ancestry                    | Ordered chain of ancestor event IDs                                                                |
+| `relations`         | `tuple[EventRelation, ...]` | Semantic edges to other events                 | Populated by adapter codec                                                                         |
+| `source_channel_id` | `str \| None`               | Native channel where event originated          | Set by codec (room ID, channel index, etc.)                                                        |
+| `source_native_ref` | `NativeRef \| None`         | Inbound native message reference               | Set by codec                                                                                       |
+| `root_event_id`     | `str \| None`               | Root event in relation chain                   | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; equals `event_id` for root events |
+| `conversation_id`   | `str \| None`               | Conversation identifier                        | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; currently equals `root_event_id`  |
 
 ### 2.2 EventRelation fields
 
@@ -99,12 +99,16 @@ Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defin
      - source_native_ref = NativeRef(adapter, native_channel_id, native_message_id)
      - relations = (EventRelation(relation_type, target_native_ref=NativeRef(...)),)
      - target_event_id = None  (unresolved at decode time)
-3. Pipeline calls RelationResolver.resolve_event_relations(event)
-     - For each relation with target_native_ref but no target_event_id:
-         storage.resolve_native_ref(adapter, channel_id, message_id) → event_id | None
-     - If found: new EventRelation with target_event_id set, target_native_ref preserved
-     - If not found: relation kept with native ref for future retry
-4. Pipeline stores event (append) + relations (store_relation) + inbound NativeMessageRef
+ 3. Pipeline calls RelationResolver.resolve_event_relations(event)
+      - For each relation with target_native_ref but no target_event_id:
+          storage.resolve_native_ref(adapter, channel_id, message_id) → event_id | None
+      - If found: new EventRelation with target_event_id set, target_native_ref preserved
+      - If not found: relation kept with native ref for future retry
+ 3.5. Pipeline calls ConversationGraphAuthority.resolve_conversation_identity(event)
+      - Walks resolved relation targets to find the root ancestor
+      - Sets root_event_id = root ancestor's event_id (or event.event_id if no relations)
+      - Sets conversation_id = root_event_id
+ 4. Pipeline stores event (append) + relations (store_relation) + inbound NativeMessageRef
 5. Event is now in canonical_events + event_relations + native_message_refs
 ```
 
@@ -145,21 +149,22 @@ Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defin
 
 ## 5. Component Ownership
 
-| Component                 | File                                             | Responsibility                                                                      |
-| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `CanonicalEvent`          | `src/medre/core/events/canonical.py`             | Universal immutable event envelope                                                  |
-| `EventRelation`           | `src/medre/core/events/canonical.py`             | Typed link from one event to another                                                |
-| `NativeRef`               | `src/medre/core/events/canonical.py`             | Lightweight inline native-space reference                                           |
-| `NativeMessageRef`        | `src/medre/core/events/canonical.py`             | Persisted canonical↔native mapping                                                  |
-| `OutboundNativeRefRecord` | `src/medre/core/contracts/adapter.py`            | Delayed queue-based native ID report                                                |
-| `RelationResolver`        | `src/medre/core/planning/relation_resolution.py` | Resolves `target_native_ref` → `target_event_id` via `resolve_native_ref()`         |
-| `RelationEnricher`        | `src/medre/core/planning/relation_enricher.py`   | Resolves target canonical event → target-adapter `NativeRef` + text/sender metadata |
-| `RenderingPipeline`       | `src/medre/core/rendering/renderer.py`           | Ordered renderer dispatch with frozen context                                       |
-| `RenderingContext`        | `src/medre/core/rendering/renderer.py`           | Frozen dispatch context (strategy, platform, capabilities, budgets)                 |
-| `RenderingResult`         | `src/medre/core/rendering/renderer.py`           | Renderer output ready for adapter delivery                                          |
-| `AdapterDeliveryResult`   | `src/medre/core/contracts/adapter.py`            | Adapter-reported delivery facts                                                     |
-| `_RelationMixin`          | `src/medre/core/storage/sqlite/_relation.py`     | SQLite relation persistence                                                         |
-| `_NativeRefMixin`         | `src/medre/core/storage/sqlite/_native_ref.py`   | SQLite native ref persistence and lookup                                            |
+| Component                    | File                                             | Responsibility                                                                      |
+| ---------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `CanonicalEvent`             | `src/medre/core/events/canonical.py`             | Universal immutable event envelope                                                  |
+| `EventRelation`              | `src/medre/core/events/canonical.py`             | Typed link from one event to another                                                |
+| `NativeRef`                  | `src/medre/core/events/canonical.py`             | Lightweight inline native-space reference                                           |
+| `NativeMessageRef`           | `src/medre/core/events/canonical.py`             | Persisted canonical↔native mapping                                                  |
+| `OutboundNativeRefRecord`    | `src/medre/core/contracts/adapter.py`            | Delayed queue-based native ID report                                                |
+| `RelationResolver`           | `src/medre/core/planning/relation_resolution.py` | Resolves `target_native_ref` → `target_event_id` via `resolve_native_ref()`         |
+| `ConversationGraphAuthority` | `src/medre/core/planning/conversation_graph.py`  | Assigns `root_event_id` and `conversation_id` at pipeline Stage 2.5                 |
+| `RelationEnricher`           | `src/medre/core/planning/relation_enricher.py`   | Resolves target canonical event → target-adapter `NativeRef` + text/sender metadata |
+| `RenderingPipeline`          | `src/medre/core/rendering/renderer.py`           | Ordered renderer dispatch with frozen context                                       |
+| `RenderingContext`           | `src/medre/core/rendering/renderer.py`           | Frozen dispatch context (strategy, platform, capabilities, budgets)                 |
+| `RenderingResult`            | `src/medre/core/rendering/renderer.py`           | Renderer output ready for adapter delivery                                          |
+| `AdapterDeliveryResult`      | `src/medre/core/contracts/adapter.py`            | Adapter-reported delivery facts                                                     |
+| `_RelationMixin`             | `src/medre/core/storage/sqlite/_relation.py`     | SQLite relation persistence                                                         |
+| `_NativeRefMixin`            | `src/medre/core/storage/sqlite/_native_ref.py`   | SQLite native ref persistence and lookup                                            |
 
 ---
 
@@ -230,17 +235,17 @@ The following boundary is consistent with prior tranche findings:
 
 ## 8. Evidence Gaps
 
-### 8.1 No `conversation_id` computation
+### 8.1 `conversation_id` currently equals `root_event_id`
 
-The `conversation_id` field now exists on `CanonicalEvent` and is persisted to SQLite, but no pipeline agent populates it at runtime. The field is always `None` in practice. Cross-transport conversations (a Matrix room bridged to a Meshtastic channel) have no computed shared identifier at the canonical level.
+`conversation_id` is populated at pipeline Stage 2.5 by `ConversationGraphAuthority`, but currently always equals `root_event_id`. The field exists independently to allow future divergence (e.g. merging threads, cross-transport conversation grouping), but no such logic exists yet. Cross-transport conversations (a Matrix room bridged to a Meshtastic channel) share a `conversation_id` only when linked by relation chains.
 
-**Impact**: Cannot query "all events in conversation X" without scanning all events for matching `source_channel_id` per adapter and then correlating across transports via relation chains.
+**Impact**: `conversation_id` cannot yet diverge from `root_event_id`. Future divergence (merged threads, cross-transport grouping) will require extending `ConversationGraphAuthority`.
 
-### 8.2 No `root_event_id` computation
+### 8.2 `root_event_id` ancestor walk bounded by storage availability
 
-The `root_event_id` field now exists on `CanonicalEvent` and is persisted to SQLite, but no pipeline agent populates it at runtime. The field is always `None` in practice. A reply chain A → B → C has no computed root on C. Reconstructing the conversation root still requires walking the relation chain backward through storage queries until a pipeline agent is implemented.
+`root_event_id` is populated at pipeline Stage 2.5 by `ConversationGraphAuthority`. When the target event (or any ancestor) is not yet in storage — for example, an out-of-order reply arriving before the original — the authority degrades safely and sets `root_event_id = event.event_id`. The ancestor walk is bounded to 64 hops.
 
-**Impact**: No efficient way to identify the originating event of a conversation thread without recursive lookups, until the pipeline computation is implemented.
+**Impact**: Events that arrive out of order may initially self-root. Once the true root is stored, later events in the chain will correctly inherit it. There is no retroactive repair of previously self-rooted events.
 
 ### 8.3 No reverse relation index
 
@@ -268,7 +273,8 @@ Keys like `meshtastic_reply_id` in `EventRelation.metadata` are set by the Matri
 
 This tranche does **not** include:
 
-- Computing or populating `conversation_id` or `root_event_id` values in the pipeline
+- Diverging `conversation_id` from `root_event_id` (they are currently equal)
+- Retroactively repairing `root_event_id` on events that self-rooted due to out-of-order arrival
 - Creating reverse relation indexes on `event_relations.target_event_id`
 - Implementing thread relation rendering in any adapter
 - Changing the relation type vocabulary
@@ -277,31 +283,30 @@ This tranche does **not** include:
 - Populating `native_thread_id` on any type
 - Adding `AdapterCapabilities.threads` or planner-level thread routing
 
-The model fields and storage columns for `root_event_id` and `conversation_id` have been added. Computation and query API implementation belong to later agents.
-
 ---
 
 ## 10. File Index
 
-| File                                             | What it provides                                                                      |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `src/medre/core/events/canonical.py`             | `CanonicalEvent`, `EventRelation`, `NativeRef`, `NativeMessageRef`, `DeliveryReceipt` |
-| `src/medre/core/events/schema.py`                | `VALID_RELATION_TYPES`, `CURRENT_SCHEMA_VERSION`, `SchemaRegistry`                    |
-| `src/medre/core/events/metadata.py`              | `EventMetadata`, `TransportMetadata`, `RoutingMetadata`, `NativeMetadata`             |
-| `src/medre/core/events/kinds.py`                 | `EventKind` constants, `KNOWN_KINDS`                                                  |
-| `src/medre/core/events/bus.py`                   | `EventBus` (prefix-matched pub/sub)                                                   |
-| `src/medre/core/storage/sqlite/schema.py`        | DDL for `canonical_events`, `event_relations`, `native_message_refs`                  |
-| `src/medre/core/storage/sqlite/_relation.py`     | `store_relation()`, `list_relations()`                                                |
-| `src/medre/core/storage/sqlite/_native_ref.py`   | `store_native_ref()`, `resolve_native_ref()`, `list_native_refs_for_event()`          |
-| `src/medre/core/storage/backend.py`              | `StorageBackend` protocol, `EventFilter`                                              |
-| `src/medre/core/planning/relation_resolution.py` | `RelationResolver` — native ref → canonical ID                                        |
-| `src/medre/core/planning/relation_enricher.py`   | `RelationEnricher` — canonical event → target-adapter native ref + text               |
-| `src/medre/core/rendering/renderer.py`           | `RenderingContext`, `RenderingResult`, `Renderer` protocol, `RenderingPipeline`       |
-| `src/medre/core/contracts/adapter.py`            | `AdapterDeliveryResult`, `OutboundNativeRefRecord`, `AdapterCapabilities`             |
-| `src/medre/adapters/matrix/renderer.py`          | `MatrixRenderer` — native/fallback reply and reaction rendering                       |
-| `src/medre/adapters/matrix/relations.py`         | Matrix relation extraction helpers (`extract_reply_target`, `extract_reaction`)       |
-| `src/medre/adapters/meshtastic/renderer.py`      | `MeshtasticRenderer` — reply_id, emoji, cross-platform reactions                      |
-| `src/medre/adapters/meshcore/renderer.py`        | `MeshCoreRenderer` — fallback-only relation rendering                                 |
-| `src/medre/adapters/lxmf/renderer.py`            | `LxmfRenderer` — fallback + `0xFD` envelope                                           |
-| `docs/spec/event-model.md`                       | Normative event model specification                                                   |
-| `docs/dev/native-relations-audit.md`             | Native ref ownership, transport metadata, per-transport sections                      |
+| File                                             | What it provides                                                                         |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `src/medre/core/events/canonical.py`             | `CanonicalEvent`, `EventRelation`, `NativeRef`, `NativeMessageRef`, `DeliveryReceipt`    |
+| `src/medre/core/events/schema.py`                | `VALID_RELATION_TYPES`, `CURRENT_SCHEMA_VERSION`, `SchemaRegistry`                       |
+| `src/medre/core/events/metadata.py`              | `EventMetadata`, `TransportMetadata`, `RoutingMetadata`, `NativeMetadata`                |
+| `src/medre/core/events/kinds.py`                 | `EventKind` constants, `KNOWN_KINDS`                                                     |
+| `src/medre/core/events/bus.py`                   | `EventBus` (prefix-matched pub/sub)                                                      |
+| `src/medre/core/storage/sqlite/schema.py`        | DDL for `canonical_events`, `event_relations`, `native_message_refs`                     |
+| `src/medre/core/storage/sqlite/_relation.py`     | `store_relation()`, `list_relations()`                                                   |
+| `src/medre/core/storage/sqlite/_native_ref.py`   | `store_native_ref()`, `resolve_native_ref()`, `list_native_refs_for_event()`             |
+| `src/medre/core/storage/backend.py`              | `StorageBackend` protocol, `EventFilter`                                                 |
+| `src/medre/core/planning/relation_resolution.py` | `RelationResolver` — native ref → canonical ID                                           |
+| `src/medre/core/planning/conversation_graph.py`  | `ConversationGraphAuthority` — root_event_id and conversation_id assignment at Stage 2.5 |
+| `src/medre/core/planning/relation_enricher.py`   | `RelationEnricher` — canonical event → target-adapter native ref + text                  |
+| `src/medre/core/rendering/renderer.py`           | `RenderingContext`, `RenderingResult`, `Renderer` protocol, `RenderingPipeline`          |
+| `src/medre/core/contracts/adapter.py`            | `AdapterDeliveryResult`, `OutboundNativeRefRecord`, `AdapterCapabilities`                |
+| `src/medre/adapters/matrix/renderer.py`          | `MatrixRenderer` — native/fallback reply and reaction rendering                          |
+| `src/medre/adapters/matrix/relations.py`         | Matrix relation extraction helpers (`extract_reply_target`, `extract_reaction`)          |
+| `src/medre/adapters/meshtastic/renderer.py`      | `MeshtasticRenderer` — reply_id, emoji, cross-platform reactions                         |
+| `src/medre/adapters/meshcore/renderer.py`        | `MeshCoreRenderer` — fallback-only relation rendering                                    |
+| `src/medre/adapters/lxmf/renderer.py`            | `LxmfRenderer` — fallback + `0xFD` envelope                                              |
+| `docs/spec/event-model.md`                       | Normative event model specification                                                      |
+| `docs/dev/native-relations-audit.md`             | Native ref ownership, transport metadata, per-transport sections                         |
