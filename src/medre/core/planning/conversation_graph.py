@@ -73,6 +73,15 @@ class ConversationGraphAuthority:
         populated ``target_event_id`` on the event's relations, and before
         the event is stored.
 
+        .. note::
+
+           ``conversation_id`` is always set equal to ``root_event_id``.
+           Ancestor ``conversation_id`` values are not independently
+           propagated — the ancestor walk reads only ``root_event_id``,
+           never the ancestor's own ``conversation_id``.  Future divergence
+           (merged threads, cross-transport grouping) would require a
+           separate authority rule; do not implement divergence here.
+
         Parameters
         ----------
         event:

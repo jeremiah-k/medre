@@ -241,6 +241,8 @@ The following boundary is consistent with prior audit findings:
 
 `conversation_id` is populated at pipeline Stage 2.5 by `ConversationGraphAuthority`, but currently always equals `root_event_id`. The field exists independently to allow future divergence (e.g. merging threads, cross-transport conversation grouping), but no such logic exists yet. Cross-transport conversations (a Matrix room bridged to a Meshtastic channel) share a `conversation_id` only when linked by relation chains.
 
+> **Design note (intentional equality):** The current implementation intentionally sets `conversation_id = root_event_id` in every code path (`_assign_identity`). Ancestor `conversation_id` values are **not** independently propagated — when the authority walks an ancestor chain, it reads only `root_event_id`, never the ancestor's `conversation_id`. Future divergence (e.g. merged threads, cross-transport grouping) will require a new authority rule and a separate iteration over the conversation-graph module. This is a deliberate simplification, not an oversight.
+
 **Impact**: `conversation_id` cannot yet diverge from `root_event_id`. Future divergence (merged threads, cross-transport grouping) will require extending `ConversationGraphAuthority`.
 
 ### 8.2 `root_event_id` ancestor walk bounded by storage availability

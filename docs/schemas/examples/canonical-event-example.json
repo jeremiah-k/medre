@@ -57,6 +57,6 @@
   },
   "depth": 0,
   "trace_id": "trace-abc123",
-  "root_event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
-  "conversation_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b"
+  "root_event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5c",
+  "conversation_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5c"
 }

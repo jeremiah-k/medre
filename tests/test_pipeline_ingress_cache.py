@@ -59,6 +59,35 @@ class _CallCountingStorage:
         return getattr(self._real, name)
 
 
+class _BlockingStorage:
+    """Storage wrapper that blocks on storage.get(blocked_id) until released.
+
+    All other get calls and all other methods delegate immediately to the
+    real storage.  Used to force deterministic interleaving of concurrent
+    ``handle_ingress`` calls.
+    """
+
+    def __init__(
+        self,
+        real_storage: SQLiteStorage,
+        blocked_id: str,
+        block_event: asyncio.Event,
+    ) -> None:
+        self._real = real_storage
+        self._blocked_id = blocked_id
+        self._block_event = block_event
+        self.get_call_ids: list[str] = []
+
+    async def get(self, event_id: str) -> CanonicalEvent | None:
+        self.get_call_ids.append(event_id)
+        if event_id == self._blocked_id:
+            await self._block_event.wait()
+        return await self._real.get(event_id)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
 def _make_event(
     event_id: str = "src-001",
     event_kind: str = "message.created",
@@ -536,6 +565,113 @@ class TestConcurrentIngressCacheIsolation:
         # contamination, no double-lookups from cache clearing).
         assert counting.get_call_ids.count("prior-conc-a") == 1
         assert counting.get_call_ids.count("prior-conc-b") == 1
+
+    async def test_blocking_storage_proves_cache_isolation(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Forces true interleaving: one ingress blocks mid-storage-get
+        while the other proceeds through its own call-local cache.
+
+        Uses ``asyncio.Event`` (no sleeps) to guarantee that
+        ``handle_ingress(event_a)`` is suspended inside
+        ``storage.get("prior-a")`` while ``handle_ingress(event_b)``
+        completes its entire lifecycle — proving the two calls never
+        share lookup caches.
+        """
+        # -- Arrange: two prior events stored --------------------------------
+        prior_a = _make_event(event_id="prior-a", payload={"body": "target-a"})
+        prior_b = _make_event(event_id="prior-b", payload={"body": "target-b"})
+        await temp_storage.append(prior_a)
+        await temp_storage.append(prior_b)
+
+        # storage.get("prior-a") blocks until we release it;
+        # storage.get("prior-b") returns immediately.
+        block_event = asyncio.Event()
+        blocking_storage = _BlockingStorage(
+            real_storage=temp_storage,
+            blocked_id="prior-a",
+            block_event=block_event,
+        )
+
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
+        from medre.core.routing import Route, RouteSource, RouteTarget
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="blocking-concurrency-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=blocking_storage,  # type: ignore[arg-type]
+            router=Router(routes=[route]),
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Two inbound events with relations to different targets.
+        event_a = _make_event(
+            event_id="src-a",
+            source_adapter="src",
+            relations=(
+                EventRelation(
+                    relation_type="reply",
+                    target_event_id="prior-a",
+                    target_native_ref=None,
+                    key=None,
+                    fallback_text=None,
+                ),
+            ),
+        )
+        event_b = _make_event(
+            event_id="src-b",
+            source_adapter="src",
+            relations=(
+                EventRelation(
+                    relation_type="reply",
+                    target_event_id="prior-b",
+                    target_native_ref=None,
+                    key=None,
+                    fallback_text=None,
+                ),
+            ),
+        )
+
+        try:
+            # -- Act: launch both, force interleaving -----------------------
+            task_a = asyncio.create_task(runner.handle_ingress(event_a))
+            task_b = asyncio.create_task(runner.handle_ingress(event_b))
+
+            # event_b completes immediately (no blocking on "prior-b").
+            outcomes_b = await asyncio.wait_for(task_b, timeout=2.0)
+            assert len(outcomes_b) == 1
+
+            # event_a is still suspended inside storage.get("prior-a").
+            assert not task_a.done()
+
+            # Release the block so event_a can proceed.
+            block_event.set()
+            outcomes_a = await asyncio.wait_for(task_a, timeout=2.0)
+            assert len(outcomes_a) == 1
+        finally:
+            await runner.stop()
+
+        # -- Assert ----------------------------------------------------------
+        # Each target was looked up exactly once from the real storage.
+        assert blocking_storage.get_call_ids.count("prior-a") == 1
+        assert blocking_storage.get_call_ids.count("prior-b") == 1
+
+        # event_b finished *before* block_event was set, proving the
+        # interleaving was genuine — event_a was mid-storage-get while
+        # event_b ran its full course through an independent call-local
+        # cache.  If caches were shared, event_a's blocked lookup for
+        # "prior-a" could have been polluted by event_b's "prior-b"
+        # result (or vice versa), but each lookup happened once and only
+        # for its own target.
 
 
 # ===================================================================
