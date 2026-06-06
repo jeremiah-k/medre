@@ -639,3 +639,151 @@ class TestCounterAccuracy:
 
         assert adapter._permanent_delivery_failures == 1
         assert adapter._transient_delivery_failures == 0
+
+
+# ---------------------------------------------------------------------------
+# 14. txn_id is distinct from event_id (native Matrix event ID)
+# ---------------------------------------------------------------------------
+
+
+class TestTxnIdDistinctFromEventId:
+    """The deterministic txn_id must be a separate value from the
+    Matrix event_id returned by the homeserver.
+
+    txn_id is a send-time idempotency key computed from canonical inputs.
+    event_id is assigned by the homeserver on success.  They serve
+    different purposes and must never collide.
+    """
+
+    async def test_txn_id_not_equal_to_native_event_id(self) -> None:
+        """txn_id in metadata differs from native_message_id (Matrix event_id)."""
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=_make_send_response("$homeserver-assigned-evt-id")
+        )
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        txn_id = delivery.metadata["matrix"]["txn_id"]
+        event_id = delivery.native_message_id
+        assert txn_id != event_id
+        # txn_id has the medre_ prefix; event_id has the $ prefix
+        assert txn_id.startswith("medre_")
+        assert event_id.startswith("$")
+
+    async def test_txn_id_not_exposed_as_event_id(self) -> None:
+        """txn_id is metadata-only, never used as native_message_id."""
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        # native_message_id comes from homeserver, not from txn_id
+        assert delivery.native_message_id == "$sent-001"
+        # txn_id is in metadata["matrix"] namespace only
+        txn = delivery.metadata["matrix"]["txn_id"]
+        assert txn != delivery.native_message_id
+
+
+# ---------------------------------------------------------------------------
+# 15. metadata["matrix"] is JSON-safe and round-trips correctly
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataJsonSafe:
+    """Delivery result metadata must be JSON-serializable and round-trip
+    through JSON encode/decode without data loss.
+
+    The pipeline stores NativeMessageRef.metadata as JSON in SQLite,
+    so any MappingProxyType or other non-serializable types must be
+    normalized before persistence.
+    """
+
+    async def test_metadata_json_round_trip(self) -> None:
+        """metadata["matrix"] round-trips through JSON encode/decode.
+
+        The adapter returns nested MappingProxyType which is not directly
+        JSON-serializable.  The pipeline normalizes via _normalize_mapping()
+        before persisting.  This test verifies the data round-trips after
+        normalization (which is what the pipeline does).
+        """
+        import json
+        from collections.abc import Mapping
+
+        def _normalize(obj: object) -> object:
+            """Recursively convert Mapping (incl. MappingProxyType) to plain dict."""
+            if isinstance(obj, Mapping):
+                return {k: _normalize(v) for k, v in obj.items()}
+            return obj
+
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        # Normalize (mimics pipeline's _normalize_mapping) then serialize
+        normalized = _normalize(delivery.metadata)
+        serialized = json.dumps(normalized)
+        deserialized = json.loads(serialized)
+        assert deserialized["matrix"]["txn_id"] == delivery.metadata["matrix"]["txn_id"]
+
+    async def test_nested_matrix_dict_json_round_trip(self) -> None:
+        """The nested metadata['matrix'] dict round-trips through JSON."""
+        import json
+
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        matrix_meta = dict(delivery.metadata["matrix"])
+        serialized = json.dumps(matrix_meta)
+        deserialized = json.loads(serialized)
+        assert deserialized["txn_id"] == matrix_meta["txn_id"]
+
+    async def test_metadata_has_only_txn_id_in_matrix_namespace(self) -> None:
+        """metadata['matrix'] contains txn_id, not event_id or room_id.
+
+        The Matrix adapter metadata namespace must only contain send-time
+        idempotency data (txn_id).  The native event_id and room_id are
+        stored in AdapterDeliveryResult.native_message_id and
+        native_channel_id respectively, not in metadata.
+        """
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = _make_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        matrix_meta = delivery.metadata["matrix"]
+        assert "txn_id" in matrix_meta
+        # event_id and room_id must NOT appear in the matrix metadata namespace
+        assert "event_id" not in matrix_meta
+        assert "room_id" not in matrix_meta
+        # These are on the delivery result directly
+        assert delivery.native_message_id is not None
+        assert delivery.native_channel_id is not None

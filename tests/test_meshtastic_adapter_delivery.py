@@ -1386,11 +1386,43 @@ class TestDelayedOutboundNativeRef:
         assert ref.metadata["channel_name"] == "ch2"
         # Delivery snapshot keys are merged inside meshtastic namespace.
         assert ref.metadata["meshtastic"]["packet_id"] == 555
+        # reply_id from delivery snapshot is also in the meshtastic namespace.
+        assert ref.metadata["meshtastic"]["reply_id"] == 42
+        assert ref.metadata["meshtastic"]["channel"] == 2
 
 
 # ===================================================================
 # Boolean reply_id rejection
 # ===================================================================
+
+
+class TestDeliverInitialMetadataEvidence:
+    """deliver() initial AdapterDeliveryResult carries meshtastic namespace
+    metadata with channel_index, and no native_message_id (queue-based delay)."""
+
+    async def test_deliver_with_relation_fields_has_meshtastic_channel_index(
+        self,
+    ) -> None:
+        """Payload with reply_id and emoji still returns delivery_status=enqueued
+        with meshtastic.channel_index in metadata and native_message_id=None."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        result = make_meshtastic_rendering_result(
+            payload={
+                "text": "reaction",
+                "channel_index": 2,
+                "reply_id": 42,
+                "emoji": 1,
+            },
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id is None
+        assert delivery.delivery_status == "enqueued"
+        assert delivery.metadata["meshtastic"]["channel_index"] == 2
+        # reply_id/emoji are NOT in the initial metadata — they're in the
+        # payload dict, available only after queue drain.
+        assert "reply_id" not in delivery.metadata.get("meshtastic", {})
 
 
 class TestBooleanReplyIdRejected:

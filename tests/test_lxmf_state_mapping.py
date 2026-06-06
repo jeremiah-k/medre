@@ -342,3 +342,173 @@ class TestGenericExceptionRetry:
         assert session._diag.transient_delivery_failures == 1
         assert session._diag.permanent_delivery_failures == 0
         await session.stop()
+
+
+# ===================================================================
+# LXMF codec native hash persistence (W1 audit closure)
+# ===================================================================
+
+
+class TestLxmfCodecNativeHashPersistence:
+    """LXMF codec persists message_id as source_native_ref.native_message_id.
+    Per W1 audit: message_id is deterministic SHA-256, always computable
+    from message content."""
+
+    def test_codec_sets_source_native_ref_from_packet_id(self) -> None:
+        """Codec creates source_native_ref with native_message_id from
+        the classifier's packet_id (the message hash)."""
+        from medre.adapters.lxmf.codec import LxmfCodec
+
+        config = _make_config()
+        codec = LxmfCodec(config.adapter_id, config)
+        packet = {
+            "source_hash": "ab" * 16,
+            "destination_hash": "00" * 16,
+            "message_id": "cd" * 32,
+            "timestamp": 1700000000.0,
+            "content": "hello",
+            "title": "",
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+            "delivery_method": "direct",
+        }
+        event = codec.decode(packet)
+        assert event.source_native_ref is not None
+        assert event.source_native_ref.native_message_id == "cd" * 32
+        assert event.source_native_ref.adapter == "lxmf-test"
+        assert event.source_native_ref.native_channel_id is None
+
+    def test_codec_empty_relations_envelope_only(self) -> None:
+        """Codec produces empty relations — MEDRE does not decode LXMF
+        native FIELD_THREAD.  Relations are envelope-only (0xFD)."""
+        from medre.adapters.lxmf.codec import LxmfCodec
+
+        config = _make_config()
+        codec = LxmfCodec(config.adapter_id, config)
+        packet = {
+            "source_hash": "ab" * 16,
+            "destination_hash": "00" * 16,
+            "message_id": "cd" * 32,
+            "timestamp": 1700000000.0,
+            "content": "hello",
+            "title": "",
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+            "delivery_method": "direct",
+        }
+        event = codec.decode(packet)
+        assert event.relations == ()
+
+    def test_codec_no_packet_id_produces_no_native_ref(self) -> None:
+        """When message_id is None, codec produces no source_native_ref."""
+        from medre.adapters.lxmf.codec import LxmfCodec
+
+        config = _make_config()
+        codec = LxmfCodec(config.adapter_id, config)
+        packet = {
+            "source_hash": "ab" * 16,
+            "destination_hash": "00" * 16,
+            "message_id": None,
+            "timestamp": 1700000000.0,
+            "content": "hello",
+            "title": "",
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+            "delivery_method": "direct",
+        }
+        event = codec.decode(packet)
+        assert event.source_native_ref is None
+
+
+# ===================================================================
+# LXMF fallback no-duplication (W1 audit closure)
+# ===================================================================
+
+
+class TestLxmfFallbackNoDuplication:
+    """Under fallback_text, the LXMF renderer embeds relations=() in the
+    envelope and adds inline text — no duplication between structured
+    envelope and inline fallback."""
+
+    async def test_fallback_envelope_has_empty_relations(self) -> None:
+        """Under fallback_text, the MEDRE envelope carries empty relations
+        to avoid duplicating relation data as both structured and inline."""
+        from medre.adapters.lxmf.fields import LxmfFieldsHelper
+        from medre.adapters.lxmf.renderer import LxmfRenderer
+        from medre.core.events import EventRelation
+        from tests.helpers.rendering_evidence import make_context, make_event
+
+        renderer = LxmfRenderer(metadata_embedding=True)
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original message",
+        )
+        event = make_event(
+            payload={"text": "reply body"},
+            relations=(rel,),
+        )
+        ctx = make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            delivery_strategy="fallback_text",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied == "strategy_fallback_text"
+
+        fields = result.payload.get("fields", {})
+        assert isinstance(fields, dict)
+        envelope = LxmfFieldsHelper.extract_envelope(fields)
+        assert envelope is not None
+        # Envelope has empty relations — inline text is the only representation
+        assert envelope["relations"] == []
+
+        # But inline text contains the relation
+        content = result.payload.get("content", "")
+        assert isinstance(content, str)
+        assert "reply" in content.lower()
+
+    async def test_normal_mode_envelope_has_structured_relations(self) -> None:
+        """Under normal delivery_strategy, envelope carries full relations."""
+        from medre.adapters.lxmf.fields import LxmfFieldsHelper
+        from medre.adapters.lxmf.renderer import LxmfRenderer
+        from medre.core.events import EventRelation
+        from tests.helpers.rendering_evidence import make_context, make_event
+
+        renderer = LxmfRenderer(metadata_embedding=True)
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original message",
+        )
+        event = make_event(
+            payload={"text": "reply body"},
+            relations=(rel,),
+        )
+        ctx = make_context(
+            target_adapter="lxmf-target",
+            target_platform="lxmf",
+            delivery_strategy="direct",
+        )
+        result = await renderer.render(event, ctx)
+        assert result.fallback_applied is None
+
+        fields = result.payload.get("fields", {})
+        assert isinstance(fields, dict)
+        envelope = LxmfFieldsHelper.extract_envelope(fields)
+        assert envelope is not None
+        # Envelope has structured relations
+        assert len(envelope["relations"]) == 1
+        assert envelope["relations"][0]["relation_type"] == "reply"
+
+        # Content does NOT contain inline relation text
+        content = result.payload.get("content", "")
+        assert isinstance(content, str)
+        assert "[reply" not in content

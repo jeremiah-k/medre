@@ -465,3 +465,58 @@ class TestNativeIdExtraction:
 
         result = await session.send_text("contact1", "test")
         assert result is None
+
+
+# ===================================================================
+# Expected-ack persistence and JSON-safety (W1 audit closure)
+# ===================================================================
+
+
+class TestExpectedAckPersistence:
+    """Expected_ack is ephemeral 4-byte ACK correlation persisted as hex
+    string native_message_id.  Per W1 audit: NOT a durable protocol-level
+    message ID — volatile, in-memory circular buffer on the firmware side."""
+
+    def _make_session_with_mock(self) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with connected=True and a mock _meshcore."""
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "ack-test")
+        session._diag.connected = True
+
+        mock_meshcore = AsyncMock()
+        mock_meshcore.commands = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
+        session._meshcore = mock_meshcore
+
+        return session, mock_meshcore
+
+    async def test_expected_ack_hex_is_json_safe(self) -> None:
+        """The hex string from _extract_expected_ack is pure ASCII —
+        JSON-serializable without encoding issues."""
+        import json
+
+        raw = b"\xde\xad\xbe\xef"
+        hex_id = _extract_expected_ack(raw)
+        assert hex_id == "deadbeef"
+        # Verify it survives JSON round-trip
+        assert json.loads(json.dumps({"id": hex_id}))["id"] == "deadbeef"
+
+    async def test_expected_ack_persisted_through_send_text(self) -> None:
+        """send_text returns expected_ack hex as native_id for DMs."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        result = await session.send_text("contact1", "test")
+        # The hex string IS the native_id — persisted as AdapterDeliveryResult
+        # native_message_id for cross-transport correlation.
+        assert result == "01020304"
+
+    async def test_channel_send_no_expected_ack(self) -> None:
+        """Channel sends return no expected_ack (per audit: no ACK protocol
+        for channel messages)."""
+        session, mock_mc = self._make_session_with_mock()
+        # Channel send returns empty dict — no expected_ack
+        mock_mc.commands.send_chan_msg.return_value = {}
+
+        result = await session.send_text("ignored", "test", channel_index=0)
+        assert result is None

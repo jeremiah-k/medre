@@ -369,14 +369,16 @@ class LxmfAdapter(AdapterContract):
             delivery_note="accepted by LXMRouter — async delivery pending",
             metadata=MappingProxyType(
                 {
-                    "lxmf": {
-                        "delivery_state": delivery_state.value,
-                        "delivery_method": (
-                            delivery_method
-                            if isinstance(delivery_method, str)
-                            else self._config.default_delivery_method
-                        ),
-                    },
+                    "lxmf": MappingProxyType(
+                        {
+                            "delivery_state": delivery_state.value,
+                            "delivery_method": (
+                                delivery_method
+                                if isinstance(delivery_method, str)
+                                else self._config.default_delivery_method
+                            ),
+                        }
+                    ),
                 }
             ),
         )

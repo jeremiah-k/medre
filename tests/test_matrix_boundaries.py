@@ -25,8 +25,8 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
-from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from tests.fixtures.matrix_packets import (
     make_room_send_error,
     make_room_send_response,
@@ -788,3 +788,95 @@ class TestMatrixCancelledErrorPropagation:
         )
         with pytest.raises(AdapterPermanentError):
             await adapter.deliver(result)
+
+
+# ===================================================================
+# Matrix capabilities: edits and deletes explicitly unsupported
+# ===================================================================
+
+
+class TestMatrixCapabilitiesEditsDeletes:
+    """Matrix adapter explicitly declares edits and deletes as unsupported.
+
+    The Matrix protocol supports m.replace (edits) and redactions (deletes),
+    but MEDRE's Matrix adapter does not implement them.  The capabilities
+    must reflect this explicitly so the pipeline can degrade gracefully.
+    """
+
+    def test_edits_unsupported(self) -> None:
+        """edits capability is 'unsupported'."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        caps = adapter._capabilities
+        assert caps.edits == "unsupported"
+
+    def test_deletes_unsupported(self) -> None:
+        """deletes capability is 'unsupported'."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        caps = adapter._capabilities
+        assert caps.deletes == "unsupported"
+
+    def test_replies_native(self) -> None:
+        """replies capability is 'native'."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        caps = adapter._capabilities
+        assert caps.replies == "native"
+
+    def test_reactions_native(self) -> None:
+        """reactions capability is 'native'."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        caps = adapter._capabilities
+        assert caps.reactions == "native"
+
+    def test_renderer_ignores_edit_relations(self) -> None:
+        """MatrixRenderer does not crash or produce malformed output for edit relations.
+
+        Since edits are unsupported, an edit relation should not cause
+        the renderer to produce a malformed payload.  The renderer
+        treats unknown relation types as pass-through (no special handling).
+        """
+        renderer = MatrixRenderer()
+        # Build an event with an edit relation (which the renderer doesn't
+        # handle specially — it falls through to plain text rendering)
+        edit_rel = EventRelation(
+            relation_type="edit",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text="original text",
+        )
+        event = CanonicalEvent(
+            event_id="evt-edit-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(edit_rel,),
+            payload={"body": "edited message"},
+            metadata=EventMetadata(),
+        )
+        result = renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        # The render coroutine must return a valid result without crashing
+        # The renderer handles edit relations the same as unrecognized
+        # relation types — no special m.relates_to for edits.
+        import asyncio
+
+        rendering = asyncio.get_event_loop().run_until_complete(result)
+        assert rendering.payload["msgtype"] == "m.text"
+        assert rendering.payload["body"] == "edited message"
+        # No m.relates_to for edit (unsupported)
+        assert "m.relates_to" not in rendering.payload

@@ -1256,3 +1256,171 @@ class TestMetadataKeySplitting:
             assert ref.metadata["custom"] == "value"
         finally:
             await adapter.stop()
+
+
+class TestDelayedOutboundRefMeshtasticNamespaceFacts:
+    """Verify that _record_delayed_outbound_ref stores complete meshtastic
+    namespace facts (packet_id, channel, reply_id, emoji) from the delivery
+    snapshot when the send carried relation fields."""
+
+    async def test_reply_id_and_emoji_in_meshtastic_namespace(self) -> None:
+        """When the delivery metadata has meshtastic.reply_id and
+        meshtastic.emoji from a structured send, these are preserved in
+        the OutboundNativeRefRecord.metadata meshtastic namespace."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+            OutboundNativeRefRecord,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-ns-facts", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-ns-facts",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=on_ref,
+        )
+        await adapter.start(ctx)
+        try:
+            # Simulate delivery result from a structured send (reply + emoji).
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {
+                        "text": "👍",
+                        "channel_index": 0,
+                        "reply_id": 42,
+                        "emoji": 1,
+                    },
+                    "channel_index": 0,
+                    "event_id": "evt-reaction-ns",
+                    "delivery_plan_id": "plan-ns",
+                },
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="789",
+                    native_channel_id="0",
+                    delivery_status="sent",
+                    metadata=MappingProxyType(
+                        {
+                            "meshtastic": {
+                                "packet_id": 789,
+                                "channel": 0,
+                                "reply_id": 42,
+                                "emoji": 1,
+                            },
+                        }
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-reaction-ns",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded) == 1
+            ref = recorded[0]
+            mesh_ns = ref.metadata["meshtastic"]
+
+            # All transport facts from the delivery snapshot are present.
+            assert mesh_ns["packet_id"] == 789
+            assert mesh_ns["channel"] == 0
+            assert mesh_ns["reply_id"] == 42
+            assert mesh_ns["emoji"] == 1
+
+            # Payload-level facts also present at top level.
+            assert ref.metadata["text"] == "👍"
+            assert ref.metadata["reply_id"] == 42
+            assert ref.metadata["emoji"] == 1
+        finally:
+            await adapter.stop()
+
+    async def test_send_without_relation_fields_no_reply_emoji_in_namespace(
+        self,
+    ) -> None:
+        """When the delivery snapshot has no reply_id/emoji, the meshtastic
+        namespace should not contain them."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+            OutboundNativeRefRecord,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-ns-plain", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-ns-plain",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=on_ref,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {"text": "plain msg", "channel_index": 0},
+                    "channel_index": 0,
+                    "event_id": "evt-plain-ns",
+                },
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="321",
+                    native_channel_id="0",
+                    delivery_status="sent",
+                    metadata=MappingProxyType(
+                        {"meshtastic": {"packet_id": 321, "channel": 0}}
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-plain-ns",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded) == 1
+            ref = recorded[0]
+            mesh_ns = ref.metadata["meshtastic"]
+            assert mesh_ns["packet_id"] == 321
+            assert mesh_ns["channel"] == 0
+            assert "reply_id" not in mesh_ns
+            assert "emoji" not in mesh_ns
+        finally:
+            await adapter.stop()

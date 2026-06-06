@@ -285,7 +285,11 @@ class MeshtasticRenderer:
         UTF-8 byte-budget truncation is applied after final radio text
         rendering (including prefix, reply, and reaction formatting).
         The byte budget defaults to 227 (``MeshtasticConfig.max_text_bytes``)
-        and is configurable per adapter instance.
+        and is configurable per adapter instance.  Note: the budget applies
+        to text only; ``reply_id``/``emoji`` protobuf fields are encoded
+        separately and consume up to ~8 bytes of the 233-byte wire limit.
+        Operators sending relation-heavy traffic should consider lowering
+        ``max_text_bytes`` to ~219–225.
 
         Parameters
         ----------
@@ -747,9 +751,7 @@ class MeshtasticRenderer:
         return None
 
     @staticmethod
-    def _resolve_emoji_text(
-        rel: EventRelation, event: CanonicalEvent
-    ) -> str | None:
+    def _resolve_emoji_text(rel: EventRelation, event: CanonicalEvent) -> str | None:
         """Resolve the reaction emoji/text using the standard priority order.
 
         Resolution order: ``rel.key`` → ``payload["key"]`` →
