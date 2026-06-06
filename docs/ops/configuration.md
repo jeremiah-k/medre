@@ -754,9 +754,9 @@ medre diagnostics [--config PATH] [--refresh-health]
 medre routes (validate|topology|list) [--config PATH]
     Route management: validate, print topology preview, or list routes.
 
-medre smoke [--config PATH] [--storage-path PATH] [--drill NAME] [--run-session] [--json]
-    Run fake bridge smoke test. Uses in-memory storage by default.
-    Pass --storage-path to persist to SQLite.
+medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
+    Run fake bridge smoke test. Storage backend determined by config.
+    Use a config with storage.backend = "sqlite" for persistent evidence.
 
 medre inspect event [--storage-path PATH]
     Read-only event inspection. Supports --timeline, --evidence, --recovery flags.

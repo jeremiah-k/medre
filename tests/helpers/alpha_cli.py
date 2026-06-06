@@ -97,11 +97,78 @@ directionality = "source_to_dest"
 enabled = true
 """
 
+# Minimal TOML config with SQLite storage for smoke seeding.
+SMOKE_STORAGE_TOML = """\
+[runtime]
+name = "fake-bridge-smoke-persist"
+shutdown_timeout_seconds = 10
+
+[logging]
+level = "WARNING"
+format = "text"
+
+[storage]
+backend = "sqlite"
+path = {storage_path!r}
+
+[adapters.matrix.fake_matrix]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bridge-bot:fake.local"
+access_token = "fake_token_bridge_smoke"
+room_allowlist = ["!bridge-room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_meshtastic]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "smoke-radio"
+
+[routes.mx_to_mesh]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_meshtastic"]
+directionality = "source_to_dest"
+enabled = true
+"""
+
 
 def write_replay_config(tmp_path: Path, db_path: Path) -> str:
     """Write a TOML config that points storage at *db_path* for replay."""
     cfg = tmp_path / "replay_config.toml"
     cfg.write_text(REPLAY_TOML.format(storage_path=str(db_path)))
+    return str(cfg)
+
+
+def write_smoke_storage_config(tmp_path: Path, db_path: Path) -> str:
+    """Write a TOML config with SQLite storage at *db_path* for smoke tests.
+
+    Use this when a smoke test needs to persist evidence for post-run
+    inspection (read-only commands like ``inspect``, ``trace``, ``evidence``,
+    ``recover`` all use ``--storage-path`` against the resulting DB file).
+    """
+    cfg = tmp_path / "smoke_storage_config.toml"
+    cfg.write_text(SMOKE_STORAGE_TOML.format(storage_path=str(db_path)))
+    return str(cfg)
+
+
+def write_sqlite_config_from_example(tmp_path: Path, db_path: Path) -> str:
+    """Derive a SQLite config from the shipped fake-bridge-smoke.toml.
+
+    Copies the full example config (all adapters, routes, policies) and
+    replaces ``storage.backend = "memory"`` with SQLite at *db_path*.
+    Preserves the complete route topology.
+    """
+    assert (
+        EXAMPLES_SMOKE_CONFIG.is_file()
+    ), f"Source-tree example config not found: {EXAMPLES_SMOKE_CONFIG}"
+    src = EXAMPLES_SMOKE_CONFIG.read_text()
+    # Replace memory storage with SQLite + path.
+    sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
+    derived = src.replace('backend = "memory"', sqlite_block)
+    cfg = tmp_path / "smoke_sqlite_from_example.toml"
+    cfg.write_text(derived)
     return str(cfg)
 
 
@@ -116,7 +183,7 @@ def seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
     Returns (event_id, db_path).
     """
     db_path = tmp_path / "walkthrough.db"
-    config_path = smoke_config_path()
+    config_path = write_smoke_storage_config(tmp_path, db_path)
 
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -127,8 +194,6 @@ def seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
                     "smoke",
                     "--config",
                     config_path,
-                    "--storage-path",
-                    str(db_path),
                     "--json",
                 ]
             )

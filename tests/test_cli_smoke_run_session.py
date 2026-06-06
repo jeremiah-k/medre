@@ -124,7 +124,7 @@ class TestOperatorBridgeSession:
                 shlex.split(txt) == argv
             ), f"primary.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
 
-        # -- Specialized keys: trace/evidence (storage-path), recover (config) --
+        # -- Specialized keys: all read-only, all use --storage-path --
         specialized_keys = ["trace_event", "evidence_bundle", "recover_event"]
         for key in specialized_keys:
             assert key in cmd_text["specialized"], f"Missing specialized key: {key}"
@@ -137,16 +137,13 @@ class TestOperatorBridgeSession:
 
             assert event_id in txt, f"specialized.{key} text missing event_id"
 
-            # Read-only specialized commands use --storage-path
-            if key in ("trace_event", "evidence_bundle"):
-                assert (
-                    "--storage-path" in txt
-                ), f"specialized.{key} missing --storage-path: {txt}"
-                assert db_path in txt, f"specialized.{key} missing db_path: {txt}"
-
-            # recover_event is config-required
-            if key == "recover_event":
-                assert "--config" in txt, f"specialized.{key} missing --config: {txt}"
+            # All read-only specialized commands use --storage-path
+            assert (
+                "--storage-path" in txt
+            ), f"specialized.{key} missing --storage-path: {txt}"
+            assert db_path in txt, f"specialized.{key} missing db_path: {txt}"
+            # No stale --config in read-only commands
+            assert "--config" not in txt, f"specialized.{key} has stale --config: {txt}"
 
             # argv mirrors text
             assert (
@@ -182,13 +179,6 @@ class TestOperatorBridgeSession:
         # -- SQLite file exists --
         assert Path(db_path).is_file(), f"SQLite DB not created at {db_path}"
 
-        # -- Write a config that points to the same DB for CLI inspection --
-        inspect_config = tmp_path / "inspect_config.toml"
-        inspect_config.write_text(
-            f'[runtime]\nname = "inspect-test"\n\n[storage]\n'
-            f'backend = "sqlite"\npath = "{db_path}"\n'
-        )
-
         # -- Inspect event directly (async, not via CLI to avoid nested event loop) --
         event_id = report["event_id"]
         from medre.cli.inspect_commands import _inspect_event
@@ -197,7 +187,7 @@ class TestOperatorBridgeSession:
         # Inspect event
         evt_stdout = io.StringIO()
         with redirect_stdout(evt_stdout):
-            await _inspect_event(str(inspect_config), event_id)
+            await _inspect_event(event_id, storage_path=db_path)
         assert event_id in evt_stdout.getvalue()
 
         # Inspect receipts
@@ -206,14 +196,14 @@ class TestOperatorBridgeSession:
         rcpt_stdout = io.StringIO()
         with redirect_stdout(rcpt_stdout):
             await _inspect_receipts(
-                str(inspect_config), event_id=event_id, replay_run_id=None
+                event_id=event_id, replay_run_id=None, storage_path=db_path
             )
         assert len(rcpt_stdout.getvalue().strip()) > 0
 
         # Trace event
         trace_stdout = io.StringIO()
         with redirect_stdout(trace_stdout):
-            await _trace_event(str(inspect_config), event_id, json_output=False)
+            await _trace_event(event_id, json_output=False, storage_path=db_path)
         assert event_id in trace_stdout.getvalue()
 
     @pytest.mark.asyncio

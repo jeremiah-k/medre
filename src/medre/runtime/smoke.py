@@ -2,9 +2,9 @@
 
 Provides :func:`run_fake_bridge_smoke` — a single async function that
 proves the MEDRE runtime pipeline works end-to-end with fake adapters.
-Default smoke uses in-memory storage unless ``--storage-path`` is provided;
-run-session uses SQLite persistent/temp storage.  Docker-free, network-free,
-SDK-free.
+Storage backend is determined by the config file (``storage.backend``):
+``"memory"`` for ephemeral, ``"sqlite"`` with ``storage.path`` for
+persistent evidence.  Docker-free, network-free, SDK-free.
 
 Produces a compact evidence report (plain dict) that can be serialised
 as JSON.  The CLI surface ``medre smoke`` calls this function and prints
@@ -509,7 +509,11 @@ async def run_fake_bridge_smoke(
         "generated_at": _now().isoformat(),
         "config_source": config_source_value,
         "storage_backend": config.storage.backend,
-        **({"storage_path": storage_path} if storage_path is not None else {}),
+        **(
+            {"storage_path": storage_path}
+            if storage_path is not None
+            else ({"storage_path": config.storage.path} if config.storage.path else {})
+        ),
         "preflight": preflight,
         "source_adapter": source_aid,
         "target_adapters": target_adapters,

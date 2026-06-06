@@ -7,7 +7,7 @@ Day-to-day workflows for operating MEDRE: smoke testing, inspect-first investiga
 The recommended operator loop:
 
 1. **Pre-flight**: `medre config check` and `medre routes validate`
-2. **Optional smoke**: `medre smoke --storage-path <db> --json`
+2. **Optional smoke**: `medre smoke --config <sqlite-config> --json`
 3. **Inspect-first**: `medre inspect event` and `medre inspect receipts`
 4. **Deeper investigation**: `--timeline`, `--evidence`, `--recovery` flags on inspect
 5. **Replay only when needed**: `DRY_RUN` first, then `BEST_EFFORT`
@@ -19,14 +19,16 @@ The recommended operator loop:
 The fastest way to confirm MEDRE works on your machine. No network, no credentials.
 
 ```bash
-# Source checkout
-medre smoke --config examples/configs/fake-bridge-smoke.toml \
-  --storage-path /tmp/medre-alpha.db --json
+# Source checkout (in-memory storage, ephemeral)
+medre smoke --config examples/configs/fake-bridge-smoke.toml --json
+
+# Source checkout (persistent SQLite — edit config to set storage.backend = "sqlite")
+medre smoke --config /tmp/medre-sqlite.toml --json
 
 # Installed package
 medre config sample > /tmp/medre-alpha.toml
-medre smoke --config /tmp/medre-alpha.toml \
-  --storage-path /tmp/medre-alpha.db --json
+# Edit storage section: backend = "sqlite", path = "/tmp/medre-alpha.db"
+medre smoke --config /tmp/medre-alpha.toml --json
 ```
 
 Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
@@ -46,7 +48,7 @@ Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
 - E2EE crypto operations.
 - Meshtastic radio or serial communication.
 
-Without `--storage-path`, smoke uses an in-memory database discarded after the run. Without `--config`, looks for `examples/configs/fake-bridge-smoke.toml` relative to the source tree.
+Storage backend is determined by the config file. With `storage.backend = "memory"` (the default in shipped configs), evidence is discarded after the run. For persistent evidence, set `storage.backend = "sqlite"` with a `path` in the config.
 
 ## Inspect-First Investigation
 
@@ -734,8 +736,8 @@ These are aggregate counters, not per-packet records. They reset on adapter rest
 medre config check --config config.toml
 medre routes validate --config config.toml
 
-# Smoke test
-medre smoke --config config.toml --storage-path /tmp/medre.db --json
+# Smoke test (use a config with storage.backend = "sqlite" for persistence)
+medre smoke --config config.toml --json
 
 # Inspect (primary path)
 medre inspect event <event_id> --storage-path /tmp/medre.db

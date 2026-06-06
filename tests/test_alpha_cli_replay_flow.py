@@ -174,7 +174,7 @@ class TestAlphaFullWalkthroughCLI:
         """Prove the documented operator walkthrough sequence works via main().
 
         Phases (as documented in alpha-walkthrough.md):
-        Phase 1: medre smoke --config <path> --storage-path <db> --json  → event_id
+        Phase 1: medre smoke --config <sqlite-config> --json  → event_id
         Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
         Phase 3: medre inspect event <id> --timeline --storage-path <db>  (deeper investigation)
                  medre inspect event <id> --evidence --storage-path <db>

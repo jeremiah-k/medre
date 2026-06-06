@@ -43,8 +43,10 @@ PYTHONPATH=src medre smoke --json > bundle-smoke.json
 
 ### Persistent Smoke (inspectable after exit)
 
+Use a config with `storage.backend = "sqlite"` and `storage.path`:
+
 ```bash
-PYTHONPATH=src medre smoke --storage-path /tmp/medre-smoke.db --json > bundle-smoke-persist.json
+PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.toml --json > bundle-smoke-persist.json
 ```
 
 ### Failure Drills (all available drills)
@@ -54,7 +56,7 @@ for drill in renderer_failure adapter_permanent_failure \
   adapter_transient_failure capacity_rejection shutdown_rejection \
   replay_duplicate_risk degraded_live_health; do
   PYTHONPATH=src medre smoke --drill "$drill" \
-    --storage-path /tmp/medre-smoke.db --json \
+    --config /tmp/medre-sqlite.toml --json \
     >> bundle-drills.jsonl
 done
 ```
@@ -65,7 +67,7 @@ done
 for drill in bad_route_config all_adapters_build_fail \
   partial_degraded_startup all_adapters_start_fail; do
   PYTHONPATH=src medre smoke --drill "$drill" \
-    --storage-path /tmp/medre-smoke.db --json \
+    --config /tmp/medre-sqlite.toml --json \
     >> bundle-preruntime.jsonl
 done
 ```
@@ -111,10 +113,10 @@ The `replay` command requires `--config`; `recover` uses `--storage-path` (read-
 
 | Command                                                                        | Storage           | Starts adapters    | Output                           | Exit codes                              |
 | ------------------------------------------------------------------------------ | ----------------- | ------------------ | -------------------------------- | --------------------------------------- |
-| `medre smoke --json`                                                           | In-memory         | Fake only          | passed/failed JSON               | 0=passed, 1=failed                      |
-| `medre smoke --storage-path <db> --json`                                       | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
-| `medre smoke --drill <name> --json`                                            | In-memory         | Fake only          | Drill report JSON                | 0=passed, 1=failed                      |
-| `medre smoke --drill <name> --storage-path <db> --json`                        | SQLite            | Fake only          | Drill report JSON + DB           | 0=passed, 1=failed                      |
+| `medre smoke --json`                                                           | Config-determined | Fake only          | passed/failed JSON               | 0=passed, 1=failed                      |
+| `medre smoke --config <sqlite-cfg> --json`                                     | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --json`                                            | Config-determined | Fake only          | Drill report JSON                | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --config <sqlite-cfg> --json`                      | SQLite            | Fake only          | Drill report JSON + DB           | 0=passed, 1=failed                      |
 | `medre evidence --storage-path <db> --json`                                    | SQLite (RO)       | No                 | Full bundle JSON                 | 0=passed/partial, 2=storage error       |
 | `medre evidence --storage-path <db> --event <id> --json`                       | SQLite (RO)       | No                 | Bundle with event/receipt lookup | 0=passed/partial, 2=storage error       |
 | `medre inspect event <id> --storage-path <db>`                                 | Opens SQLite (RO) | No                 | Event JSON                       | 0=found, 2=no SQLite                    |
@@ -458,7 +460,7 @@ In addition to unidirectional criteria for each direction:
 Run pre-runtime drills with:
 
 ```bash
-PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.db --json
+PYTHONPATH=src medre smoke --drill <drill_name> --config /tmp/medre-sqlite.toml --json
 ```
 
 Each drill **exits 0** when the expected failure is correctly observed. The drill report documents what exit code and error the runtime would produce if run independently.

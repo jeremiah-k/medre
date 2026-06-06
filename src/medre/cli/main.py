@@ -108,12 +108,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--message", default="medre smoke test", help="Text for test message"
     )
     smoke_p.add_argument(
-        "--storage-path",
-        default=None,
-        metavar="PATH",
-        help="Persist smoke evidence to SQLite at this path (default: in-memory)",
-    )
-    smoke_p.add_argument(
         "--drill",
         default=None,
         metavar="NAME",
@@ -442,7 +436,6 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(
                 _run_session(
                     args.config,
-                    storage_path=args.storage_path,
                     snapshot_dir=getattr(args, "snapshot_dir", None),
                     json_output=args.json,
                     scenario=getattr(args, "scenario", "happy_path"),
@@ -454,7 +447,6 @@ def main(argv: list[str] | None = None) -> None:
                     args.config,
                     args.message,
                     args.json,
-                    storage_path=args.storage_path,
                     drill_name=args.drill,
                 )
             )

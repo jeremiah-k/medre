@@ -2,7 +2,7 @@
 
 Proves that:
 
-- ``medre smoke --storage-path`` persists evidence to SQLite.
+- ``medre smoke --config <sqlite-config>`` persists evidence to SQLite.
 - ``run_drill()`` produces valid PASS reports for each drill.
 - Drill reports have the correct shape and evidence fields.
 - No Docker, network, or SDK dependencies.
@@ -47,13 +47,53 @@ def _smoke_config_path() -> str:
     return path
 
 
+def _write_sqlite_smoke_config(tmp_path: Path, db_path: str) -> str:
+    """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
+    cfg = tmp_path / "smoke_sqlite.toml"
+    cfg.write_text(f"""\
+[runtime]
+name = "fake-bridge-smoke-persist"
+shutdown_timeout_seconds = 10
+
+[logging]
+level = "WARNING"
+format = "text"
+
+[storage]
+backend = "sqlite"
+path = {db_path!r}
+
+[adapters.matrix.fake_matrix]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bridge-bot:fake.local"
+access_token = "fake_token_bridge_smoke"
+room_allowlist = ["!bridge-room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_meshtastic]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "smoke-radio"
+
+[routes.mx_to_mesh]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_meshtastic"]
+directionality = "source_to_dest"
+enabled = true
+""")
+    return str(cfg)
+
+
 # ---------------------------------------------------------------------------
 # Storage persistence tests
 # ---------------------------------------------------------------------------
 
 
 class TestSmokeStoragePath:
-    """Proves --storage-path persists smoke evidence to SQLite."""
+    """Proves config-driven SQLite storage persists smoke evidence."""
 
     @pytest.mark.asyncio
     async def test_storage_path_creates_sqlite(self, tmp_path: Path) -> None:
@@ -124,14 +164,14 @@ class TestSmokeStoragePath:
         finally:
             conn.close()
 
-    def test_cli_storage_path_flag(self, tmp_path: Path) -> None:
-        """CLI medre smoke --storage-path produces valid JSON."""
+    def test_cli_sqlite_config_persists(self, tmp_path: Path) -> None:
+        """CLI medre smoke --config <sqlite-config> persists evidence."""
         import io
 
         from medre.cli import main
 
         db_path = str(tmp_path / "cli-test.db")
-        config_path = _smoke_config_path()
+        config_path = _write_sqlite_smoke_config(tmp_path, db_path)
 
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
@@ -142,8 +182,6 @@ class TestSmokeStoragePath:
                         "smoke",
                         "--config",
                         config_path,
-                        "--storage-path",
-                        db_path,
                         "--json",
                     ]
                 )
@@ -154,14 +192,14 @@ class TestSmokeStoragePath:
         assert report["storage_path"] == db_path
         assert report["storage_backend"] == "sqlite"
 
-    def test_cli_storage_path_human_readable(self, tmp_path: Path) -> None:
-        """CLI medre smoke --storage-path (no --json) shows storage info."""
+    def test_cli_sqlite_config_human_readable(self, tmp_path: Path) -> None:
+        """CLI medre smoke --config <sqlite-config> (no --json) shows storage info."""
         import io
 
         from medre.cli import main
 
         db_path = str(tmp_path / "cli-human.db")
-        config_path = _smoke_config_path()
+        config_path = _write_sqlite_smoke_config(tmp_path, db_path)
 
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
@@ -172,8 +210,6 @@ class TestSmokeStoragePath:
                         "smoke",
                         "--config",
                         config_path,
-                        "--storage-path",
-                        db_path,
                     ]
                 )
 

@@ -83,16 +83,14 @@ def _write_config(tmp_path: Path, db_path: Path) -> Path:
 
 
 def _seed_db(tmp_path: Path) -> tuple[str, Path]:
-    """Run smoke via main() with --storage-path to create a populated DB.
+    """Run smoke via main() with SQLite config to create a populated DB.
 
     Returns (event_id, db_path).
     """
     db_path = tmp_path / "replay_surface.db"
     _write_config(tmp_path, db_path)
 
-    # Use a config with memory storage for seeding (smoke will override to
-    # sqlite via --storage-path), but we need the config for adapter/routes.
-    # Build a separate seed config that uses memory so smoke doesn't conflict.
+    # Config already specifies SQLite at db_path — smoke uses it directly.
     seed_cfg = tmp_path / "seed.toml"
     seed_cfg.write_text(
         _SMOKELIKE_TOML.format(storage_path=str(db_path)),
@@ -107,8 +105,6 @@ def _seed_db(tmp_path: Path) -> tuple[str, Path]:
                     "smoke",
                     "--config",
                     str(seed_cfg),
-                    "--storage-path",
-                    str(db_path),
                     "--json",
                 ]
             )

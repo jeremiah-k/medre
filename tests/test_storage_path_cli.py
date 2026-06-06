@@ -136,12 +136,26 @@ def _smoke_config_path() -> str:
     return path
 
 
+def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
+    """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
+    from tests.helpers.alpha_cli import EXAMPLES_SMOKE_CONFIG
+
+    assert EXAMPLES_SMOKE_CONFIG.is_file()
+    src = EXAMPLES_SMOKE_CONFIG.read_text()
+    sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
+    derived = src.replace('backend = "memory"', sqlite_block)
+    cfg = tmp_path / "smoke_sqlite.toml"
+    cfg.write_text(derived)
+    return str(cfg)
+
+
 def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
-    """Run smoke with --storage-path to create a populated DB.
+    """Run smoke with SQLite config to create a populated DB.
 
     Returns (event_id, db_path).
     """
     db_path = tmp_path / "smoke_seed.db"
+    cfg = _write_sqlite_smoke_config(tmp_path, db_path)
 
     stdout_buf = io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -150,9 +164,7 @@ def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
                 [
                     "smoke",
                     "--config",
-                    _smoke_config_path(),
-                    "--storage-path",
-                    str(db_path),
+                    cfg,
                     "--json",
                 ]
             )
