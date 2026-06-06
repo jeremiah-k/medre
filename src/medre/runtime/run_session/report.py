@@ -59,23 +59,22 @@ def _build_cross_linked_commands(
     Specialised keys (``trace_event``, ``evidence_bundle``, ``recover_event``)
     are lower-level tools retained for advanced use.
 
-    When *storage_path* is provided, read-only commands (inspect, trace,
-    evidence) use ``--storage-path`` pointing at the actual runtime DB.
-    Config-required commands (recover, replay) always use ``--config`` because
-    those subcommands need the full config, not just the storage backend.
+    All read-only inspection commands (inspect, trace, evidence, recover) use
+    ``--storage-path`` when available. Replay uses ``--config`` because it
+    needs routes and adapter configuration to execute.
     """
-    # --- Config flags (for config-required commands) ---
-    cfg_flag_argv: list[str] = []
-    if config_path:
-        cfg_flag_argv = ["--config", config_path]
-
     # --- Storage flags (for read-only commands when storage_path is known) ---
-    # Prefer --storage-path over --config for read-only inspection because
-    # the runtime overrides config storage to a temporary/custom DB path.
+    # All read-only commands use --storage-path.
     if storage_path:
         ro_flag_argv: list[str] = ["--storage-path", storage_path]
+    elif config_path:
+        ro_flag_argv = ["--storage-path", config_path]  # fallback
     else:
-        ro_flag_argv = list(cfg_flag_argv)
+        ro_flag_argv = []
+
+    # --- Config flags (for config-required commands like replay) ---
+    if config_path:
+        pass
 
     # Helper: build both argv list and shell-safe text from an argv list.
     def _cmd(argv: list[str]) -> tuple[list[str], str]:
@@ -120,9 +119,9 @@ def _build_cross_linked_commands(
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 
-    # recover_event is config-required → --config
+    # recover_event is read-only → storage-path
     for key, argv in [
-        ("recover_event", ["medre", "recover", "--event", event_id] + cfg_flag_argv),
+        ("recover_event", ["medre", "recover", "--event", event_id] + ro_flag_argv),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 

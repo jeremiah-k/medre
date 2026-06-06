@@ -776,7 +776,7 @@ medre trace (event|replay) [--storage-path PATH] [--json]
     Specialized chronological timeline assembly. Prefer
     inspect event --timeline for per-event timelines.
 
-medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run ID] [--include-refresh-health] [--json]
+medre evidence --storage-path PATH [--event ID] [--replay-run ID] [--json]
     Specialized support bundle collection. Prefer
     inspect event --evidence for per-event bundles.
 
@@ -786,7 +786,7 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
     Modes: strict, re_render, re_route, dry_run, best_effort.
     Requires --config. Duplicate-risky for best_effort.
 
-medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]
+medre recover --storage-path PATH [--event ID] [--failed-only] [--dry-run] [--json]
     Specialized recovery classification. Prefer
     inspect event --recovery for per-event runbook.
 ```

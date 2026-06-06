@@ -24,8 +24,8 @@ Specialized (available, not primary daily path)::
 
     medre trace event <ID>              Standalone timeline (inspect event --timeline preferred)
     medre trace replay <ID>             Standalone replay timeline
-    medre evidence [--config] [--json]  Full support-bundle collection
-    medre recover [--config]            Standalone recovery classification
+    medre evidence --storage-path PATH [--json]  Full support-bundle collection
+    medre recover --storage-path PATH            Standalone recovery classification
 
 Utility::
 

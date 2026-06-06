@@ -47,7 +47,7 @@ class TestStoragePathReadOnlyConsistency:
     """Verify that docs consistently describe the storage-path read-only
     workflow: all inspect subcommands (including native-ref and
     receipts --replay-run), trace subcommands, and evidence support
-    --storage-path; replay (top-level) and recover require --config."""
+    --storage-path; recover uses --storage-path; replay requires --config."""
 
     def test_inspect_examples_show_storage_path_option(self) -> None:
         """Docs with ``inspect`` examples should show --storage-path as a

@@ -1,4 +1,4 @@
-"""Evidence CLI command: collect evidence bundles for support."""
+"""Evidence CLI command: collect evidence bundles for support (read-only; requires --storage-path)."""
 
 from __future__ import annotations
 
@@ -11,29 +11,18 @@ from .exit_codes import EXIT_CONFIG
 
 
 async def _evidence(
-    config_path: str | None,
     json_output: bool,
     event_id: str | None,
     replay_run_id: str | None,
-    include_refresh_health: bool,
     *,
     storage_path: str | None = None,
 ) -> None:
     """Collect and print an evidence bundle."""
-    # Reject incompatible flag combination before doing any work.
-    if storage_path is not None and include_refresh_health:
-        print(
-            "Error: --include-refresh-health requires a config file and is "
-            "incompatible with --storage-path.",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_CONFIG)
-
     report = await collect_evidence_bundle(
-        config_path,
+        None,
         event_id=event_id,
         replay_run_id=replay_run_id,
-        include_refresh_health=include_refresh_health,
+        include_refresh_health=False,
         storage_path=storage_path,
     )
 

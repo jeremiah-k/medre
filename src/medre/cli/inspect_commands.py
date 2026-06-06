@@ -24,7 +24,6 @@ from .storage_helpers import _open_readonly_storage
 
 
 async def _inspect_event(
-    config_path: str | None,
     event_id: str,
     *,
     storage_path: str | None = None,
@@ -40,7 +39,7 @@ async def _inspect_event(
     """
     # Fast path: no augmentation flags — preserve exact existing behaviour.
     if not (timeline or evidence or recovery):
-        storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+        storage = await _open_readonly_storage(None, storage_path=storage_path)
         _exit_code: int | None = None
         try:
             event = await storage.get(event_id)
@@ -59,7 +58,7 @@ async def _inspect_event(
         return
 
     # Augmented path: build a compound result.
-    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    storage = await _open_readonly_storage(None, storage_path=storage_path)
     _exit_code: int | None = None
     try:
         event = await storage.get(event_id)
@@ -82,7 +81,7 @@ async def _inspect_event(
 
             if evidence:
                 bundle = await collect_evidence_bundle(
-                    config_path,
+                    None,
                     event_id=event_id,
                     storage_path=storage_path,
                 )
@@ -103,14 +102,13 @@ async def _inspect_event(
 
 
 async def _inspect_receipts(
-    config_path: str | None,
     event_id: str | None,
     replay_run_id: str | None,
     *,
     storage_path: str | None = None,
 ) -> None:
     """List delivery receipts for an event or replay run."""
-    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    storage = await _open_readonly_storage(None, storage_path=storage_path)
     _exit_code: int | None = None
     try:
         if event_id is not None:
@@ -130,7 +128,6 @@ async def _inspect_receipts(
 
 
 async def _inspect_native_ref(
-    config_path: str | None,
     adapter: str,
     channel: str | None,
     message: str,
@@ -138,7 +135,7 @@ async def _inspect_native_ref(
     storage_path: str | None = None,
 ) -> None:
     """Resolve a native message reference to a canonical event."""
-    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    storage = await _open_readonly_storage(None, storage_path=storage_path)
     _exit_code: int | None = None
     try:
         event_id = await storage.resolve_native_ref(adapter, channel, message)
@@ -192,7 +189,6 @@ async def _inspect_native_ref(
 
 
 async def _inspect_replay(
-    config_path: str | None,
     run_id: str,
     *,
     storage_path: str | None = None,
@@ -202,7 +198,7 @@ async def _inspect_replay(
     Outputs deterministic JSON with the replay timeline, matching the
     shape produced by ``medre trace replay --json``.
     """
-    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    storage = await _open_readonly_storage(None, storage_path=storage_path)
     _exit_code: int | None = None
     try:
         result = await _timeline.assemble_replay_timeline(storage, run_id)

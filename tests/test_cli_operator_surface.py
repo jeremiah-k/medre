@@ -208,7 +208,6 @@ class TestF4SuppressionReasonInRecover:
     ) -> None:
         db_path = tmp_path / "recover_suppressed.db"
         _seed_db_with_suppressed_receipt(str(db_path))
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
@@ -216,8 +215,8 @@ class TestF4SuppressionReasonInRecover:
             main(
                 [
                     "recover",
-                    "--config",
-                    str(cfg),
+                    "--storage-path",
+                    str(db_path),
                     "--event",
                     "evt-suppressed-1",
                 ]
@@ -234,15 +233,14 @@ class TestF4SuppressionReasonInRecover:
     ) -> None:
         db_path = tmp_path / "recover_suppressed_json.db"
         _seed_db_with_suppressed_receipt(str(db_path))
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
                 [
                     "recover",
-                    "--config",
-                    str(cfg),
+                    "--storage-path",
+                    str(db_path),
                     "--event",
                     "evt-suppressed-1",
                     "--json",
@@ -311,8 +309,8 @@ class TestF5RecoverStoragePath:
         output = stdout_buf.getvalue()
         assert "Recovery runbook:" in output
 
-    def test_recover_config_and_storage_path_exclusive(self) -> None:
-        """--config and --storage-path are mutually exclusive."""
+    def test_recover_config_not_accepted(self) -> None:
+        """--config is not accepted by recover (uses --storage-path only)."""
         stderr_buf = io.StringIO()
         with redirect_stderr(stderr_buf):
             with pytest.raises(SystemExit) as exc_info:
@@ -321,8 +319,6 @@ class TestF5RecoverStoragePath:
                         "recover",
                         "--config",
                         "/dev/null",
-                        "--storage-path",
-                        "/tmp/test.db",
                         "--event",
                         "evt-1",
                     ]
@@ -347,15 +343,14 @@ class TestF6FailedTargetsDeliveryPlanId:
             str(db_path),
             delivery_plan_id="plan-op-surface-1",
         )
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
                 [
                     "recover",
-                    "--config",
-                    str(cfg),
+                    "--storage-path",
+                    str(db_path),
                     "--event",
                     "evt-recover-fail-1",
                     "--json",
@@ -641,7 +636,6 @@ class TestF8InspectNativeRefReportingShape:
     ) -> None:
         db_path = tmp_path / "nref_shape.db"
         _seed_db_with_native_ref(str(db_path))
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         output = _run_cli(
             "inspect",
@@ -652,8 +646,8 @@ class TestF8InspectNativeRefReportingShape:
             "!room:shape.test",
             "--message",
             "$msg-shape-1",
-            "--config",
-            str(cfg),
+            "--storage-path",
+            str(db_path),
         )
 
         parsed = json.loads(output)
@@ -674,7 +668,6 @@ class TestF8InspectNativeRefReportingShape:
     ) -> None:
         db_path = tmp_path / "nref_resolve.db"
         _seed_db_with_native_ref(str(db_path))
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         output = _run_cli(
             "inspect",
@@ -685,8 +678,8 @@ class TestF8InspectNativeRefReportingShape:
             "!room:shape.test",
             "--message",
             "$msg-shape-1",
-            "--config",
-            str(cfg),
+            "--storage-path",
+            str(db_path),
         )
 
         parsed = json.loads(output)
@@ -698,7 +691,6 @@ class TestF8InspectNativeRefReportingShape:
     ) -> None:
         db_path = tmp_path / "nref_det.db"
         _seed_db_with_native_ref(str(db_path))
-        cfg = _write_inspect_config(tmp_path, db_path)
 
         output = _run_cli(
             "inspect",
@@ -709,8 +701,8 @@ class TestF8InspectNativeRefReportingShape:
             "!room:shape.test",
             "--message",
             "$msg-shape-1",
-            "--config",
-            str(cfg),
+            "--storage-path",
+            str(db_path),
         )
 
         parsed = json.loads(output)

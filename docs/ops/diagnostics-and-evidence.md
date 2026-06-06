@@ -74,13 +74,10 @@ done
 
 ```bash
 # Basic bundle: config summary + route validation + diagnostics snapshot + storage
-PYTHONPATH=src medre evidence --config my-bridge.toml --json > bundle-full.json
+PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --json > bundle-full.json
 
-# Targeted: smoke a specific event through the pipeline
-PYTHONPATH=src medre evidence --config my-bridge.toml --event <event_id> --json > bundle-event.json
-
-# Include live health refresh (starts real adapters)
-PYTHONPATH=src medre evidence --config my-bridge.toml --include-refresh-health --json > bundle-with-health.json
+# Targeted: bundle for a specific event
+PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --event <event_id> --json > bundle-event.json
 ```
 
 ## Post-Run Inspection
@@ -104,33 +101,28 @@ medre inspect event <event_id> --recovery --storage-path /tmp/medre-smoke.db
 # Other inspect subcommands:
 medre inspect native-ref --adapter <name> --message <native_id> --storage-path /tmp/medre-smoke.db
 medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
-
-# Using --config (reads storage path from config):
-medre inspect event <event_id> --config my-bridge.toml
-medre inspect receipts --event <event_id> --config my-bridge.toml
 ```
 
 All `inspect` subcommands (`event`, `receipts`, `native-ref`, and `receipts --replay-run`) support `--storage-path` for direct read-only access to a SQLite database.
 
-The `replay` and `recover` commands require `--config`. Use `inspect` as your first investigation step.
+The `replay` command requires `--config`; `recover` uses `--storage-path` (read-only). Use `inspect` as your first investigation step.
 
 ## Command Reference
 
-| Command                                                                        | Storage           | Starts adapters                                     | Output                           | Exit codes                              |
-| ------------------------------------------------------------------------------ | ----------------- | --------------------------------------------------- | -------------------------------- | --------------------------------------- |
-| `medre smoke --json`                                                           | In-memory         | Fake only                                           | passed/failed JSON               | 0=passed, 1=failed                      |
-| `medre smoke --storage-path <db> --json`                                       | SQLite            | Fake only                                           | passed/failed JSON + DB          | 0=passed, 1=failed                      |
-| `medre smoke --drill <name> --json`                                            | In-memory         | Fake only                                           | Drill report JSON                | 0=passed, 1=failed                      |
-| `medre smoke --drill <name> --storage-path <db> --json`                        | SQLite            | Fake only                                           | Drill report JSON + DB           | 0=passed, 1=failed                      |
-| `medre evidence --config <path> --json`                                        | Per config        | Fake only (or real with `--include-refresh-health`) | Full bundle JSON                 | 0=passed/partial, 2=config error        |
-| `medre evidence --config <path> --event <id> --json`                           | Per config        | No                                                  | Bundle with event/receipt lookup | 0=passed/partial, 2=config error        |
-| `medre evidence --config <path> --include-refresh-health --json`               | Per config        | Yes (real or fake)                                  | Full bundle + live health JSON   | 0=passed/partial, 2=config error        |
-| `medre inspect event <id> --config <path>`                                     | Opens SQLite (RO) | No                                                  | Event JSON                       | 0=found, 2=no SQLite                    |
-| `medre inspect receipts --event <id> --config <path>`                          | Opens SQLite (RO) | No                                                  | Receipt array JSON               | 0=found, 2=no SQLite                    |
-| `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO) | No                                                  | Receipt array JSON               | 0=found, 2=no SQLite                    |
-| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No                                                  | Ref JSON                         | 0=found, 2=no SQLite                    |
-| `medre diagnostics --config <path>`                                            | None              | No                                                  | Build-time snapshot JSON         | 0=success, 2=config, 3=build            |
-| `medre diagnostics --refresh-health --config <path>`                           | None              | Yes (real or fake)                                  | Live health snapshot JSON        | 0=success, 2=config, 3=build, 4=startup |
+| Command                                                                        | Storage           | Starts adapters    | Output                           | Exit codes                              |
+| ------------------------------------------------------------------------------ | ----------------- | ------------------ | -------------------------------- | --------------------------------------- |
+| `medre smoke --json`                                                           | In-memory         | Fake only          | passed/failed JSON               | 0=passed, 1=failed                      |
+| `medre smoke --storage-path <db> --json`                                       | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --json`                                            | In-memory         | Fake only          | Drill report JSON                | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --storage-path <db> --json`                        | SQLite            | Fake only          | Drill report JSON + DB           | 0=passed, 1=failed                      |
+| `medre evidence --storage-path <db> --json`                                    | SQLite (RO)       | No                 | Full bundle JSON                 | 0=passed/partial, 2=storage error       |
+| `medre evidence --storage-path <db> --event <id> --json`                       | SQLite (RO)       | No                 | Bundle with event/receipt lookup | 0=passed/partial, 2=storage error       |
+| `medre inspect event <id> --storage-path <db>`                                 | Opens SQLite (RO) | No                 | Event JSON                       | 0=found, 2=no SQLite                    |
+| `medre inspect receipts --event <id> --storage-path <db>`                      | Opens SQLite (RO) | No                 | Receipt array JSON               | 0=found, 2=no SQLite                    |
+| `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO) | No                 | Receipt array JSON               | 0=found, 2=no SQLite                    |
+| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No                 | Ref JSON                         | 0=found, 2=no SQLite                    |
+| `medre diagnostics --config <path>`                                            | None              | No                 | Build-time snapshot JSON         | 0=success, 2=config, 3=build            |
+| `medre diagnostics --refresh-health --config <path>`                           | None              | Yes (real or fake) | Live health snapshot JSON        | 0=success, 2=config, 3=build, 4=startup |
 
 ## Report Shapes
 
@@ -475,12 +467,11 @@ Each drill **exits 0** when the expected failure is correctly observed. The dril
 
 When filing a bug against MEDRE evidence, delivery, or runtime behavior, attach:
 
-1. **`medre evidence --config <path> --json`** output.
-2. **`medre evidence --config <path> --include-refresh-health --json`** output if the issue involves adapter health or connectivity.
-3. **`medre inspect` outputs** showing the specific receipt, event, or ref in question.
-4. **Config file** with secrets redacted.
-5. **`medre version`** output.
-6. **`medre paths`** output (for path-related issues).
+1. **`medre evidence --storage-path <db> --json`** output.
+2. **`medre inspect` outputs** showing the specific receipt, event, or ref in question.
+3. **Config file** with secrets redacted.
+4. **`medre version`** output.
+5. **`medre paths`** output (for path-related issues).
 
 Name files descriptively: `bundle-<date>.json`, `bundle-health-<date>.json`, `inspect-receipts-<event_id>.json`.
 

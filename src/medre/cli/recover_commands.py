@@ -193,7 +193,6 @@ async def _build_event_recovery_runbook(
 
 
 async def _recover(
-    config_path: str | None,
     event_id: str | None,
     failed_only: bool,
     since: str | None,
@@ -203,7 +202,7 @@ async def _recover(
     storage_path: str | None = None,
 ) -> None:
     """Analyze failed deliveries and generate a recovery runbook."""
-    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    storage = await _open_readonly_storage(None, storage_path=storage_path)
     try:
         # Determine scope: single event or broad scan.
         runbook: dict[str, Any]

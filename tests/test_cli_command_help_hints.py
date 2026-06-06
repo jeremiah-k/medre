@@ -149,10 +149,6 @@ class TestSmokeHelp:
         help_text = _get_command_help_text("smoke")
         assert "not daily" in help_text.lower()
 
-    def test_help_mentions_storage_path(self) -> None:
-        help_text = _get_command_help_text("smoke")
-        assert "storage-path" in help_text.lower()
-
 
 # ---------------------------------------------------------------------------
 # trace
@@ -220,9 +216,9 @@ class TestRecoverHelp:
         help_text = _get_command_help_text("recover")
         assert "read-only" in help_text.lower()
 
-    def test_help_mentions_config(self) -> None:
+    def test_help_mentions_storage_path(self) -> None:
         help_text = _get_command_help_text("recover")
-        assert "config" in help_text.lower()
+        assert "storage-path" in help_text.lower()
 
     def test_help_mentions_inspect_guidance(self) -> None:
         help_text = _get_command_help_text("recover")

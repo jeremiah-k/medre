@@ -42,14 +42,11 @@ Source modules:
 
 ### 1.3 Evidence Bundle
 
-| Command                                                          | Source                                  | Output shape                                        |
-| ---------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------- |
-| `medre evidence --config <path> --json`                          | Config + build + storage (RO)           | Evidence bundle (see §2.1)                          |
-| `medre evidence --config <path> --event <id> --json`             | Config + storage (RO)                   | Bundle with event-scoped storage section            |
-| `medre evidence --config <path> --include-refresh-health --json` | Config + build + start + health refresh | Bundle with live_health section                     |
-| `medre evidence --storage-path <db> --json`                      | SQLite (RO) only                        | Bundle with storage-only section, others skipped    |
-| `medre evidence --storage-path <db> --event <id> --json`         | SQLite (RO)                             | Bundle with event-scoped storage + incident_summary |
-| `medre evidence --storage-path <db> --replay-run <id> --json`    | SQLite (RO)                             | Bundle with replay-run receipts                     |
+| Command                                                       | Source           | Output shape                                        |
+| ------------------------------------------------------------- | ---------------- | --------------------------------------------------- |
+| `medre evidence --storage-path <db> --json`                   | SQLite (RO) only | Evidence bundle (see §2.1)                          |
+| `medre evidence --storage-path <db> --event <id> --json`      | SQLite (RO)      | Bundle with event-scoped storage + incident_summary |
+| `medre evidence --storage-path <db> --replay-run <id> --json` | SQLite (RO)      | Bundle with replay-run receipts                     |
 
 Source modules:
 
@@ -77,11 +74,11 @@ Source modules:
 
 ### 1.5 Recovery
 
-| Command                                                | Source                               | Output shape                         |
-| ------------------------------------------------------ | ------------------------------------ | ------------------------------------ |
-| `medre recover --config <path> --event <id>`           | SQLite (RO) + failure classification | Recovery runbook (see §2.4)          |
-| `medre recover --config <path> --event <id> --dry-run` | SQLite (RO)                          | Runbook with dry_run preview section |
-| `medre recover --config <path> --failed-only`          | SQLite (RO)                          | Broad scan runbook                   |
+| Command                                                    | Source                               | Output shape                         |
+| ---------------------------------------------------------- | ------------------------------------ | ------------------------------------ |
+| `medre recover --storage-path <db> --event <id>`           | SQLite (RO) + failure classification | Recovery runbook (see §2.4)          |
+| `medre recover --storage-path <db> --event <id> --dry-run` | SQLite (RO)                          | Runbook with dry_run preview section |
+| `medre recover --storage-path <db> --failed-only`          | SQLite (RO)                          | Broad scan runbook                   |
 
 Source modules:
 

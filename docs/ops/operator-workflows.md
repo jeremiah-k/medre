@@ -228,14 +228,11 @@ medre evidence --storage-path /path/to/medre.db --json
 
 Opens the database in read-only mode, collects config, diagnostics, route information, and event data.
 
-### Live Mode (From Config)
+### Direct Mode (From Storage)
 
 ```bash
-medre evidence --config /path/to/config.toml --json
-medre evidence --config /path/to/config.toml --include-refresh-health --json
+medre evidence --storage-path /path/to/medre.db --json
 ```
-
-With `--include-refresh-health`, starts all enabled adapters, polls health once, captures the live snapshot, and stops.
 
 ### Scope to a Specific Event
 
@@ -396,7 +393,7 @@ Look for `status: "dead_lettered"`. Trace `parent_receipt_id` back to the origin
 Meshtastic `sent` means local node sent the packet to the radio — not that any remote node received it. No transport-level confirmation is available. Check queue diagnostics:
 
 ```bash
-medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_snapshot'
+medre evidence --storage-path /path/to/medre.db --json | jq '.sections.diagnostics_snapshot'
 ```
 
 Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`.
@@ -564,10 +561,10 @@ export MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=serial
 export MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyUSB0
 ```
 
-2. Start the runner or run a health check:
+2. Check diagnostics from storage:
 
 ```bash
-medre evidence --config /path/to/meshtastic-bridge.toml --include-refresh-health --json
+medre evidence --storage-path /path/to/medre.db --json
 ```
 
 3. Check diagnostics output:
@@ -687,7 +684,7 @@ Check the delivery receipt's metadata:
 The Meshtastic packet classifier examines every inbound packet and decides: `relay`, `ignore`, `drop`, or `deferred`. Check the aggregate counters:
 
 ```bash
-medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_snapshot'
+medre evidence --storage-path /path/to/medre.db --json | jq '.sections.diagnostics_snapshot'
 ```
 
 Primary counters:
@@ -750,7 +747,7 @@ medre inspect event <event_id> --evidence --storage-path /tmp/medre.db
 medre inspect event <event_id> --recovery --storage-path /tmp/medre.db
 
 # Evidence bundle
-medre evidence --config config.toml --json
+medre evidence --storage-path /tmp/medre.db --json
 
 # Trace (specialized)
 medre trace event <event_id> --storage-path /tmp/medre.db --json
