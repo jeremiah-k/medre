@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as _json
 import sys
+import tempfile
 
 
 def _transport_for_adapter(adapter_id: str, config: object) -> str:
@@ -43,6 +44,8 @@ async def _smoke(
     message_text: str,
     json_output: bool,
     drill_name: str | None = None,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Run fake bridge smoke test and print a compact evidence report.
 
@@ -51,7 +54,8 @@ async def _smoke(
     evidence, and prints a PASS/FAIL report.  Docker-free, network-free.
 
     Storage backend is determined by the config file.  For persistent
-    evidence, use a config with ``storage.backend = "sqlite"``.
+    evidence, use a config with ``storage.backend = "sqlite"`` or pass
+    ``--storage-path`` to override storage to SQLite at that path.
 
     Exit codes: 0 on PASS, 1 on FAIL.
     """
@@ -61,6 +65,7 @@ async def _smoke(
         report = await run_drill(
             drill_name,
             config_path=config_path,
+            storage_path=storage_path,
         )
     else:
         from medre.runtime.smoke import run_fake_bridge_smoke
@@ -68,6 +73,7 @@ async def _smoke(
         report = await run_fake_bridge_smoke(
             config_path,
             message_text=message_text,
+            storage_path=storage_path,
         )
 
     if json_output:
@@ -122,6 +128,8 @@ async def _run_session(
     snapshot_dir: str | None,
     json_output: bool,
     scenario: str = "happy_path",
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Run a complete bridge session and print a cross-linked evidence report.
 
@@ -137,10 +145,18 @@ async def _run_session(
     """
     from medre.runtime.run_session.orchestration import run_bridge_session
 
+    if storage_path is None:
+        tmp = tempfile.NamedTemporaryFile(
+            prefix="medre-session-", suffix=".db", delete=False
+        )
+        tmp.close()
+        storage_path = tmp.name
+
     report = await run_bridge_session(
         config_path,
         snapshot_dir=snapshot_dir,
         scenario=scenario,
+        storage_path=storage_path,
     )
 
     if json_output:

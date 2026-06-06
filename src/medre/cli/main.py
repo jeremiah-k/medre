@@ -139,6 +139,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Failure scenario for run-session (default: happy_path)",
     )
     smoke_p.add_argument(
+        "--storage-path",
+        default=None,
+        metavar="PATH",
+        help="Override storage to SQLite at PATH for persisting smoke evidence",
+    )
+    smoke_p.add_argument(
         "--json", action="store_true", default=False, help="Output JSON report"
     )
 
@@ -439,6 +445,7 @@ def main(argv: list[str] | None = None) -> None:
                     snapshot_dir=getattr(args, "snapshot_dir", None),
                     json_output=args.json,
                     scenario=getattr(args, "scenario", "happy_path"),
+                    storage_path=getattr(args, "storage_path", None),
                 )
             )
         else:
@@ -448,6 +455,7 @@ def main(argv: list[str] | None = None) -> None:
                     args.message,
                     args.json,
                     drill_name=args.drill,
+                    storage_path=getattr(args, "storage_path", None),
                 )
             )
     elif args.command == "inspect":

@@ -146,6 +146,7 @@ def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
     derived = src.replace('backend = "memory"', sqlite_block)
     cfg = tmp_path / "smoke_sqlite.toml"
     cfg.write_text(derived)
+    assert 'backend = "sqlite"' in derived
     return str(cfg)
 
 
@@ -268,7 +269,7 @@ class TestInspectEventStoragePath:
         assert "storage error" in stderr.lower()
         assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
-    def test_inspect_event_config_not_accepted(self, seeded_db: Path) -> None:
+    def test_inspect_event_config_not_accepted(self, tmp_path: Path) -> None:
         """--config is not accepted by inspect (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",
@@ -278,7 +279,9 @@ class TestInspectEventStoragePath:
             "evt-1",
         )
         assert code != 0
-        assert "unrecognized" in stderr.lower() or "--config" not in stderr.lower()
+        err = stderr.lower()
+        assert "error" in err
+        assert "--storage-path" in err
 
     def test_inspect_event_from_smoke_db(self, tmp_path: Path) -> None:
         """inspect event works against a DB created by smoke."""
@@ -834,7 +837,7 @@ class TestEvidenceStoragePath:
 
     def test_evidence_rejects_refresh_health(self, seeded_db: Path) -> None:
         """--include-refresh-health is no longer accepted by evidence."""
-        code, stdout, stderr = _run_cli_exit(
+        code, _, stderr = _run_cli_exit(
             "evidence",
             "--storage-path",
             str(seeded_db),

@@ -198,7 +198,7 @@ class TestRecoverParser:
                 "2026-01-01",
                 "--dry-run",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)

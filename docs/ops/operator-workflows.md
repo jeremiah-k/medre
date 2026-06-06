@@ -230,12 +230,6 @@ medre evidence --storage-path /path/to/medre.db --json
 
 Opens the database in read-only mode, collects config, diagnostics, route information, and event data.
 
-### Direct Mode (From Storage)
-
-```bash
-medre evidence --storage-path /path/to/medre.db --json
-```
-
 ### Scope to a Specific Event
 
 ```bash
@@ -563,7 +557,7 @@ export MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=serial
 export MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyUSB0
 ```
 
-2. Check diagnostics from storage:
+1. Check diagnostics from storage:
 
 ```bash
 medre evidence --storage-path /path/to/medre.db --json

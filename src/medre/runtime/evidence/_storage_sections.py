@@ -401,10 +401,11 @@ async def _collect_storage_data_from_backend(
                 from medre.core.recovery.builder import (
                     build_startup_recovery_ledger as _build_recovery_ledger,
                 )
+                from medre.core.recovery.recovery_source import RecoverySource
 
                 _recovery_ledger = _build_recovery_ledger(
                     outbox_items=outbox_items,
-                    recovery_source="snapshot_diagnostics",
+                    recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
                 )
                 _recovery_findings = _build_recovery_findings(
                     outbox_items=outbox_items,
@@ -496,10 +497,11 @@ async def _collect_storage_data_from_backend(
                 from medre.core.recovery.builder import (
                     build_startup_recovery_ledger as _build_recovery_ledger_global,
                 )
+                from medre.core.recovery.recovery_source import RecoverySource
 
                 _recovery_ledger_global = _build_recovery_ledger_global(
                     outbox_items=all_outbox,
-                    recovery_source="snapshot_diagnostics",
+                    recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
                 )
                 _recovery_findings_global = _build_recovery_findings_global(
                     outbox_items=all_outbox,

@@ -64,17 +64,12 @@ def _build_cross_linked_commands(
     needs routes and adapter configuration to execute.
     """
     # --- Storage flags (for read-only commands when storage_path is known) ---
-    # All read-only commands use --storage-path.
+    # All read-only commands use --storage-path; config_path is a TOML file,
+    # never a valid storage-path fallback.
     if storage_path:
         ro_flag_argv: list[str] = ["--storage-path", storage_path]
-    elif config_path:
-        ro_flag_argv = ["--storage-path", config_path]  # fallback
     else:
         ro_flag_argv = []
-
-    # --- Config flags (for config-required commands like replay) ---
-    if config_path:
-        pass
 
     # Helper: build both argv list and shell-safe text from an argv list.
     def _cmd(argv: list[str]) -> tuple[list[str], str]:
@@ -121,7 +116,7 @@ def _build_cross_linked_commands(
 
     # recover_event is read-only → storage-path
     for key, argv in [
-        ("recover_event", ["medre", "recover", "--event", event_id] + ro_flag_argv),
+        ("recover_event", ["medre", "recover", "--event", event_id, *ro_flag_argv]),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 

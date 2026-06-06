@@ -622,39 +622,40 @@ class TestEvidenceCli:
 
     def test_evidence_cli_json(self, config_fake: Path) -> None:
         """CLI evidence --json produces valid JSON output."""
-        result = _run_cli_json("evidence", "--config", str(config_fake), "--json")
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        result = _run_cli_json("evidence", "--storage-path", db_path, "--json")
         assert result["schema_version"] == 1
         assert "sections" in result
 
     def test_evidence_cli_human_readable(self, config_fake: Path) -> None:
         """CLI evidence without --json produces human-readable output."""
-        output = _run_cli("evidence", "--config", str(config_fake))
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        output = _run_cli("evidence", "--storage-path", db_path)
         assert "Evidence:" in output
 
     def test_evidence_cli_config_error(self) -> None:
-        """CLI evidence with bad config path exits with error and clear message."""
+        """CLI evidence with nonexistent storage path reports partial with clear message."""
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-            with pytest.raises(SystemExit) as exc_info:
-                main(["evidence", "--config", "/nonexistent.toml", "--json"])
-        assert exc_info.value.code == 2  # EXIT_CONFIG
-        # Error is reported in the JSON bundle, not as a traceback on stderr.
+            main(["evidence", "--storage-path", "/nonexistent/path.db", "--json"])
+        # No SystemExit — nonexistent DB produces partial, not error.
         assert (
             "Traceback" not in stderr_buf.getvalue()
-        ), f"Expected no traceback for bad config, got:\n{stderr_buf.getvalue()}"
+        ), f"Expected no traceback for missing DB, got:\n{stderr_buf.getvalue()}"
         bundle = json.loads(stdout_buf.getvalue())
-        assert bundle["status"] == "error"
+        assert bundle["status"] == "partial"
         assert any(
-            "config" in e.lower() for e in bundle["errors"]
-        ), f"Expected config-related error message, got: {bundle['errors']}"
+            "does not exist" in e.lower() for e in bundle["errors"]
+        ), f"Expected missing DB error message, got: {bundle['errors']}"
 
     def test_evidence_cli_event_arg(self, config_fake: Path) -> None:
         """CLI evidence --event passes event_id to bundle."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
         result = _run_cli_json(
             "evidence",
-            "--config",
-            str(config_fake),
+            "--storage-path",
+            db_path,
             "--json",
             "--event",
             "ev-123",
@@ -665,10 +666,11 @@ class TestEvidenceCli:
 
     def test_evidence_cli_replay_run_arg(self, config_fake: Path) -> None:
         """CLI evidence --replay-run passes replay_run_id to bundle."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
         result = _run_cli_json(
             "evidence",
-            "--config",
-            str(config_fake),
+            "--storage-path",
+            db_path,
             "--json",
             "--replay-run",
             "run-456",

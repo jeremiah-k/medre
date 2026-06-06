@@ -734,7 +734,7 @@ class TestInspectReplay:
         db_inspect_sqlite: str,
     ) -> None:
         """Error message mentions the missing run."""
-        stdout, stderr = _run_cli_both(
+        _stdout, stderr = _run_cli_both(
             "inspect",
             "replay",
             "nonexistent-run",

@@ -1162,13 +1162,12 @@ class TestDrillStorageCrossCheck:
         assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
-        config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
             "trace",
             "event",
             event_id,
-            "--config",
-            config_path,
+            "--storage-path",
+            db_path,
             "--json",
         )
         timeline = json.loads(output)
@@ -1193,14 +1192,13 @@ class TestDrillStorageCrossCheck:
         assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
-        config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
             "inspect",
             "receipts",
             "--event",
             event_id,
-            "--config",
-            config_path,
+            "--storage-path",
+            db_path,
         )
         receipts = json.loads(output)
         assert isinstance(receipts, list)
@@ -1222,15 +1220,13 @@ class TestDrillStorageCrossCheck:
         assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
-        config_path = _write_crosscheck_config(tmp_path, db_path)
-
         # Event is still traceable.
         trace_output = _capture_cli(
             "trace",
             "event",
             event_id,
-            "--config",
-            config_path,
+            "--storage-path",
+            db_path,
             "--json",
         )
         timeline = json.loads(trace_output)
@@ -1243,8 +1239,8 @@ class TestDrillStorageCrossCheck:
             "receipts",
             "--event",
             event_id,
-            "--config",
-            config_path,
+            "--storage-path",
+            db_path,
         )
         receipts = json.loads(rcpt_output)
         assert isinstance(receipts, list)
@@ -1276,11 +1272,10 @@ class TestDrillStorageCrossCheck:
         assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
-        config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
             "evidence",
-            "--config",
-            config_path,
+            "--storage-path",
+            db_path,
             "--json",
             "--event",
             event_id,
@@ -1306,17 +1301,13 @@ class TestDrillStorageCrossCheck:
             event_id = report["event_id"]
             assert event_id is not None
 
-            sub = tmp_path / drill_name
-            sub.mkdir(exist_ok=True)
-            config_path = _write_crosscheck_config(sub, db_path)
-
             # 1. trace event — event must be found.
             trace_output = _capture_cli(
                 "trace",
                 "event",
                 event_id,
-                "--config",
-                config_path,
+                "--storage-path",
+                db_path,
                 "--json",
             )
             timeline = json.loads(trace_output)
@@ -1329,8 +1320,8 @@ class TestDrillStorageCrossCheck:
                 "receipts",
                 "--event",
                 event_id,
-                "--config",
-                config_path,
+                "--storage-path",
+                db_path,
             )
             receipts = json.loads(rcpt_output)
             assert isinstance(receipts, list), f"Receipts not a list for {drill_name}"
@@ -1351,8 +1342,8 @@ class TestDrillStorageCrossCheck:
             # 3. evidence — must find the event.
             ev_output = _capture_cli(
                 "evidence",
-                "--config",
-                config_path,
+                "--storage-path",
+                db_path,
                 "--json",
                 "--event",
                 event_id,

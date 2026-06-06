@@ -347,7 +347,7 @@ class TestInspectEvent:
         self,
         db_inspect_sqlite: str,
     ) -> None:
-        stdout, stderr = _run_cli_both(
+        _stdout, stderr = _run_cli_both(
             "inspect",
             "event",
             "nonexistent-event",
@@ -646,7 +646,7 @@ class TestInspectReadOnly:
         """Missing DB error message mentions storage or does not exist."""
         db_path = str(tmp_path / "missing.db")
 
-        stdout, stderr = _run_cli_both(
+        _stdout, stderr = _run_cli_both(
             "inspect",
             "event",
             "evt-1",
