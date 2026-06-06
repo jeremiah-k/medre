@@ -467,7 +467,11 @@ class TestLxmfSessionDiagnostics:
 
 
 class TestExtractMessageHash:
-    """_extract_message_hash handles various input shapes."""
+    """_extract_message_hash handles various input shapes.
+
+    Per W1 audit: LXMF native hash/message_id is deterministic, persistent,
+    and correctly extracted.
+    """
 
     def test_bytes_hash(self) -> None:
         class Msg:
@@ -1155,46 +1159,6 @@ class TestTranche5BoundedOutboundCleanup:
         assert counts.get("outbound", 0) == 2
         assert counts.get("delivered", 0) == 0  # delivered entries were untracked
         await session.stop()
-
-
-# ===================================================================
-# Native hash persistence (W1 audit closure)
-# ===================================================================
-
-
-class TestLxmfNativeHashPersistence:
-    """LXMF native hash/message_id is deterministic, persistent, and
-    correctly extracted. Per W1 audit: 32-byte SHA-256 of
-    (destination_hash || source_hash || msgpack(payload)), always
-    computable from message content."""
-
-    async def test_extract_message_hash_bytes_to_hex(self) -> None:
-        """Hash bytes are extracted as lowercase hex string."""
-
-        class Msg:
-            hash = b"\xab\xcd\xef" * 10
-            message_id = None
-
-        result = LxmfSession._extract_message_hash(Msg())
-        assert result == "abcdef" * 10
-        assert len(result) == 60  # 30 bytes → 60 hex chars
-
-    async def test_extract_message_hash_str_passthrough(self) -> None:
-        """String hash is passed through unchanged."""
-
-        class Msg:
-            hash = "abcdef1234567890"
-
-        assert LxmfSession._extract_message_hash(Msg()) == "abcdef1234567890"
-
-    async def test_extract_message_hash_fallback_to_message_id(self) -> None:
-        """When hash is None, message_id bytes are used."""
-
-        class Msg:
-            hash = None
-            message_id = b"\x01\x02\x03"
-
-        assert LxmfSession._extract_message_hash(Msg()) == "010203"
 
 
 # ===================================================================

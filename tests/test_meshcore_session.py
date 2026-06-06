@@ -391,6 +391,7 @@ class TestNativeIdExtraction:
         mock_meshcore = AsyncMock()
         mock_meshcore.commands = AsyncMock()
         mock_meshcore.commands.send_msg = AsyncMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
         session._meshcore = mock_meshcore
 
         return session, mock_meshcore
@@ -486,6 +487,7 @@ class TestExpectedAckPersistence:
         mock_meshcore = AsyncMock()
         mock_meshcore.commands = AsyncMock()
         mock_meshcore.commands.send_msg = AsyncMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
         session._meshcore = mock_meshcore
 
         return session, mock_meshcore
