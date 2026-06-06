@@ -809,3 +809,90 @@ class TestRelationResolverWithStorage:
 
         assert result.target_event_id is None
         assert result is unresolved
+
+
+# ===================================================================
+# NULL channel native ref: cross-adapter independence
+# ===================================================================
+
+
+class TestNullChannelCrossAdapter:
+    """Same native_message_id with NULL channel on different adapters resolves
+    independently — the adapter name is part of the uniqueness key even
+    when native_channel_id is NULL."""
+
+    async def test_null_channel_different_adapters_independent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """LXMF-style NULL-channel refs for different adapters resolve to
+        different events even with identical native_message_ids."""
+        event_a = make_storage_event(event_id="evt-lxmf-a")
+        event_b = make_storage_event(event_id="evt-lxmf-b")
+        await temp_storage.append(event_a)
+        await temp_storage.append(event_b)
+
+        ref_a = NativeMessageRef(
+            id="nref-lxmf-a",
+            event_id="evt-lxmf-a",
+            adapter="lxmf_alpha",
+            native_channel_id=None,
+            native_message_id="hash-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+        ref_b = NativeMessageRef(
+            id="nref-lxmf-b",
+            event_id="evt-lxmf-b",
+            adapter="lxmf_bravo",
+            native_channel_id=None,
+            native_message_id="hash-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+        await temp_storage.store_native_ref(ref_a)
+        await temp_storage.store_native_ref(ref_b)
+
+        assert (
+            await temp_storage.resolve_native_ref("lxmf_alpha", None, "hash-42")
+            == "evt-lxmf-a"
+        )
+        assert (
+            await temp_storage.resolve_native_ref("lxmf_bravo", None, "hash-42")
+            == "evt-lxmf-b"
+        )
+
+    async def test_null_channel_idempotent_same_adapter(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Repeated store of the same NULL-channel ref for the same adapter
+        is idempotent — only one row exists after two inserts."""
+        event = make_storage_event(event_id="evt-null-idem-2")
+        await temp_storage.append(event)
+
+        for i in range(3):
+            ref = NativeMessageRef(
+                id=f"nref-null-attempt-{i}",
+                event_id="evt-null-idem-2",
+                adapter="lxmf_idem",
+                native_channel_id=None,
+                native_message_id="hash-repeat",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+            )
+            await temp_storage.store_native_ref(ref)
+
+        rows = await temp_storage._read_all(
+            "SELECT * FROM native_message_refs "
+            "WHERE adapter = ? AND native_channel_id IS NULL "
+            "AND native_message_id = ?",
+            ("lxmf_idem", "hash-repeat"),
+        )
+        assert len(rows) == 1
+        assert rows[0]["id"] == "nref-null-attempt-0"
+        assert (
+            await temp_storage.resolve_native_ref("lxmf_idem", None, "hash-repeat")
+            == "evt-null-idem-2"
+        )

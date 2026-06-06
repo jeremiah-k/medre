@@ -967,3 +967,132 @@ class TestAdapterErrorMapping:
         assert "DM sent" in delivery.delivery_note
 
         await session.stop()
+
+
+# ===================================================================
+# Native-ref relation fallback (W1 audit closure)
+# ===================================================================
+
+
+class TestMeshCoreRelationCapabilitiesExplicit:
+    """MeshCore explicitly marks all relation capabilities as unsupported.
+    Per W1 audit: MeshCore has no native threading, no native relation
+    fields, no message dedup, no reply/reaction support."""
+
+    def test_real_adapter_replies_unsupported(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.replies == "unsupported"
+
+    def test_real_adapter_reactions_unsupported(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.reactions == "unsupported"
+
+    def test_real_adapter_edits_unsupported(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.edits == "unsupported"
+
+    def test_real_adapter_deletes_unsupported(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.deletes == "unsupported"
+
+
+class TestMeshCoreCodecNoRelations:
+    """MeshCore codec produces empty relations — no reply/reaction support."""
+
+    def test_codec_decode_produces_empty_relations(self) -> None:
+        """Decoded events have no relations regardless of packet content."""
+        from medre.adapters.meshcore.codec import MeshCoreCodec
+
+        config = _make_config()
+        codec = MeshCoreCodec(config.adapter_id, config)
+        packet = _make_contact_packet(text="hello")
+        event = codec.decode(packet)
+        assert event.relations == ()
+
+    def test_codec_decode_channel_packet_empty_relations(self) -> None:
+        """Channel messages also produce empty relations."""
+        from medre.adapters.meshcore.codec import MeshCoreCodec
+
+        config = _make_config()
+        codec = MeshCoreCodec(config.adapter_id, config)
+        packet = {
+            "text": "channel msg",
+            "channel_idx": 0,
+            "sender_timestamp": 42,
+            "type": "CHAN",
+            "txt_type": 0,
+            "pubkey_prefix": "sender1",
+        }
+        event = codec.decode(packet)
+        assert event.relations == ()
+
+
+class TestMeshCoreDeliveryMetadataJSONSafe:
+    """MeshCore delivery metadata is frozen and JSON-serializable."""
+
+    async def test_metadata_json_serializable(self) -> None:
+        """Delivery metadata values are JSON-safe primitives."""
+        import json
+
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        # MappingProxyType is not directly JSON-serializable, but the
+        # nested values must all be JSON-safe primitives when unwrapped.
+        meta_dict = dict(delivery.metadata)
+        meshcore_dict = dict(meta_dict["meshcore"])
+        json_bytes = json.dumps(meshcore_dict)
+        parsed = json.loads(json_bytes)
+        assert parsed["local_acceptance"] is True
+
+    async def test_metadata_meshcore_namespace_is_frozen(self) -> None:
+        """Inner meshcore metadata is a frozen MappingProxyType."""
+        from types import MappingProxyType
+
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        inner = delivery.metadata["meshcore"]
+        assert isinstance(inner, MappingProxyType)
+        with pytest.raises(TypeError):
+            inner["extra"] = "bad"  # type: ignore[misc]
+
+    async def test_expected_ack_persisted_as_native_message_id(
+        self, make_adapter_context
+    ) -> None:
+        """When session returns an expected_ack hex, it is the native_message_id
+        on the delivery result. Per audit: expected_ack is ephemeral 4-byte
+        ACK correlation — NOT a durable protocol-level message ID."""
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        fake_session = MeshCoreSession(
+            config=_make_config(connection_type="fake"),
+            adapter_id="meshcore-1",
+        )
+        await fake_session.start(message_callback=lambda _pkt: None)
+        fake_session.send_text = AsyncMock(return_value="aabbccdd")  # type: ignore[attr-defined]
+        adapter._session = fake_session
+        adapter._started = True
+        adapter.ctx = ctx
+
+        result = _make_rendering_result(
+            payload={"text": "test", "contact_id": "abc", "channel_index": None}
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        # The native_message_id IS the expected_ack hex — persisted for
+        # local outbound evidence/correlation, but NOT a durable MeshCore ID.
+        assert delivery.native_message_id == "aabbccdd"
+        assert delivery.metadata["meshcore"]["local_acceptance"] is True
+
+        await fake_session.stop()

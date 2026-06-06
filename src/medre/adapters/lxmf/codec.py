@@ -115,7 +115,11 @@ class LxmfCodec(AdapterCodec):
                 native_message_id=str(pkt_id),
             )
 
-        # No native reply relation in LXMF
+        # No native reply/reaction relation decoding in LXMF.
+        # MEDRE is envelope-only for LXMF relations — it does not read or
+        # write LXMF FIELD_THREAD (0x08).  Relation data is carried in the
+        # MEDRE fields envelope (0xFD) for cross-transport round-trip only.
+        # Inbound relation reconstruction from the envelope is deferred.
         relations: list[Any] = []
 
         # Build native metadata
@@ -147,6 +151,9 @@ class LxmfCodec(AdapterCodec):
         # future tranche.  The raw envelope dict is stored under
         # metadata.custom["medre_envelope"] but EventRelation objects
         # are NOT created from envelope relations during decode.
+        # TODO(tranche-2): Reconstruct EventRelation from 0xFD envelope
+        # relations list so that inbound LXMF round-trips preserve
+        # cross-transport reply/reaction metadata.
 
         metadata = EventMetadata(
             native=NativeMetadata(data=native_meta_data),

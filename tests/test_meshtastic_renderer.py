@@ -1434,3 +1434,60 @@ class TestFallbackTextOtherRelationTypes:
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert result.fallback_applied == "strategy_fallback_text"
+
+
+class TestRelationDegradationAndTruncationEvidence:
+    """Native reaction fallback degradation and truncation evidence."""
+
+    async def test_native_reaction_fallback_degrades(self) -> None:
+        """Same-adapter reaction in fallback_text: [reacted: X], no emoji."""
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(relation_type="reaction", native_message_id="55", key="👍")
+        event = _make_event(payload={"body": "👍"}, relations=(rel,))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert "[reacted: 👍]" in result.payload["text"]
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert "descriptive_reaction" not in result.metadata
+
+    async def test_fallback_reply_truncation_preserves_context(self) -> None:
+        """Truncated fallback reply still shows [replying to: X] marker."""
+        renderer = _make_renderer("mesh-1", max_text_bytes=30)
+        native_ref = NativeRef(
+            adapter="mesh-1", native_channel_id="0", native_message_id="42"
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(payload={"body": "X" * 200}, relations=(rel,))
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert "[replying to: 42]" in result.payload["text"]
+        assert result.truncated is True
+        assert result.metadata["original_text_bytes"] > 30
+        assert result.metadata["rendered_text_bytes"] <= 30
+
+    async def test_cross_reaction_truncation_preserves_emoji(self) -> None:
+        """Truncated cross-platform reaction preserves 'reacted X' evidence."""
+        renderer = _make_renderer("mesh-1", max_text_bytes=25)
+        rel = _make_cross_platform_relation(key="❤️", fallback_text="A" * 80)
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert "reacted ❤️" in result.payload["text"]
+        assert result.truncated is True

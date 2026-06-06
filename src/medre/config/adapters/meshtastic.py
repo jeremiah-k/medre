@@ -85,8 +85,20 @@ class MeshtasticConfig:
         Maximum UTF-8 byte budget for the final radio text after
         rendering.  Applied after all prefix, reply, and reaction
         formatting is complete.  Default: ``227``, informed by the
-        MMRelay ``DEFAULT_MESSAGE_TRUNCATE_BYTES`` constant.  ``0``
-        means the final text renders as an empty string.  Env override:
+        MMRelay ``DEFAULT_MESSAGE_TRUNCATE_BYTES`` constant.
+
+        **Relation overhead tradeoff.** The Meshtastic-Android
+        ``DATA_PAYLOAD_LEN = 233`` applies to the *entire encoded*
+        ``Data`` protobuf — not just the text payload.  When
+        ``reply_id`` (field 7, up to 6 encoded bytes) and ``emoji``
+        (field 8, up to 2 encoded bytes) are present, the combined
+        overhead is up to ~8 bytes.  At the default 227-byte text
+        budget this leaves marginal headroom for the worst-case
+        relation-structured send.  Operators tuning for
+        relation-heavy workloads should consider lowering this to
+        ~219-225.  The field is per-adapter so different radios can
+        use different budgets.  ``0`` means the final text renders
+        as an empty string.  Env override:
         ``MEDRE_ADAPTER__<TOKEN>__MAX_TEXT_BYTES``.
     queue_send_max_attempts:
         Maximum number of send attempts per queued item (first attempt

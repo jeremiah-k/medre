@@ -1010,7 +1010,8 @@ class TestMetadataKeySplitting:
 
     - key == "meshtastic" + isinstance(v, dict) → merge into meshtastic namespace
     - key in transport_keys → put into meshtastic namespace
-    - everything else → keep in send_meta top-level
+    - everything else → defensively normalized into meshtastic namespace
+      (non-namespaced delivery keys should not leak to top level)
     """
 
     async def test_nested_meshtastic_dict_merged(self) -> None:
@@ -1067,8 +1068,11 @@ class TestMetadataKeySplitting:
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            # Nested dict merged under "meshtastic" key
-            assert ref.metadata["meshtastic"] == {"hop_limit": 3, "priority": "high"}
+            # Nested dict merged under "meshtastic" key; payload text also
+            # lands in the meshtastic namespace per the namespace contract.
+            assert ref.metadata["meshtastic"]["hop_limit"] == 3
+            assert ref.metadata["meshtastic"]["priority"] == "high"
+            assert ref.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -1130,8 +1134,10 @@ class TestMetadataKeySplitting:
         finally:
             await adapter.stop()
 
-    async def test_other_key_stays_in_send_meta(self) -> None:
-        """Non-transport, non-meshtastic keys stay at top level of send_meta."""
+    async def test_other_key_normalised_into_meshtastic_namespace(self) -> None:
+        """Non-transport, non-meshtastic keys are defensively normalised into
+        the meshtastic namespace rather than leaking to the top level.
+        Payload text is transport context and also lands in the meshtastic namespace."""
         import asyncio
         import logging
         from datetime import datetime, timezone
@@ -1182,11 +1188,13 @@ class TestMetadataKeySplitting:
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            # Non-transport keys stay at top level
-            assert ref.metadata["source_bridge"] == "matrix"
-            assert ref.metadata["seq"] == 7
-            # No meshtastic namespace created since no meshtastic/transport keys
-            assert "meshtastic" not in ref.metadata
+            # Legacy/non-namespaced keys defensively normalised into meshtastic namespace
+            assert "source_bridge" not in ref.metadata
+            assert "seq" not in ref.metadata
+            assert ref.metadata["meshtastic"]["source_bridge"] == "matrix"
+            assert ref.metadata["meshtastic"]["seq"] == 7
+            # Payload text also in meshtastic namespace (transport context).
+            assert ref.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -1252,7 +1260,184 @@ class TestMetadataKeySplitting:
             mesh_ns = ref.metadata["meshtastic"]
             assert mesh_ns["hop_limit"] == 3
             assert mesh_ns["channel"] == 2
-            # Other key at top level
-            assert ref.metadata["custom"] == "value"
+            # Other key defensively normalised into meshtastic namespace
+            assert "custom" not in ref.metadata
+            assert mesh_ns["custom"] == "value"
+        finally:
+            await adapter.stop()
+
+
+class TestDelayedOutboundRefMeshtasticNamespaceFacts:
+    """Verify that _record_delayed_outbound_ref stores all transport-specific
+    data under the meshtastic namespace in OutboundNativeRefRecord.metadata.
+    No transport keys (reply_id, emoji, channel, packet_id, meshnet_name,
+    channel_name, text) should appear at the top level of metadata."""
+
+    async def test_reply_id_and_emoji_in_meshtastic_namespace(self) -> None:
+        """When the delivery metadata has meshtastic.reply_id and
+        meshtastic.emoji from a structured send, these are preserved in
+        the OutboundNativeRefRecord.metadata meshtastic namespace."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+            OutboundNativeRefRecord,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-ns-facts", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-ns-facts",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=on_ref,
+        )
+        await adapter.start(ctx)
+        try:
+            # Simulate delivery result from a structured send (reply + emoji).
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {
+                        "text": "👍",
+                        "channel_index": 0,
+                        "reply_id": 42,
+                        "emoji": 1,
+                    },
+                    "channel_index": 0,
+                    "event_id": "evt-reaction-ns",
+                    "delivery_plan_id": "plan-ns",
+                },
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="789",
+                    native_channel_id="0",
+                    delivery_status="sent",
+                    metadata=MappingProxyType(
+                        {
+                            "meshtastic": {
+                                "packet_id": 789,
+                                "channel": 0,
+                                "reply_id": 42,
+                                "emoji": 1,
+                            },
+                        }
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-reaction-ns",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded) == 1
+            ref = recorded[0]
+            mesh_ns = ref.metadata["meshtastic"]
+
+            # All transport facts from the delivery snapshot are present.
+            assert mesh_ns["packet_id"] == 789
+            assert mesh_ns["channel"] == 0
+            assert mesh_ns["reply_id"] == 42
+            assert mesh_ns["emoji"] == 1
+
+            # Payload-level facts also present in meshtastic namespace.
+            assert mesh_ns["text"] == "👍"
+
+            # No transport keys leak to top-level metadata.
+            assert "reply_id" not in ref.metadata
+            assert "emoji" not in ref.metadata
+            assert "channel" not in ref.metadata
+            assert "packet_id" not in ref.metadata
+            assert "meshnet_name" not in ref.metadata
+            assert "channel_name" not in ref.metadata
+            assert "text" not in ref.metadata
+        finally:
+            await adapter.stop()
+
+    async def test_send_without_relation_fields_no_reply_emoji_in_namespace(
+        self,
+    ) -> None:
+        """When the delivery snapshot has no reply_id/emoji, the meshtastic
+        namespace should not contain them."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterDeliveryResult,
+            OutboundNativeRefRecord,
+        )
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="test-ns-plain", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        ctx = AdapterContext(
+            adapter_id="test-ns-plain",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=on_ref,
+        )
+        await adapter.start(ctx)
+        try:
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {"text": "plain msg", "channel_index": 0},
+                    "channel_index": 0,
+                    "event_id": "evt-plain-ns",
+                },
+                delivery_result=AdapterDeliveryResult(
+                    native_message_id="321",
+                    native_channel_id="0",
+                    delivery_status="sent",
+                    metadata=MappingProxyType(
+                        {"meshtastic": {"packet_id": 321, "channel": 0}}
+                    ),
+                ),
+            )
+            await adapter._record_delayed_outbound_ref(
+                queue_result,
+                event_id="evt-plain-ns",
+                delivery=queue_result.delivery_result,
+            )
+
+            assert len(recorded) == 1
+            ref = recorded[0]
+            mesh_ns = ref.metadata["meshtastic"]
+            assert mesh_ns["packet_id"] == 321
+            assert mesh_ns["channel"] == 0
+            assert "reply_id" not in mesh_ns
+            assert "emoji" not in mesh_ns
         finally:
             await adapter.stop()

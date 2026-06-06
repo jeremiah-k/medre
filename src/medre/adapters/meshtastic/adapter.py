@@ -981,27 +981,35 @@ class MeshtasticAdapter(AdapterContract):
             elif k in transport_keys:
                 meshtastic_meta[k] = v
             else:
-                send_meta[k] = v
-        if meshtastic_meta:
-            send_meta["meshtastic"] = meshtastic_meta
-
-        # Add useful send context from the queued payload.
+                # Defensive normalization: delivery metadata should already
+                # be namespaced under the transport key, but legacy or
+                # non-namespaced keys (e.g. source_bridge, seq) are placed
+                # into the meshtastic namespace rather than leaking to the
+                # top level of NativeMessageRef.metadata.
+                meshtastic_meta[k] = v
+        # Add useful send context from the queued payload into the
+        # meshtastic namespace (transport-specific data must live
+        # under metadata[<transport>]).
         payload = result.item.get("payload", {})
         text = payload.get("text")
         if text is not None:
-            send_meta["text"] = str(text)
+            meshtastic_meta["text"] = str(text)
         meshnet_name = payload.get("meshnet_name")
         if meshnet_name is not None and meshnet_name != "":
-            send_meta["meshnet_name"] = str(meshnet_name)
+            meshtastic_meta["meshnet_name"] = str(meshnet_name)
         channel_name = payload.get("channel_name")
         if channel_name is not None and channel_name != "":
-            send_meta["channel_name"] = str(channel_name)
+            meshtastic_meta["channel_name"] = str(channel_name)
         reply_id = payload.get("reply_id")
         if reply_id is not None:
-            send_meta["reply_id"] = reply_id
+            meshtastic_meta["reply_id"] = reply_id
         emoji = payload.get("emoji")
         if emoji is not None:
-            send_meta["emoji"] = emoji
+            meshtastic_meta["emoji"] = emoji
+
+        # Always carry the transport key so the record is self-identifying
+        # even when no Meshtastic-specific metadata is available.
+        send_meta["meshtastic"] = meshtastic_meta
 
         # Caller guarantees native_message_id is non-None, but the type
         # checker cannot see the guard in _process_queue through the

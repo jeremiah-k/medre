@@ -919,3 +919,211 @@ class TestNormalizeMapping:
         assert isinstance(result, dict)
         # Original proxy still wraps immutable data
         assert isinstance(proxy["a"], MappingProxyType)
+
+
+# ===========================================================================
+# Native-ref authority: rendering boundary and outbound storage
+# ===========================================================================
+
+
+class TestRenderingBoundaryNoPayloadMutation:
+    """Pipeline does not modify RenderingResult.payload after rendering.
+
+    After ``render()`` returns, the pipeline stamps ``delivery_plan_id`` but
+    must NOT touch the payload — relation construction is the renderer's
+    job, not the pipeline's.
+    """
+
+    async def test_payload_not_mutated_after_render(self) -> None:
+        """RenderingResult.payload is delivered to adapter exactly as rendered."""
+        original_payload = {
+            "text": "hello",
+            "reply_to": "$native-msg-001",
+        }
+
+        class _PayloadRecordingAdapter:
+            adapter_id: str = "rec_adapter"
+            platform: str = "test"
+
+            def __init__(self) -> None:
+                self.delivered_payloads: list[Any] = []
+
+            async def deliver(self, rendering_result: Any) -> Any:
+                self.delivered_payloads.append(dict(rendering_result.payload))
+                return AdapterDeliveryResult(
+                    native_message_id="$delivered-001",
+                    native_channel_id="ch-0",
+                )
+
+        adapter = _PayloadRecordingAdapter()
+
+        class _FixedPayloadPipeline:
+            async def render(
+                self,
+                event: Any,
+                target_adapter: str,
+                target_channel: str | None = None,
+                **kwargs: Any,
+            ) -> Any:
+                return RenderingResult(
+                    event_id=event.event_id,
+                    target_adapter=target_adapter,
+                    target_channel=target_channel,
+                    payload=dict(original_payload),
+                )
+
+        svc, _ = _make_service(
+            adapters={"rec_adapter": adapter},
+            rendering_pipeline=_FixedPayloadPipeline(),
+        )
+        event = _make_event()
+        route, plan = _make_route_and_plan(adapter_id="rec_adapter")
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert len(adapter.delivered_payloads) == 1
+        assert adapter.delivered_payloads[0] == original_payload
+
+
+class TestRendererProtocolNoStorageAccess:
+    """Renderer and RenderingContext have no storage dependency.
+
+    This architectural boundary test proves that the rendering layer
+    is completely decoupled from storage — renderers receive context
+    and events, never storage backends.
+    """
+
+    def test_rendering_context_has_no_storage_attribute(self) -> None:
+        """RenderingContext dataclass has no storage-related fields."""
+        from medre.core.rendering.renderer import RenderingContext
+
+        ctx = RenderingContext(
+            delivery_strategy="direct",
+            target_adapter="test",
+        )
+        assert not hasattr(ctx, "storage")
+        assert not hasattr(ctx, "_storage")
+        assert not hasattr(ctx, "backend")
+
+    def test_renderer_protocol_no_storage_parameter(self) -> None:
+        """Renderer.render() signature has no storage parameter."""
+        import inspect
+
+        from medre.core.rendering.renderer import Renderer
+
+        sig = inspect.signature(Renderer.render)
+        params = list(sig.parameters.keys())
+        assert "storage" not in params
+        assert "backend" not in params
+
+    def test_rendering_pipeline_no_storage_init(self) -> None:
+        """RenderingPipeline.__init__ does not accept storage."""
+        import inspect
+
+        from medre.core.rendering.renderer import RenderingPipeline
+
+        sig = inspect.signature(RenderingPipeline.__init__)
+        params = list(sig.parameters.keys())
+        assert "storage" not in params
+        assert "backend" not in params
+
+
+class TestOutboundNativeRefNullChannel:
+    """Outbound native ref with NULL channel is stored and resolvable.
+
+    LXMF adapters return ``native_channel_id=None`` — the pipeline must
+    store this correctly and the ref must be resolvable for future
+    cross-transport relation lookups.
+    """
+
+    async def test_null_channel_native_ref_stored_on_delivery(self) -> None:
+        """Adapter returning native_channel_id=None produces a stored
+        NativeMessageRef with NULL channel."""
+
+        adapter_result = AdapterDeliveryResult(
+            native_message_id="lxmf-hash-001",
+            native_channel_id=None,
+        )
+        adapter = _FakeAdapter(result=adapter_result)
+
+        class _MinimalPipeline:
+            async def render(
+                self,
+                event: Any,
+                target_adapter: str,
+                target_channel: str | None = None,
+                **kwargs: Any,
+            ) -> Any:
+                return RenderingResult(
+                    event_id=event.event_id,
+                    target_adapter=target_adapter,
+                    target_channel=target_channel,
+                    payload={"text": "hello"},
+                )
+
+        svc, storage = _make_service(
+            adapters={"test_adapter": adapter},
+            rendering_pipeline=_MinimalPipeline(),
+        )
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        assert receipt.status == "sent"
+        assert len(storage.native_refs) == 1
+        nref = storage.native_refs[0]
+        assert nref.native_message_id == "lxmf-hash-001"
+        assert nref.native_channel_id is None
+        assert nref.direction == "outbound"
+        assert nref.event_id == "evt-001"
+
+    async def test_outbound_metadata_with_mapping_proxy_stored(self) -> None:
+        """Adapter returning MappingProxyType metadata has it normalised
+        before storage as native ref metadata."""
+        from types import MappingProxyType
+
+        adapter_result = AdapterDeliveryResult(
+            native_message_id="msg-proxy",
+            native_channel_id="0",
+            metadata=MappingProxyType(
+                {
+                    "transport": MappingProxyType({"ack": True}),
+                }
+            ),
+        )
+        adapter = _FakeAdapter(result=adapter_result)
+
+        class _MinimalPipeline:
+            async def render(
+                self,
+                event: Any,
+                target_adapter: str,
+                target_channel: str | None = None,
+                **kwargs: Any,
+            ) -> Any:
+                return RenderingResult(
+                    event_id=event.event_id,
+                    target_adapter=target_adapter,
+                    target_channel=target_channel,
+                    payload={"text": "hello"},
+                )
+
+        svc, storage = _make_service(
+            adapters={"test_adapter": adapter},
+            rendering_pipeline=_MinimalPipeline(),
+        )
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert len(storage.native_refs) == 1
+        nref = storage.native_refs[0]
+        # Metadata is JSON-safe (no MappingProxyType).
+        import json
+
+        serialised = json.dumps(nref.metadata)
+        assert "transport" in serialised
+        parsed = json.loads(serialised)
+        assert parsed["transport"]["ack"] is True

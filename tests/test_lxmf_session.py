@@ -467,7 +467,11 @@ class TestLxmfSessionDiagnostics:
 
 
 class TestExtractMessageHash:
-    """_extract_message_hash handles various input shapes."""
+    """_extract_message_hash handles various input shapes.
+
+    Per W1 audit: LXMF native hash/message_id is deterministic, persistent,
+    and correctly extracted.
+    """
 
     def test_bytes_hash(self) -> None:
         class Msg:
@@ -1155,3 +1159,183 @@ class TestTranche5BoundedOutboundCleanup:
         assert counts.get("outbound", 0) == 2
         assert counts.get("delivered", 0) == 0  # delivered entries were untracked
         await session.stop()
+
+
+# ===================================================================
+# LXMF capabilities unsupported for relations (W1 audit closure)
+# ===================================================================
+
+
+class TestLxmfCapabilitiesUnsupportedRelations:
+    """LXMF capabilities explicitly mark replies/reactions as unsupported.
+    Per W1 audit: MEDRE does NOT decode or write LXMF native FIELD_THREAD;
+    relations are fallback/envelope-only."""
+
+    def test_lxmf_adapter_replies_unsupported(self) -> None:
+        from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
+
+        assert _LXMF_CAPABILITIES.replies == "unsupported"
+
+    def test_lxmf_adapter_reactions_unsupported(self) -> None:
+        from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
+
+        assert _LXMF_CAPABILITIES.reactions == "unsupported"
+
+    def test_lxmf_adapter_edits_unsupported(self) -> None:
+        from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
+
+        assert _LXMF_CAPABILITIES.edits == "unsupported"
+
+    def test_lxmf_adapter_deletes_unsupported(self) -> None:
+        from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
+
+        assert _LXMF_CAPABILITIES.deletes == "unsupported"
+
+
+# ===================================================================
+# Delivery state metadata namespacing (W1 audit closure)
+# ===================================================================
+
+
+class TestDeliveryStateMetadataNamespacing:
+    """LXMF adapter delivery metadata has delivery_state namespaced under
+    metadata['lxmf'], not at the top level."""
+
+    async def _make_started_adapter(self) -> LxmfSession:
+        """Create a started LXMF adapter for delivery testing."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        return session
+
+    async def test_delivery_state_under_lxmf_namespace(self) -> None:
+        """delivery_state is nested under metadata.lxmf, not at top level."""
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.session import LxmfDeliveryState
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="lxmf-test",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="lxmf-test",
+            target_channel=None,
+            payload={
+                "content": "test",
+                "title": "",
+                "fields": {},
+                "destination_hash": "ab" * 16,
+            },
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        # delivery_state is under metadata["lxmf"]["delivery_state"]
+        assert "lxmf" in delivery.metadata
+        lxmf_meta = delivery.metadata["lxmf"]
+        assert "delivery_state" in lxmf_meta
+        # The value is a string (enum .value), not the enum itself
+        assert isinstance(lxmf_meta["delivery_state"], str)
+        assert lxmf_meta["delivery_state"] == LxmfDeliveryState.OUTBOUND.value
+        # NOT at top level of metadata — namespace contract.
+        assert "delivery_state" not in delivery.metadata
+
+        await adapter.stop()
+
+    async def test_lxmf_metadata_inner_is_frozen(self) -> None:
+        """Inner lxmf metadata dict is frozen (MappingProxyType) for
+        consistency with MeshCore metadata."""
+        import logging
+        from datetime import datetime, timezone
+        from types import MappingProxyType
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="lxmf-test",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="lxmf-test",
+            target_channel=None,
+            payload={
+                "content": "test",
+                "title": "",
+                "fields": {},
+                "destination_hash": "ab" * 16,
+            },
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        inner = delivery.metadata["lxmf"]
+        assert isinstance(inner, MappingProxyType)
+
+        await adapter.stop()
+
+    async def test_lxmf_metadata_json_serializable(self) -> None:
+        """LXMF delivery metadata round-trips through JSON."""
+        import json
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="lxmf-test",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="lxmf-test",
+            target_channel=None,
+            payload={
+                "content": "test",
+                "title": "",
+                "fields": {},
+                "destination_hash": "ab" * 16,
+            },
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        meta_dict = dict(delivery.metadata)
+        lxmf_dict = dict(meta_dict["lxmf"])
+        parsed = json.loads(json.dumps({"lxmf": lxmf_dict}))
+        assert parsed["lxmf"]["delivery_state"] == "outbound"
+
+        await adapter.stop()
