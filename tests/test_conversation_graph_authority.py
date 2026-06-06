@@ -310,6 +310,36 @@ class TestAlreadyAssigned:
         assert result.root_event_id == "root-x"
         assert result.conversation_id == "root-x"
 
+    async def test_root_set_conversation_none_fills_from_root(self) -> None:
+        """root_event_id set, conversation_id None → fills conversation_id from root."""
+        event = _make_event(
+            event_id="evt-1",
+            root_event_id="root-x",
+            conversation_id=None,
+        )
+        storage = FakeStorage()
+        authority = ConversationGraphAuthority(storage=storage)
+
+        result = await authority.resolve_conversation_identity(event)
+
+        assert result.root_event_id == "root-x"
+        assert result.conversation_id == "root-x"
+
+    async def test_root_set_conversation_mismatch_corrected(self) -> None:
+        """root_event_id set, conversation_id mismatched → corrected to match root."""
+        event = _make_event(
+            event_id="evt-1",
+            root_event_id="root-x",
+            conversation_id="wrong-id",
+        )
+        storage = FakeStorage()
+        authority = ConversationGraphAuthority(storage=storage)
+
+        result = await authority.resolve_conversation_identity(event)
+
+        assert result.root_event_id == "root-x"
+        assert result.conversation_id == "root-x"
+
 
 class TestCachedGetUsage:
     """Authority uses cached_get_fn when provided."""
@@ -382,9 +412,11 @@ class TestReactionRelation:
 
 
 class TestStorageGetFailure:
-    """Storage.get raising an exception degrades safely."""
+    """Storage.get raising an exception propagates to the caller."""
 
-    async def test_get_exception_degrades_to_self(self) -> None:
+    async def test_get_exception_propagates(self) -> None:
+        """Storage errors must propagate — callers decide retry, not the walk."""
+
         class FailingStorage(FakeStorage):
             async def get(self, event_id: str) -> CanonicalEvent | None:
                 raise RuntimeError("storage unavailable")
@@ -401,11 +433,12 @@ class TestStorageGetFailure:
         storage = FailingStorage()
         authority = ConversationGraphAuthority(storage=storage)
 
-        result = await authority.resolve_conversation_identity(event)
-
-        # Degrades to self.
-        assert result.root_event_id == "evt-1"
-        assert result.conversation_id == "evt-1"
+        try:
+            await authority.resolve_conversation_identity(event)
+        except RuntimeError as exc:
+            assert "storage unavailable" in str(exc)
+        else:
+            raise AssertionError("RuntimeError should have propagated")
 
 
 class TestNoGetOnStorage:

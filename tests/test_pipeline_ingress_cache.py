@@ -452,14 +452,28 @@ class TestCacheIsolationBetweenIngress:
         runner = PipelineRunner(config)
         await runner.start()
 
-        event1 = _make_event(event_id="src-clear-1", source_adapter="src")
-        event2 = _make_event(event_id="src-clear-2", source_adapter="src")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-clear",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event1 = _make_event(
+            event_id="src-clear-1", source_adapter="src", relations=(rel,)
+        )
+        event2 = _make_event(
+            event_id="src-clear-2", source_adapter="src", relations=(rel,)
+        )
 
         try:
             await runner.handle_ingress(event1)
             await runner.handle_ingress(event2)
             # Both calls completed without error. Each call used its own
             # call-local cache — no shared state between them.
+            # Each ingress call independently resolves the relation target,
+            # so storage.get("prior-clear") is called twice (once per call).
+            assert counting.get_call_ids.count("prior-clear") == 2
         finally:
             await runner.stop()
 

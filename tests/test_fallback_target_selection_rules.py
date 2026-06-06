@@ -282,12 +282,15 @@ async def test_lxmf_fallback_envelope_relations_empty() -> None:
 
     fields = result.payload.get("fields", {})
     assert isinstance(fields, dict)
+    found_medre = False
     for _key, val in fields.items():
         if isinstance(val, dict):
             env = val.get("medre")
             if isinstance(env, dict):
                 assert env.get("relations") == []
+                found_medre = True
                 break
+    assert found_medre, "Expected MEDRE envelope in fields"
 
 
 # ---------------------------------------------------------------------------
@@ -312,12 +315,15 @@ async def test_lxmf_no_relations_envelope_empty_relations() -> None:
 
     fields = result.payload.get("fields", {})
     assert isinstance(fields, dict)
+    found_medre = False
     for _key, val in fields.items():
         if isinstance(val, dict):
             env = val.get("medre")
             if isinstance(env, dict):
                 assert env.get("relations") == []
+                found_medre = True
                 break
+    assert found_medre, "Expected MEDRE envelope in fields"
 
 
 # ---------------------------------------------------------------------------

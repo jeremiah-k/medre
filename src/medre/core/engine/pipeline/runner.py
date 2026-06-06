@@ -473,19 +473,37 @@ class PipelineRunner:
         # or contaminate each other's caches.
         _event_cache: dict[str, CanonicalEvent | None] = {}
         _refs_cache: dict[str, list[NativeMessageRef]] = {}
+        # In-flight dedup: prevents duplicate concurrent storage calls when
+        # fan-out delivery resolves the same event_id from multiple targets.
+        _event_inflight: dict[str, asyncio.Task[CanonicalEvent | None]] = {}
+        _refs_inflight: dict[str, asyncio.Task[list[NativeMessageRef]]] = {}
 
         async def _cached_get(event_id: str) -> CanonicalEvent | None:
             """Memoized storage.get for this ingress pass."""
             if event_id in _event_cache:
                 return _event_cache[event_id]
+            # Reuse an in-flight storage task if one is already running.
+            if event_id in _event_inflight:
+                return await asyncio.shield(_event_inflight[event_id])
             get_fn = getattr(self._config.storage, "get", None)
             if not callable(get_fn):
                 return None
-            result = await cast(
-                Callable[[str], Awaitable[CanonicalEvent | None]], get_fn
-            )(event_id)
-            _event_cache[event_id] = result
-            return result
+
+            async def _fetch_event() -> CanonicalEvent | None:
+                return await cast(
+                    Callable[[str], Awaitable[CanonicalEvent | None]], get_fn
+                )(event_id)
+
+            task: asyncio.Task[CanonicalEvent | None] = asyncio.create_task(
+                _fetch_event()
+            )
+            _event_inflight[event_id] = task
+            try:
+                result = await task
+                _event_cache[event_id] = result
+                return result
+            finally:
+                _event_inflight.pop(event_id, None)
 
         async def _cached_list_native_refs(
             event_id: str,
@@ -493,14 +511,28 @@ class PipelineRunner:
             """Memoized storage.list_native_refs_for_event for this ingress pass."""
             if event_id in _refs_cache:
                 return _refs_cache[event_id]
+            # Reuse an in-flight storage task if one is already running.
+            if event_id in _refs_inflight:
+                return await asyncio.shield(_refs_inflight[event_id])
             list_fn = getattr(self._config.storage, "list_native_refs_for_event", None)
             if not callable(list_fn):
                 return []
-            result = await cast(
-                Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
-            )(event_id)
-            _refs_cache[event_id] = result
-            return result
+
+            async def _fetch_refs() -> list[NativeMessageRef]:
+                return await cast(
+                    Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
+                )(event_id)
+
+            rtask: asyncio.Task[list[NativeMessageRef]] = asyncio.create_task(
+                _fetch_refs()
+            )
+            _refs_inflight[event_id] = rtask
+            try:
+                result = await rtask
+                _refs_cache[event_id] = result
+                return result
+            finally:
+                _refs_inflight.pop(event_id, None)
 
         # ── Phase: INGRESS ──────────────────────────────────────────────
         self._current_phase = PipelinePhase.INGRESS

@@ -7,6 +7,10 @@ relations, but before the event is persisted to storage.
 
 Algorithm
 ---------
+0. **Event already has ``root_event_id``**: preserve it.  Fill
+   ``conversation_id = root_event_id`` if missing or mismatched.  Do NOT
+   allow relation-walking to overwrite an existing root.
+
 1. **No resolved relation target**: the event is a conversation root.
    ``root_event_id = conversation_id = event.event_id``.
 
@@ -94,13 +98,18 @@ class ConversationGraphAuthority:
         Returns
         -------
         CanonicalEvent
-            The original event when it already has ``root_event_id`` set,
-            or a new event with ``root_event_id`` and ``conversation_id``
-            populated.
+            The original event when it already has ``root_event_id`` set
+            (and ``conversation_id`` matches), or a new event with
+            ``root_event_id`` preserved and ``conversation_id`` filled.
+            When ``root_event_id`` is already set, relation-walking is
+            skipped entirely so the existing root is never overwritten.
         """
-        # Fast path: already assigned (e.g. replay or derived event).
-        if event.root_event_id is not None and event.conversation_id is not None:
-            return event
+        # Fast path: root_event_id already set (e.g. replay or derived event).
+        # Do NOT fall through to relation-walking, which could overwrite an
+        # existing root from relation targets.  Instead, ensure conversation_id
+        # is consistent with the preserved root_event_id.
+        if event.root_event_id is not None:
+            return self._assign_identity(event, event.root_event_id)
 
         get_fn = cached_get_fn or getattr(self._storage, "get", None)
 
@@ -204,15 +213,15 @@ class ConversationGraphAuthority:
         *,
         get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None,
     ) -> CanonicalEvent | None:
-        """Fetch an event, returning None on any failure."""
+        """Fetch an event by ID.
+
+        Returns ``None`` when *get_fn* is unavailable or the event is not
+        found in storage.  Storage errors (transient failures, corruption,
+        etc.) are **not** caught here — they propagate to the caller so
+        that retry / circuit-breaker logic can act on them.  Swallowing
+        exceptions would silently turn every storage error into a
+        "missing event" self-root, which is incorrect.
+        """
         if get_fn is None or not callable(get_fn):
             return None
-        try:
-            return await get_fn(event_id)
-        except Exception:
-            self._log.debug(
-                "conversation walk: failed to fetch event %s",
-                event_id,
-                exc_info=True,
-            )
-            return None
+        return await get_fn(event_id)

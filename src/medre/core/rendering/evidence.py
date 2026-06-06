@@ -136,7 +136,10 @@ class RelationTargetEvidence:
         should not assume ``True`` means the native message still
         exists on the target platform.
     fallback_text_source:
-        The ``fallback_text`` from the relation, if known, or ``None``.
+        A presence indicator: ``"relation_fallback_text_present"`` when
+        the relation carried fallback text, or ``None`` when it did not.
+        This field intentionally avoids storing raw user content to
+        prevent PII exposure in evidence records.
     """
 
     relation_type: str
@@ -237,7 +240,11 @@ def _build_relation_evidence(
                 target_event_id=rel.target_event_id,
                 target_native_message_id=target_native_msg_id,
                 target_available=target_available,
-                fallback_text_source=rel.fallback_text,
+                fallback_text_source=(
+                    "relation_fallback_text_present"
+                    if rel.fallback_text is not None
+                    else None
+                ),
             )
         )
     return tuple(entries)

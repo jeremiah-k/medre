@@ -119,7 +119,7 @@ class TestRelationTargetEvidenceModel:
             target_event_id=None,
             target_native_message_id=None,
             target_available=None,
-            fallback_text_source="some text",
+            fallback_text_source="relation_fallback_text_present",
         )
         with pytest.raises(AttributeError):
             evidence.render_mode = "native"  # type: ignore[misc]
@@ -131,7 +131,7 @@ class TestRelationTargetEvidenceModel:
             target_event_id="evt-react",
             target_native_message_id=None,
             target_available=True,
-            fallback_text_source="👍",
+            fallback_text_source="relation_fallback_text_present",
         )
         d = evidence.to_dict()
         serialized = json.dumps(d, sort_keys=True)
@@ -142,7 +142,7 @@ class TestRelationTargetEvidenceModel:
         assert parsed["target_event_id"] == "evt-react"
         assert parsed["target_native_message_id"] is None
         assert parsed["target_available"] is True
-        assert parsed["fallback_text_source"] == "👍"
+        assert parsed["fallback_text_source"] == "relation_fallback_text_present"
 
     def test_to_dict_all_none(self) -> None:
         evidence = RelationTargetEvidence(
@@ -541,7 +541,7 @@ class TestMultiRelationEvidence:
         reply_ev = evidence.relation_evidence[0]
         assert reply_ev.relation_type == "reply"
         assert reply_ev.target_event_id == "evt-reply-target"
-        assert reply_ev.fallback_text_source == "original message"
+        assert reply_ev.fallback_text_source == "relation_fallback_text_present"
 
         react_ev = evidence.relation_evidence[1]
         assert react_ev.relation_type == "reaction"
@@ -724,7 +724,7 @@ class TestPipelineRelationEvidence:
         assert rel["target_event_id"] == "evt-target"
         assert rel["target_native_message_id"] == "msg-42"
         assert rel["target_available"] is True
-        assert rel["fallback_text_source"] == "original msg text"
+        assert rel["fallback_text_source"] == "relation_fallback_text_present"
 
 
 # ===================================================================

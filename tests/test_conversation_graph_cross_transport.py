@@ -18,8 +18,8 @@ Test 2  Reply Meshtastic → Matrix (conversation identity propagation)
         to Meshtastic.  ``root_event_id`` / ``conversation_id`` propagate
         correctly across both transports.
 
-Test 3  Reaction fallback (MeshCore fallback-only transport)
-        A reaction event routed to MeshCore (fallback-only) degrades to
+Test 3  Reaction fallback (LXMF fallback-only transport)
+        A reaction event routed to LXMF (fallback-only) degrades to
         inline ``[reaction …]`` text.  ``root_event_id`` / ``conversation_id``
         are still assigned.  Render evidence records ``render_mode`` as
         ``"fallback"``.
