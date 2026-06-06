@@ -165,7 +165,7 @@ async def _inspect_native_ref(
                 native_message_id=message,
                 native_thread_id=None,
                 native_relation_id=None,
-                direction=None,
+                direction="outbound",
                 created_at=datetime.now(tz=timezone.utc),
             )
             result: dict[str, object] = native_ref_to_report_dict(
