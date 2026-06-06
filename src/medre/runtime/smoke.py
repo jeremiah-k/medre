@@ -512,7 +512,8 @@ async def run_fake_bridge_smoke(
     fail_reasons = _sanitized_reasons
 
     resolved_storage_path = (
-        storage_path if storage_path is not None
+        storage_path
+        if storage_path is not None
         else (config.storage.path if config.storage.path else None)
     )
 
