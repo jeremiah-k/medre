@@ -10,14 +10,14 @@ adapter renderers, and codec relation handling).
 
 Reference repos inspected:
 
-| Repo                     | Local path                                   |
-| ------------------------ | -------------------------------------------- |
-| meshtastic-python (mtjk) | `/home/jeremiah/dev/meshtastic-python`       |
-| mindroom-nio             | `/home/jeremiah/dev/mindroom-nio`            |
-| meshtastic-matrix-relay  | `/home/jeremiah/dev/meshtastic-matrix-relay` |
-| meshcore_py              | `/home/jeremiah/dev/meshcore/meshcore_py`    |
-| MeshCore (C++)           | `/home/jeremiah/dev/meshcore/MeshCore`       |
-| LXMF                     | `/home/jeremiah/dev/LXMF`                    |
+| Repo                     | Local path                        |
+| ------------------------ | --------------------------------- |
+| meshtastic-python (mtjk) | `~/dev/meshtastic/mtjk`         |
+| mindroom-nio             | `~/dev/mindroom-nio`              |
+| meshtastic-matrix-relay  | `~/dev/meshtastic-matrix-relay`   |
+| meshcore_py              | `~/dev/meshcore/meshcore_py`      |
+| MeshCore (C++)           | `~/dev/meshcore/MeshCore`         |
+| LXMF                     | `~/dev/LXMF`                      |
 
 ---
 
@@ -312,7 +312,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 | Outbound native ref             | Immediate; `AdapterDeliveryResult.native_message_id` from `LXMessage.hash`                                                                                                                             |
 | `native_channel_id` on outbound | `str(destination_hash)` if available, else `None`                                                                                                                                                      |
 | MEDRE fields envelope           | Embedded in `LXMessage.fields` under key `0xFD` — carries `target_native_ref` (adapter, native_channel_id, native_message_id) for cross-transport relation rendering                                   |
-| `delivery_state`                | Not a namespaced field. LXMF uses `LXMessage.state` (integer constants: GENERATING→OUTBOUND→SENDING→SENT→DELIVERED or FAILED/REJECTED/CANCELLED). This is an object-level state machine, not metadata. |
+| `delivery_state`                | Stored as `metadata["lxmf"]["delivery_state"]`. The adapter computes this from `LXMessage.state` (integer constants: GENERATING→OUTBOUND→SENDING→SENT→DELIVERED or FAILED/REJECTED/CANCELLED) returned by `send_text` and records the `.value` under the `lxmf` metadata namespace. |
 | `transient_id`                  | Used only by propagation nodes for encrypted storage. Not the same as `message_id`.                                                                                                                    |
 | `FIELD_THREAD` (0x08)           | Defined in LXMF.py but **unspecified and unused** — no documentation, no enforcement, no known client implements it                                                                                    |
 
