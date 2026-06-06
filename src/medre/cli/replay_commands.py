@@ -119,6 +119,9 @@ async def _replay(
         print(f"  Events replayed: {summary.events_replayed}")
         print(f"  Passed:          {summary.by_status.get('passed', 0)}")
         print(f"  Skipped:         {summary.by_status.get('skipped', 0)}")
+        if summary.skip_reasons:
+            for reason, count in sorted(summary.skip_reasons.items()):
+                print(f"    {reason}: {count}")
         print(f"  Failed:          {summary.by_status.get('failed', 0)}")
         print(f"  Errors:          {summary.by_status.get('error', 0)}")
         print(f"  Elapsed:         {summary.elapsed_ms:.1f}ms")

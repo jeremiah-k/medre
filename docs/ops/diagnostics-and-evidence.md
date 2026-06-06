@@ -328,7 +328,13 @@ PYTHONPATH=src medre smoke --scenario <name> --json
 
 `medre smoke` uses in-memory storage by default. When the smoke process exits, all stored evidence is released. The JSON report printed to stdout is the only surviving record.
 
-Pass `--storage-path <path>` to persist evidence to a SQLite database instead. When `--storage-path` is supplied, events, receipts, and native refs are written to the specified database file and can be inspected with `medre inspect` after the process exits.
+To persist evidence to SQLite, pass a config file that sets `[storage] backend = "sqlite"` and `storage.path`:
+
+```bash
+PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.toml --json
+```
+
+When the config specifies SQLite storage, events, receipts, and native refs are written to the configured database file and can be inspected with `medre inspect` after the process exits.
 
 `medre inspect` subcommands require persistent storage. Running `medre inspect` against a config with `[storage] backend = "memory"` produces:
 

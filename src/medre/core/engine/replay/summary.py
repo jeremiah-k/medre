@@ -8,6 +8,38 @@ from typing import Any
 
 from medre.core.engine.replay.types import ReplayMode, ReplayResult
 
+# ---------------------------------------------------------------------------
+# Skip-reason categorization
+# ---------------------------------------------------------------------------
+
+# Prefixes used to map a skipped ReplayResult.error to a stable reason
+# category for operator-facing output.  Ordered by specificity; first
+# match wins.
+_SKIP_REASON_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("dry_run: ", "dry_run"),
+    ("capability_suppressed", "capability_suppressed"),
+    ("Event not found", "event_missing"),
+    ("replay_cancelled", "cancelled"),
+    ("No delivery plans matched target_adapters", "target_filter"),
+    ("No delivery plans available", "no_plans"),
+)
+
+
+def _categorize_skip_reason(error: str | None) -> str:
+    """Map a skipped-result error message to a stable reason category.
+
+    Returns ``"other"`` when *error* is ``None`` or does not match any
+    known prefix.  This is intentionally conservative: new skip reasons
+    default to ``"other"`` until explicitly categorised here.
+    """
+    if error is None:
+        return "other"
+    for prefix, category in _SKIP_REASON_PREFIXES:
+        if error.startswith(prefix) or prefix in error:
+            return category
+    return "other"
+
+
 # Maximum number of error messages retained in a summary to prevent
 # unbounded memory growth on large, failure-heavy replays.
 _MAX_SUMMARY_ERRORS = 50
@@ -65,6 +97,13 @@ class ReplaySummary:
         ``"succeeded"`` (route-stage status ``"passed"``), and
         ``"failed"`` (route-stage status ``"failed"`` or ``"error"``).
         Empty when no route-stage results were produced.
+    skip_reasons:
+        Mapping of skip-reason category to count for skipped results.
+        Categories are: ``"dry_run"``, ``"capability_suppressed"``,
+        ``"event_missing"``, ``"cancelled"``, ``"target_filter"``,
+        ``"no_plans"``, ``"other"``.  Empty when no results were
+        skipped.  Enables operators to distinguish *why* events were
+        skipped without inspecting individual results.
     run_id:
         Operator-assigned identifier for this replay execution.
         Empty string when not provided.  Matches the ``run_id`` in
@@ -84,6 +123,7 @@ class ReplaySummary:
     by_stage: dict[str, int] = field(default_factory=dict)
     errors: tuple[str, ...] = ()
     by_route: dict[str, dict[str, int]] = field(default_factory=dict)
+    skip_reasons: dict[str, int] = field(default_factory=dict)
     run_id: str = ""
     mode: ReplayMode | None = None
 
@@ -113,6 +153,7 @@ class ReplaySummary:
             "mode": self.mode.value if self.mode is not None else None,
             "route_resolution_count": self.route_resolution_count,
             "run_id": self.run_id,
+            "skip_reasons": dict(sorted(self.skip_reasons.items())),
             "skipped_count": self.skipped_count,
         }
 
@@ -151,6 +192,7 @@ def _build_summary(
     errors: list[str] = []
     route_resolution_count = 0
     by_route: dict[str, dict[str, int]] = {}
+    skip_reasons: dict[str, int] = {}
 
     for result in results:
         # Status counts
@@ -165,6 +207,11 @@ def _build_summary(
             truncated = result.error[:_MAX_ERROR_LENGTH]
             if len(errors) < _MAX_SUMMARY_ERRORS:
                 errors.append(truncated)
+
+        # Skip-reason categorization for operator visibility.
+        if result.status == "skipped":
+            reason = _categorize_skip_reason(result.error)
+            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
 
         # Route-resolution: route-stage results with non-None,
         # non-empty output indicate target resolution.
@@ -203,6 +250,7 @@ def _build_summary(
         by_stage=by_stage,
         errors=tuple(errors),
         by_route=by_route,
+        skip_reasons=skip_reasons,
         run_id=run_id,
         mode=mode,
     )

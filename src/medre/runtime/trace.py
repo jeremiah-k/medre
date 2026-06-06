@@ -160,8 +160,9 @@ def assemble_event_timeline(
         event_data["conversation_id"] = event.conversation_id
     if event.parent_event_id is not None:
         event_data["parent_event_id"] = event.parent_event_id
-    if event.trace_id is not None:
-        event_data["trace_id"] = event.trace_id
+    _trace_id = getattr(event, "trace_id", None)
+    if _trace_id is not None:
+        event_data["trace_id"] = _trace_id
 
     entries.append(
         _timeline_entry(

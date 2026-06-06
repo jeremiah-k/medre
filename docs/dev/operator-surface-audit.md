@@ -8,18 +8,18 @@
 
 ### 1.1 Read-Only Inspection (no runtime start, no storage mutation)
 
-| Command                                            | Source                                         | Output shape                        | Key sections                                                                                             |
-| -------------------------------------------------- | ---------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `medre inspect event <id>`                         | SQLite (RO) via `--config` or `--storage-path` | CanonicalEvent JSON                 | event_id, event_kind, source_adapter, payload, relations, timestamp, source_native_ref                   |
-| `medre inspect event <id> --timeline`              | SQLite (RO)                                    | `{event: ..., timeline: [...]}`     | Timeline entries: event, native_ref, receipt, relation                                                   |
-| `medre inspect event <id> --evidence`              | SQLite (RO) + config                           | `{event: ..., evidence: <bundle>}`  | Full evidence bundle (see §2.1)                                                                          |
-| `medre inspect event <id> --recovery`              | SQLite (RO)                                    | `{event: ..., recovery: <runbook>}` | Recovery runbook (see §2.4)                                                                              |
-| `medre inspect receipts --event <id>`              | SQLite (RO)                                    | Receipt array                       | receipt_id, status, target_adapter, route_id, attempt_number, failure_kind, error, source, replay_run_id |
-| `medre inspect receipts --replay-run <id>`         | SQLite (RO)                                    | Receipt array                       | Same as above, filtered by replay_run_id                                                                 |
-| `medre inspect native-ref --adapter A --message M` | SQLite (RO)                                    | Ref resolution JSON                 | adapter, native_channel_id, native_message_id, event_id, event (if found)                                |
-| `medre inspect replay <run_id>`                    | SQLite (RO)                                    | Replay timeline JSON                | Same shape as `medre trace replay`                                                                       |
-| `medre trace event <id>`                           | SQLite (RO)                                    | Timeline JSON or human-readable     | Chronological entries: event, relation, native_ref, receipt                                              |
-| `medre trace replay <run_id>`                      | SQLite (RO)                                    | Replay timeline JSON                | status, receipt_count, event_ids, timeline entries                                                       |
+| Command                                            | Source                           | Output shape                        | Key sections                                                                                             |
+| -------------------------------------------------- | -------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `medre inspect event <id>`                         | SQLite (RO) via `--storage-path` | CanonicalEvent JSON                 | event_id, event_kind, source_adapter, payload, relations, timestamp, source_native_ref                   |
+| `medre inspect event <id> --timeline`              | SQLite (RO)                      | `{event: ..., timeline: [...]}`     | Timeline entries: event, native_ref, receipt, relation                                                   |
+| `medre inspect event <id> --evidence`              | SQLite (RO) + config             | `{event: ..., evidence: <bundle>}`  | Full evidence bundle (see §2.1)                                                                          |
+| `medre inspect event <id> --recovery`              | SQLite (RO)                      | `{event: ..., recovery: <runbook>}` | Recovery runbook (see §2.4)                                                                              |
+| `medre inspect receipts --event <id>`              | SQLite (RO)                      | Receipt array                       | receipt_id, status, target_adapter, route_id, attempt_number, failure_kind, error, source, replay_run_id |
+| `medre inspect receipts --replay-run <id>`         | SQLite (RO)                      | Receipt array                       | Same as above, filtered by replay_run_id                                                                 |
+| `medre inspect native-ref --adapter A --message M` | SQLite (RO)                      | Ref resolution JSON                 | adapter, native_channel_id, native_message_id, event_id, event (if found)                                |
+| `medre inspect replay <run_id>`                    | SQLite (RO)                      | Replay timeline JSON                | Same shape as `medre trace replay`                                                                       |
+| `medre trace event <id>`                           | SQLite (RO)                      | Timeline JSON or human-readable     | Chronological entries: event, relation, native_ref, receipt                                              |
+| `medre trace replay <run_id>`                      | SQLite (RO)                      | Replay timeline JSON                | status, receipt_count, event_ids, timeline entries                                                       |
 
 Source modules:
 

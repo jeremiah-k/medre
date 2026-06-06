@@ -420,8 +420,6 @@ def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
                     "smoke",
                     "--config",
                     str(cfg),
-                    "--storage-path",
-                    str(db_path),
                     "--json",
                 ]
             )

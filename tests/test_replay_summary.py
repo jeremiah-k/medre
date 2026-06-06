@@ -103,6 +103,7 @@ class TestReplaySummaryToDict:
             "mode": None,
             "route_resolution_count": 0,
             "run_id": "",
+            "skip_reasons": {},
             "skipped_count": 0,
         }
 

@@ -24,18 +24,18 @@ from tests.helpers.alpha_cli import (
 class TestAlphaNoTracebacks:
     """Verify commands produce clean errors, not tracebacks."""
 
-    def test_inspect_receipts_missing_storage_path_and_config(self) -> None:
-        """inspect receipts without --storage-path or --config exits cleanly."""
+    def test_inspect_receipts_missing_storage_path(self) -> None:
+        """inspect receipts without --storage-path exits cleanly."""
         with pytest.raises(SystemExit):
             main(["inspect", "receipts", "--event", "nonexistent"])
 
-    def test_inspect_event_missing_storage_path_and_config(self) -> None:
-        """inspect event without --storage-path or --config exits cleanly."""
+    def test_inspect_event_missing_storage_path(self) -> None:
+        """inspect event without --storage-path exits cleanly."""
         with pytest.raises(SystemExit):
             main(["inspect", "event", "nonexistent", "--timeline"])
 
     def test_replay_rejects_storage_path(self, tmp_path: Path) -> None:
-        """replay --storage-path exits with an error message."""
+        """replay does not accept --storage-path; argparse rejects it."""
         stderr_buf = io.StringIO()
         with redirect_stderr(stderr_buf):
             with pytest.raises(SystemExit):
@@ -52,4 +52,4 @@ class TestAlphaNoTracebacks:
                         str(tmp_path / "test.db"),
                     ]
                 )
-        assert "not supported for replay" in stderr_buf.getvalue()
+        assert "unrecognized arguments" in stderr_buf.getvalue()
