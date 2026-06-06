@@ -409,7 +409,7 @@ class TestInspectNativeRefStoragePath:
             "$sp-msg-1",
         )
         result = json.loads(stdout)
-        assert result["event_id"] == "evt-sp-1"
+        assert result["resolves_to"] == "evt-sp-1"
 
     def test_inspect_native_ref_not_found(self, seeded_db: Path) -> None:
         code, _, _ = _run_cli_exit(
