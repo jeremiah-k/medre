@@ -1067,8 +1067,11 @@ class TestMetadataKeySplitting:
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            # Nested dict merged under "meshtastic" key
-            assert ref.metadata["meshtastic"] == {"hop_limit": 3, "priority": "high"}
+            # Nested dict merged under "meshtastic" key; payload text also
+            # lands in the meshtastic namespace per the namespace contract.
+            assert ref.metadata["meshtastic"]["hop_limit"] == 3
+            assert ref.metadata["meshtastic"]["priority"] == "high"
+            assert ref.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -1131,7 +1134,8 @@ class TestMetadataKeySplitting:
             await adapter.stop()
 
     async def test_other_key_stays_in_send_meta(self) -> None:
-        """Non-transport, non-meshtastic keys stay at top level of send_meta."""
+        """Non-transport, non-meshtastic keys stay at top level of send_meta.
+        Payload text is transport context and lands in the meshtastic namespace."""
         import asyncio
         import logging
         from datetime import datetime, timezone
@@ -1185,8 +1189,8 @@ class TestMetadataKeySplitting:
             # Non-transport keys stay at top level
             assert ref.metadata["source_bridge"] == "matrix"
             assert ref.metadata["seq"] == 7
-            # No meshtastic namespace created since no meshtastic/transport keys
-            assert "meshtastic" not in ref.metadata
+            # Payload text lands in meshtastic namespace (transport context).
+            assert ref.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -1259,9 +1263,10 @@ class TestMetadataKeySplitting:
 
 
 class TestDelayedOutboundRefMeshtasticNamespaceFacts:
-    """Verify that _record_delayed_outbound_ref stores complete meshtastic
-    namespace facts (packet_id, channel, reply_id, emoji) from the delivery
-    snapshot when the send carried relation fields."""
+    """Verify that _record_delayed_outbound_ref stores all transport-specific
+    data under the meshtastic namespace in OutboundNativeRefRecord.metadata.
+    No transport keys (reply_id, emoji, channel, packet_id, meshnet_name,
+    channel_name, text) should appear at the top level of metadata."""
 
     async def test_reply_id_and_emoji_in_meshtastic_namespace(self) -> None:
         """When the delivery metadata has meshtastic.reply_id and
@@ -1347,10 +1352,17 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
             assert mesh_ns["reply_id"] == 42
             assert mesh_ns["emoji"] == 1
 
-            # Payload-level facts also present at top level.
-            assert ref.metadata["text"] == "👍"
-            assert ref.metadata["reply_id"] == 42
-            assert ref.metadata["emoji"] == 1
+            # Payload-level facts also present in meshtastic namespace.
+            assert mesh_ns["text"] == "👍"
+
+            # No transport keys leak to top-level metadata.
+            assert "reply_id" not in ref.metadata
+            assert "emoji" not in ref.metadata
+            assert "channel" not in ref.metadata
+            assert "packet_id" not in ref.metadata
+            assert "meshnet_name" not in ref.metadata
+            assert "channel_name" not in ref.metadata
+            assert "text" not in ref.metadata
         finally:
             await adapter.stop()
 

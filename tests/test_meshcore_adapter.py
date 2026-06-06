@@ -1091,7 +1091,7 @@ class TestMeshCoreDeliveryMetadataJSONSafe:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         # The native_message_id IS the expected_ack hex — persisted for
-        # cross-transport correlation, but NOT a durable MeshCore ID.
+        # local outbound evidence/correlation, but NOT a durable MeshCore ID.
         assert delivery.native_message_id == "aabbccdd"
         assert delivery.metadata["meshcore"]["local_acceptance"] is True
 

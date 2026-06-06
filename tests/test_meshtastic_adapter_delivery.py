@@ -1279,7 +1279,7 @@ class TestDelayedOutboundNativeRef:
         # Metadata includes the merged delivery snapshot + payload context.
         assert ref.metadata["meshtastic"]["packet_id"] == 987654321
         assert ref.metadata["meshtastic"]["channel"] == 0
-        assert ref.metadata["text"] == "hello mesh"
+        assert ref.metadata["meshtastic"]["text"] == "hello mesh"
 
     async def test_no_callback_means_no_error(self) -> None:
         """_record_delayed_outbound_ref is safe when ctx has no callback."""
@@ -1323,7 +1323,8 @@ class TestDelayedOutboundNativeRef:
 
     async def test_payload_fields_in_metadata(self) -> None:
         """_record_delayed_outbound_ref includes reply_id, emoji,
-        meshnet_name, and channel_name from the queued payload."""
+        meshnet_name, and channel_name from the queued payload in the
+        meshtastic namespace — no transport keys at top level."""
         import logging
         from types import MappingProxyType
 
@@ -1379,16 +1380,24 @@ class TestDelayedOutboundNativeRef:
 
         assert len(recorded) == 1
         ref = recorded[0]
-        assert ref.metadata["text"] == "reaction text"
-        assert ref.metadata["reply_id"] == 42
-        assert ref.metadata["emoji"] == 1
-        assert ref.metadata["meshnet_name"] == "TestMesh"
-        assert ref.metadata["channel_name"] == "ch2"
+        # All transport-specific payload fields are in the meshtastic namespace.
+        mesh_ns = ref.metadata["meshtastic"]
+        assert mesh_ns["text"] == "reaction text"
+        assert mesh_ns["reply_id"] == 42
+        assert mesh_ns["emoji"] == 1
+        assert mesh_ns["meshnet_name"] == "TestMesh"
+        assert mesh_ns["channel_name"] == "ch2"
         # Delivery snapshot keys are merged inside meshtastic namespace.
-        assert ref.metadata["meshtastic"]["packet_id"] == 555
+        assert mesh_ns["packet_id"] == 555
         # reply_id from delivery snapshot is also in the meshtastic namespace.
-        assert ref.metadata["meshtastic"]["reply_id"] == 42
-        assert ref.metadata["meshtastic"]["channel"] == 2
+        assert mesh_ns["reply_id"] == 42
+        assert mesh_ns["channel"] == 2
+        # No transport keys leak to top-level metadata.
+        assert "reply_id" not in ref.metadata
+        assert "emoji" not in ref.metadata
+        assert "text" not in ref.metadata
+        assert "meshnet_name" not in ref.metadata
+        assert "channel_name" not in ref.metadata
 
 
 # ===================================================================

@@ -10,14 +10,14 @@ adapter renderers, and codec relation handling).
 
 Reference repos inspected:
 
-| Repo                     | Local path                        |
-| ------------------------ | --------------------------------- |
-| meshtastic-python (mtjk) | `~/dev/meshtastic/mtjk`         |
-| mindroom-nio             | `~/dev/mindroom-nio`              |
-| meshtastic-matrix-relay  | `~/dev/meshtastic-matrix-relay`   |
-| meshcore_py              | `~/dev/meshcore/meshcore_py`      |
-| MeshCore (C++)           | `~/dev/meshcore/MeshCore`         |
-| LXMF                     | `~/dev/LXMF`                      |
+| Repo                      | Description                                |
+| ------------------------- | ------------------------------------------ |
+| `mtjk`                    | Meshtastic Python SDK fork/reference       |
+| `mindroom-nio`            | Matrix nio fork/reference                  |
+| `meshtastic-matrix-relay` | Matrix/Meshtastic relay reference          |
+| `meshcore_py`             | MeshCore Python client reference           |
+| `MeshCore`                | MeshCore protocol/reference implementation |
+| `LXMF`                    | LXMF reference implementation              |
 
 ---
 
@@ -100,7 +100,7 @@ Codec sets `target_native_ref` on `EventRelation` for replies/reactions → pipe
 | **Synchronous adapters** (Matrix, MeshCore, LXMF) | `AdapterDeliveryResult.delivery_status="sent"` AND `native_message_id is not None` | `TargetDeliveryService` stores `NativeMessageRef(direction="outbound")`                                                                                                                                 |
 | **Queue-based adapters** (Meshtastic)             | Adapter returns `delivery_status="enqueued"`, `native_message_id=None`             | Pipeline records receipt as `status="queued"`. Queue drain later obtains real native ID via `OutboundNativeRefRecord` → `NativeMessageRef(direction="outbound")` + supplemental `status="sent"` receipt |
 
-**If queue does not drain before shutdown**: outbound native mapping is permanently lost.
+**Current implementation risk**: if the in-memory Meshtastic queue is accepted but does not drain before shutdown, MEDRE may never receive the delayed packet ID and therefore cannot persist the outbound native ref for that delivery attempt. Future durable queue recovery would mitigate this.
 
 ---
 
@@ -162,7 +162,7 @@ Convention: `metadata.matrix`, `metadata.meshtastic`, `metadata.meshcore`, `meta
 ### Metadata in `NativeMessageRef.metadata`
 
 - **Inbound**: copy of `event.metadata.native.data`
-- **Outbound (Meshtastic)**: enriched merge — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`
+- **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`
 
 ---
 
@@ -180,7 +180,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 7. PipelineRunner appends supplemental status="sent" receipt
 ```
 
-**Loss condition**: If process exits before queue drains, the outbound native mapping is permanently lost. No flush/retry on shutdown.
+**Loss condition**: if the in-memory queue is accepted but does not drain before process exit, the outbound native mapping for those items cannot be persisted. No flush/retry on shutdown.
 
 ---
 
@@ -270,16 +270,16 @@ Applies to: **Meshtastic only** (queue-based adapter).
 
 **Native ID**: No protocol-level durable message identifier.
 
-| Aspect                    | Detail                                                                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Inbound source ref        | `NativeRef(adapter, native_channel_id=str(channel), native_message_id=str(packet_id))` — packet_id is `sender_timestamp` or derived, NOT a protocol-guaranteed ID |
-| Inbound reply relation    | **None** — codec comment: "No reply relation support in MeshCore"                                                                                                 |
-| Inbound reaction relation | **None**                                                                                                                                                          |
-| Outbound native ref       | `AdapterDeliveryResult.native_message_id` from send result; may be `None`                                                                                         |
-| `expected_ack`            | Ephemeral 4-byte truncated SHA-256(timestamp \|\| attempt \|\| text \|\| pubkey), volatile circular buffer of 8 entries. NOT a durable ID.                        |
-| Channel ID                | `channel_idx` (0-255), durable per channel config                                                                                                                 |
-| Contact identity          | 32-byte Ed25519 public key, durable                                                                                                                               |
-| `tx_hash` (Python client) | Client-side derivation `SHA256(timestamp \|\| text)[0:4]` — NOT protocol-level, collision-prone                                                                   |
+| Aspect                    | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inbound source ref        | `NativeRef(adapter, native_channel_id=str(channel), native_message_id=str(packet_id))` — packet_id is `sender_timestamp` or derived, NOT a protocol-guaranteed ID                                                                                                                                                                                                                                                                                     |
+| Inbound reply relation    | **None** — codec comment: "No reply relation support in MeshCore"                                                                                                                                                                                                                                                                                                                                                                                     |
+| Inbound reaction relation | **None**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Outbound native ref       | `AdapterDeliveryResult.native_message_id` from send result; may be `None`                                                                                                                                                                                                                                                                                                                                                                             |
+| `expected_ack`            | MeshCore has no durable protocol-level message ID. MEDRE currently records `expected_ack` as a best-effort outbound `native_message_id` when the SDK returns it. This is useful for local send correlation/evidence but is NOT a durable MeshCore message identity and must NOT be relied on for long-lived cross-transport relation resolution. Relation rendering to MeshCore remains fallback-only unless a future durable native ID is available. |
+| Channel ID                | `channel_idx` (0-255), durable per channel config                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Contact identity          | 32-byte Ed25519 public key, durable                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `tx_hash` (Python client) | Client-side derivation `SHA256(timestamp \|\| text)[0:4]` — NOT protocol-level, collision-prone                                                                                                                                                                                                                                                                                                                                                       |
 
 **Classification**:
 
@@ -304,17 +304,17 @@ Applies to: **Meshtastic only** (queue-based adapter).
 
 **Native ID**: `LXMessage.hash` / `LXMessage.message_id` — 32-byte SHA-256 of (destination_hash \|\| source_hash \|\| msgpack(timestamp, title, content, fields)). Never transmitted; always computable from message content.
 
-| Aspect                          | Detail                                                                                                                                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Inbound source ref              | `NativeRef(adapter, native_channel_id=None, native_message_id=str(message_id))` — NO channel                                                                                                           |
-| Inbound reply relation          | **None** — MEDRE does not decode LXMF native relations                                                                                                                                                 |
-| Inbound reaction relation       | **None**                                                                                                                                                                                               |
-| Outbound native ref             | Immediate; `AdapterDeliveryResult.native_message_id` from `LXMessage.hash`                                                                                                                             |
-| `native_channel_id` on outbound | `str(destination_hash)` if available, else `None`                                                                                                                                                      |
-| MEDRE fields envelope           | Embedded in `LXMessage.fields` under key `0xFD` — carries `target_native_ref` (adapter, native_channel_id, native_message_id) for cross-transport relation rendering                                   |
+| Aspect                          | Detail                                                                                                                                                                                                                                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inbound source ref              | `NativeRef(adapter, native_channel_id=None, native_message_id=str(message_id))` — NO channel                                                                                                                                                                                        |
+| Inbound reply relation          | **None** — MEDRE does not decode LXMF native relations                                                                                                                                                                                                                              |
+| Inbound reaction relation       | **None**                                                                                                                                                                                                                                                                            |
+| Outbound native ref             | Immediate; `AdapterDeliveryResult.native_message_id` from `LXMessage.hash`                                                                                                                                                                                                          |
+| `native_channel_id` on outbound | `str(destination_hash)` if available, else `None`                                                                                                                                                                                                                                   |
+| MEDRE fields envelope           | Embedded in `LXMessage.fields` under key `0xFD` — carries `target_native_ref` (adapter, native_channel_id, native_message_id) for cross-transport relation rendering                                                                                                                |
 | `delivery_state`                | Stored as `metadata["lxmf"]["delivery_state"]`. The adapter computes this from `LXMessage.state` (integer constants: GENERATING→OUTBOUND→SENDING→SENT→DELIVERED or FAILED/REJECTED/CANCELLED) returned by `send_text` and records the `.value` under the `lxmf` metadata namespace. |
-| `transient_id`                  | Used only by propagation nodes for encrypted storage. Not the same as `message_id`.                                                                                                                    |
-| `FIELD_THREAD` (0x08)           | Defined in LXMF.py but **unspecified and unused** — no documentation, no enforcement, no known client implements it                                                                                    |
+| `transient_id`                  | Used only by propagation nodes for encrypted storage. Not the same as `message_id`.                                                                                                                                                                                                 |
+| `FIELD_THREAD` (0x08)           | Defined in LXMF.py but **unspecified and unused** — no documentation, no enforcement, no known client implements it                                                                                                                                                                 |
 
 **MEDRE current behavior**: LXMF is treated as **unsupported/fallback/envelope-only** for native relations. MEDRE embeds outbound relation data in the `0xFD` fields envelope for round-trip correlation, but does NOT read or write LXMF's native `FIELD_THREAD`. Do not imply MEDRE supports LXMF native relations.
 
