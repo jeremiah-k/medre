@@ -15,7 +15,7 @@ async def _evidence(
     event_id: str | None,
     replay_run_id: str | None,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """Collect and print an evidence bundle."""
     report = await collect_evidence_bundle(

@@ -33,8 +33,6 @@ _LIMITATIONS: list[str] = [
 
 def _build_cross_linked_commands(
     event_id: str,
-    config_path: str | None,
-    snapshot_path: str | None,
     storage_path: str | None = None,
 ) -> dict[str, Any]:
     """Build cross-linked CLI command strings for the report.

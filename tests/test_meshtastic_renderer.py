@@ -8,7 +8,7 @@ in test_meshtastic_renderer_relations.py.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -53,7 +53,7 @@ def _make_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
         source_transport_id="!node1",
         source_channel_id="0",

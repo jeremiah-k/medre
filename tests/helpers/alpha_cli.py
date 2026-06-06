@@ -166,7 +166,10 @@ def write_sqlite_config_from_example(tmp_path: Path, db_path: Path) -> str:
     src = EXAMPLES_SMOKE_CONFIG.read_text()
     # Replace memory storage with SQLite + path.
     sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
-    derived = src.replace('backend = "memory"', sqlite_block)
+    assert (
+        src.count('backend = "memory"') == 1
+    ), "Expected exactly one 'backend = \"memory\"' in example config"
+    derived = src.replace('backend = "memory"', sqlite_block, 1)
     cfg = tmp_path / "smoke_sqlite_from_example.toml"
     cfg.write_text(derived)
     return str(cfg)

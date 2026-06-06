@@ -269,7 +269,7 @@ class TestInspectEventStoragePath:
         assert "storage error" in stderr.lower()
         assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
-    def test_inspect_event_config_not_accepted(self, tmp_path: Path) -> None:
+    def test_inspect_event_config_not_accepted(self) -> None:
         """--config is not accepted by inspect (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",

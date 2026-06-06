@@ -142,7 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--storage-path",
         default=None,
         metavar="PATH",
-        help="Override storage to SQLite at PATH for persisting smoke evidence",
+        help="Override config storage to SQLite at PATH for persisting smoke evidence",
     )
     smoke_p.add_argument(
         "--json", action="store_true", default=False, help="Output JSON report"

@@ -189,9 +189,11 @@ async def _collect_storage_data_from_backend(
                     classification = "unknown"
 
                 cmds = (
-                    recommended_commands(classification, event_id)
+                    recommended_commands(classification, event_id, storage_path=db_path)
                     if classification != "success"
-                    else [f"medre inspect event {event_id} --timeline"]
+                    else [
+                        f"medre inspect event {event_id} --timeline --storage-path {db_path}"
+                    ]
                 )
 
                 # Specialised lower-level command for evidence bundle.

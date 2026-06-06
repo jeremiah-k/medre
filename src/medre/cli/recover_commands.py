@@ -27,7 +27,7 @@ async def _build_event_recovery_runbook(
     storage: Any,
     event_id: str,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> dict[str, Any] | None:
     """Build a recovery runbook dict for a single event.
 
@@ -128,7 +128,9 @@ async def _build_event_recovery_runbook(
     present_categories = {cat for cat, items in classification.items() if items}
     all_commands: list[str] = []
     for cat in sorted(present_categories):
-        all_commands.extend(_recommended_commands(cat, event_id))
+        all_commands.extend(
+            _recommended_commands(cat, event_id, storage_path=storage_path)
+        )
 
     # Deduplicate while preserving order.
     seen_cmds: set[str] = set()
@@ -152,11 +154,7 @@ async def _build_event_recovery_runbook(
         "commands": {
             "primary": unique_commands,
             "specialized": [
-                (
-                    f"medre recover --event {event_id} --storage-path {storage_path}"
-                    if storage_path
-                    else f"medre recover --event {event_id}"
-                ),
+                f"medre recover --event {event_id} --storage-path {storage_path}",
             ],
         },
         "timeline": timeline_entries,

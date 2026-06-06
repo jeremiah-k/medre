@@ -557,19 +557,19 @@ export MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=serial
 export MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyUSB0
 ```
 
-1. Check diagnostics from storage:
+1. Check storage evidence (receipts and delivery state from database):
 
 ```bash
 medre evidence --storage-path /path/to/medre.db --json
 ```
 
-3. Check diagnostics output:
+2. Check live diagnostics (health output from running adapter):
    - `connected`: should be `true`
    - `node_info_present`: should be `true`
    - `last_received_at`: should be a recent timestamp
 
-4. Send a test message from another Meshtastic node or the Meshtastic phone app.
-5. Confirm the adapter receives it (check logs or storage).
+3. Send a test message from another Meshtastic node or the Meshtastic phone app.
+4. Confirm the adapter receives it (check logs or storage).
 
 ### What Live Validates
 

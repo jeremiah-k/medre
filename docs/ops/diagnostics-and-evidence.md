@@ -105,7 +105,7 @@ medre inspect native-ref --adapter <name> --message <native_id> --storage-path /
 medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 ```
 
-All `inspect` subcommands (`event`, `receipts`, `native-ref`, and `receipts --replay-run`) require `--storage-path` for direct read-only access to a SQLite database.
+All `inspect` subcommands (`event`, `receipts`, `native-ref`, `replay`, and `receipts --replay-run`) require `--storage-path` for direct read-only access to a SQLite database. No config file is needed — `inspect` opens the database directly from the provided path.
 
 The `replay` command requires `--config`; `recover` requires `--storage-path` (read-only). Use `inspect` as your first investigation step.
 
@@ -336,17 +336,16 @@ PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.toml --json
 
 When the config specifies SQLite storage, events, receipts, and native refs are written to the configured database file and can be inspected with `medre inspect` after the process exits.
 
-`medre inspect` subcommands require persistent storage. Running `medre inspect` against a config with `[storage] backend = "memory"` produces:
+`medre inspect` subcommands use `--storage-path` to open a SQLite database directly (no config file needed). After a smoke run with persistent storage, pass the database path to inspect:
 
-```text
-Error: storage backend is 'memory' — no persistent data to inspect.
+```bash
+medre inspect event <event_id> --storage-path /tmp/medre-smoke.db
 ```
 
-To inspect stored evidence after a run, use `medre run` with SQLite storage:
+To persist smoke evidence to SQLite without editing the config, use `--storage-path`:
 
-```toml
-[storage]
-backend = "sqlite"
+```bash
+PYTHONPATH=src medre smoke --storage-path /tmp/medre-smoke.db --json
 ```
 
 ## Docker SDK-Boundary Tests

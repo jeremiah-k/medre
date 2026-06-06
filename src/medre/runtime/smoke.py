@@ -63,7 +63,14 @@ from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
-__all__ = ["run_fake_bridge_smoke"]
+
+def _build_limitations(storage_backend: str) -> list[str]:
+    """Build the limitations list based on the actual storage backend."""
+    storage_note = (
+        _LIMITATIONS_SQLITE if storage_backend == "sqlite" else _LIMITATIONS_MEMORY
+    )
+    return _LIMITATIONS + [storage_note]
+
 
 _logger = logging.getLogger(__name__)
 
@@ -73,11 +80,14 @@ _logger = logging.getLogger(__name__)
 
 _LIMITATIONS: list[str] = [
     "Fake adapters only — no real transport connectivity proven",
-    "In-memory storage — no persistence or crash-recovery proof",
     "No live codec verification for real packet formats",
     "No reconnection resilience or retry-against-live proof",
     "Fire-and-forget delivery model for radio transports",
 ]
+
+_LIMITATIONS_MEMORY: str = "In-memory storage — no persistence or crash-recovery proof"
+
+_LIMITATIONS_SQLITE: str = "Persistent storage (SQLite) but no crash-recovery proof"
 
 # ---------------------------------------------------------------------------
 # Default config resolution
@@ -531,7 +541,7 @@ async def run_fake_bridge_smoke(
             },
             "accounting": snap.get("accounting", {}),
         },
-        "limitations": _LIMITATIONS,
+        "limitations": _build_limitations(config.storage.backend),
     }
 
     if sanitized:

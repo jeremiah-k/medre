@@ -44,6 +44,20 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _slice_section(text: str, start_marker: str, end_marker: str) -> str:
+    """Slice *text* from *start_marker* (inclusive) to *end_marker* (exclusive).
+
+    Raises ``AssertionError`` if *start_marker* is not found, preventing
+    silent -1-based slicing that would return the entire document tail.
+    """
+    start = text.find(start_marker)
+    assert start != -1, f"Section start marker not found: {start_marker!r}"
+    end = text.find(end_marker, start + len(start_marker))
+    if end == -1:
+        return text[start:]
+    return text[start:end]
+
+
 def _all_doc_text() -> str:
     """Concatenate all target docs for global searches."""
     return "\n".join(_read(p) for p in TARGET_DOCS)
@@ -407,12 +421,11 @@ class TestFailureTaxonomyNaming:
         # Note: shutdown_pending is valid as a ShutdownEvidence status value
         # (§13.4 / §20.4) but must not appear as a failure evidence taxon
         # in the §12 table. We check only the "Derived taxons" bullet list.
-        derived_bullet = text[
-            text.find("- Derived taxons (`not_configured`") : text.find(
-                "not stored as enum values on receipt rows."
-            )
-            + len("not stored as enum values on receipt rows.")
-        ]
+        derived_bullet = _slice_section(
+            text,
+            "- Derived taxons (`not_configured`",
+            "not stored as enum values on receipt rows.",
+        )
         stale = re.findall(r"`shutdown_pending`", derived_bullet)
         assert not stale, (
             "failure-taxonomy.md §12 lists 'shutdown_pending' as a derived "
@@ -431,14 +444,11 @@ class TestFailureTaxonomyNaming:
 
         # The evidence taxonomy table (§12) should reference outbox_not_owned
         # It's defined in §10; §12 should cross-reference it.
-        taxonomy_section = text[text.find("## 12. Delivery Failure Evidence") :]
-        taxonomy_section = taxonomy_section[
-            : (
-                taxonomy_section.find("## 13.")
-                if "## 13." in taxonomy_section
-                else len(taxonomy_section)
-            )
-        ]
+        taxonomy_section = _slice_section(
+            text,
+            "## 12. Delivery Failure Evidence",
+            "## 13.",
+        )
         assert "`outbox_not_owned`" in taxonomy_section, (
             "failure-taxonomy.md §12 evidence taxonomy table must include "
             "'outbox_not_owned'. It is a DeliveryFailureKind that appears in "
@@ -457,14 +467,11 @@ class TestFailureTaxonomyNaming:
         if not cancelled_match:
             # If the pattern doesn't match exactly, just check that
             # the §12 table area doesn't self-reference
-            taxonomy_section = text[text.find("## 12. Delivery Failure Evidence") :]
-            taxonomy_section = taxonomy_section[
-                : (
-                    taxonomy_section.find("## 13.")
-                    if "## 13." in taxonomy_section
-                    else len(taxonomy_section)
-                )
-            ]
+            taxonomy_section = _slice_section(
+                text,
+                "## 12. Delivery Failure Evidence",
+                "## 13.",
+            )
             assert "See §12" not in taxonomy_section, (
                 "failure-taxonomy.md §12 must not contain self-referencing "
                 "'See §12'. The 'cancelled' entry should reference §13."

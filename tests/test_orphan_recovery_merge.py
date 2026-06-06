@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -545,7 +546,9 @@ class TestRuntimeAlignment:
     """Verify that the runtime storage-section path produces orphan_report
     with recovery convergence findings using the shared helper."""
 
-    async def test_runtime_per_event_orphan_report_includes_recovery(self):
+    async def test_runtime_per_event_orphan_report_includes_recovery(
+        self, tmp_path: Path
+    ):
         """Per-event runtime path merges recovery findings into orphan_report."""
         from medre.runtime.evidence._storage_sections import (
             _collect_storage_data_from_backend,
@@ -580,7 +583,7 @@ class TestRuntimeAlignment:
         ):
             result = await _collect_storage_data_from_backend(
                 storage,
-                db_path="/tmp/test.db",
+                db_path=str(tmp_path / "test.db"),
                 event_id="ev-runtime",
                 replay_run_id=None,
             )
@@ -597,7 +600,7 @@ class TestRuntimeAlignment:
             orphan_report["worst_severity"], str
         )
 
-    async def test_runtime_global_orphan_report_includes_recovery(self):
+    async def test_runtime_global_orphan_report_includes_recovery(self, tmp_path: Path):
         """Global convergence path merges recovery findings into orphan_report."""
         from medre.runtime.evidence._storage_sections import (
             _collect_storage_data_from_backend,
@@ -613,7 +616,7 @@ class TestRuntimeAlignment:
 
         result = await _collect_storage_data_from_backend(
             storage,
-            db_path="/tmp/test.db",
+            db_path=str(tmp_path / "test.db"),
             event_id=None,  # global convergence
             replay_run_id=None,
         )

@@ -5,7 +5,7 @@ targeted coverage paths for relation handling.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -51,7 +51,7 @@ def _make_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
         source_transport_id="!node1",
         source_channel_id="0",
@@ -108,7 +108,7 @@ def _make_matrix_event(
         event_id=event_id,
         event_kind="message.reacted",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="@user:example.com",
         source_channel_id="!room:example.com",
@@ -653,7 +653,7 @@ class TestFallbackTextReplyRelationContext:
             event_id="evt-1",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",

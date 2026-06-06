@@ -424,12 +424,9 @@ class TestStoragePathInCommands:
         from medre.runtime.run_session.report import _build_cross_linked_commands
 
         space_path = "/tmp/path with spaces/session.db"
-        config_path = "/tmp/path with spaces/config.toml"
 
         result = _build_cross_linked_commands(
             event_id="evt_123",
-            config_path=config_path,
-            snapshot_path=None,
             storage_path=space_path,
         )
 
@@ -462,8 +459,6 @@ class TestStoragePathInCommands:
 
         result = _build_cross_linked_commands(
             event_id="evt_789",
-            config_path=None,
-            snapshot_path=None,
             storage_path=None,
         )
 
