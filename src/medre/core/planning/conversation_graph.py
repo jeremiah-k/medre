@@ -10,8 +10,8 @@ Algorithm
 1. **No resolved relation target**: the event is a conversation root.
    ``root_event_id = conversation_id = event.event_id``.
 
-2. **Relation target has ``root_event_id``/``conversation_id`` already**:
-   inherit them directly (fast path for previously-stored ancestors).
+2. **Relation target has ``root_event_id`` already**: use that root_id;
+   ``conversation_id`` is assigned equal to root_event_id.
 
 3. **Relation target lacks identity fields**: recursively walk the target
    event's own relations via ``storage.get()`` to find an ancestor that

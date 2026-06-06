@@ -15,7 +15,7 @@ Events flow through a fixed sequence of stages. Each stage has a defined
 responsibility and produces traceable output.
 
 ```text
-[Adapters] --> ingress --> dedup --> resolve_relations --> store
+[Adapters] --> ingress --> dedup --> resolve_relations --> conv_identity --> store
                                                              |
                                                         route
                                                              |
@@ -26,23 +26,25 @@ responsibility and produces traceable output.
 
 ## 2. Stage Descriptions
 
-| Stage                 | Responsibility                                                                                                                                                                                             | Ends With                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Ingress**           | Validate required fields (`event_id`, `event_kind`, `source_adapter`) on inbound canonical events. Reject malformed events at the boundary.                                                                | Validated event in memory.                            |
-| **Dedup**             | Check the inbound native-message ref (`source_native_ref`) against persisted refs. Suppress duplicate native refs before storage to prevent echo loops.                                                    | Duplicate suppressed (returns `[]`); or unique event. |
-| **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged.                                                   | Event with resolved relation IDs (may be same event). |
-| **Store**             | Persist the canonical event to the storage backend via `StorageBackend.append`. Also persist the inbound `NativeMessageRef`. This is the immutable record.                                                 | Event durably stored; native ref recorded.            |
-| **Route**             | Match the stored event against registered routes via `Router.match`. Create a `DeliveryPlan` per target using `FallbackResolver`. Attach route-level retry policies.                                       | Ordered list of `(Route, DeliveryPlan)` pairs.        |
-| **Deliver**           | For each target: evaluate route policy, acquire capacity, create outbox item, enrich target-specific relations, render, call adapter `deliver()`, persist a `DeliveryReceipt`, and update the outbox item. | `DeliveryOutcome` per target; receipt in storage.     |
+| Stage                 | Responsibility                                                                                                                                                                                                                           | Ends With                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Ingress**           | Validate required fields (`event_id`, `event_kind`, `source_adapter`) on inbound canonical events. Reject malformed events at the boundary.                                                                                              | Validated event in memory.                                  |
+| **Dedup**             | Check the inbound native-message ref (`source_native_ref`) against persisted refs. Suppress duplicate native refs before storage to prevent echo loops.                                                                                  | Duplicate suppressed (returns `[]`); or unique event.       |
+| **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged.                                                                                 | Event with resolved relation IDs (may be same event).       |
+| **Conv. Identity**    | Assign conversation identity via `ConversationGraphAuthority`. Populates `root_event_id` and `conversation_id` by threading the event into its conversation graph. Runs after relation resolution so that parent pointers are available. | Event with `root_event_id` and `conversation_id` populated. |
+| **Store**             | Persist the canonical event to the storage backend via `StorageBackend.append`. Also persist the inbound `NativeMessageRef`. This is the immutable record.                                                                               | Event durably stored; native ref recorded.                  |
+| **Route**             | Match the stored event against registered routes via `Router.match`. Create a `DeliveryPlan` per target using `FallbackResolver`. Attach route-level retry policies.                                                                     | Ordered list of `(Route, DeliveryPlan)` pairs.              |
+| **Deliver**           | For each target: evaluate route policy, acquire capacity, create outbox item, enrich target-specific relations, render, call adapter `deliver()`, persist a `DeliveryReceipt`, and update the outbox item.                               | `DeliveryOutcome` per target; receipt in storage.           |
 
 ### Stage Invariants
 
 1. **Ingress**: Events missing `event_id`, `event_kind`, or `source_adapter` raise `ValueError`.
 2. **Dedup**: Suppressed duplicates produce no `DeliveryReceipt`. Evidence is recorded via `RuntimeAccounting` counters only.
 3. **Resolve Relations**: The stored event is never mutated. If relations change, a new immutable event is created via `msgspec.structs.replace`.
-4. **Store**: Events are appended immutably. No `UPDATE` or `DELETE` is issued on event rows.
-5. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
-6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
+4. **Conv. Identity**: `ConversationGraphAuthority` uses the resolved relation IDs (especially `parent_event_id`) to determine conversation membership. An event with no parent becomes its own root. The event is not mutated; identity fields are set via `msgspec.structs.replace`.
+5. **Store**: Events are appended immutably. No `UPDATE` or `DELETE` is issued on event rows.
+6. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
+7. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
 
 ### Future Extension Points
 

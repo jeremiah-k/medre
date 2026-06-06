@@ -202,14 +202,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 # ---------------------------------------------------------------------------
 
 _EXPECTED_SCHEMA_VERSION: int = 1
-"""Current storage schema version.
+"""Frozen schema version — stays at **1** until the project curator declares a
+release compatibility boundary.  DDL shape changes during pre-release do **not**
+require a version bump; the expected version is only incremented once the
+storage contract is formally release-tracked.
 
-During pre-release development this value stays at **1** — it is only bumped
-when the project curator explicitly declares a public compatibility boundary.
-Even so, the version is checked on every :meth:`SQLiteStorage.initialize` call
-to catch databases that were manually made incompatible (e.g. by an older
-pre-release build).  DDL shape changes during pre-release are handled by
-updating docs and tests directly; no automatic migrations are provided.
+That said, the version **is** checked on every
+:meth:`SQLiteStorage.initialize` call and a mismatch will raise an error.
+This strictness is intentional: it catches databases that were manually made
+incompatible (e.g. by an older pre-release build) even before any migration
+machinery exists.
 """
 
 # ---------------------------------------------------------------------------

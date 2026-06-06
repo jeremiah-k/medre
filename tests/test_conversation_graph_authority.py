@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.conversation_graph import ConversationGraphAuthority
@@ -71,7 +69,6 @@ class FakeStorage:
 class TestSingleEventNoRelations:
     """Single event with no relations → root and conversation are self."""
 
-    @pytest.mark.asyncio
     async def test_no_relations_assigns_self_as_root(self) -> None:
         storage = FakeStorage()
         authority = ConversationGraphAuthority(storage=storage)
@@ -82,7 +79,6 @@ class TestSingleEventNoRelations:
         assert result.root_event_id == "evt-1"
         assert result.conversation_id == "evt-1"
 
-    @pytest.mark.asyncio
     async def test_no_resolved_target_assigns_self_as_root(self) -> None:
         """Relations exist but target_event_id is None → self as root."""
         storage = FakeStorage()
@@ -105,7 +101,6 @@ class TestSingleEventNoRelations:
 class TestReplyInheritsRoot:
     """Reply event inherits root_event_id from target that has one."""
 
-    @pytest.mark.asyncio
     async def test_target_has_root_inherits_directly(self) -> None:
         root = _make_event(
             event_id="root-1", root_event_id="root-1", conversation_id="root-1"
@@ -127,7 +122,6 @@ class TestReplyInheritsRoot:
         assert result.root_event_id == "root-1"
         assert result.conversation_id == "root-1"
 
-    @pytest.mark.asyncio
     async def test_target_is_root_node_no_root_field(self) -> None:
         """Target event has no root_event_id and no relations → target is root."""
         root = _make_event(event_id="root-1")  # no root_event_id
@@ -152,7 +146,6 @@ class TestReplyInheritsRoot:
 class TestMultiHopChain:
     """Multi-hop chain: C→B→A. C should inherit A's root."""
 
-    @pytest.mark.asyncio
     async def test_three_hop_chain(self) -> None:
         # A is the root (no relations, no root_event_id).
         a = _make_event(event_id="evt-a")
@@ -186,7 +179,6 @@ class TestMultiHopChain:
         assert result.root_event_id == "evt-a"
         assert result.conversation_id == "evt-a"
 
-    @pytest.mark.asyncio
     async def test_chain_with_cached_root(self) -> None:
         """When B already has root_event_id, C inherits it without further walk."""
         a = _make_event(
@@ -216,7 +208,6 @@ class TestMultiHopChain:
 class TestMissingTarget:
     """Target event not in storage → current event becomes root."""
 
-    @pytest.mark.asyncio
     async def test_target_not_found_degrades_to_self(self) -> None:
         rel = EventRelation(
             relation_type="reply",
@@ -240,7 +231,6 @@ class TestMissingTarget:
 class TestCycleGuard:
     """Cyclic relation graph → visited set breaks cycle safely."""
 
-    @pytest.mark.asyncio
     async def test_direct_cycle(self) -> None:
         """A → B → A cycle: walk should break and return a stable root."""
         a_rel = EventRelation(
@@ -281,7 +271,6 @@ class TestCycleGuard:
         assert result.root_event_id in ("evt-a", "evt-b")
         assert result.conversation_id == result.root_event_id
 
-    @pytest.mark.asyncio
     async def test_self_referencing_event(self) -> None:
         """Event whose relation targets itself → visited set catches it."""
         rel = EventRelation(
@@ -306,7 +295,6 @@ class TestCycleGuard:
 class TestAlreadyAssigned:
     """Event that already has root_event_id is returned unchanged."""
 
-    @pytest.mark.asyncio
     async def test_already_assigned_no_mutation(self) -> None:
         event = _make_event(
             event_id="evt-1",
@@ -326,7 +314,6 @@ class TestAlreadyAssigned:
 class TestCachedGetUsage:
     """Authority uses cached_get_fn when provided."""
 
-    @pytest.mark.asyncio
     async def test_cached_fn_called_not_storage(self) -> None:
         """When cached_get_fn is given, storage.get should not be called."""
         call_log: list[str] = []
@@ -372,7 +359,6 @@ class TestCachedGetUsage:
 class TestReactionRelation:
     """Reaction relations also resolve conversation identity."""
 
-    @pytest.mark.asyncio
     async def test_reaction_inherits_root(self) -> None:
         root = _make_event(
             event_id="root-1", root_event_id="root-1", conversation_id="root-1"
@@ -398,7 +384,6 @@ class TestReactionRelation:
 class TestStorageGetFailure:
     """Storage.get raising an exception degrades safely."""
 
-    @pytest.mark.asyncio
     async def test_get_exception_degrades_to_self(self) -> None:
         class FailingStorage(FakeStorage):
             async def get(self, event_id: str) -> CanonicalEvent | None:
@@ -426,7 +411,6 @@ class TestStorageGetFailure:
 class TestNoGetOnStorage:
     """Storage without a ``get`` method degrades safely."""
 
-    @pytest.mark.asyncio
     async def test_storage_without_get(self) -> None:
         class MinimalStorage:
             pass
@@ -458,7 +442,6 @@ class TestMultiRelationMissingFirstTarget:
     second target.
     """
 
-    @pytest.mark.asyncio
     async def test_first_missing_second_present_inherits_root(self) -> None:
         # A known root already stored with identity fields.
         root = _make_event(
@@ -503,7 +486,6 @@ class TestMultiRelationMissingFirstTarget:
         assert result.root_event_id == "root-1"
         assert result.conversation_id == "root-1"
 
-    @pytest.mark.asyncio
     async def test_all_targets_missing_self_roots(self) -> None:
         """When ALL relation targets are missing, self-root."""
         rel_a = EventRelation(
@@ -543,7 +525,6 @@ class TestFirstResolvedStoredRelationWins:
     determines root selection when targets diverge.
     """
 
-    @pytest.mark.asyncio
     async def test_first_relation_root_chosen_when_both_stored(self) -> None:
         """Two resolved relations, both in storage, different roots →
         first relation's root wins."""

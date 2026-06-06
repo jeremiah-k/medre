@@ -72,15 +72,18 @@ class _BlockingStorage:
         real_storage: SQLiteStorage,
         blocked_id: str,
         block_event: asyncio.Event,
+        entered_event: asyncio.Event,
     ) -> None:
         self._real = real_storage
         self._blocked_id = blocked_id
         self._block_event = block_event
+        self._entered_event = entered_event
         self.get_call_ids: list[str] = []
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
         self.get_call_ids.append(event_id)
         if event_id == self._blocked_id:
+            self._entered_event.set()
             await self._block_event.wait()
         return await self._real.get(event_id)
 
@@ -588,10 +591,12 @@ class TestConcurrentIngressCacheIsolation:
         # storage.get("prior-a") blocks until we release it;
         # storage.get("prior-b") returns immediately.
         block_event = asyncio.Event()
+        entered_event = asyncio.Event()
         blocking_storage = _BlockingStorage(
             real_storage=temp_storage,
             blocked_id="prior-a",
             block_event=block_event,
+            entered_event=entered_event,
         )
 
         from medre.adapters.fakes.presentation import FakePresentationAdapter
@@ -642,18 +647,22 @@ class TestConcurrentIngressCacheIsolation:
         )
 
         try:
-            # -- Act: launch both, force interleaving -----------------------
+            # -- Act: launch task_a, wait for it to enter the blocked get --
             task_a = asyncio.create_task(runner.handle_ingress(event_a))
-            task_b = asyncio.create_task(runner.handle_ingress(event_b))
 
-            # event_b completes immediately (no blocking on "prior-b").
+            # Wait until task_a is suspended inside storage.get("prior-a").
+            await asyncio.wait_for(entered_event.wait(), timeout=2.0)
+            assert not task_a.done()
+
+            # task_b completes immediately (no blocking on "prior-b").
+            task_b = asyncio.create_task(runner.handle_ingress(event_b))
             outcomes_b = await asyncio.wait_for(task_b, timeout=2.0)
             assert len(outcomes_b) == 1
 
-            # event_a is still suspended inside storage.get("prior-a").
+            # task_a is still suspended — task_b finished independently.
             assert not task_a.done()
 
-            # Release the block so event_a can proceed.
+            # Release the block so task_a can proceed.
             block_event.set()
             outcomes_a = await asyncio.wait_for(task_a, timeout=2.0)
             assert len(outcomes_a) == 1

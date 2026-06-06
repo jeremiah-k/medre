@@ -305,13 +305,26 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
         Canonical event ID of the root event in a relation chain.
         Assigned by :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
         during pipeline ingress after relation resolution.
-        ``None`` when not yet computed or when the event has no
-        relation ancestry.
+
+        ``None`` **only** before ConversationGraphAuthority has computed
+        conversation identity, or for events that have not yet passed
+        through pipeline ingress.
+
+        After pipeline ingress, every event is resolved:
+
+        * **Root / no-relation events** self-root with
+          ``root_event_id = event.event_id``.
+        * **Relation events** inherit or walk to a resolved relation
+          root.  If all resolved relation targets are missing, the event
+          self-roots.
     conversation_id:
-        Canonical conversation identifier.  Currently equals
-        ``root_event_id`` but exists independently for future
-        grouping semantics (e.g. merged threads, cross-transport
-        conversation grouping).
+        Canonical conversation identifier.  After assignment by
+        ConversationGraphAuthority, ``conversation_id`` is always set
+        to ``root_event_id`` — there is no independent propagation
+        path.  The field exists as a stable seam for future grouping
+        semantics (e.g. merged threads, cross-transport conversation
+        grouping) without coupling callers to the root-event identity
+        model.
     """
 
     event_id: str

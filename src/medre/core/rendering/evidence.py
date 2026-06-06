@@ -399,8 +399,8 @@ class RenderingEvidence:
         relation_evidence: tuple[RelationTargetEvidence, ...] = ()
 
         if event is not None:
-            conversation_id = getattr(event, "conversation_id", None)
-            root_event_id = getattr(event, "root_event_id", None)
+            conversation_id = event.conversation_id
+            root_event_id = event.root_event_id
             relation_evidence = _build_relation_evidence(
                 event=event,
                 ctx=ctx,
