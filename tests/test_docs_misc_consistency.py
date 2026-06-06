@@ -421,10 +421,12 @@ class TestFailureTaxonomyNaming:
         # Note: shutdown_pending is valid as a ShutdownEvidence status value
         # (§13.4 / §20.4) but must not appear as a failure evidence taxon
         # in the §12 table. We check only the "Derived taxons" bullet list.
+        # Slice from the Derived taxons bullet to the next bullet (- not_executed).
+        # This isolates the derived taxon list without capturing §13 content.
         derived_bullet = _slice_section(
             text,
             "- Derived taxons (`not_configured`",
-            "not stored as enum values on receipt rows.",
+            "- `not_executed`",
         )
         stale = re.findall(r"`shutdown_pending`", derived_bullet)
         assert not stale, (

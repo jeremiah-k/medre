@@ -454,15 +454,15 @@ class TestConfigSampleToSmoke:
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
-        # Derive a SQLite variant of the sample config.
+        # Derive a SQLite variant of the sample config with a concrete DB path.
         db_path = str(tmp_path / "sample-smoke.db")
-        target = 'backend = "memory"'
-        assert (
-            sample.count(target) == 1
-        ), "Expected exactly one 'backend = \"memory\"' in sample config"
+        path_target = 'path = "{state}/medre.sqlite"'
+        assert sample.count(path_target) >= 1, (
+            f"Expected at least one '{path_target}' in sample config"
+        )
         sqlite_sample = sample.replace(
-            target,
-            f'backend = "sqlite"\npath = {db_path!r}',
+            path_target,
+            f"path = {db_path!r}",
             1,
         )
         cfg_path = tmp_path / "sample_sqlite.toml"
