@@ -238,8 +238,8 @@ diagnostics.
 **Implementation status:**
 
 - First-class `DeliveryFailureKind` values (`capability_suppressed`,
-  `loop_suppressed`, `delivery_failed`) are emitted by the runtime and stored
-  on receipt rows.
+  `loop_suppressed`, `delivery_failed`, `shutdown_rejection`) are emitted by
+  the runtime and stored on receipt rows.
 - `auth_failed` and `connection_failed` are derived taxon labels computed from
   error text analysis at report time. They are not first-class enum values
   emitted by transport code.
@@ -251,9 +251,9 @@ diagnostics.
   work for the next startup. See §13.
 - Derived taxons (`not_configured`, `unavailable`, `auth_failed`,
   `connection_failed`, `route_disabled`, `route_listen_only`,
-  `retry_exhausted`, `shutdown_rejection`) are computed at report time from
-  receipt fields, error text parsing, config state, or adapter health. They are
-  not stored as enum values on receipt rows.
+  `retry_exhausted`) are computed at report time from receipt fields,
+  error text parsing, config state, or adapter health. They are not stored
+  as enum values on receipt rows.
 - `not_executed` is a meta-classification indicating absence of evidence, not
   a failure kind. It is used in evidence tables and operator reports to
   document what was not tested.
