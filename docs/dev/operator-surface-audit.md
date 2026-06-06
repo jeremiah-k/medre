@@ -336,6 +336,19 @@ Source: `src/medre/core/evidence/failure_taxonomy.py`
 | Operational             | `capacity_rejection`, `shutdown_rejection`, `deadline_exceeded`                                                                                                                                   |
 | Derived                 | `not_configured`, `unavailable`, `auth_failed`, `connection_failed`, `route_disabled`, `route_listen_only`, `delivery_failed`, `retry_exhausted`, `cancelled`, `shutdown_pending`, `not_executed` |
 
+> **Shutdown taxa clarified.** Two shutdown-related taxa exist as distinct
+> `FailureTaxon` members:
+>
+> - **`shutdown_rejection`** (Operational) — a first-class
+>   `DeliveryFailureKind` emitted by the runtime. The capacity controller
+>   stopped accepting new deliveries, or the drain timeout was exceeded,
+>   causing a delivery to be rejected. See failure-taxonomy §12.
+> - **`shutdown_pending`** (Derived) — not a `DeliveryFailureKind`. It is
+>   synthesised at report time from receipt error text containing
+>   `shutdown_drain_timeout`, indicating an in-flight delivery was abandoned
+>   after the drain period expired. Both taxa resolve to the `operational`
+>   coarse category.
+
 **Taxon categories** (coarse buckets): `retryable`, `permanent`, `operational`, `derived_terminal`, `unknown`.
 
 ### 3.8 Rendering Evidence
