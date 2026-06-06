@@ -275,7 +275,7 @@ The `--include-refresh-health` flag causes `medre evidence` to build the runtime
 | `event` — source_adapter, event_kind, payload                        | Event was stored correctly before delivery                                                                            |
 | `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                         |
 | `receipts` — route_id                                                | Which route triggered the delivery                                                                                    |
-| `native-ref` — native_message_id, canonical_event_id                 | Maps transport-native IDs to canonical events                                                                         |
+| `native-ref` — native_message_id, resolves_to                        | Maps transport-native IDs to canonical events                                                                         |
 | `receipts --replay-run` — source="replay", replay_run_id             | Distinguishes replay from live. Multiple entries across different `replay_run_id` values = multiple BEST_EFFORT runs. |
 
 ## Fake Bridge Smoke: Running the Tests

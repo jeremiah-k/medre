@@ -546,7 +546,7 @@ class TestInspectNativeRef:
             db_inspect_with_native_ref,
         )
         parsed = json.loads(output)
-        assert parsed["event_id"] == "evt-nref-1"
+        assert parsed["resolves_to"] == "evt-nref-1"
         assert parsed["adapter"] == "matrix"
         assert parsed["native_message_id"] == "$native-msg-1"
         assert "event" in parsed
@@ -567,7 +567,7 @@ class TestInspectNativeRef:
             db_inspect_native_null_channel,
         )
         parsed = json.loads(output)
-        assert parsed["event_id"] == "evt-nref-nullch"
+        assert parsed["resolves_to"] == "evt-nref-nullch"
         assert parsed["native_channel_id"] is None
 
     def test_native_ref_not_found_exits_not_found(
@@ -669,7 +669,7 @@ class TestInspectNativeRef:
         )
         parsed = json.loads(output)
         assert parsed["direction"] == "inbound"
-        assert parsed["event_id"] == "evt-inbound-1"
+        assert parsed["resolves_to"] == "evt-inbound-1"
 
     def test_stored_id_metadata_created_at_in_output(
         self,
@@ -713,7 +713,7 @@ class TestInspectNativeRef:
             db_inspect_native_null_channel,
         )
         parsed = json.loads(output)
-        assert parsed["event_id"] == "evt-nref-nullch"
+        assert parsed["resolves_to"] == "evt-nref-nullch"
         assert parsed["native_channel_id"] is None
         # Default seed direction is outbound.
         assert parsed["direction"] == "outbound"

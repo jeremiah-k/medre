@@ -167,13 +167,13 @@ medre trace replay <run_id> --storage-path /path/to/medre.db
 
 **NativeMessageRef:**
 
-| Field                | Description                        |
-| -------------------- | ---------------------------------- |
-| `native_message_id`  | Transport-native ID                |
-| `native_channel_id`  | Transport-native channel/room ID   |
-| `canonical_event_id` | Links to canonical event           |
-| `adapter`            | Adapter that produced this mapping |
-| `direction`          | `"inbound"` or `"outbound"`        |
+| Field               | Description                        |
+| ------------------- | ---------------------------------- |
+| `native_message_id` | Transport-native ID                |
+| `native_channel_id` | Transport-native channel/room ID   |
+| `resolves_to`       | Links to canonical event           |
+| `adapter`           | Adapter that produced this mapping |
+| `direction`         | `"inbound"` or `"outbound"`        |
 
 ### SQL Queries for Deep Tracing
 

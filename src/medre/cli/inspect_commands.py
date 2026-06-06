@@ -154,9 +154,6 @@ async def _inspect_native_ref(
                 nref=ref,
                 resolved_to_event_id=ref.event_id,
             )
-            # Add event_id alias for backward compatibility with existing
-            # consumers (the canonical key is "resolves_to").
-            result["event_id"] = ref.event_id
             # Expose stored fields that prove provenance.
             result["id"] = ref.id
             result["created_at"] = ref.created_at.isoformat()

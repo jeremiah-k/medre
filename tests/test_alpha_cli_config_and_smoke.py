@@ -457,9 +457,9 @@ class TestConfigSampleToSmoke:
         # Derive a SQLite variant of the sample config with a concrete DB path.
         db_path = str(tmp_path / "sample-smoke.db")
         path_target = 'path = "{state}/medre.sqlite"'
-        assert sample.count(path_target) >= 1, (
-            f"Expected at least one '{path_target}' in sample config"
-        )
+        assert (
+            sample.count(path_target) >= 1
+        ), f"Expected at least one '{path_target}' in sample config"
         sqlite_sample = sample.replace(
             path_target,
             f"path = {db_path!r}",

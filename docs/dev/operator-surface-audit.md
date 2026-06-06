@@ -4,22 +4,37 @@
 > shape, field classification, and terminology notes. Intended to unblock
 > surgical implementation agents and reduce overlap.
 
+## Path Semantics
+
+CLI flags that accept file paths follow a strict contract:
+
+- `--config` accepts a **TOML runtime configuration file**. Used by: `run`,
+  `diagnostics`, `routes`, `config check`, `replay`.
+- `--storage-path` accepts a **SQLite database file**. Required by: `inspect`,
+  `trace`, `evidence`, `recover`.
+- `smoke` / `smoke --run-session` default to in-memory storage; they accept
+  `--storage-path` only as an explicit SQLite persistence override.
+- A config TOML path must **never** be passed as `--storage-path` — they are
+  different file formats consumed by different subsystems.
+- Confusing the two causes silent wrong-path errors; the CLI validates and
+  rejects mismatches before opening either file.
+
 ## 1. Command Surface
 
 ### 1.1 Read-Only Inspection (no runtime start, no storage mutation)
 
-| Command                                            | Source                           | Output shape                        | Key sections                                                                                             |
-| -------------------------------------------------- | -------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `medre inspect event <id>`                         | SQLite (RO) via `--storage-path` | CanonicalEvent JSON                 | event_id, event_kind, source_adapter, payload, relations, timestamp, source_native_ref                   |
-| `medre inspect event <id> --timeline`              | SQLite (RO)                      | `{event: ..., timeline: [...]}`     | Timeline entries: event, native_ref, receipt, relation                                                   |
-| `medre inspect event <id> --evidence`              | SQLite (RO)                      | `{event: ..., evidence: <bundle>}`  | Full evidence bundle (see §2.1)                                                                          |
-| `medre inspect event <id> --recovery`              | SQLite (RO)                      | `{event: ..., recovery: <runbook>}` | Recovery runbook (see §2.4)                                                                              |
-| `medre inspect receipts --event <id>`              | SQLite (RO)                      | Receipt array                       | receipt_id, status, target_adapter, route_id, attempt_number, failure_kind, error, source, replay_run_id |
-| `medre inspect receipts --replay-run <id>`         | SQLite (RO)                      | Receipt array                       | Same as above, filtered by replay_run_id                                                                 |
-| `medre inspect native-ref --adapter A --message M` | SQLite (RO)                      | Ref resolution JSON                 | adapter, native_channel_id, native_message_id, event_id, event (if found)                                |
-| `medre inspect replay <run_id>`                    | SQLite (RO)                      | Replay timeline JSON                | Same shape as `medre trace replay`                                                                       |
-| `medre trace event <id>`                           | SQLite (RO)                      | Timeline JSON or human-readable     | Chronological entries: event, relation, native_ref, receipt                                              |
-| `medre trace replay <run_id>`                      | SQLite (RO)                      | Replay timeline JSON                | status, receipt_count, event_ids, timeline entries                                                       |
+| Command                                            | Source                           | Output shape                        | Key sections                                                                                                      |
+| -------------------------------------------------- | -------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `medre inspect event <id>`                         | SQLite (RO) via `--storage-path` | CanonicalEvent JSON                 | event_id, event_kind, source_adapter, payload, relations, timestamp, source_native_ref                            |
+| `medre inspect event <id> --timeline`              | SQLite (RO)                      | `{event: ..., timeline: [...]}`     | Timeline entries: event, native_ref, receipt, relation                                                            |
+| `medre inspect event <id> --evidence`              | SQLite (RO)                      | `{event: ..., evidence: <bundle>}`  | Full evidence bundle (see §2.1)                                                                                   |
+| `medre inspect event <id> --recovery`              | SQLite (RO)                      | `{event: ..., recovery: <runbook>}` | Recovery runbook (see §2.4)                                                                                       |
+| `medre inspect receipts --event <id>`              | SQLite (RO)                      | Receipt array                       | receipt_id, status, target_adapter, route_id, attempt_number, failure_kind, error, source, replay_run_id          |
+| `medre inspect receipts --replay-run <id>`         | SQLite (RO)                      | Receipt array                       | Same as above, filtered by replay_run_id                                                                          |
+| `medre inspect native-ref --adapter A --message M` | SQLite (RO)                      | Ref resolution JSON                 | adapter, native_channel_id, native_message_id, resolves_to, event (if found), direction, id, created_at, metadata |
+| `medre inspect replay <run_id>`                    | SQLite (RO)                      | Replay timeline JSON                | Same shape as `medre trace replay`                                                                                |
+| `medre trace event <id>`                           | SQLite (RO)                      | Timeline JSON or human-readable     | Chronological entries: event, relation, native_ref, receipt                                                       |
+| `medre trace replay <run_id>`                      | SQLite (RO)                      | Replay timeline JSON                | status, receipt_count, event_ids, timeline entries                                                                |
 
 Source modules:
 
@@ -128,27 +143,27 @@ Source modules:
 
 Top-level keys in the JSON bundle returned by `medre evidence --json`:
 
-| Field                          | Classification      | Notes                                            |
-| ------------------------------ | ------------------- | ------------------------------------------------ |
-| `schema_version`               | Schema/example-only | Always `1` pre-release                           |
-| `status`                       | Derived diagnostic  | One of `passed`, `partial`, `error`              |
-| `command`                      | Schema/example-only | Always `"evidence"`                              |
-| `collected_at`                 | Schema/example-only | ISO-8601 collection start                        |
-| `generated_at`                 | Schema/example-only | ISO-8601 generation complete                     |
-| `medre_version`                | Schema/example-only | Package version string                           |
-| `config_source`                | Report metadata     | How config was discovered                        |
-| `evidence_tier`                | Derived diagnostic  | Provenance tier (see §3.2)                       |
-| `runtime_started`              | Adapter fact        | Whether runtime was started for live health      |
-| `errors`                       | Derived diagnostic  | Section-level error messages                     |
-| `limitations`                  | Schema/example-only | Known limitation strings                         |
-| `adapter_status`               | Adapter fact        | Per-adapter runtime status list (see §3.1)       |
-| `shutdown_evidence`            | Derived diagnostic  | Shutdown classification from snapshot (see §3.3) |
-| `recovery_summary`             | Derived diagnostic  | Recovery ownership counts (see §3.4)             |
-| `recovery_ledger`              | Derived diagnostic  | Per-item recovery actions (see §3.4)             |
-| `convergence_summary`          | Derived diagnostic  | Per-target convergence (see §3.5)                |
-| `orphan_report`                | Derived diagnostic  | Orphan/invalid-lineage findings                  |
-| `lifecycle_convergence_report` | Derived diagnostic  | Lifecycle delivery findings                      |
-| `sections`                     | Container           | Nested section objects (see below)               |
+| Field                          | Classification             | Notes                                            |
+| ------------------------------ | -------------------------- | ------------------------------------------------ |
+| `schema_version`               | Schema/example-only        | Always `1` pre-release                           |
+| `status`                       | Derived diagnostic         | One of `passed`, `partial`, `error`              |
+| `command`                      | Schema/example-only        | Always `"evidence"`                              |
+| `collected_at`                 | Schema/example-only        | ISO-8601 collection start                        |
+| `generated_at`                 | Schema/example-only        | ISO-8601 generation complete                     |
+| `medre_version`                | Schema/example-only        | Package version string                           |
+| `config_source`                | Provenance/report metadata | How config was discovered                        |
+| `evidence_tier`                | Derived diagnostic         | Provenance tier (see §3.2)                       |
+| `runtime_started`              | Adapter fact               | Whether runtime was started for live health      |
+| `errors`                       | Derived diagnostic         | Section-level error messages                     |
+| `limitations`                  | Schema/example-only        | Known limitation strings                         |
+| `adapter_status`               | Adapter fact               | Per-adapter runtime status list (see §3.1)       |
+| `shutdown_evidence`            | Derived diagnostic         | Shutdown classification from snapshot (see §3.3) |
+| `recovery_summary`             | Derived diagnostic         | Recovery ownership counts (see §3.4)             |
+| `recovery_ledger`              | Derived diagnostic         | Per-item recovery actions (see §3.4)             |
+| `convergence_summary`          | Derived diagnostic         | Per-target convergence (see §3.5)                |
+| `orphan_report`                | Derived diagnostic         | Orphan/invalid-lineage findings                  |
+| `lifecycle_convergence_report` | Derived diagnostic         | Lifecycle delivery findings                      |
+| `sections`                     | Container                  | Nested section objects (see below)               |
 
 **Sections** (each has `status`, `data`, `error`):
 
@@ -163,24 +178,24 @@ Top-level keys in the JSON bundle returned by `medre evidence --json`:
 
 ### 2.2 Smoke Report
 
-| Field               | Classification                | Notes                                                 |
-| ------------------- | ----------------------------- | ----------------------------------------------------- |
-| `status`            | Authoritative lifecycle state | `"passed"` or `"failed"`                              |
-| `evidence_level`    | Schema/example-only           | Always `"fake_bridge"` — does not overclaim           |
-| `scenario_category` | Schema/example-only           | `"smoke"`                                             |
-| `simulated`         | Schema/example-only           | `true`                                                |
-| `command`           | Schema/example-only           | `"smoke"`                                             |
-| `timestamp`         | Schema/example-only           | ISO-8601                                              |
-| `event_id`          | Authoritative lifecycle state | Generated canonical event ID                          |
-| `source_adapter`    | Adapter fact                  | Fake source adapter ID                                |
-| `target_adapters`   | Adapter fact                  | List of target adapter IDs                            |
-| `route_ids`         | Adapter fact                  | List of route IDs used                                |
-| `delivery_receipts` | Authoritative lifecycle state | Per-target receipt records                            |
-| `native_refs`       | Adapter fact                  | Native message references                             |
-| `accounting`        | Derived diagnostic            | inbound_accepted, outbound_delivered, outbound_failed |
-| `storage_path`      | Adapter fact                  | SQLite path (or null for in-memory)                   |
-| `fail_reasons`      | Derived diagnostic            | List of failure reasons (only on fail)                |
-| `limitations`       | Schema/example-only           | Known limitation strings                              |
+| Field               | Classification                            | Notes                                                 |
+| ------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| `status`            | Derived operator/report status            | `"passed"` or `"failed"`                              |
+| `evidence_level`    | Schema/example-only                       | Always `"fake_bridge"` — does not overclaim           |
+| `scenario_category` | Schema/example-only                       | `"smoke"`                                             |
+| `simulated`         | Schema/example-only                       | `true`                                                |
+| `command`           | Schema/example-only                       | `"smoke"`                                             |
+| `timestamp`         | Schema/example-only                       | ISO-8601                                              |
+| `event_id`          | Canonical event identity                  | Generated canonical event ID                          |
+| `source_adapter`    | Adapter fact                              | Fake source adapter ID                                |
+| `target_adapters`   | Adapter target fact                       | List of target adapter IDs                            |
+| `route_ids`         | Routing/config fact                       | List of route IDs used                                |
+| `delivery_receipts` | Authoritative delivery evidence           | Per-target receipt records                            |
+| `native_refs`       | Stored native refs / adapter native facts | Native message references                             |
+| `accounting`        | Derived diagnostic                        | inbound_accepted, outbound_delivered, outbound_failed |
+| `storage_path`      | Provenance/report metadata                | SQLite path (or null for in-memory)                   |
+| `fail_reasons`      | Derived diagnostic                        | List of failure reasons (only on fail)                |
+| `limitations`       | Schema/example-only                       | Known limitation strings                              |
 
 Run-session report adds: `route_id`, `final_snapshot_checks` (schema_version, runtime_state), `final_snapshot_path`, `commands` (primary + specialized CLI commands for further inspection).
 
@@ -198,21 +213,21 @@ Run-session report adds: `route_id`, `final_snapshot_checks` (schema_version, ru
 
 ### 2.4 Recovery Runbook
 
-| Field                    | Classification                | Notes                                               |
-| ------------------------ | ----------------------------- | --------------------------------------------------- |
-| `scope`                  | Schema/example-only           | `"event"` or `"scan"`                               |
-| `event_id`               | Authoritative lifecycle state | Event being analyzed                                |
-| `event_kind`             | Authoritative lifecycle state | Kind of the canonical event                         |
-| `source_adapter`         | Adapter fact                  | Origin adapter                                      |
-| `total_receipts`         | Derived diagnostic            | Receipt count                                       |
-| `failed_targets`         | Authoritative lifecycle state | List of failed target details                       |
-| `failure_classification` | Derived diagnostic            | Grouped: retryable, permanent, operational, unknown |
-| `recommended_commands`   | Operator recommendation       | CLI commands to run next                            |
-| `commands`               | Operator recommendation       | Structured: primary + specialized                   |
-| `timeline`               | Derived diagnostic            | Chronological timeline entries                      |
-| `replay_context`         | Derived diagnostic            | Prior replay run IDs (if any)                       |
-| `warnings`               | Operator recommendation       | Duplicate-send risk, radio transport caveats        |
-| `dry_run`                | Operator recommendation       | Preview section (only with `--dry-run`)             |
+| Field                    | Classification                  | Notes                                               |
+| ------------------------ | ------------------------------- | --------------------------------------------------- |
+| `scope`                  | Schema/example-only             | `"event"` or `"scan"`                               |
+| `event_id`               | Canonical event identity        | Event being analyzed                                |
+| `event_kind`             | Canonical event identity        | Kind of the canonical event                         |
+| `source_adapter`         | Adapter fact                    | Origin adapter                                      |
+| `total_receipts`         | Derived diagnostic              | Receipt count                                       |
+| `failed_targets`         | Authoritative delivery evidence | List of failed target details                       |
+| `failure_classification` | Derived diagnostic              | Grouped: retryable, permanent, operational, unknown |
+| `recommended_commands`   | Operator recommendation         | CLI commands to run next                            |
+| `commands`               | Operator recommendation         | Structured: primary + specialized                   |
+| `timeline`               | Derived diagnostic              | Chronological timeline entries                      |
+| `replay_context`         | Derived diagnostic              | Prior replay run IDs (if any)                       |
+| `warnings`               | Operator recommendation         | Duplicate-send risk, radio transport caveats        |
+| `dry_run`                | Operator recommendation         | Preview section (only with `--dry-run`)             |
 
 Per-failed-target fields: `target_adapter`, `status`, `attempt_number`, `receipt_id`, `failure_kind`, `category`, `target_channel`, `route_id`, `error`, `source`, `replay_run_id`.
 

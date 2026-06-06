@@ -222,7 +222,7 @@ class TestNoStaleTraceEventConfigInOperatorDocs:
                 stale.append((lineno, stripped))
         assert not stale, (
             f"{doc_path.name} has inspect command examples using --config "
-            f"instead of --storage-path. Inspect supports --storage-path for "
+            f"instead of --storage-path. Inspect requires --storage-path for "
             f"direct read-only DB access. Found at lines: "
             f"{[s[0] for s in stale[:5]]}"
         )

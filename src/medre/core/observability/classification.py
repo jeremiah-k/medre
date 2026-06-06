@@ -130,6 +130,13 @@ def recommended_commands(
     command includes ``--storage-path {storage_path}`` so the emitted
     commands are valid (argparse enforces ``required=True`` on
     ``--storage-path`` for all read-only subcommands).
+
+    **Replay commands** (``medre replay``) do not include ``--config``
+    in the generated string.  Operators may need to append
+    ``--config PATH`` depending on deployment layout — the CLI
+    auto-discovers the config file via XDG defaults, but explicit
+    paths are required when the config lives outside the standard
+    search locations.
     """
     sp = f" --storage-path {storage_path}" if storage_path else ""
 
