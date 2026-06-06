@@ -558,7 +558,7 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 ## Inspect Follow-Up Quick Reference
 
-Read-only inspection commands accept `--storage-path` for direct SQLite access.
+Read-only inspection commands require `--storage-path` for direct SQLite access.
 
 | After this failure...          | Run this to inspect                                                                                         |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |

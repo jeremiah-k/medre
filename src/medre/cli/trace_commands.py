@@ -15,10 +15,10 @@ async def _trace_event(
     event_id: str,
     json_output: bool,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """Assemble and print a chronological timeline for a single event."""
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
         result = await _timeline.assemble_event_timeline(storage, event_id)
@@ -120,10 +120,10 @@ async def _trace_replay(
     run_id: str,
     json_output: bool,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """Assemble and print a chronological timeline for a replay run."""
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
         result = await _timeline.assemble_replay_timeline(storage, run_id)

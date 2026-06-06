@@ -758,21 +758,21 @@ medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
     Run fake bridge smoke test. Storage backend determined by config.
     Use a config with storage.backend = "sqlite" for persistent evidence.
 
-medre inspect event [--storage-path PATH]
+medre inspect event --storage-path PATH
     Read-only event inspection. Supports --timeline, --evidence, --recovery flags.
 
-medre inspect receipts [--storage-path PATH]
+medre inspect receipts --storage-path PATH
     Read-only receipt inspection. Filter with --event or --replay-run.
 
-medre inspect native-ref [--storage-path PATH]
+medre inspect native-ref --storage-path PATH
     Read-only native transport reference inspection.
 
-medre inspect replay [--storage-path PATH]
+medre inspect replay --storage-path PATH
     Read-only replay run inspection. Shows replay run metadata and receipt summaries.
 
-    All inspect subcommands support --storage-path for direct SQLite access.
+    All inspect subcommands require --storage-path for direct SQLite access.
 
-medre trace (event|replay) [--storage-path PATH] [--json]
+medre trace (event|replay) --storage-path PATH [--json]
     Specialized chronological timeline assembly. Prefer
     inspect event --timeline for per-event timelines.
 

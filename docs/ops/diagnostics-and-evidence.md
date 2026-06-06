@@ -105,9 +105,9 @@ medre inspect native-ref --adapter <name> --message <native_id> --storage-path /
 medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 ```
 
-All `inspect` subcommands (`event`, `receipts`, `native-ref`, and `receipts --replay-run`) support `--storage-path` for direct read-only access to a SQLite database.
+All `inspect` subcommands (`event`, `receipts`, `native-ref`, and `receipts --replay-run`) require `--storage-path` for direct read-only access to a SQLite database.
 
-The `replay` command requires `--config`; `recover` uses `--storage-path` (read-only). Use `inspect` as your first investigation step.
+The `replay` command requires `--config`; `recover` requires `--storage-path` (read-only). Use `inspect` as your first investigation step.
 
 ## Command Reference
 

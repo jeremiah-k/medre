@@ -457,7 +457,7 @@ class TestStoragePathInCommands:
 
     @pytest.mark.asyncio
     async def test_no_storage_path_no_config(self) -> None:
-        """Without storage_path and config_path, commands have no flags."""
+        """Without storage_path, read-only commands are None (not executable)."""
         from medre.runtime.run_session.report import _build_cross_linked_commands
 
         result = _build_cross_linked_commands(
@@ -467,9 +467,24 @@ class TestStoragePathInCommands:
             storage_path=None,
         )
 
-        inspect_argv = result["commands_argv"]["primary"]["inspect_event"]
-        assert "--storage-path" not in inspect_argv
-        assert "--config" not in inspect_argv
+        # All read-only command values must be None — they cannot be executed
+        # without --storage-path (required by argparse).
+        for section in ("primary", "specialized"):
+            for key, value in result["commands_argv"][section].items():
+                assert value is None, (
+                    f"commands_argv[{section}][{key!r}] should be None "
+                    f"without storage_path, got: {value!r}"
+                )
+            for key, value in result["commands_text"][section].items():
+                assert value is None, (
+                    f"commands_text[{section}][{key!r}] should be None "
+                    f"without storage_path, got: {value!r}"
+                )
+
+        # Unavailable explanation must be present.
+        assert "read_only_commands_unavailable" in result
+        assert isinstance(result["read_only_commands_unavailable"], str)
+        assert len(result["read_only_commands_unavailable"]) > 0
 
     @pytest.mark.asyncio
     async def test_inspect_argv_executable_via_cli(self, tmp_path: Path) -> None:

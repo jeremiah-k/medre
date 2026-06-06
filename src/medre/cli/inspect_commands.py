@@ -26,7 +26,7 @@ from .storage_helpers import _open_readonly_storage
 async def _inspect_event(
     event_id: str,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
     timeline: bool = False,
     evidence: bool = False,
     recovery: bool = False,
@@ -39,7 +39,7 @@ async def _inspect_event(
     """
     # Fast path: no augmentation flags — preserve exact existing behaviour.
     if not (timeline or evidence or recovery):
-        storage = await _open_readonly_storage(None, storage_path=storage_path)
+        storage = await _open_readonly_storage(storage_path)
         _exit_code: int | None = None
         try:
             event = await storage.get(event_id)
@@ -58,7 +58,7 @@ async def _inspect_event(
         return
 
     # Augmented path: build a compound result.
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
         event = await storage.get(event_id)
@@ -107,10 +107,10 @@ async def _inspect_receipts(
     event_id: str | None,
     replay_run_id: str | None,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """List delivery receipts for an event or replay run."""
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
         if event_id is not None:
@@ -134,14 +134,14 @@ async def _inspect_native_ref(
     channel: str | None,
     message: str,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """Resolve a native message reference to a canonical event."""
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
-        event_id = await storage.resolve_native_ref(adapter, channel, message)
-        if event_id is None:
+        ref = await storage.get_native_ref(adapter, channel, message)
+        if ref is None:
             print(
                 f"Error: native ref not found: adapter={adapter!r}, "
                 f"channel={channel!r}, message={message!r}",
@@ -150,37 +150,24 @@ async def _inspect_native_ref(
             _exit_code = EXIT_NOT_FOUND
 
         if _exit_code is None:
-            # Build a minimal NativeMessageRef from CLI args + resolved
-            # event_id for the canonical reporting helper shape.
-            from datetime import datetime, timezone
-
-            from medre.core.events.canonical import NativeMessageRef
-
-            nref = NativeMessageRef(
-                id="",
-                event_id=event_id,
-                adapter=adapter,
-                native_channel_id=channel,
-                native_message_id=message,
-                native_thread_id=None,
-                native_relation_id=None,
-                direction="outbound",
-                created_at=datetime.now(tz=timezone.utc),
-            )
             result: dict[str, object] = native_ref_to_report_dict(
-                nref=nref,
-                resolved_to_event_id=event_id,
+                nref=ref,
+                resolved_to_event_id=ref.event_id,
             )
             # Add event_id alias for backward compatibility with existing
             # consumers (the canonical key is "resolves_to").
-            result["event_id"] = event_id
+            result["event_id"] = ref.event_id
+            # Expose stored fields that prove provenance.
+            result["id"] = ref.id
+            result["created_at"] = ref.created_at.isoformat()
+            result["metadata"] = ref.metadata
             # Preserve the original channel value (None when channelless)
             # rather than the helper's normalized "" default.
             if channel is None:
                 result["native_channel_id"] = None
                 result["channel"] = None
             # Fetch the full event for richer output.
-            event = await storage.get(event_id)
+            event = await storage.get(ref.event_id)
             if event is not None:
                 result["event"] = json.loads(msgspec.json.encode(event))
             print(json.dumps(result, sort_keys=True, indent=2))
@@ -193,14 +180,14 @@ async def _inspect_native_ref(
 async def _inspect_replay(
     run_id: str,
     *,
-    storage_path: str | None = None,
+    storage_path: str,
 ) -> None:
     """Inspect a replay run: read-only timeline via storage.
 
     Outputs deterministic JSON with the replay timeline, matching the
     shape produced by ``medre trace replay --json``.
     """
-    storage = await _open_readonly_storage(None, storage_path=storage_path)
+    storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
         result = await _timeline.assemble_replay_timeline(storage, run_id)

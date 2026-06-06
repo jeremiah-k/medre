@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,9 @@ def _seed_inspect_db(
     native_adapter: str | None = None,
     native_channel_id: str | None = None,
     native_message_id: str | None = None,
+    native_direction: str = "outbound",
+    native_metadata: dict | None = None,
+    native_created_at: datetime | None = None,
 ) -> None:
     """Synchronously seed an inspect test database with an event + receipt + native ref."""
     import asyncio
@@ -93,8 +97,13 @@ def _seed_inspect_db(
                         native_message_id=native_message_id,
                         native_thread_id=None,
                         native_relation_id=None,
-                        direction="outbound",
-                        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+                        direction=native_direction,
+                        metadata=native_metadata if native_metadata is not None else {},
+                        created_at=(
+                            native_created_at
+                            if native_created_at is not None
+                            else datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+                        ),
                     )
                 )
         finally:
@@ -232,6 +241,40 @@ def config_inspect_native_null_channel(
     p = tmp_path / "config.toml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
+
+
+@pytest.fixture()
+def db_inspect_inbound_ref(tmp_path: Path) -> str:
+    """Seeded SQLite DB with an inbound native ref."""
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    db_path = str(tmp_path / "state" / "inspect.db")
+    _seed_inspect_db(
+        db_path,
+        event_id="evt-inbound-1",
+        native_adapter="matrix",
+        native_channel_id="!room:inbound",
+        native_message_id="$inbound-msg-1",
+        native_direction="inbound",
+    )
+    return db_path
+
+
+@pytest.fixture()
+def db_inspect_ref_with_metadata(tmp_path: Path) -> str:
+    """Seeded SQLite DB with a native ref carrying metadata."""
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    db_path = str(tmp_path / "state" / "inspect.db")
+    _seed_inspect_db(
+        db_path,
+        event_id="evt-meta-1",
+        native_adapter="matrix",
+        native_channel_id="!room:meta",
+        native_message_id="$meta-msg-1",
+        native_direction="outbound",
+        native_metadata={"sender": "alice", "priority": 3},
+        native_created_at=datetime(2026, 3, 10, 14, 30, 0, tzinfo=timezone.utc),
+    )
+    return db_path
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +645,80 @@ class TestInspectNativeRef:
                 missing_db,
             )
         assert exc_info.value.code == EXIT_BUILD
+
+    def test_inbound_direction_from_storage(
+        self,
+        db_inspect_inbound_ref: str,
+    ) -> None:
+        """inspect native-ref reports direction=inbound for stored inbound refs.
+
+        The old code fabricated direction='outbound' regardless of the stored
+        value.  This test proves the direction now comes from storage.
+        """
+        output = _run_cli(
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "matrix",
+            "--channel",
+            "!room:inbound",
+            "--message",
+            "$inbound-msg-1",
+            "--storage-path",
+            db_inspect_inbound_ref,
+        )
+        parsed = json.loads(output)
+        assert parsed["direction"] == "inbound"
+        assert parsed["event_id"] == "evt-inbound-1"
+
+    def test_stored_id_metadata_created_at_in_output(
+        self,
+        db_inspect_ref_with_metadata: str,
+    ) -> None:
+        """inspect native-ref reports stored id, metadata, and created_at."""
+        output = _run_cli(
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "matrix",
+            "--channel",
+            "!room:meta",
+            "--message",
+            "$meta-msg-1",
+            "--storage-path",
+            db_inspect_ref_with_metadata,
+        )
+        parsed = json.loads(output)
+        # id comes from storage, not fabricated empty string.
+        assert parsed["id"] == "nref-inspect-1"
+        # metadata comes from storage, not fabricated empty dict.
+        assert parsed["metadata"] == {"sender": "alice", "priority": 3}
+        # created_at comes from storage, not fabricated now().
+        assert parsed["created_at"] == "2026-03-10T14:30:00+00:00"
+        assert parsed["direction"] == "outbound"
+
+    def test_channelless_ref_uses_real_direction(
+        self,
+        db_inspect_native_null_channel: str,
+    ) -> None:
+        """Channelless ref reports direction from storage, not synthesized."""
+        output = _run_cli(
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "meshtastic",
+            "--message",
+            "radio-msg-42",
+            "--storage-path",
+            db_inspect_native_null_channel,
+        )
+        parsed = json.loads(output)
+        assert parsed["event_id"] == "evt-nref-nullch"
+        assert parsed["native_channel_id"] is None
+        # Default seed direction is outbound.
+        assert parsed["direction"] == "outbound"
+        # id comes from storage.
+        assert parsed["id"] == "nref-inspect-1"
 
 
 # ---------------------------------------------------------------------------

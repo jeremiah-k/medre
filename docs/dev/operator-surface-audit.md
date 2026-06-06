@@ -136,7 +136,7 @@ Top-level keys in the JSON bundle returned by `medre evidence --json`:
 | `collected_at`                 | Schema/example-only | ISO-8601 collection start                        |
 | `generated_at`                 | Schema/example-only | ISO-8601 generation complete                     |
 | `medre_version`                | Schema/example-only | Package version string                           |
-| `config_source`                | Adapter fact        | How config was discovered                        |
+| `config_source`                | Report metadata     | How config was discovered                        |
 | `evidence_tier`                | Derived diagnostic  | Provenance tier (see §3.2)                       |
 | `runtime_started`              | Adapter fact        | Whether runtime was started for live health      |
 | `errors`                       | Derived diagnostic  | Section-level error messages                     |
