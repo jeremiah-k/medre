@@ -411,3 +411,159 @@ class TestDegradeRelationsInline:
         )
         result = renderer._degrade_relations_inline(event, "msg")
         assert "[reaction ∟ to:" in result
+
+
+class TestLxmfTargetSelectionRules:
+    """Lock the target-selection contracts for LxmfRenderer.
+
+    These tests assert the *current* behaviour — guards against accidental
+    changes, not aspirational specifications.
+
+    Key contracts:
+    - LxmfRenderer has **no** native relation rendering.  No transport-
+      specific relation fields (reply_id, emoji, m.relates_to) are ever
+      emitted in the payload.
+    - All relations are degraded to inline text via
+      ``degrade_relations_inline`` which iterates **all** relations, not
+      just ``relations[0]``.
+    - In ``direct`` strategy, relations are kept as structured data in the
+      MEDRE fields envelope; in ``fallback_text`` strategy, relations are
+      degraded to inline text and the envelope carries an empty list.
+    - The payload always contains ``content``, ``title``, ``fields``,
+      and ``destination_hash`` — never ``reply_id``, ``emoji``, or
+      ``m.relates_to``.
+    """
+
+    async def test_all_relations_degraded_inline_under_fallback(self) -> None:
+        """All relations appear in degraded inline text under fallback_text.
+
+        LXMF's ``degrade_relations_inline`` iterates every relation,
+        unlike Matrix/Meshtastic which only inspect ``relations[0]``.
+        """
+        renderer = LxmfRenderer(metadata_embedding=False)
+        reply_rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-reply-target",
+            target_native_ref=None,
+            key=None,
+            fallback_text="original msg",
+        )
+        reaction_rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="evt-react-target",
+            target_native_ref=None,
+            key="👍",
+            fallback_text="reacted msg",
+        )
+        event = CanonicalEvent(
+            event_id="evt-multi-rel",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="lxmf-1",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_rel, reaction_rel),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        content = result.payload["content"]
+        # Both relations must appear in degraded inline text
+        assert "[reply to:" in content
+        assert "[reaction 👍 to:" in content
+
+    async def test_no_native_target_fields_ever_emitted(self) -> None:
+        """LXMF payload never contains native relation fields.
+
+        Regardless of relation type or native ref presence, the payload
+        contains only content, title, fields, and destination_hash.
+        """
+        renderer = LxmfRenderer(metadata_embedding=False)
+        native_ref = NativeRef(
+            adapter="lxmf-1",
+            native_channel_id=None,
+            native_message_id="abc123",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-001",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text="original",
+        )
+        event = CanonicalEvent(
+            event_id="evt-no-native",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="lxmf-1",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        payload_keys = set(result.payload.keys())
+        # Only these keys are ever emitted
+        assert payload_keys == {"content", "title", "fields", "destination_hash"}
+        # Explicitly no native relation fields
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert "m.relates_to" not in result.payload
+
+    async def test_direct_strategy_preserves_structured_relations(self) -> None:
+        """Under direct strategy, structured relations are preserved in the
+        MEDRE fields envelope.  No inline degradation occurs."""
+        renderer = LxmfRenderer(metadata_embedding=True)
+        native_ref = NativeRef(
+            adapter="lxmf-1",
+            native_channel_id=None,
+            native_message_id="msg456",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text="target text",
+        )
+        event = CanonicalEvent(
+            event_id="evt-direct-rel",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="lxmf-1",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        # Content is plain text — no inline degradation
+        assert result.payload["content"] == "hello"
+        # Structured relations preserved in envelope
+        fields = result.payload["fields"]
+        envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        assert len(envelope["relations"]) == 1
+        assert envelope["relations"][0]["relation_type"] == "reply"

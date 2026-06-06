@@ -301,6 +301,30 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
         Depth in the derivation tree (0 for source events).
     trace_id:
         Distributed tracing correlation ID.
+    root_event_id:
+        Canonical event ID of the root event in a relation chain.
+        Assigned by :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
+        during pipeline ingress after relation resolution.
+
+        ``None`` **only** before ConversationGraphAuthority has computed
+        conversation identity, or for events that have not yet passed
+        through pipeline ingress.
+
+        After pipeline ingress, every event is resolved:
+
+        * **Root / no-relation events** self-root with
+          ``root_event_id = event.event_id``.
+        * **Relation events** inherit or walk to a resolved relation
+          root.  If all resolved relation targets are missing, the event
+          self-roots.
+    conversation_id:
+        Canonical conversation identifier.  After assignment by
+        ConversationGraphAuthority, ``conversation_id`` is always set
+        to ``root_event_id`` — there is no independent propagation
+        path.  The field exists as a stable seam for future grouping
+        semantics (e.g. merged threads, cross-transport conversation
+        grouping) without coupling callers to the root-event identity
+        model.
     """
 
     event_id: str
@@ -318,6 +342,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     source_native_ref: NativeRef | None = None
     depth: int = 0
     trace_id: str | None = None
+    root_event_id: str | None = None
+    conversation_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate invariants and enforce deep immutability after construction.
@@ -347,6 +373,14 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
             raise ValueError("timestamp must be timezone-aware (UTC)")
         if self.depth < 0:
             raise ValueError("depth must be >= 0")
+        if self.root_event_id is not None and (
+            not isinstance(self.root_event_id, str) or not self.root_event_id
+        ):
+            raise ValueError("root_event_id must be a non-empty string when set")
+        if self.conversation_id is not None and (
+            not isinstance(self.conversation_id, str) or not self.conversation_id
+        ):
+            raise ValueError("conversation_id must be a non-empty string when set")
         if self.lineage is None:
             raise ValueError("lineage must not be None")
         if self.relations is None:

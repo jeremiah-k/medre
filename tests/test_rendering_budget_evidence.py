@@ -466,10 +466,10 @@ class TestEvidenceSizeBounded:
             original_text_bytes=100000,
         )
         d = evidence.to_dict()
-        # All values should be simple JSON types (str, int, bool, None)
+        # All values should be simple JSON types (str, int, bool, None, list)
         for key, value in d.items():
             assert isinstance(
-                value, (str, int, bool, type(None))
+                value, (str, int, bool, type(None), list)
             ), f"Evidence key {key!r} has unexpected type {type(value).__name__}"
         # Specific metric fields are ints, not strings
         assert isinstance(d["rendered_text_chars"], int)

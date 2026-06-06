@@ -204,6 +204,9 @@ class TestRenderingEvidenceModel:
             "rendered_text_bytes",
             "original_text_chars",
             "original_text_bytes",
+            "conversation_id",
+            "root_event_id",
+            "relation_evidence",
         }
         assert set(d.keys()) == expected_keys
 

@@ -48,6 +48,8 @@ class _EventMixin:
                     _serialize_metadata(event.metadata),
                     event.depth,
                     event.trace_id,
+                    event.root_event_id,
+                    event.conversation_id,
                     snr.adapter if snr else None,
                     snr.native_channel_id if snr else None,
                     snr.native_message_id if snr else None,

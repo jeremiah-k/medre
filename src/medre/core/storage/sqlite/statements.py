@@ -16,10 +16,11 @@ INSERT INTO canonical_events
     (event_id, event_kind, schema_version, timestamp,
      source_adapter, source_transport_id, source_channel_id,
      parent_event_id, lineage, payload, metadata, depth,
-     trace_id, source_native_adapter, source_native_channel_id,
+     trace_id, root_event_id, conversation_id,
+     source_native_adapter, source_native_channel_id,
      source_native_message_id, source_native_thread_id,
      created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_RELATION = """

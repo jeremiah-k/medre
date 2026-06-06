@@ -18,6 +18,8 @@ def make_storage_event(
     source_adapter: str = "fake_transport",
     source_channel_id: str | None = "ch-0",
     relations: tuple[EventRelation, ...] | None = None,
+    root_event_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> CanonicalEvent:
     """Build a minimal CanonicalEvent for storage tests."""
     return CanonicalEvent(
@@ -33,4 +35,6 @@ def make_storage_event(
         relations=relations or (),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
+        root_event_id=root_event_id,
+        conversation_id=conversation_id,
     )

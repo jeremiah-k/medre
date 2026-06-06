@@ -284,6 +284,8 @@ CREATE TABLE canonical_events (
     metadata TEXT NOT NULL DEFAULT '{}',-- JSON (serialised EventMetadata)
     depth INTEGER NOT NULL DEFAULT 0,
     trace_id TEXT,
+    root_event_id TEXT,                     -- Root event in relation chain
+    conversation_id TEXT,                   -- Conversation identifier
     source_native_adapter TEXT,         -- Source NativeRef.adapter
     source_native_channel_id TEXT,      -- Source NativeRef.native_channel_id
     source_native_message_id TEXT,      -- Source NativeRef.native_message_id

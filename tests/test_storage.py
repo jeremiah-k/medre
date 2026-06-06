@@ -39,6 +39,32 @@ class TestAppendAndGet:
         result = await temp_storage.get("does-not-exist")
         assert result is None
 
+    async def test_conversation_identity_fields_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """root_event_id and conversation_id persist through SQLite round-trip."""
+        event = make_storage_event(
+            event_id="evt-conv-rt",
+            root_event_id="root-evt-001",
+            conversation_id="root-evt-001",
+        )
+        await temp_storage.append(event)
+        retrieved = await temp_storage.get(event.event_id)
+        assert retrieved is not None
+        assert retrieved.root_event_id == "root-evt-001"
+        assert retrieved.conversation_id == "root-evt-001"
+
+    async def test_conversation_identity_fields_default_none(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """root_event_id and conversation_id default to None in storage."""
+        event = make_storage_event(event_id="evt-conv-default")
+        await temp_storage.append(event)
+        retrieved = await temp_storage.get(event.event_id)
+        assert retrieved is not None
+        assert retrieved.root_event_id is None
+        assert retrieved.conversation_id is None
+
 
 # ===================================================================
 # Native ref storage and resolution

@@ -16,6 +16,7 @@ to the :class:`~medre.core.rendering.renderer.RenderingResult`.
 
 Public symbols
 --------------
+* :class:`RelationTargetEvidence` - per-relation native/fallback evidence.
 * :class:`RenderingEvidence` - frozen evidence snapshot.
 """
 
@@ -33,6 +34,7 @@ from medre.core.rendering.renderer import (
 )
 
 if TYPE_CHECKING:
+    from medre.core.events import CanonicalEvent
     from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 #: Evidence schema version.  Bumped on schema-breaking field changes.
@@ -92,6 +94,160 @@ def _text_char_byte_metrics(
         original_bytes = raw_orig_bytes
 
     return rendered_chars, rendered_bytes, original_chars, original_bytes
+
+
+# ---------------------------------------------------------------------------
+# RelationTargetEvidence
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RelationTargetEvidence:
+    """Per-relation evidence explaining native vs fallback rendering decision.
+
+    Captures enough structured data to answer:
+
+    * Was this relation rendered natively or did it fall back?
+    * Which target was selected (event id, native message id)?
+    * Was the target resolved / available?
+    * What was the fallback text source?
+
+    Attributes
+    ----------
+    relation_type:
+        The kind of relationship (``"reply"``, ``"reaction"``,
+        ``"edit"``, ``"delete"``, ``"thread"``).
+    render_mode:
+        ``"native"`` when the target adapter handles the relation
+        natively; ``"fallback"`` when degraded inline text is used
+        instead.  Derived from ``delivery_strategy``,
+        ``capability_level``, and ``fallback_applied``.
+    target_event_id:
+        The canonical event ID of the target event, or ``None`` if
+        not resolved.
+    target_native_message_id:
+        The native message ID from ``target_native_ref`` if available,
+        or ``None``.
+    target_available:
+        ``True`` when ``target_event_id`` is present (the relation
+        target was resolved to a canonical event).  ``None`` when
+        the target was not resolved or resolution is unknown.  This
+        reflects data availability, not adapter validation — callers
+        should not assume ``True`` means the native message still
+        exists on the target platform.
+    fallback_text_source:
+        A presence indicator: ``"relation_fallback_text_present"`` when
+        the relation carried fallback text, or ``None`` when it did not.
+        This field intentionally avoids storing raw user content to
+        prevent PII exposure in evidence records.
+    """
+
+    relation_type: str
+    render_mode: str
+    target_event_id: str | None
+    target_native_message_id: str | None
+    target_available: bool | None
+    fallback_text_source: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe plain dict representation."""
+        return {
+            "relation_type": self.relation_type,
+            "render_mode": self.render_mode,
+            "target_event_id": self.target_event_id,
+            "target_native_message_id": self.target_native_message_id,
+            "target_available": self.target_available,
+            "fallback_text_source": self.fallback_text_source,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Helpers — relation evidence derivation
+# ---------------------------------------------------------------------------
+
+
+def _derive_relation_render_mode(
+    relation_type: str,
+    delivery_strategy: DeliveryStrategyMethod,
+    capability_level: CapabilityLevel,
+    fallback_applied: FallbackApplied | None,
+    *,
+    target_event_id: str | None = None,
+    target_native_message_id: str | None = None,
+) -> str:
+    """Derive the render mode for a single relation.
+
+    Returns ``"native"`` or ``"fallback"`` based on the overall rendering
+    context and target availability.  The logic is:
+
+    1. ``delivery_strategy == "fallback_text"`` → all relations fallback.
+    2. ``capability_level`` in ``("fallback", "unsupported")`` → all
+       relations fallback.
+    3. ``fallback_applied`` starts with ``"relation_"`` and its suffix
+       matches the relation type → this specific relation fallback.
+    4. ``target_event_id`` is ``None`` → no resolved target → fallback.
+    5. ``target_native_message_id`` is ``None`` or empty → no usable
+       native ref → fallback.
+    6. Otherwise → native.
+    """
+    if delivery_strategy == "fallback_text":
+        return "fallback"
+    if capability_level in ("fallback", "unsupported"):
+        return "fallback"
+    if fallback_applied is not None and fallback_applied.startswith("relation_"):
+        suffix = fallback_applied[len("relation_") :]
+        if suffix == relation_type:
+            return "fallback"
+    if target_event_id is None:
+        return "fallback"
+    if not target_native_message_id:
+        return "fallback"
+    return "native"
+
+
+def _build_relation_evidence(
+    event: CanonicalEvent,
+    ctx: RenderingContext,
+    fallback_applied: FallbackApplied | None,
+) -> tuple[RelationTargetEvidence, ...]:
+    """Build per-relation evidence entries from event relations and context."""
+    if not event.relations:
+        return ()
+
+    entries: list[RelationTargetEvidence] = []
+    for rel in event.relations:
+        target_native_msg_id: str | None = None
+        if rel.target_native_ref is not None:
+            target_native_msg_id = rel.target_native_ref.native_message_id
+
+        render_mode = _derive_relation_render_mode(
+            relation_type=rel.relation_type,
+            delivery_strategy=ctx.delivery_strategy,
+            capability_level=ctx.capability_level,
+            fallback_applied=fallback_applied,
+            target_event_id=rel.target_event_id,
+            target_native_message_id=target_native_msg_id,
+        )
+
+        target_available: bool | None = None
+        if rel.target_event_id is not None:
+            target_available = True
+
+        entries.append(
+            RelationTargetEvidence(
+                relation_type=rel.relation_type,
+                render_mode=render_mode,
+                target_event_id=rel.target_event_id,
+                target_native_message_id=target_native_msg_id,
+                target_available=target_available,
+                fallback_text_source=(
+                    "relation_fallback_text_present"
+                    if rel.fallback_text is not None
+                    else None
+                ),
+            )
+        )
+    return tuple(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +323,19 @@ class RenderingEvidence:
     original_text_bytes:
         UTF-8 byte length of the original text as reported in result
         metadata, or ``None`` when unavailable.
+    conversation_id:
+        Canonical conversation identifier from the event, or ``None``
+        when not yet computed.  Populated when the event is available
+        at evidence construction time.
+    root_event_id:
+        Canonical event ID of the root event in a relation chain, or
+        ``None`` when not yet computed.  Populated when the event is
+        available at evidence construction time.
+    relation_evidence:
+        Per-relation structured evidence explaining native vs fallback
+        rendering decisions for each relation on the event.  Empty
+        tuple when the event has no relations or when event data is
+        unavailable at evidence construction time.
     """
 
     # --- Schema ---
@@ -193,6 +362,11 @@ class RenderingEvidence:
     original_text_chars: int | None
     original_text_bytes: int | None
 
+    # --- Relation / conversation evidence ---
+    conversation_id: str | None = None
+    root_event_id: str | None = None
+    relation_evidence: tuple[RelationTargetEvidence, ...] = ()
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
@@ -203,6 +377,8 @@ class RenderingEvidence:
         renderer_name: str,
         ctx: RenderingContext,
         result: RenderingResult,
+        *,
+        event: CanonicalEvent | None = None,
     ) -> RenderingEvidence:
         """Build evidence from a rendering context and its result.
 
@@ -215,10 +391,28 @@ class RenderingEvidence:
             The frozen rendering context used for this render call.
         result:
             The rendering result returned by the renderer.
+        event:
+            The canonical event being rendered, or ``None`` when
+            event data is unavailable (e.g. manual construction).
+            When provided, ``conversation_id``, ``root_event_id``,
+            and per-relation evidence are populated from the event.
         """
         rendered_chars, rendered_bytes, original_chars, original_bytes = (
             _text_char_byte_metrics(result.payload, result.metadata)
         )
+
+        conversation_id: str | None = None
+        root_event_id: str | None = None
+        relation_evidence: tuple[RelationTargetEvidence, ...] = ()
+
+        if event is not None:
+            conversation_id = event.conversation_id
+            root_event_id = event.root_event_id
+            relation_evidence = _build_relation_evidence(
+                event=event,
+                ctx=ctx,
+                fallback_applied=result.fallback_applied,
+            )
 
         return cls(
             schema_version=EVIDENCE_SCHEMA_VERSION,
@@ -237,6 +431,9 @@ class RenderingEvidence:
             rendered_text_bytes=rendered_bytes,
             original_text_chars=original_chars,
             original_text_bytes=original_bytes,
+            conversation_id=conversation_id,
+            root_event_id=root_event_id,
+            relation_evidence=relation_evidence,
         )
 
     # ------------------------------------------------------------------
@@ -269,4 +466,7 @@ class RenderingEvidence:
             "rendered_text_bytes": self.rendered_text_bytes,
             "original_text_chars": self.original_text_chars,
             "original_text_bytes": self.original_text_bytes,
+            "conversation_id": self.conversation_id,
+            "root_event_id": self.root_event_id,
+            "relation_evidence": [re.to_dict() for re in self.relation_evidence],
         }

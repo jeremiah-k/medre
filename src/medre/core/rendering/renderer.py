@@ -517,6 +517,7 @@ class RenderingPipeline:
                     renderer_name=renderer.name,
                     ctx=ctx,
                     result=result,
+                    event=event,
                 )
                 return replace(result, rendering_evidence=evidence)
 
