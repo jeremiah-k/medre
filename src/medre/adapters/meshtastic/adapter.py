@@ -981,7 +981,12 @@ class MeshtasticAdapter(AdapterContract):
             elif k in transport_keys:
                 meshtastic_meta[k] = v
             else:
-                send_meta[k] = v
+                # Defensive normalization: delivery metadata should already
+                # be namespaced under the transport key, but legacy or
+                # non-namespaced keys (e.g. source_bridge, seq) are placed
+                # into the meshtastic namespace rather than leaking to the
+                # top level of NativeMessageRef.metadata.
+                meshtastic_meta[k] = v
         # Add useful send context from the queued payload into the
         # meshtastic namespace (transport-specific data must live
         # under metadata[<transport>]).

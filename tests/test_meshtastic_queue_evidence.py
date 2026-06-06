@@ -1010,7 +1010,8 @@ class TestMetadataKeySplitting:
 
     - key == "meshtastic" + isinstance(v, dict) → merge into meshtastic namespace
     - key in transport_keys → put into meshtastic namespace
-    - everything else → keep in send_meta top-level
+    - everything else → defensively normalized into meshtastic namespace
+      (non-namespaced delivery keys should not leak to top level)
     """
 
     async def test_nested_meshtastic_dict_merged(self) -> None:
@@ -1133,9 +1134,10 @@ class TestMetadataKeySplitting:
         finally:
             await adapter.stop()
 
-    async def test_other_key_stays_in_send_meta(self) -> None:
-        """Non-transport, non-meshtastic keys stay at top level of send_meta.
-        Payload text is transport context and lands in the meshtastic namespace."""
+    async def test_other_key_normalised_into_meshtastic_namespace(self) -> None:
+        """Non-transport, non-meshtastic keys are defensively normalised into
+        the meshtastic namespace rather than leaking to the top level.
+        Payload text is transport context and also lands in the meshtastic namespace."""
         import asyncio
         import logging
         from datetime import datetime, timezone
@@ -1186,10 +1188,12 @@ class TestMetadataKeySplitting:
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            # Non-transport keys stay at top level
-            assert ref.metadata["source_bridge"] == "matrix"
-            assert ref.metadata["seq"] == 7
-            # Payload text lands in meshtastic namespace (transport context).
+            # Legacy/non-namespaced keys defensively normalised into meshtastic namespace
+            assert "source_bridge" not in ref.metadata
+            assert "seq" not in ref.metadata
+            assert ref.metadata["meshtastic"]["source_bridge"] == "matrix"
+            assert ref.metadata["meshtastic"]["seq"] == 7
+            # Payload text also in meshtastic namespace (transport context).
             assert ref.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
@@ -1256,8 +1260,9 @@ class TestMetadataKeySplitting:
             mesh_ns = ref.metadata["meshtastic"]
             assert mesh_ns["hop_limit"] == 3
             assert mesh_ns["channel"] == 2
-            # Other key at top level
-            assert ref.metadata["custom"] == "value"
+            # Other key defensively normalised into meshtastic namespace
+            assert "custom" not in ref.metadata
+            assert mesh_ns["custom"] == "value"
         finally:
             await adapter.stop()
 

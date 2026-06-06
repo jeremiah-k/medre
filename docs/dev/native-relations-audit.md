@@ -161,8 +161,9 @@ Convention: `metadata.matrix`, `metadata.meshtastic`, `metadata.meshcore`, `meta
 
 ### Metadata in `NativeMessageRef.metadata`
 
-- **Inbound**: copy of `event.metadata.native.data`
-- **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`
+- **Inbound**: copy of `event.metadata.native.data` — preserves the per-adapter shape from the inbound codec, which may be flat (e.g. Meshtastic `packet_id`, `from_id`, `channel` at top level of the adapter data dict). This is NOT namespaced as `metadata[<transport>]`; it mirrors whatever the codec produced in `native.data`.
+- **Outbound (synchronous adapters)**: transport-namespaced from `AdapterDeliveryResult.metadata` — follows the `metadata[<transport>]` convention.
+- **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`, plus defensively normalised legacy/non-namespaced delivery keys.
 
 ---
 
@@ -180,7 +181,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 7. PipelineRunner appends supplemental status="sent" receipt
 ```
 
-**Loss condition**: if the in-memory queue is accepted but does not drain before process exit, the outbound native mapping for those items cannot be persisted. No flush/retry on shutdown.
+**Current implementation risk**: if the in-memory queue is accepted but does not drain before process exit, the outbound native mapping for those items cannot be persisted. No flush/retry on shutdown.
 
 ---
 
@@ -199,13 +200,14 @@ Applies to: **Meshtastic only** (queue-based adapter).
 
 ## 9. Native-Ref Source Classification
 
-| Classification                             | Meaning                                                              |
-| ------------------------------------------ | -------------------------------------------------------------------- |
-| **Immediate native ref**                   | Native ID available at decode/delivery time; persisted synchronously |
-| **Delayed native ref**                     | Native ID not available at enqueue; recorded after queue drain       |
-| **Unavailable by transport design**        | Transport has no durable message ID for this path                    |
-| **Unavailable due to failure/uncertainty** | Decode or delivery failed; no native ID obtainable                   |
-| **Fallback-only**                          | No native ref; renderer uses `fallback_text` or degraded display     |
+| Classification                             | Meaning                                                                                                                           |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Immediate native ref**                   | Native ID available at decode/delivery time; persisted synchronously                                                              |
+| **Delayed native ref**                     | Native ID not available at enqueue; recorded after queue drain                                                                    |
+| **Unavailable by transport design**        | Transport has no durable message ID for this path                                                                                 |
+| **Unavailable due to failure/uncertainty** | Decode or delivery failed; no native ID obtainable                                                                                |
+| **Best-effort outbound native ref**        | Local evidence/correlation when expected_ack is returned; not durable protocol identity; relation rendering remains fallback-only |
+| **Fallback-only**                          | No native ref; renderer uses `fallback_text` or degraded display                                                                  |
 
 ---
 
@@ -287,7 +289,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 | ----------------------------------- | ----------------------------------------------------------------------- |
 | Contact message received            | **Unavailable by transport design** — no message ID in protocol         |
 | Channel message received            | **Unavailable by transport design** — no message ID, no sender identity |
-| Contact message sent (expected_ack) | **Unavailable by transport design** — ephemeral, volatile, not durable  |
+| Contact message sent (expected_ack) | **Best-effort outbound native ref** — local evidence/correlation only   |
 | Channel message sent                | **Unavailable by transport design** — no ACK expected at all            |
 | Channel definition                  | Immediate native ref (durable `channel_idx`)                            |
 | Contact/peer identity               | Immediate native ref (durable public key)                               |
@@ -340,7 +342,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 
 ## 11. Uncertainties
 
-1. **MeshCore outbound `native_message_id`**: The MeshCore adapter returns a `native_message_id` from `deliver()`, but the MeshCore protocol has no durable message ID by design. The adapter may be returning `sender_timestamp` or a client-derived hash. Verify what value is actually returned before depending on it for cross-transport relation resolution.
+1. **MeshCore outbound `native_message_id`**: The MeshCore adapter records `expected_ack` as a best-effort outbound `native_message_id` when available from the SDK send result. This is useful for local send correlation/evidence but is volatile/local ACK correlation only — it is NOT a durable MeshCore protocol identity and must NOT be relied on for long-lived cross-transport relation resolution.
 
 2. **MeshCore `pkt_id` in codec**: The MeshCore codec extracts `pkt_id` from incoming events and stores it as `native_message_id`. This appears to be `sender_timestamp` (4-byte Unix timestamp). Collision risk is moderate for high-volume channels.
 
