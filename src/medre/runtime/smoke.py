@@ -511,6 +511,11 @@ async def run_fake_bridge_smoke(
         _sanitized_reasons.append(s)
     fail_reasons = _sanitized_reasons
 
+    resolved_storage_path = (
+        storage_path if storage_path is not None
+        else (config.storage.path if config.storage.path else None)
+    )
+
     report: dict[str, Any] = {
         "status": "passed" if passed else "failed",
         "command": "smoke",
@@ -520,9 +525,9 @@ async def run_fake_bridge_smoke(
         "config_source": config_source_value,
         "storage_backend": config.storage.backend,
         **(
-            {"storage_path": storage_path}
-            if storage_path is not None
-            else ({"storage_path": config.storage.path} if config.storage.path else {})
+            {"storage_path": resolved_storage_path}
+            if resolved_storage_path is not None
+            else {}
         ),
         "preflight": preflight,
         "source_adapter": source_aid,

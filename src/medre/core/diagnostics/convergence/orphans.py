@@ -353,8 +353,14 @@ def merge_recovery_findings_into_report_dict(
         New dict with merged and re-sorted findings.
     """
     if not recovery_findings:
-        # Return a shallow copy to guarantee the caller can mutate safely.
-        return dict(report_dict)
+        # Return a deep-enough copy so callers cannot mutate the original
+        # nested structures (findings list, severity_counts dict).
+        out = dict(report_dict)
+        if "findings" in out:
+            out["findings"] = list(out["findings"])
+        if "severity_counts" in out:
+            out["severity_counts"] = dict(out["severity_counts"])
+        return out
 
     merged = dict(report_dict)
 

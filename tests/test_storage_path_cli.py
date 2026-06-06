@@ -142,6 +142,7 @@ def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
 
     assert EXAMPLES_SMOKE_CONFIG.is_file()
     src = EXAMPLES_SMOKE_CONFIG.read_text()
+    assert 'backend = "memory"' in src
     sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
     derived = src.replace('backend = "memory"', sqlite_block)
     cfg = tmp_path / "smoke_sqlite.toml"
@@ -276,12 +277,12 @@ class TestInspectEventStoragePath:
             "event",
             "--config",
             _smoke_config_path(),
+            "--storage-path",
+            "/dev/null",
             "evt-1",
         )
         assert code != 0
-        err = stderr.lower()
-        assert "error" in err
-        assert "--storage-path" in err
+        assert "unrecognized" in stderr.lower()
 
     def test_inspect_event_from_smoke_db(self, tmp_path: Path) -> None:
         """inspect event works against a DB created by smoke."""

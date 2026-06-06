@@ -310,7 +310,7 @@ medre smoke --config /tmp/medre-alpha.toml --json
 
 # The smoke report includes event_id and storage_path (or use the
 # config's [storage] path setting).  Use --storage-path to persist:
-#   medre smoke --storage-path /tmp/medre-alpha.db --json
+#   medre smoke --config /tmp/medre-alpha.toml --storage-path /tmp/medre-alpha.db --json
 
 # Inspect (use the storage path from the smoke report or config)
 medre inspect event <event_id> --storage-path /tmp/medre-alpha.db

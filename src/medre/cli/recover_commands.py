@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _json
+import shlex
 import sys
 from typing import Any
 
@@ -154,7 +155,7 @@ async def _build_event_recovery_runbook(
         "commands": {
             "primary": unique_commands,
             "specialized": [
-                f"medre recover --event {event_id} --storage-path {storage_path}",
+                f"medre recover --event {event_id} --storage-path {shlex.quote(storage_path)}",
             ],
         },
         "timeline": timeline_entries,

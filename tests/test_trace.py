@@ -29,13 +29,13 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 def _close_orphaned_event_loop() -> None:
     """Close any event loop left behind by pytest-asyncio fixture teardown.
 
-    pytest-asyncio (1.3) with function-scoped runners saves the event loop
-    created by ``asyncio.get_event_loop()`` and restores it after each async
-    test.  The restored loop is never closed, so its self-pipe sockets trigger
-    ``ResourceWarning`` when garbage collection runs during a later synchronous
-    test that calls ``asyncio.run()``.  Closing the orphaned loop here (before
-    the synchronous test creates its own loop via ``asyncio.run()``) prevents
-    the warning.
+    Older pytest-asyncio releases with function-scoped runners save the event
+    loop created by ``asyncio.get_event_loop()`` and restore it after each
+    async test.  The restored loop is never closed, so its self-pipe sockets
+    trigger ``ResourceWarning`` when garbage collection runs during a later
+    synchronous test that calls ``asyncio.run()``.  Closing the orphaned loop
+    here (before the synchronous test creates its own loop via
+    ``asyncio.run()``) prevents the warning.
     """
     import asyncio
     import warnings

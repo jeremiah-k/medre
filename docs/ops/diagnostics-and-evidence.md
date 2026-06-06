@@ -264,9 +264,19 @@ The `medre evidence` command produces a structured bundle with per-section statu
 | MeshCore   | Local node queued the packet                       | Unknown. Fire-and-forget.   |
 | LXMF       | Local LXMRouter accepted for propagation           | Eventual, seconds to hours. |
 
-### Why `--include-refresh-health` Starts Adapters
+### Why `--include-refresh-health` Starts Adapters (config path only)
 
-The `--include-refresh-health` flag causes `medre evidence` to build the runtime, start all enabled adapters, poll each adapter's `health_check()` once, capture the live health snapshot, and then stop the runtime cleanly. With fake adapters this is trivial. With real adapters, this opens real connections (Matrix TCP to homeserver, Meshtastic serial/TCP to local node, etc.).
+The `--include-refresh-health` flag causes `medre evidence --config PATH` to
+build the runtime, start all enabled adapters, poll each adapter's
+`health_check()` once, capture the live health snapshot, and then stop the
+runtime cleanly. With fake adapters this is trivial. With real adapters, this
+opens real connections (Matrix TCP to homeserver, Meshtastic serial/TCP to
+local node, etc.).
+
+When using `--storage-path` instead of `--config`, evidence collection is
+read-only: it inspects the existing database without starting adapters or
+building the runtime. The `--include-refresh-health` flag is not applicable
+in this mode because there are no adapters to health-check.
 
 ### Inspect Output Interpretation
 
