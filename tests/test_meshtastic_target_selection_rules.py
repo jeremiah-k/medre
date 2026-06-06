@@ -17,7 +17,7 @@ Locks the current target-selection contracts:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -73,7 +73,7 @@ def _event(
         event_id="evt-001",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="!node1",
         source_channel_id="0",

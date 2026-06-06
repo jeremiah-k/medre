@@ -106,7 +106,7 @@ Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defin
           storage.resolve_native_ref(adapter, channel_id, message_id) → event_id | None
       - If found: new EventRelation with target_event_id set, target_native_ref preserved
       - If not found: relation kept with native ref for future retry
- 3.5. Pipeline calls ConversationGraphAuthority.resolve_conversation_identity(event)
+ 2.5. Pipeline calls ConversationGraphAuthority.resolve_conversation_identity(event)
       - Walks resolved relation targets to find the root ancestor
       - Sets root_event_id = root ancestor's event_id (or event.event_id if no relations)
       - Sets conversation_id = root_event_id

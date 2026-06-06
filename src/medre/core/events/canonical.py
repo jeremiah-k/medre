@@ -373,6 +373,14 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
             raise ValueError("timestamp must be timezone-aware (UTC)")
         if self.depth < 0:
             raise ValueError("depth must be >= 0")
+        if self.root_event_id is not None and (
+            not isinstance(self.root_event_id, str) or not self.root_event_id
+        ):
+            raise ValueError("root_event_id must be a non-empty string when set")
+        if self.conversation_id is not None and (
+            not isinstance(self.conversation_id, str) or not self.conversation_id
+        ):
+            raise ValueError("conversation_id must be a non-empty string when set")
         if self.lineage is None:
             raise ValueError("lineage must not be None")
         if self.relations is None:

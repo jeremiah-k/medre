@@ -16,7 +16,7 @@ Locks the current target-selection contracts:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import (
@@ -55,7 +55,7 @@ def _event(
         event_id="evt-001",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="node-1",
         source_channel_id="ch-0",

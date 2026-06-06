@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.conversation_graph import ConversationGraphAuthority
@@ -433,12 +435,8 @@ class TestStorageGetFailure:
         storage = FailingStorage()
         authority = ConversationGraphAuthority(storage=storage)
 
-        try:
+        with pytest.raises(RuntimeError, match="storage unavailable"):
             await authority.resolve_conversation_identity(event)
-        except RuntimeError as exc:
-            assert "storage unavailable" in str(exc)
-        else:
-            raise AssertionError("RuntimeError should have propagated")
 
 
 class TestNoGetOnStorage:

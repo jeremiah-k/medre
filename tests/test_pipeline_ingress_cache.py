@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -102,7 +102,7 @@ def _make_event(
         event_id=event_id,
         event_kind=event_kind,
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="node-1",
         source_channel_id=None,
@@ -811,7 +811,7 @@ class TestCacheDoesNotChangeSemantics:
             event_id="target-reaction-001",
             event_kind=EventKind.MESSAGE_REACTED,
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="src",
             source_transport_id="node-1",
             source_channel_id=None,

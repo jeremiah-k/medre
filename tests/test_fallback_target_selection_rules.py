@@ -20,7 +20,7 @@ perform native relation handling:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
@@ -75,7 +75,7 @@ def _event(
         event_id="evt-001",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="node-1",
         source_channel_id="0",
@@ -226,7 +226,7 @@ async def test_lxmf_direct_embeds_all_relations_in_envelope() -> None:
     # The envelope should contain both relations
     # Look for the envelope dict — it's nested under the MEDRE key
     found_rels: list[dict] = []
-    for _key, val in fields.items():
+    for val in fields.values():
         if isinstance(val, dict):
             env = val.get("medre")
             if isinstance(env, dict):
@@ -283,7 +283,7 @@ async def test_lxmf_fallback_envelope_relations_empty() -> None:
     fields = result.payload.get("fields", {})
     assert isinstance(fields, dict)
     found_medre = False
-    for _key, val in fields.items():
+    for val in fields.values():
         if isinstance(val, dict):
             env = val.get("medre")
             if isinstance(env, dict):
@@ -316,7 +316,7 @@ async def test_lxmf_no_relations_envelope_empty_relations() -> None:
     fields = result.payload.get("fields", {})
     assert isinstance(fields, dict)
     found_medre = False
-    for _key, val in fields.items():
+    for val in fields.values():
         if isinstance(val, dict):
             env = val.get("medre")
             if isinstance(env, dict):
