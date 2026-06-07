@@ -83,13 +83,13 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
         The canonical event ID this bundle covers.
     event_summary:
         Summary dict of the canonical event (or ``None`` if event missing).
-        Source: ``events`` storage table.
+        Source: ``canonical_events`` storage table.
     delivery_receipts:
         Ordered list of receipt summaries (by ``sequence``).
         Source: ``delivery_receipts`` storage table (read-only).
     native_refs:
         Ordered list of native ref summary dicts (by ``created_at``, ``id``).
-        Source: ``native_refs`` storage table (read-only).
+        Source: ``native_message_refs`` storage table (read-only).
     outbox_items:
         Ordered list of outbox item summary dicts (by ``created_at``,
         ``outbox_id``).

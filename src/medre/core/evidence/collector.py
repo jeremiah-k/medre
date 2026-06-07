@@ -281,7 +281,7 @@ class EvidenceCollector:
 
     **Persistence boundary:** This collector reads from the following
     storage tables via the injected storage backend (all read-only):
-    ``events``, ``delivery_receipts``, ``native_refs``, and optionally
+    ``canonical_events``, ``delivery_receipts``, ``native_message_refs``, and optionally
     ``delivery_outbox``.  It never writes to storage or mutates runtime
     state.  All derived fields (delivery outcome ledger, retry outbox
     summary, convergence, orphan report, recovery) are computed on demand

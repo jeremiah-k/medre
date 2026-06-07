@@ -1,7 +1,7 @@
 """Persistence authority tests: evidence and CLI inspect/trace.
 
 Focused tests proving the evidence/CLI authority model where gaps exist
-from Waves 1–2, without duplicating existing near-limit test files.
+from Waves 1-2, without duplicating existing near-limit test files.
 
 Covers:
   1. evidence/inspect/trace commands open storage via open_readonly —
@@ -36,7 +36,7 @@ class TestCLIReadOnlyAccess:
     """
 
     @pytest.mark.parametrize(
-        "module_name,expected_import",
+        ("module_name", "expected_import"),
         [
             ("medre.cli.inspect_commands", "_open_readonly_storage"),
             ("medre.cli.trace_commands", "_open_readonly_storage"),

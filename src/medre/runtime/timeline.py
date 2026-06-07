@@ -78,8 +78,8 @@ async def assemble_event_timeline(
 
     Returns ``None`` when the event does not exist in storage.
 
-    **Persistence boundary:** Reads from ``events``, ``delivery_receipts``,
-    ``native_refs``, and ``event_relations`` storage tables (all read-only).
+    **Persistence boundary:** Reads from ``canonical_events``, ``delivery_receipts``,
+    ``native_message_refs``, and ``event_relations`` storage tables (all read-only).
     Never writes to storage.  Source classification (live/replay/retry/mixed)
     and replay-run grouping are derived on demand from receipt rows.
 
@@ -170,7 +170,7 @@ async def assemble_replay_timeline(
     Returns ``None`` when no receipts exist for the given run ID.
 
     **Persistence boundary:** Reads from ``delivery_receipts`` and
-    ``events`` storage tables (all read-only).  Never writes to storage.
+    ``canonical_events`` storage tables (all read-only).  Never writes to storage.
 
     The returned dict contains:
 

@@ -470,7 +470,7 @@ CREATE TABLE plugin_state (
 );
 ```
 
-Scoped key-value storage for plugins. Keys are scoped to `plugin_id`. Plugins **MUST NOT** read or write state belonging to other plugins.
+Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
 
 ### 4.7 \_medre_schema_meta
 
@@ -963,15 +963,15 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 ### 16.1 Ownership Summary
 
-| Table / category      | Creator                                                                            | Mutator                                                 | Deleter                                       | Retention      |
-| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------- |
-| `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever        |
-| `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever        |
-| `native_message_refs` | Adapters (ingress correlation) and delivery (outbound correlation)                 | None (idempotent insert)                                | None                                          | Forever        |
-| `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever        |
-| `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever        |
-| `plugin_state`        | Plugins (scoped by `plugin_id`)                                                    | Owning plugin                                           | Owning plugin                                 | Plugin-defined |
-| `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever        |
+| Table / category      | Creator                                                                            | Mutator                                                 | Deleter                                       | Retention                        |
+| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever                          |
+| `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever                          |
+| `native_message_refs` | Adapters (ingress correlation) and delivery (outbound correlation)                 | None (idempotent insert)                                | None                                          | Forever                          |
+| `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
+| `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
+| `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |
+| `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever                          |
 
 ### 16.2 Ownership Rules
 
@@ -989,7 +989,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 7. **Schema metadata identifies the current prerelease shape.** `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen until MEDRE reaches a release-tracked milestone. Column-shape validation (Section 10.2) catches prerelease drift without a version bump. No migration or schema bump work is required now.
 
-8. **Adapters report facts; they do not own storage rows.** Adapters call storage methods (`append`, `store_native_ref`, `append_receipt`) to record observations. Storage semantics are enforced by the storage layer, not by adapter code.
+8. **Adapters report facts; core records persistence.** Adapters surface canonical events, adapter delivery facts, and native transport facts to the runtime. Core pipeline/runtime code records those facts through storage methods such as `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle persistence, do not append receipts directly, and do not mutate storage rows.
 
 ### 16.3 Spec-Planned Tables
 

@@ -1,7 +1,7 @@
 """Persistence authority tests: documentation consistency.
 
 Focused tests proving documentation consistency where gaps exist from
-Waves 1–2, without duplicating existing near-limit test files.
+Waves 1-2, without duplicating existing near-limit test files.
 
 Covers:
   1. Spec-planned identity/archive tables are documented as not current DDL.
@@ -46,18 +46,20 @@ class TestSpecPlannedTablesNotInDDL:
     these tables are planned for the future but do not exist yet.
     """
 
-    SPEC_PLANNED_TABLES = [
+    SPEC_PLANNED_TABLES = (
         "actors",
         "native_identities",
         "actor_identity_links",
         "actor_permissions",
         "native_archive",
-    ]
+    )
 
     @pytest.mark.parametrize("table_name", SPEC_PLANNED_TABLES)
     def test_spec_planned_table_not_in_ddl(self, table_name: str) -> None:
         """Spec-planned tables must not appear in _SCHEMA DDL."""
-        pattern = rf"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+{re.escape(table_name)}\b"
+        pattern = (
+            rf"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{re.escape(table_name)}\b"
+        )
         assert not re.search(pattern, _SCHEMA, re.IGNORECASE), (
             f"Spec-planned table {table_name!r} found in _SCHEMA DDL — "
             f"remove from DDL or update docs to remove 'spec-planned' label"
@@ -122,6 +124,29 @@ class TestStorageMDOwnershipSection:
         content = _STORAGE_SPEC.read_text()
         assert table in content, f"storage.md must mention table {table!r}"
 
+    @pytest.mark.parametrize(
+        "table",
+        [
+            "canonical_events",
+            "delivery_receipts",
+            "native_message_refs",
+        ],
+    )
+    def test_core_table_delete_authority_is_none(self, table: str) -> None:
+        """Core tables have 'None' delete authority in storage.md ownership table."""
+        content = _STORAGE_SPEC.read_text()
+        # Find ownership table rows (markdown lines with pipes) mentioning this table
+        matching_rows = [
+            line for line in content.splitlines() if table in line and "|" in line
+        ]
+        assert (
+            matching_rows
+        ), f"storage.md must have an ownership table row for {table!r}"
+        # At least one matching row must state 'None' as delete authority
+        assert any(
+            "none" in row.lower() for row in matching_rows
+        ), f"storage.md ownership row for {table} must state 'None' as delete authority"
+
     def test_append_only_guarantee_stated(self) -> None:
         """storage.md states the append-only guarantee."""
         content = _STORAGE_SPEC.read_text().lower()
@@ -158,9 +183,15 @@ class TestPersistenceAuditDocConsistency:
         )
 
     def test_audit_doc_states_no_delete(self) -> None:
-        """Audit doc states there is no runtime DELETE."""
+        """Audit doc states the actual no-runtime-delete policy, not just mentions DELETE."""
         content = _PERSISTENCE_AUDIT.read_text()
-        assert "DELETE" in content or "delete" in content.lower()
+        # Must contain the specific policy phrase, not just the word "DELETE"
+        # in any context.  The doc uses "no runtime `DELETE FROM` on any table"
+        # so match "no runtime" within a few characters of "delete".
+        assert re.search(r"no runtime .{0,5}delete", content, re.IGNORECASE), (
+            "Audit doc must state the no-runtime-delete policy "
+            "(e.g., 'no runtime DELETE FROM on any table')"
+        )
 
     def test_audit_doc_version_matches_source(self) -> None:
         """Audit doc's schema version statement matches _EXPECTED_SCHEMA_VERSION."""

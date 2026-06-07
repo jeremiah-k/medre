@@ -111,15 +111,11 @@ class TestRecoveryBuilderPurity:
 
     def test_builders_return_frozen_data(self) -> None:
         """Builder output types are frozen/immutable dataclasses."""
-        assert hasattr(RecoveryOwnershipAction, "__dataclass_fields__")
-        assert hasattr(StartupRecoveryLedger, "__dataclass_fields__")
-        assert hasattr(RecoverySummary, "__dataclass_fields__")
-        # Check that they are frozen
         import dataclasses
 
-        assert dataclasses.is_dataclass(RecoveryOwnershipAction)
-        assert dataclasses.is_dataclass(StartupRecoveryLedger)
-        assert dataclasses.is_dataclass(RecoverySummary)
+        for cls in (RecoveryOwnershipAction, StartupRecoveryLedger, RecoverySummary):
+            assert dataclasses.is_dataclass(cls)
+            assert cls.__dataclass_params__.frozen, f"{cls.__name__} must be frozen"
 
 
 # ===================================================================
@@ -197,7 +193,7 @@ class TestRecoveryNoSuccessReceipts:
             item = _make_item(
                 status=terminal_status, updated_at="2026-01-01T00:00:00+00:00"
             )
-            label, reason = classify_startup_reclamation(
+            label, _reason = classify_startup_reclamation(
                 item,
                 known_event_ids={"ev-1"},
                 now=now,

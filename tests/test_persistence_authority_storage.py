@@ -60,7 +60,7 @@ def _make_outbox_item(
     attempt_number: int = 1,
     status: str = "in_progress",
 ) -> DeliveryOutboxItem:
-    from datetime import datetime, timezone
+    import datetime
 
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
@@ -75,8 +75,8 @@ def _make_outbox_item(
         failure_kind=None,
         failure_kind_detail=None,
         next_attempt_at=None,
-        created_at=datetime.now(timezone.utc).isoformat(),
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.datetime.now(datetime.UTC).isoformat(),
+        updated_at=datetime.datetime.now(datetime.UTC).isoformat(),
         last_attempt_at=None,
         locked_at=None,
         lease_until=None,
@@ -414,7 +414,7 @@ class TestDDLRequiredColumnsParity:
     def _extract_columns_from_ddl(self, table_name: str) -> set[str]:
         """Extract column names from _SCHEMA DDL for a given table."""
         # Match CREATE TABLE IF NOT EXISTS <name> ( ... )
-        pattern = rf"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+{re.escape(table_name)}\s*\((.*?)\);"
+        pattern = rf"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{re.escape(table_name)}\s*\((.*?)\);"
         match = re.search(pattern, _SCHEMA, re.DOTALL | re.IGNORECASE)
         if match is None:
             return set()
@@ -428,7 +428,7 @@ class TestDDLRequiredColumnsParity:
             # Skip constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK, CONSTRAINT)
             upper = line.upper().lstrip()
             if upper.startswith(
-                ("PRIMARY KEY", "UNIQUE(", "FOREIGN KEY", "CHECK", "CONSTRAINT")
+                ("PRIMARY KEY", "UNIQUE", "FOREIGN KEY", "CHECK", "CONSTRAINT")
             ):
                 continue
             # First token is the column name
@@ -465,7 +465,7 @@ class TestDDLRequiredColumnsParity:
     def test_all_ddl_tables_have_required_columns_entry(self) -> None:
         """Every CREATE TABLE in _SCHEMA has a corresponding _REQUIRED_COLUMNS entry."""
         all_tables = re.findall(
-            r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", _SCHEMA, re.IGNORECASE
+            r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", _SCHEMA, re.IGNORECASE
         )
         for table_name in all_tables:
             assert (

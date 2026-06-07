@@ -71,7 +71,7 @@ async def _collect_storage_data_from_backend(
     shape as the ``storage`` section in the evidence bundle.
 
     **Persistence boundary:** All data is read from storage tables
-    (``events``, ``delivery_receipts``, ``native_refs``,
+    (``canonical_events``, ``delivery_receipts``, ``native_message_refs``,
     ``delivery_outbox``) via read-only queries.  Derived fields
     (delivery outcome ledger, retry outbox summary, convergence summary,
     orphan report, lifecycle convergence report) are computed on demand
