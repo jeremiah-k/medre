@@ -1122,8 +1122,8 @@ class MedreApp:
                 _logger.warning(
                     "RetryWorker was abandoned during shutdown: "
                     "background task did not finish within timeout; "
-                    "state.running=True, abandoned=True. "
-                    "Subprocess-driven retries may still be in-flight."
+                    "state.running=False, state.abandoned=True. "
+                    "Retained task may still be alive until event-loop shutdown."
                 )
 
         _logger.info("Runtime stopping — accepting no new work")

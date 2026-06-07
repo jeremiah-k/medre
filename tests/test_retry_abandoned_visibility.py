@@ -281,7 +281,6 @@ class TestAbandonedStopIntegration:
         assert worker._task is None
 
         # Now try to start again — must refuse.
-        len(event_buffer)
         await worker.start()
 
         assert worker._task is None

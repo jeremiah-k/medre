@@ -365,7 +365,7 @@ class RetryWorker:
                 "RetryWorker stop requested: two-stage bounded shutdown "
                 "(stage 1: cooperative poll, stage 2: forced cancel), "
                 "effective wall-time up to ~%.1fs "
-                "(stop_timeout_seconds=%.1f × 2 stages)",
+                "(stop_timeout_seconds=%.1f x 2 stages)",
                 self._stop_timeout * 2,
                 self._stop_timeout,
             )

@@ -618,7 +618,7 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
             r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
         ]
         assert len(abandonment_warnings) == 1
-        assert "state.running=True, abandoned=True" in (
+        assert "state.running=False, state.abandoned=True" in (
             abandonment_warnings[0].getMessage()
         )
 

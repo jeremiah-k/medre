@@ -158,13 +158,15 @@ Outcomes:
   release): the task is still alive after both grace periods. `_task`
   is **kept** (the underlying coroutine may still complete and clean
   itself up later), `state.abandoned` is set to `True`, `state.running`
-  remains `True`, a `retry_abandoned` event is emitted, and `stop()`
-  returns without re-raising. While `state.abandoned` is `True`,
-  subsequent `start()` calls are **refused** to prevent launching a
-  duplicate worker over the same outbox. The caller (operator /
-  supervisor) must inspect `state.abandoned` and either reset the
-  worker (e.g. by waiting for the abandoned task to finish naturally)
-  or shut the entire runtime down.
+  is set to `False` (the retained task may still be alive, but the
+  worker is no longer considered running), a `retry_abandoned` event is
+  emitted, and `stop()` returns without re-raising. While
+  `state.abandoned` is `True`, subsequent `start()` calls are
+  **refused** to prevent launching a duplicate worker over the same
+  outbox. The caller (operator / supervisor) must inspect
+  `state.abandoned` and either reset the worker (e.g. by waiting for
+  the abandoned task to finish naturally) or shut the entire runtime
+  down.
 - **External cancellation of `stop()` itself** (e.g. `MedreApp.stop()`
   hits a shutdown timeout and cancels its inner cleanup work): the
   `asyncio.CancelledError` is caught inside the polling loop. Two
@@ -177,11 +179,11 @@ Outcomes:
     prevents `_task` and `state.running=True` from leaking when the
     cancellation arrives a tick after the task finished naturally.
   - **Task still alive**: the worker is marked abandoned
-    (`state.abandoned = True`, `state.running` left as `True`), a
-    `retry_abandoned` event with `reason="stop_cancelled"` is emitted,
-    and the `CancelledError` is re-raised. This makes the
-    "stop was cancelled" state distinguishable from "stop succeeded"
-    and from "stop never called".
+    (`state.abandoned = True`, `state.running` set to `False`; the
+    retained task may still be alive), a `retry_abandoned` event with
+    `reason="stop_cancelled"` is emitted, and the `CancelledError` is
+    re-raised. This makes the "stop was cancelled" state
+    distinguishable from "stop succeeded" and from "stop never called".
 
 `stop()` will never hang indefinitely: even in the cancellation-
 resistant case it returns within `2 * stop_timeout_seconds`.
