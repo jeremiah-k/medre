@@ -54,7 +54,6 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
 )
-from medre.core.planning.capability_decision import resolver as _cap_resolver
 from medre.core.planning.conversation_graph import ConversationGraphAuthority
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -1307,32 +1306,32 @@ class PipelineRunner:
 
             # ── Phase 2.5: Capability check (no state mutation) ──────
 
-            # Capability suppression: skip delivery when the target
-            # adapter does not support the event kind or required
-            # delivery features.  Runs after route-policy checks but
-            # BEFORE capacity acquisition so that capability-unsupported
-            # targets never consume capacity or increment counters.
+            # Capability suppression: skip delivery when the delivery
+            # plan records capability_level == "unsupported".  The
+            # FallbackResolver already resolved capabilities during
+            # planning (route_event) and stored the decision on the
+            # DeliveryPlan — the runner trusts that provenance instead
+            # of re-resolving.
             #
-            # The resolver produces a CapabilityDecision with capability
-            # level, delivery strategy, capability field, and reason —
-            # providing richer diagnostics than the reason string alone.
+            # Runs after route-policy checks but BEFORE capacity
+            # acquisition so that capability-unsupported targets never
+            # consume capacity or increment counters.
             #
-            # IMPORTANT: Only run the capability check for adapters
-            # that are actually registered.  Unknown / missing adapters
-            # must NOT be capability-suppressed — they need to fall
-            # through to deliver_to_target() which produces the correct
+            # IMPORTANT: Only apply for adapters that are actually
+            # registered.  Unknown / missing adapters must NOT be
+            # capability-suppressed — they need to fall through to
+            # deliver_to_target() which produces the correct
             # ADAPTER_MISSING outcome with a meaningful error message.
             _suppression_reason: str | None = None
-            if adapter_id and adapter_id in self._config.adapters:
-                _caps = self._get_adapter_capabilities(target)
-
-                _cap_decision = _cap_resolver.decide(
-                    event,
-                    _caps,
-                    target_adapter=adapter_id,
+            if (
+                adapter_id
+                and adapter_id in self._config.adapters
+                and route_plan.capability_level == "unsupported"
+            ):
+                _suppression_reason = (
+                    route_plan.capability_reason
+                    or f"{route_plan.capability_field or 'capability'} unsupported"
                 )
-                if not _cap_decision.supported:
-                    _suppression_reason = _cap_decision.reason
             if _suppression_reason is not None:
                 self._log.info(
                     "capability_suppressed: route_id=%s event_id=%s "
@@ -1405,10 +1404,18 @@ class PipelineRunner:
                 if self._runtime_accounting is not None:
                     self._runtime_accounting.record_capability_suppressed()
                 elapsed = (time.monotonic() - t0) * 1000.0
-                skip_error = (
-                    f"plan_skip: delivery strategy is 'skip' "
-                    f"(event_kind={event.event_kind})"
-                )
+                # Use the plan's capability_reason when available for
+                # operator-visible specificity; fall back to generic
+                # text when the reason is absent (e.g. hand-crafted
+                # plans without provenance).
+                _plan_reason = route_plan.capability_reason
+                if _plan_reason:
+                    skip_error = f"plan_skip: {_plan_reason}"
+                else:
+                    skip_error = (
+                        f"plan_skip: delivery strategy is 'skip' "
+                        f"(event_kind={event.event_kind})"
+                    )
                 skip_receipt = await self._persist_suppression_receipt(
                     event_id=event.event_id,
                     delivery_plan_id=route_plan.plan_id,

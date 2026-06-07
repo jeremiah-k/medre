@@ -568,6 +568,7 @@ class TestCapabilityLevelPropagation:
         route, plan = _make_route_and_plan(
             adapter_id="cap_adapter", method="fallback_text"
         )
+        plan.capability_level = "fallback"
 
         await svc.deliver_to_target(event, route, plan)
 
@@ -622,14 +623,10 @@ class TestCapabilityLevelPropagation:
 
 
 class TestInvalidCapabilityDecision:
-    """Verify invalid resolver capability_level is treated as planner failure."""
+    """Verify invalid plan capability_level is treated as planner failure."""
 
     async def test_invalid_capability_level_planner_failure(self) -> None:
-        """Invalid capability_level from resolver produces PLANNER_FAILURE."""
-        from unittest.mock import patch
-
-        from medre.core.planning.capability_decision import CapabilityDecision
-
+        """Invalid capability_level from delivery plan produces PLANNER_FAILURE."""
         adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
         pipeline = _FakeRenderingPipeline(
             result=RenderingResult(
@@ -647,23 +644,11 @@ class TestInvalidCapabilityDecision:
         svc._diagnostician = diag
         event = _make_event()
         route, plan = _make_route_and_plan()
+        # Set an invalid capability_level on the plan directly.
+        plan.capability_level = "bogus"  # type: ignore[assignment]
 
-        # Monkeypatch resolver to return invalid capability_level.
-        bad_decision = CapabilityDecision(
-            target_adapter="test_adapter",
-            event_kind="message.created",
-            capability_level="bogus",  # type: ignore[arg-type]
-            delivery_strategy="direct",
-            supported=True,
-            capability_field=None,
-            reason=None,
-        )
-        with patch(
-            "medre.core.engine.pipeline.target_delivery._resolver.decide",
-            return_value=bad_decision,
-        ):
-            with pytest.raises(_RendererDeliveryError) as exc_info:
-                await svc.deliver_to_target(event, route, plan)
+        with pytest.raises(_RendererDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
 
         err = exc_info.value
         assert err.failure_kind == DeliveryFailureKind.PLANNER_FAILURE

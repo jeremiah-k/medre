@@ -291,6 +291,8 @@ class AdapterCapabilities:
 
 The runtime reads capabilities from the cached `AdapterInfo` at delivery time. It **MUST NOT** query the adapter at delivery time.
 
+**Planning authority boundary.** Adapters report capability facts — what their transport can and cannot do. They do not make planning or lifecycle decisions. `CapabilityDecisionResolver` interprets adapter-declared capabilities into three-level decisions, and `FallbackResolver` incorporates those decisions into `DeliveryPlan` objects. The plan is the authoritative planning result (see Routing and Delivery Specification, § 6.1). Adapters, renderers, and diagnostics consume plan fields without re-deciding capability or delivery strategy.
+
 ### 6.4 How Capabilities Drive Behavior
 
 | Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                     | `native` Behavior             |

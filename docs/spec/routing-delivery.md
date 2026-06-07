@@ -288,6 +288,8 @@ The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
 
 Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans MAY be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
+**Planning decision authority.** `FallbackResolver` produces each `DeliveryPlan` by delegating capability strategy decisions to `CapabilityDecisionResolver`. The resulting plan is the authoritative planning decision for that `(event, target)` pair. Downstream stages — `TargetDeliveryService` (execution), `RenderingPipeline` (rendering), `RenderingEvidence`/`DeliveryReceipt` (evidence), and diagnostics — consume plan fields (`primary_strategy`, `capability_level`, `capability_field`, `capability_reason`) without re-deciding capability or strategy. The only exception is replay, which intentionally re-runs planning against current capabilities and configuration rather than reusing the original live plan (see § 6.3.9).
+
 ### 6.2 DeliveryStrategy
 
 ```python
@@ -316,11 +318,17 @@ method values as configuration errors. The well-known methods are:
 
 ### 6.3 Capability Decision Model
 
-Capability decisions are resolved by a single stateless resolver:
-`CapabilityDecisionResolver.decide(event, caps, *, target_adapter=None)`.
-The resolver is used by Phase 2.5 (pipeline), `FallbackResolver`,
-replay BEST_EFFORT filtering, rendering evidence, and diagnostics so
-that live and replay delivery share one source of truth.
+Capability decisions are resolved by a single stateless resolver during
+planning (`FallbackResolver` via `CapabilityDecisionResolver`) and replay
+re-planning. `FallbackResolver` produces each `DeliveryPlan` by delegating
+capability strategy decisions to `CapabilityDecisionResolver`. Downstream
+live-delivery stages — `TargetDeliveryService` (execution), `RenderingPipeline`
+(rendering), `RenderingEvidence`/`DeliveryReceipt` (evidence), and diagnostics —
+consume the precomputed `DeliveryPlan` capability/strategy fields
+(`primary_strategy`, `capability_level`, `capability_field`,
+`capability_reason`) and MUST NOT re-resolve capability. The only exception is
+replay, which intentionally re-runs planning against current capabilities and
+configuration rather than reusing the original live plan (see § 6.3.9).
 
 #### 6.3.1 CapabilityDecision
 
