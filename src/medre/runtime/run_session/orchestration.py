@@ -139,6 +139,18 @@ def _resolve_paths(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _adapter_health_from_snap(snap: dict[str, Any]) -> dict[str, Any]:
+    """Extract adapter health entries from the runtime snapshot."""
+    _health = snap.get("health") or {}
+    _live = _health.get("live_health") or {}
+    return _live.get("adapters", {})
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -271,6 +283,22 @@ async def run_bridge_session(
             "sanitized": True,
         }
 
+    # Validate ingress_mode before starting the runtime.
+    if ingress_mode not in _SUPPORTED_INGRESS_MODES:
+        return {
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": f"Invalid ingress_mode: {ingress_mode!r}",
+            "evidence_level": "fake_run_session",
+            "timestamp": _now().isoformat(),
+            "storage_path": storage_path,
+            "adapter_lifecycle": {},
+            "shutdown_status": None,
+            "retry_worker_summary": None,
+            "limitations": _LIMITATIONS,
+            "sanitized": True,
+        }
+
     # -- Step 3: Start runtime ----------------------------------------------
     try:
         await app.start()
@@ -293,20 +321,6 @@ async def run_bridge_session(
 
     # -- Step 4: Inject event(s) --------------------------------------------
     source_aid, source_adapter = _pick_source_adapter(app)
-
-    if ingress_mode not in _SUPPORTED_INGRESS_MODES:
-        return {
-            "status": "failed",
-            "command": "run_session",
-            "fail_reason": f"Invalid ingress_mode: {ingress_mode!r}",
-            "evidence_level": "fake_run_session",
-            "timestamp": _now().isoformat(),
-            "storage_path": storage_path,
-            "adapter_lifecycle": {},
-            "shutdown_status": None,
-            "retry_worker_summary": None,
-            "limitations": _LIMITATIONS,
-        }
 
     # Inject scenario-specific failure before event injection.
     scenario_error: str | None = None
@@ -436,7 +450,7 @@ async def run_bridge_session(
     receipt_summaries = [delivery_receipt_to_report_dict(r) for r in all_receipts]
 
     # Final snapshot checks
-    lifecycle = snap.get("lifecycle", {})
+    lifecycle = snap.get("lifecycle") or {}
     runtime_state = lifecycle.get("runtime_state", "unknown")
     final_snapshot_checks = {
         "schema_version": snap.get("schema_version", SCHEMA_VERSION),
@@ -478,14 +492,7 @@ async def run_bridge_session(
         if scenario == "degraded_live_health":
             # Health scenario — not a failure_kind scenario.
             # Check if runtime is still running and health is degraded.
-            adapter_health_entries = (
-                snap.get("health", {})
-                .get(
-                    "live_health",
-                    {},
-                )
-                .get("adapters", {})
-            )
+            adapter_health_entries = _adapter_health_from_snap(snap)
             observed_health = "degraded"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":
@@ -632,14 +639,7 @@ async def run_bridge_session(
         if scenario == "degraded_live_health":
             # Health scenario — use health-specific fields instead of
             # failure_kind fields.
-            adapter_health_entries = (
-                snap.get("health", {})
-                .get(
-                    "live_health",
-                    {},
-                )
-                .get("adapters", {})
-            )
+            adapter_health_entries = _adapter_health_from_snap(snap)
             observed_health = "unknown"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":

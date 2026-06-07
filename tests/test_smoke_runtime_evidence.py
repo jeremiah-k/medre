@@ -102,13 +102,13 @@ async def test_shutdown_status_is_none_or_str() -> None:
     assert shutdown is None or isinstance(shutdown, str)
 
 
-async def test_shutdown_status_none_in_basic_smoke() -> None:
-    """Basic smoke run produces no shutdown_evidence in snapshot, so None."""
+async def test_shutdown_status_stopped_after_smoke() -> None:
+    """Smoke run calls app.stop(), so shutdown_status is 'stopped'."""
     report = await run_fake_bridge_smoke(_smoke_config_path())
     assert report["status"] == "passed"
-    # The basic snapshot does not include shutdown_evidence; it's derived
-    # separately in the evidence bundle.  So shutdown_status should be None.
-    assert report["shutdown_status"] is None
+    # The smoke runner calls app.stop() which transitions runtime_state
+    # to "stopped".  shutdown_status is derived from lifecycle.runtime_state.
+    assert report["shutdown_status"] == "stopped"
 
 
 # ---------------------------------------------------------------------------

@@ -89,11 +89,15 @@ _LIMITATIONS_MEMORY: str = "In-memory storage — no persistence or crash-recove
 
 _LIMITATIONS_SQLITE: str = "Persistent storage (SQLite) but no crash-recovery proof"
 
-_EMPTY_RUNTIME_EVIDENCE: dict[str, Any] = {
-    "adapter_lifecycle": {},
-    "shutdown_status": None,
-    "runtime_events_count": 0,
-}
+
+def _empty_runtime_evidence() -> dict[str, Any]:
+    """Return a fresh runtime evidence dict to avoid shared mutable state."""
+    return {
+        "adapter_lifecycle": {},
+        "shutdown_status": None,
+        "runtime_events_count": 0,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Default config resolution
@@ -345,7 +349,7 @@ async def run_fake_bridge_smoke(
             "timestamp": _now().isoformat(),
             "limitations": _LIMITATIONS,
             "sanitized": True,
-            **_EMPTY_RUNTIME_EVIDENCE,
+            **_empty_runtime_evidence(),
         }
 
     config_source_value = source.value
@@ -378,7 +382,7 @@ async def run_fake_bridge_smoke(
             "preflight": preflight,
             "limitations": _LIMITATIONS,
             "sanitized": True,
-            **_EMPTY_RUNTIME_EVIDENCE,
+            **_empty_runtime_evidence(),
         }
 
     # -- Step 4: Start runtime ----------------------------------------------
@@ -396,7 +400,7 @@ async def run_fake_bridge_smoke(
             "started_adapters": list(app.started_adapter_ids),
             "limitations": _LIMITATIONS,
             "sanitized": True,
-            **_EMPTY_RUNTIME_EVIDENCE,
+            **_empty_runtime_evidence(),
         }
 
     # -- Step 5: Inject event -----------------------------------------------
@@ -448,17 +452,6 @@ async def run_fake_bridge_smoke(
         except Exception:
             pass
 
-    # Full snapshot
-    snap: dict[str, Any] = {}
-    try:
-        snap = build_runtime_snapshot(
-            app,
-            now_fn=now_fn,
-            monotonic_fn=monotonic_fn,
-        )
-    except Exception:
-        pass
-
     # Target adapters from outcomes
     target_adapters = sorted(
         {o.target_adapter for o in outcomes if o.status == "success"}
@@ -482,6 +475,17 @@ async def run_fake_bridge_smoke(
         await app.stop()
     except Exception as exc:
         _logger.warning("Smoke stop error (non-fatal): %s", exc)
+
+    # -- Full snapshot (after stop so lifecycle.runtime_state reflects "stopped")
+    snap: dict[str, Any] = {}
+    try:
+        snap = build_runtime_snapshot(
+            app,
+            now_fn=now_fn,
+            monotonic_fn=monotonic_fn,
+        )
+    except Exception:
+        pass
 
     # -- Step 8: Build report -----------------------------------------------
     # passed criteria
@@ -526,6 +530,12 @@ async def run_fake_bridge_smoke(
         else (config.storage.path if config.storage.path else None)
     )
 
+    # Derive shutdown_status from lifecycle.runtime_state (consistent
+    # with orchestration.py).  The snapshot no longer carries a dedicated
+    # shutdown_evidence section.
+    _lifecycle = snap.get("lifecycle") or {}
+    _runtime_state = _lifecycle.get("runtime_state", "unknown")
+
     report: dict[str, Any] = {
         "status": "passed" if passed else "failed",
         "command": "smoke",
@@ -550,18 +560,18 @@ async def run_fake_bridge_smoke(
         "route_stats": route_stats,
         "snapshot": {
             "schema_version": snap.get("schema_version", SCHEMA_VERSION),
-            "lifecycle": snap.get("lifecycle", {}),
+            "lifecycle": _lifecycle,
             "routes": {
-                "stats": snap.get("routes", {}).get("stats", {}),
+                "stats": (snap.get("routes") or {}).get("stats", {}),
             },
             "accounting": snap.get("accounting", {}),
         },
-        "adapter_lifecycle": snap.get("lifecycle", {}).get("adapters", {}),
-        "shutdown_status": (
-            (snap.get("shutdown_evidence") or {}).get("shutdown_status")
-        ),
+        "adapter_lifecycle": _lifecycle.get("adapters", {}),
+        "shutdown_status": _runtime_state if _runtime_state == "stopped" else None,
         "runtime_events_count": (
-            (snap.get("diagnostics", {}).get("runtime_events") or {}).get("count", 0)
+            ((snap.get("diagnostics") or {}).get("runtime_events") or {}).get(
+                "count", 0
+            )
         ),
         "limitations": _build_limitations(config.storage.backend),
     }
