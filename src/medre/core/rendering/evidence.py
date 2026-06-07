@@ -140,6 +140,15 @@ class RelationTargetEvidence:
         the relation carried fallback text, or ``None`` when it did not.
         This field intentionally avoids storing raw user content to
         prevent PII exposure in evidence records.
+    render_mode_reason:
+        Provenance tag explaining *why* ``render_mode`` resolved to its
+        value.  Concise machine-readable strings derived from the branch
+        taken in render-mode derivation.  Examples:
+        ``"strategy_fallback_text"``, ``"capability_fallback"``,
+        ``"capability_unsupported"``, ``"fallback_applied_match"``,
+        ``"target_unresolved"``, ``"native_ref_unavailable"``,
+        ``"native_target_available"``.  ``None`` when not computed
+        (backward-compatible default for manual construction).
     """
 
     relation_type: str
@@ -148,6 +157,7 @@ class RelationTargetEvidence:
     target_native_message_id: str | None
     target_available: bool | None
     fallback_text_source: str | None
+    render_mode_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe plain dict representation."""
@@ -158,6 +168,7 @@ class RelationTargetEvidence:
             "target_native_message_id": self.target_native_message_id,
             "target_available": self.target_available,
             "fallback_text_source": self.fallback_text_source,
+            "render_mode_reason": self.render_mode_reason,
         }
 
 
@@ -174,35 +185,39 @@ def _derive_relation_render_mode(
     *,
     target_event_id: str | None = None,
     target_native_message_id: str | None = None,
-) -> str:
-    """Derive the render mode for a single relation.
+) -> tuple[str, str]:
+    """Derive the render mode and provenance reason for a single relation.
 
-    Returns ``"native"`` or ``"fallback"`` based on the overall rendering
-    context and target availability.  The logic is:
+    Returns ``(mode, reason)`` where *mode* is ``"native"`` or
+    ``"fallback"`` and *reason* is a concise machine-readable tag
+    identifying which branch was taken.  The logic is:
 
-    1. ``delivery_strategy == "fallback_text"`` → all relations fallback.
-    2. ``capability_level`` in ``("fallback", "unsupported")`` → all
-       relations fallback.
+    1. ``delivery_strategy == "fallback_text"`` → ``("fallback", "strategy_fallback_text")``.
+    2. ``capability_level`` in ``("fallback", "unsupported")`` →
+       ``("fallback", "capability_fallback")`` or
+       ``("fallback", "capability_unsupported")``.
     3. ``fallback_applied`` starts with ``"relation_"`` and its suffix
-       matches the relation type → this specific relation fallback.
-    4. ``target_event_id`` is ``None`` → no resolved target → fallback.
-    5. ``target_native_message_id`` is ``None`` or empty → no usable
-       native ref → fallback.
-    6. Otherwise → native.
+       matches the relation type → ``("fallback", "fallback_applied_match")``.
+    4. ``target_event_id`` is ``None`` → ``("fallback", "target_unresolved")``.
+    5. ``target_native_message_id`` is ``None`` or empty →
+       ``("fallback", "native_ref_unavailable")``.
+    6. Otherwise → ``("native", "native_target_available")``.
     """
     if delivery_strategy == "fallback_text":
-        return "fallback"
-    if capability_level in ("fallback", "unsupported"):
-        return "fallback"
+        return ("fallback", "strategy_fallback_text")
+    if capability_level == "fallback":
+        return ("fallback", "capability_fallback")
+    if capability_level == "unsupported":
+        return ("fallback", "capability_unsupported")
     if fallback_applied is not None and fallback_applied.startswith("relation_"):
         suffix = fallback_applied[len("relation_") :]
         if suffix == relation_type:
-            return "fallback"
+            return ("fallback", "fallback_applied_match")
     if target_event_id is None:
-        return "fallback"
+        return ("fallback", "target_unresolved")
     if not target_native_message_id:
-        return "fallback"
-    return "native"
+        return ("fallback", "native_ref_unavailable")
+    return ("native", "native_target_available")
 
 
 def _build_relation_evidence(
@@ -220,7 +235,7 @@ def _build_relation_evidence(
         if rel.target_native_ref is not None:
             target_native_msg_id = rel.target_native_ref.native_message_id
 
-        render_mode = _derive_relation_render_mode(
+        render_mode, render_mode_reason = _derive_relation_render_mode(
             relation_type=rel.relation_type,
             delivery_strategy=ctx.delivery_strategy,
             capability_level=ctx.capability_level,
@@ -245,6 +260,7 @@ def _build_relation_evidence(
                     if rel.fallback_text is not None
                     else None
                 ),
+                render_mode_reason=render_mode_reason,
             )
         )
     return tuple(entries)

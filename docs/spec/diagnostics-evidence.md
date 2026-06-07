@@ -422,6 +422,8 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 6. Startup-derived health values (`adapters.{id}.health`, `startup.startup_health`) do not reflect post-startup state changes. If an adapter crashes after startup, these values will still show the startup-time state.
 7. Runtime event buffers are in-memory only and not persisted across restarts.
 
+**Planning authority boundary for diagnostics and evidence.** Diagnostics and evidence are derived-only consumers of `DeliveryPlan` fields (`capability_level`, `capability_field`, `capability_reason`, `primary_strategy`). They observe and record what the planning pipeline decided; they do not re-decide capability or strategy. The one exception is replay execution (§ 14.5): replay intentionally re-runs planning against current capabilities and configuration rather than reusing the original live `DeliveryPlan`. This is by design — replay produces its own `DeliveryPlan` instances (with `source="replay"`) so that replay outcomes reflect current transport reality, not stale historical planning state. Replay planning uses the same `CapabilityDecisionResolver` as live delivery (see Routing and Delivery Specification, § 6.3.8).
+
 ## 13. Beta Contractual Guarantees
 
 The following six guarantees are contractual for the current beta period:

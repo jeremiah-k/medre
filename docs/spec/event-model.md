@@ -65,6 +65,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 | `root_event_id`       | `str \| None`               | `None`  | Canonical event ID of the root event in a relation chain. `None` before `ConversationGraphAuthority` has computed conversation identity at pipeline Stage 2.5. After pipeline ingress: root events (no resolved relation targets in storage) have `root_event_id = event.event_id` (self-root); reply/reaction events inherit or walk to the resolved relation root; if all resolved relation targets are missing from storage, the event self-roots. |
 | `conversation_id`     | `str \| None`               | `None`  | Conversation identifier. Currently always equals `root_event_id` after `ConversationGraphAuthority` assignment — no independent computation exists. Ancestor `conversation_id` values are not independently propagated. The field exists separately to reserve future divergence (e.g. merged threads, cross-transport grouping), which would require a separate authority rule. Populated at pipeline Stage 2.5.                                     |
 
+**Planning-derived fields.** `root_event_id` and `conversation_id` are pipeline-assigned by `ConversationGraphAuthority` at Stage 2.5, not by adapters or codecs. Downstream stages (routing, delivery planning, rendering, diagnostics) consume these fields without re-computing relation ancestry. The pipeline authority that assigns these fields is documented in the Planning Authority Audit (§ 2.4).
+
 ### 1.3 Source Identity Examples
 
 `source_transport_id` identifies the native actor, not the native message:

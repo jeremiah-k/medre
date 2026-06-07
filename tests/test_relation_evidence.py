@@ -104,6 +104,7 @@ class TestRelationTargetEvidenceModel:
             target_native_message_id="msg-1",
             target_available=True,
             fallback_text_source=None,
+            render_mode_reason="native_target_available",
         )
         assert evidence.relation_type == "reply"
         assert evidence.render_mode == "native"
@@ -111,6 +112,19 @@ class TestRelationTargetEvidenceModel:
         assert evidence.target_native_message_id == "msg-1"
         assert evidence.target_available is True
         assert evidence.fallback_text_source is None
+        assert evidence.render_mode_reason == "native_target_available"
+
+    def test_render_mode_reason_defaults_to_none(self) -> None:
+        """render_mode_reason defaults to None for backward compatibility."""
+        evidence = RelationTargetEvidence(
+            relation_type="reply",
+            render_mode="fallback",
+            target_event_id=None,
+            target_native_message_id=None,
+            target_available=None,
+            fallback_text_source=None,
+        )
+        assert evidence.render_mode_reason is None
 
     def test_frozen(self) -> None:
         evidence = RelationTargetEvidence(
@@ -132,6 +146,7 @@ class TestRelationTargetEvidenceModel:
             target_native_message_id=None,
             target_available=True,
             fallback_text_source="relation_fallback_text_present",
+            render_mode_reason="native_ref_unavailable",
         )
         d = evidence.to_dict()
         serialized = json.dumps(d, sort_keys=True)
@@ -143,6 +158,7 @@ class TestRelationTargetEvidenceModel:
         assert parsed["target_native_message_id"] is None
         assert parsed["target_available"] is True
         assert parsed["fallback_text_source"] == "relation_fallback_text_present"
+        assert parsed["render_mode_reason"] == "native_ref_unavailable"
 
     def test_to_dict_all_none(self) -> None:
         evidence = RelationTargetEvidence(
@@ -158,6 +174,7 @@ class TestRelationTargetEvidenceModel:
         assert d["target_native_message_id"] is None
         assert d["target_available"] is None
         assert d["fallback_text_source"] is None
+        assert d["render_mode_reason"] is None
 
 
 # ===================================================================
@@ -169,7 +186,7 @@ class TestRenderModeDerivation:
     """Tests for _derive_relation_render_mode logic."""
 
     def test_direct_strategy_native_capability_yields_native(self) -> None:
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -178,9 +195,10 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "native"
+        assert reason == "native_target_available"
 
     def test_fallback_text_strategy_yields_fallback(self) -> None:
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="fallback_text",
             capability_level="native",
@@ -189,9 +207,10 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "fallback"
+        assert reason == "strategy_fallback_text"
 
     def test_fallback_capability_yields_fallback(self) -> None:
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="fallback",
@@ -200,9 +219,10 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "fallback"
+        assert reason == "capability_fallback"
 
     def test_unsupported_capability_yields_fallback(self) -> None:
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="unsupported",
@@ -211,9 +231,10 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "fallback"
+        assert reason == "capability_unsupported"
 
     def test_relation_specific_fallback_applied_matching(self) -> None:
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -222,10 +243,11 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "fallback"
+        assert reason == "fallback_applied_match"
 
     def test_relation_specific_fallback_applied_non_matching(self) -> None:
         """fallback_applied='relation_reaction' does not affect reply."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -234,11 +256,12 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "native"
+        assert reason == "native_target_available"
 
     def test_relation_fallback_for_each_type(self) -> None:
         for rtype in ("reply", "reaction", "edit", "delete", "thread"):
             fb: FallbackApplied = f"relation_{rtype}"  # type: ignore[assignment]
-            mode = _derive_relation_render_mode(
+            mode, reason = _derive_relation_render_mode(
                 relation_type=rtype,
                 delivery_strategy="direct",
                 capability_level="native",
@@ -247,10 +270,11 @@ class TestRenderModeDerivation:
                 target_native_message_id="msg-1",
             )
             assert mode == "fallback", f"Expected fallback for {rtype}"
+            assert reason == "fallback_applied_match", f"Expected fallback_applied_match for {rtype}"
 
     def test_strategy_fallback_text_not_relation_type(self) -> None:
         """strategy_fallback_text does not match any relation type suffix."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -259,10 +283,11 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "native"
+        assert reason == "native_target_available"
 
     def test_no_target_event_id_yields_fallback(self) -> None:
         """Even with native strategy/capability, no target_event_id → fallback."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -270,10 +295,11 @@ class TestRenderModeDerivation:
             target_event_id=None,
         )
         assert mode == "fallback"
+        assert reason == "target_unresolved"
 
     def test_no_native_message_id_yields_fallback(self) -> None:
         """target_event_id present but no usable native_message_id → fallback."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -282,10 +308,11 @@ class TestRenderModeDerivation:
             target_native_message_id=None,
         )
         assert mode == "fallback"
+        assert reason == "native_ref_unavailable"
 
     def test_empty_native_message_id_yields_fallback(self) -> None:
         """target_event_id present but empty native_message_id → fallback."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -294,10 +321,11 @@ class TestRenderModeDerivation:
             target_native_message_id="",
         )
         assert mode == "fallback"
+        assert reason == "native_ref_unavailable"
 
     def test_usable_native_ref_with_native_strategy_yields_native(self) -> None:
         """Both target_event_id and truthy native_message_id → native."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
@@ -306,16 +334,18 @@ class TestRenderModeDerivation:
             target_native_message_id="msg-1",
         )
         assert mode == "native"
+        assert reason == "native_target_available"
 
     def test_no_target_default_params_yields_fallback(self) -> None:
         """Omitting target params (defaults to None) → fallback."""
-        mode = _derive_relation_render_mode(
+        mode, reason = _derive_relation_render_mode(
             relation_type="reply",
             delivery_strategy="direct",
             capability_level="native",
             fallback_applied=None,
         )
         assert mode == "fallback"
+        assert reason == "target_unresolved"
 
 
 # ===================================================================
@@ -654,6 +684,8 @@ class TestPipelineRelationEvidence:
         assert evidence.relation_evidence[0].target_event_id == "evt-reply-target"
         # TextRenderer degrades relations to plain text → fallback mode.
         assert evidence.relation_evidence[0].render_mode == "fallback"
+        # No native ref on the relation → target_unresolved
+        assert evidence.relation_evidence[0].render_mode_reason is not None
 
     async def test_pipeline_populates_conversation_id(self) -> None:
         pipeline = RenderingPipeline()
@@ -725,6 +757,8 @@ class TestPipelineRelationEvidence:
         assert rel["target_native_message_id"] == "msg-42"
         assert rel["target_available"] is True
         assert rel["fallback_text_source"] == "relation_fallback_text_present"
+        assert "render_mode_reason" in rel
+        assert isinstance(rel["render_mode_reason"], str)
 
 
 # ===================================================================

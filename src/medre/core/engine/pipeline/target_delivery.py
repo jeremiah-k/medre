@@ -58,7 +58,6 @@ from medre.core.events.canonical import (
 )
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import resolve_adapter_capabilities
-from medre.core.planning.capability_decision import resolver as _resolver
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -442,13 +441,18 @@ class TargetDeliveryService:
         _max_text_bytes = _caps.max_text_bytes
 
         # Resolve capability level for rendering context from the
-        # capability decision model.  Uses the same resolver as Phase 2.5
-        # and replay so live/replay rendering evidence shares one source.
-        _cap_decision = _resolver.decide(event, _caps, target_adapter=adapter_id)
-        if _cap_decision.capability_level not in ("native", "fallback", "unsupported"):
+        # delivery plan.  The plan carries the capability decision made
+        # during Phase 2.5 planning; using it here avoids re-resolving
+        # and preserves planning authority.  Defaults to "native" when
+        # the plan has no explicit capability_level (e.g. plans
+        # constructed outside the normal planning path).
+        _plan_cap_level = plan.capability_level
+        if _plan_cap_level is None:
+            _plan_cap_level = "native"
+        if _plan_cap_level not in ("native", "fallback", "unsupported"):
             _invalid_cap_error = (
                 f"Unexpected capability_level "
-                f"{_cap_decision.capability_level!r} from resolver "
+                f"{_plan_cap_level!r} from delivery plan "
                 f"(expected 'native', 'fallback', or 'unsupported') "
                 f"for event_kind={event.event_kind!r}"
             )
@@ -482,7 +486,7 @@ class TargetDeliveryService:
                 receipt=receipt,
                 failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
             ) from None
-        _capability_level: _CapLevel = _cap_decision.capability_level
+        _capability_level: _CapLevel = _plan_cap_level
 
         # Honor the delivery plan's strategy: validate and narrow the
         # method string to a typed DeliveryStrategyMethod before passing

@@ -288,6 +288,8 @@ The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
 
 Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans MAY be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
+**Planning decision authority.** `FallbackResolver` produces each `DeliveryPlan` by delegating capability strategy decisions to `CapabilityDecisionResolver`. The resulting plan is the authoritative planning decision for that `(event, target)` pair. Downstream stages — `TargetDeliveryService` (execution), `RenderingPipeline` (rendering), `RenderingEvidence`/`DeliveryReceipt` (evidence), and diagnostics — consume plan fields (`primary_strategy`, `capability_level`, `capability_field`, `capability_reason`) without re-deciding capability or strategy. The only exception is replay, which intentionally re-runs planning against current capabilities and configuration rather than reusing the original live plan (see § 6.3.9).
+
 ### 6.2 DeliveryStrategy
 
 ```python
