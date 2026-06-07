@@ -1329,7 +1329,10 @@ class PipelineRunner:
                 and adapter_id in self._config.adapters
                 and route_plan.capability_level == "unsupported"
             ):
-                _suppression_reason = route_plan.capability_reason
+                _suppression_reason = (
+                    route_plan.capability_reason
+                    or f"{route_plan.capability_field or 'capability'} unsupported"
+                )
             if _suppression_reason is not None:
                 self._log.info(
                     "capability_suppressed: route_id=%s event_id=%s "

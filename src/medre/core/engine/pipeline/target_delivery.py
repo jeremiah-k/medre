@@ -71,6 +71,12 @@ from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 
 # ---------------------------------------------------------------------------
+# Derived constants
+# ---------------------------------------------------------------------------
+
+_VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(get_args(_CapLevel))
+
+# ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
 
@@ -449,11 +455,11 @@ class TargetDeliveryService:
         _plan_cap_level = plan.capability_level
         if _plan_cap_level is None:
             _plan_cap_level = "native"
-        if _plan_cap_level not in ("native", "fallback", "unsupported"):
+        if _plan_cap_level not in _VALID_CAPABILITY_LEVELS:
             _invalid_cap_error = (
                 f"Unexpected capability_level "
                 f"{_plan_cap_level!r} from delivery plan "
-                f"(expected 'native', 'fallback', or 'unsupported') "
+                f"(expected one of {sorted(_VALID_CAPABILITY_LEVELS)}) "
                 f"for event_kind={event.event_kind!r}"
             )
             self._diagnostician.record_planner_failure(

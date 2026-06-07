@@ -24,10 +24,11 @@ The pipeline is orchestrated by `PipelineRunner.handle_ingress()`. Stages execut
 ### 2.1 CapabilityDecisionResolver
 
 - **Module:** `core/planning/capability_decision.py`
-- **Authority:** Single source of truth for all capability decisions (live, replay, diagnostics, rendering evidence).
+- **Authority:** Canonical resolver for all capability decisions (live, replay, diagnostics, rendering evidence); authoritative spec is `docs/spec/routing-delivery.md` §6.3.
 - **Input:** `(CanonicalEvent, AdapterCapabilities, *, target_adapter)`
 - **Output:** `CapabilityDecision` (frozen dataclass)
-- **Consumers:** `FallbackResolver`, `PipelineRunner` Phase 2.5, `TargetDeliveryService`, replay BEST_EFFORT filtering, `RenderingEvidence`, `_derive_capability_evidence` in `reporting.py`
+- **Consumers:** `FallbackResolver`, replay BEST_EFFORT filtering, `RenderingEvidence`, `_derive_capability_evidence` in `reporting.py`
+- **Plan consumers (no re-decision):** `PipelineRunner` suppression checks and `TargetDeliveryService` rendering input consume `DeliveryPlan.capability_*` fields directly.
 - **State:** Stateless, no caching, no framework dependency. Module-level singleton `resolver`.
 - **Core rule:** Capabilities describe transport reality, not lifecycle. Adapters report facts; the resolver interprets them.
 
@@ -181,7 +182,7 @@ Stages 6a–6c run **before** capacity acquisition and outbox claim. These produ
 
 ### 5.1 Capability evidence chain
 
-```
+```text
 AdapterCapabilities (adapter-declared)
     → CapabilityDecisionResolver.decide()
     → CapabilityDecision (level, field, reason, strategy)
@@ -194,7 +195,7 @@ AdapterCapabilities (adapter-declared)
 
 ### 5.2 Relation evidence chain
 
-```
+```text
 EventRelation (target_event_id, target_native_ref, fallback_text)
     → RelationEnricher (populates native refs for target adapter)
     → RenderingContext (delivery_strategy, capability_level)

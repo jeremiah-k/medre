@@ -135,6 +135,75 @@ class TestPhase25TrustsPlanCapabilityLevel:
         finally:
             await runner.stop()
 
+    async def test_suppresses_unsupported_with_none_reason_direct_strategy(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Phase 2.5 suppresses even when method='direct' and reason=None.
+
+        The runner must check capability_level=='unsupported' regardless of
+        the plan's primary_strategy.method.  When capability_reason is None
+        the suppression should still fire with a capability_suppressed error.
+        """
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="direct-unsupported-noreason-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="direct-unsupported-noreason-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        # Hand-crafted plan: native method but unsupported with no reason.
+        target = RouteTarget(adapter="dest")
+        native_plan = DeliveryPlan(
+            plan_id="plan-direct-unsupported-noreason",
+            event_id=event.event_id,
+            target=target,
+            primary_strategy=DeliveryStrategy(method="direct"),
+            capability_level="unsupported",
+            capability_reason=None,
+        )
+
+        try:
+            outcomes = await runner.deliver_to_targets(
+                event,
+                [(route, native_plan)],
+            )
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "skipped"
+            assert outcome.error is not None
+            assert "capability_suppressed" in outcome.error
+            # Adapter never invoked.
+            assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
 
 class TestPhase25DoesNotCallResolver:
     """Phase 2.5 must NOT call CapabilityDecisionResolver.decide()."""
@@ -291,14 +360,16 @@ class TestPhase275IncludesPlanReason:
         )
 
         # Build a hand-crafted plan with skip strategy but no reason.
+        # capability_level is None (not "unsupported") so Phase 2.5
+        # does not intercept — this targets Phase 2.75 specifically.
         target = RouteTarget(adapter="dest")
         skip_plan = DeliveryPlan(
             plan_id="plan-generic-skip",
             event_id=event.event_id,
             target=target,
             primary_strategy=DeliveryStrategy(method="skip"),
-            capability_level="unsupported",
-            capability_reason=None,  # No reason — should fall back.
+            capability_level=None,
+            capability_reason=None,
         )
 
         try:

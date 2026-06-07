@@ -318,11 +318,17 @@ method values as configuration errors. The well-known methods are:
 
 ### 6.3 Capability Decision Model
 
-Capability decisions are resolved by a single stateless resolver:
-`CapabilityDecisionResolver.decide(event, caps, *, target_adapter=None)`.
-The resolver is used by Phase 2.5 (pipeline), `FallbackResolver`,
-replay BEST_EFFORT filtering, rendering evidence, and diagnostics so
-that live and replay delivery share one source of truth.
+Capability decisions are resolved by a single stateless resolver during
+planning (`FallbackResolver` via `CapabilityDecisionResolver`) and replay
+re-planning. `FallbackResolver` produces each `DeliveryPlan` by delegating
+capability strategy decisions to `CapabilityDecisionResolver`. Downstream
+live-delivery stages — `TargetDeliveryService` (execution), `RenderingPipeline`
+(rendering), `RenderingEvidence`/`DeliveryReceipt` (evidence), and diagnostics —
+consume the precomputed `DeliveryPlan` capability/strategy fields
+(`primary_strategy`, `capability_level`, `capability_field`,
+`capability_reason`) and MUST NOT re-resolve capability. The only exception is
+replay, which intentionally re-runs planning against current capabilities and
+configuration rather than reusing the original live plan (see § 6.3.9).
 
 #### 6.3.1 CapabilityDecision
 
