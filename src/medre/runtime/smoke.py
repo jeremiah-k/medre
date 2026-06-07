@@ -89,6 +89,12 @@ _LIMITATIONS_MEMORY: str = "In-memory storage — no persistence or crash-recove
 
 _LIMITATIONS_SQLITE: str = "Persistent storage (SQLite) but no crash-recovery proof"
 
+_EMPTY_RUNTIME_EVIDENCE: dict[str, Any] = {
+    "adapter_lifecycle": {},
+    "shutdown_status": None,
+    "runtime_events_count": 0,
+}
+
 # ---------------------------------------------------------------------------
 # Default config resolution
 # ---------------------------------------------------------------------------
@@ -339,6 +345,7 @@ async def run_fake_bridge_smoke(
             "timestamp": _now().isoformat(),
             "limitations": _LIMITATIONS,
             "sanitized": True,
+            **_EMPTY_RUNTIME_EVIDENCE,
         }
 
     config_source_value = source.value
@@ -371,6 +378,7 @@ async def run_fake_bridge_smoke(
             "preflight": preflight,
             "limitations": _LIMITATIONS,
             "sanitized": True,
+            **_EMPTY_RUNTIME_EVIDENCE,
         }
 
     # -- Step 4: Start runtime ----------------------------------------------
@@ -388,6 +396,7 @@ async def run_fake_bridge_smoke(
             "started_adapters": list(app.started_adapter_ids),
             "limitations": _LIMITATIONS,
             "sanitized": True,
+            **_EMPTY_RUNTIME_EVIDENCE,
         }
 
     # -- Step 5: Inject event -----------------------------------------------
@@ -547,6 +556,13 @@ async def run_fake_bridge_smoke(
             },
             "accounting": snap.get("accounting", {}),
         },
+        "adapter_lifecycle": snap.get("lifecycle", {}).get("adapters", {}),
+        "shutdown_status": (
+            (snap.get("shutdown_evidence") or {}).get("shutdown_status")
+        ),
+        "runtime_events_count": (
+            (snap.get("diagnostics", {}).get("runtime_events") or {}).get("count", 0)
+        ),
         "limitations": _build_limitations(config.storage.backend),
     }
 

@@ -12,6 +12,21 @@ not authoritative lifecycle states.  The ``mutate_outbox`` and
 ``append_receipt`` fields on :class:`OutboxShutdownClassification` are
 always ``False`` — this module never requests storage mutation.
 
+Evidence durability boundary
+----------------------------
+The rich :class:`ShutdownEvidence` record is a **derived, in-memory
+snapshot** of runtime state at the moment it is built.  It is not itself
+persisted by this module and does not survive process restart.  The
+*only* durable shutdown evidence is what was already written to storage
+*before* shutdown — specifically, receipts with
+``failure_kind='shutdown_rejection'`` that the pipeline appended during
+the drain phase (or that the retry worker marked before stopping).
+This module's output is an observational bundle for operators, log
+aggregation, and diagnostic bundles; it does not create, modify, or
+guarantee the persistence of any storage record.  Code that consumes
+``ShutdownEvidence`` must not assume it is authoritative durable state —
+it is a point-in-time projection of ephemeral runtime data.
+
 Design constraints
 ------------------
 * **JSON-safe**: every value is ``str``/``int``/``float``/``bool``/``None``

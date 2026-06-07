@@ -32,6 +32,21 @@ operator-facing status strings:
                           (``FAILED``).
 * ``"stopped"``         — adapter has shut down cleanly (``STOPPED``).
 
+Observational caveat
+--------------------
+The output of this module is a **point-in-time snapshot** for structured
+logging, diagnostic bundles, and operator dashboards.  It is *not*
+adapter authority — it does not control, drive, or persist adapter
+lifecycle transitions.  The ``operator_status`` field is a derived
+display label projected from the caller-supplied inputs; the
+authoritative adapter lifecycle state lives in the runtime's in-memory
+state machine (and, where applicable, in storage).  No evidence record
+produced here is persisted by this module, and none should be treated as
+durable state across process restarts.  Consumers must not use
+``AdapterStatusEvidence`` to infer that an adapter's lifecycle was
+changed or that a state transition was recorded — this module only
+*observes and reports* what the caller supplies.
+
 Design constraints
 ------------------
 * **Pure / observational** — no I/O, no async, no SDK imports, no side
