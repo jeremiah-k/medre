@@ -104,14 +104,14 @@ class TestNoReceiptUpdateDeleteAPI:
 
     @pytest.mark.parametrize(
         "method_name",
-        [
+        (
             "update_receipt",
             "delete_receipt",
             "remove_receipt",
             "replace_receipt",
             "modify_receipt",
             "upsert_receipt",
-        ],
+        ),
     )
     def test_receipt_mutation_method_does_not_exist(self, method_name: str) -> None:
         """Each mutation-like method name must not be on SQLiteStorage."""
@@ -164,7 +164,7 @@ class TestTerminalOutboxImmutability:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        ["sent", "dead_lettered", "cancelled", "abandoned"],
+        ("sent", "dead_lettered", "cancelled", "abandoned"),
     )
     async def test_terminal_row_returned_unchanged(
         self, temp_storage: SQLiteStorage, terminal_status: str

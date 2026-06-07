@@ -111,13 +111,13 @@ class TestStorageMDOwnershipSection:
 
     @pytest.mark.parametrize(
         "table",
-        [
+        (
             "canonical_events",
             "delivery_receipts",
             "native_message_refs",
             "delivery_outbox",
             "delivery_status",
-        ],
+        ),
     )
     def test_core_tables_mentioned_in_spec(self, table: str) -> None:
         """Core tables are mentioned in storage.md."""
@@ -126,11 +126,12 @@ class TestStorageMDOwnershipSection:
 
     @pytest.mark.parametrize(
         "table",
-        [
+        (
             "canonical_events",
             "delivery_receipts",
             "native_message_refs",
-        ],
+            "delivery_outbox",
+        ),
     )
     def test_core_table_delete_authority_is_none(self, table: str) -> None:
         """Core tables have 'None' delete authority in storage.md ownership table."""
@@ -219,17 +220,14 @@ class TestSchemaVersionDocConsistency:
 
     def test_no_migration_language_in_docs(self) -> None:
         """Docs do not contain migration/migrate language that implies a bump."""
-        content = _PERSISTENCE_AUDIT.read_text().lower()
-        # "migration" should only appear in the context of "no migration"
-        # or "manual" resolution, not as an automated process
-        if "migrat" in content:
-            # If migration is mentioned, it should be in a negative context
-            # (no auto-migration) not a planned feature
-            assert (
-                "no auto-migration" in content
-                or "no migration" in content
-                or "manual" in content
-            )
+        content = _PERSISTENCE_AUDIT.read_text()
+        # Every line containing "migration" must also contain "no" / "not" /
+        # "no auto-migration" within the same sentence (negative context).
+        for line in content.splitlines():
+            if "migration" in line.lower():
+                assert re.search(
+                    r"(no|not).{0,50}migration", line, re.IGNORECASE
+                ), f"Migration mentioned outside negative context: {line.strip()}"
 
 
 # ===================================================================
