@@ -10,7 +10,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 
 ## 1. Scope
 
-This document specifies the MEDRE storage layer: the single source of truth for canonical events, native message references, delivery receipts, event relations, identity data, plugin state, raw native archives, operational delivery outbox state, and filesystem path resolution.
+This document specifies the MEDRE storage layer. The current SQLite backend persists `canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`, `delivery_outbox`, a schema-reserved `plugin_state` table, and schema metadata. Identity tables (`actors`, `native_identities`, `actor_identity_links`, `actor_permissions`) and `native_archive` are spec-planned and documented here but not part of the current DDL.
 
 The initial and current backend is SQLite. The `StorageBackend` protocol (Section 3) abstracts over implementation so that future backends (PostgreSQL, NATS JetStream, Redis Streams, Kafka) MAY be substituted without changing callers.
 
@@ -296,9 +296,9 @@ CREATE TABLE canonical_events (
 
 **Indexes:**
 
-| Index                           | Columns                 | Purpose                      |
-| ------------------------------- | ----------------------- | ---------------------------- |
-| `idx_events_timestamp_event_id` | `(timestamp, event_id)` | ORDER BY timestamp ascending |
+| Index                  | Columns                 | Purpose                      |
+| ---------------------- | ----------------------- | ---------------------------- |
+| `idx_events_timestamp` | `(timestamp, event_id)` | ORDER BY timestamp ascending |
 
 `source_transport_id` identifies the native actor (who produced the event), not the native message. `source_channel_id` is the native channel/room/topic where the event originated; `NULL` if the transport has no channel concept.
 
@@ -355,10 +355,10 @@ CREATE TABLE native_message_refs (
 
 **Indexes:**
 
-| Index                      | Columns                                           | Purpose                                            |
-| -------------------------- | ------------------------------------------------- | -------------------------------------------------- |
-| `idx_native_refs_event_id` | `(event_id)`                                      | Reverse lookup from canonical event to native refs |
-| _(autoindex)_              | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint            |
+| Index                     | Columns                                           | Purpose                                                                   |
+| ------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------- |
+| `idx_nrefs_event_created` | `(event_id, created_at)`                          | Reverse lookup from canonical event to native refs, ordered by created_at |
+| _(autoindex)_             | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint                                   |
 
 The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the foundation of idempotent correlation. Two calls to `store_native_ref` with the same adapter, channel, and message ID **MUST NOT** create duplicate rows.
 
@@ -875,10 +875,11 @@ Native message refs created during replay are not tagged with `source` or `repla
 
 ### 13.4 Replay Constraints
 
-- Replay **MUST NOT** modify existing canonical events. Replay reads historical
-  events from storage. BEST_EFFORT may create new delivery receipts and native
-  refs through adapter delivery. Non-BEST_EFFORT modes are read-only. Derived
-  canonical event creation is not part of current replay semantics.
+- Replay **MUST NOT** modify existing canonical events, receipts, native refs, or terminal outbox rows. Replay reads historical
+  events from storage. In BEST_EFFORT mode, replay delegates delivery to the normal pipeline; that pipeline may create
+  new `delivery_outbox` rows for replay attempts, `delivery_receipts` with `source='replay'`, and outbound
+  `native_message_refs`. New outbox rows **MUST** use new attempt identity and **MUST NOT** mutate terminal or active live
+  rows. Non-BEST_EFFORT modes are read-only. Derived canonical event creation is not part of current replay semantics.
 - Replay **MAY** target specific stages (e.g., re-run transforms only, skip policy).
   When `target_stages` is explicitly provided in a ReplayRequest, replay runs
   the intersection of the requested stages and the mode-allowed stages. The
@@ -967,7 +968,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
 | `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever                          |
 | `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever                          |
-| `native_message_refs` | Adapters (ingress correlation) and delivery (outbound correlation)                 | None (idempotent insert)                                | None                                          | Forever                          |
+| `native_message_refs` | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                | None                                          | Forever                          |
 | `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
 | `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
 | `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |

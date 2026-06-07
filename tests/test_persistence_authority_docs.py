@@ -86,6 +86,21 @@ class TestSpecPlannedTablesNotInDDL:
         content = _PERSISTENCE_AUDIT.read_text()
         assert "spec-planned" in content.lower() or "not implemented" in content.lower()
 
+    def test_storage_md_separates_current_ddl_from_spec_planned(self) -> None:
+        """storage.md distinguishes current implementation tables from spec-planned ones.
+
+        The document must explicitly mark spec-planned tables as not part of
+        the current DDL, so readers do not assume they exist at runtime.
+        """
+        content = _STORAGE_SPEC.read_text()
+        assert (
+            "not part of the current" in content.lower()
+            or "spec-planned" in content.lower()
+        ), (
+            "storage.md must contain phrasing that distinguishes current DDL "
+            "tables from spec-planned ones (e.g., 'not part of the current DDL')"
+        )
+
 
 # ===================================================================
 # 2. storage.md ownership section exists
@@ -153,6 +168,30 @@ class TestStorageMDOwnershipSection:
         content = _STORAGE_SPEC.read_text().lower()
         assert "append-only" in content or "append only" in content
 
+    def test_native_message_refs_creator_is_core_pipeline(self) -> None:
+        """storage.md ownership table credits Core pipeline as native_message_refs creator.
+
+        Adapters report native-to-canonical correlation facts but the Core
+        pipeline/runtime owns the persistence via store_native_ref().
+        The Creator column must NOT list "Adapters" as the sole creator.
+        """
+        content = _STORAGE_SPEC.read_text()
+        matching_rows = [
+            line
+            for line in content.splitlines()
+            if "native_message_refs" in line and "|" in line
+        ]
+        assert (
+            matching_rows
+        ), "storage.md must have an ownership table row for 'native_message_refs'"
+        # At least one row must reference Core pipeline as the creator/owner
+        assert any(
+            "Core pipeline" in row or "core pipeline" in row for row in matching_rows
+        ), (
+            "storage.md ownership row for native_message_refs must credit "
+            "'Core pipeline/runtime' as creator, not Adapters as sole creator"
+        )
+
 
 # ===================================================================
 # 3. persistence-authority-audit.md consistency
@@ -198,6 +237,53 @@ class TestPersistenceAuditDocConsistency:
         """Audit doc's schema version statement matches _EXPECTED_SCHEMA_VERSION."""
         content = _PERSISTENCE_AUDIT.read_text()
         assert str(_EXPECTED_SCHEMA_VERSION) in content
+
+    def test_audit_native_message_refs_owner_is_core_pipeline(self) -> None:
+        """Audit doc native_message_refs row credits Core pipeline as write authority.
+
+        Adapters report native facts but Core pipeline owns the persistence.
+        The Write authority (or Owner) column must reference Core pipeline,
+        not list Adapters as the sole persistence owner.
+        """
+        content = _PERSISTENCE_AUDIT.read_text()
+        matching_rows = [
+            line
+            for line in content.splitlines()
+            if "native_message_refs" in line and "|" in line
+        ]
+        assert (
+            matching_rows
+        ), "Audit doc must have a domain table row for 'native_message_refs'"
+        # At least one row must reference Core pipeline as the write/owner authority
+        assert any(
+            "Core pipeline" in row or "core pipeline" in row for row in matching_rows
+        ), (
+            "Audit doc native_message_refs row must credit 'Core pipeline' "
+            "as write authority, not Adapters as sole owner"
+        )
+
+    def test_audit_replay_section_mentions_delivery_outbox(self) -> None:
+        """Audit doc replay section mentions delivery_outbox in context of pipeline delegation.
+
+        BEST_EFFORT replay triggers full pipeline re-execution. The replay
+        semantics section must acknowledge delivery_outbox rows may be created
+        via pipeline (even if replay delegates rather than writes directly).
+        """
+        content = _PERSISTENCE_AUDIT.read_text()
+        # Find the replay persistence semantics section
+        replay_section_match = re.search(
+            r"(?i)replay persistence semantics.*",
+            content,
+            re.DOTALL,
+        )
+        assert (
+            replay_section_match
+        ), "Audit doc must have a 'Replay Persistence Semantics' section"
+        replay_section = replay_section_match.group()
+        assert "delivery_outbox" in replay_section, (
+            "Audit doc replay section must mention delivery_outbox "
+            "(e.g., replay delegates to pipeline which may create outbox rows)"
+        )
 
 
 # ===================================================================

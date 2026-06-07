@@ -1,7 +1,8 @@
 """Read-only evidence collector backed by :class:`~medre.core.storage.backend.StorageBackend`.
 
-The :class:`EvidenceCollector` reads stored data (events, receipts, native
-refs, outbox items) and assembles a deterministic, JSON-safe
+The :class:`EvidenceCollector` reads stored data from ``canonical_events``,
+``delivery_receipts``, ``native_message_refs``, and ``delivery_outbox`` and
+assembles a deterministic, JSON-safe
 :class:`~medre.core.evidence.bundle.EvidenceBundle` for a single event.
 It **never** writes to storage or mutates runtime state.
 """
