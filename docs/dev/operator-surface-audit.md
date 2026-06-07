@@ -12,12 +12,17 @@ CLI flags that accept file paths follow a strict contract:
   `diagnostics`, `routes`, `config check`, `replay`.
 - `--storage-path` accepts a **SQLite database file**. Required by: `inspect`,
   `trace`, `evidence`, `recover`.
-- `smoke` / `smoke --run-session` default to in-memory storage; they accept
-  `--storage-path` only as an explicit SQLite persistence override.
+- Plain `smoke` defaults to config-determined storage (in-memory unless the
+  loaded config specifies a SQLite path).
+- `smoke --run-session` defaults to an auto-created temp SQLite file
+  (see `smoke_commands.py:148-153`); it accepts `--storage-path` only as an
+  explicit persistence override.
 - A config TOML path must **never** be passed as `--storage-path` — they are
   different file formats consumed by different subsystems.
-- Confusing the two causes silent wrong-path errors; the CLI validates and
-  rejects mismatches before opening either file.
+- Confusing the two causes silent wrong-path errors; the CLI keeps these paths
+  separate at the command surface. A config TOML path must never be passed as
+  `--storage-path`; if it is, read-only storage open/schema validation will
+  fail rather than treating it as configuration.
 
 ## 1. Command Surface
 
@@ -143,27 +148,27 @@ Source modules:
 
 Top-level keys in the JSON bundle returned by `medre evidence --json`:
 
-| Field                          | Classification             | Notes                                            |
-| ------------------------------ | -------------------------- | ------------------------------------------------ |
-| `schema_version`               | Schema/example-only        | Always `1` pre-release                           |
-| `status`                       | Derived diagnostic         | One of `passed`, `partial`, `error`              |
-| `command`                      | Schema/example-only        | Always `"evidence"`                              |
-| `collected_at`                 | Schema/example-only        | ISO-8601 collection start                        |
-| `generated_at`                 | Schema/example-only        | ISO-8601 generation complete                     |
-| `medre_version`                | Schema/example-only        | Package version string                           |
-| `config_source`                | Provenance/report metadata | How config was discovered                        |
-| `evidence_tier`                | Derived diagnostic         | Provenance tier (see §3.2)                       |
-| `runtime_started`              | Adapter fact               | Whether runtime was started for live health      |
-| `errors`                       | Derived diagnostic         | Section-level error messages                     |
-| `limitations`                  | Schema/example-only        | Known limitation strings                         |
-| `adapter_status`               | Adapter fact               | Per-adapter runtime status list (see §3.1)       |
-| `shutdown_evidence`            | Derived diagnostic         | Shutdown classification from snapshot (see §3.3) |
-| `recovery_summary`             | Derived diagnostic         | Recovery ownership counts (see §3.4)             |
-| `recovery_ledger`              | Derived diagnostic         | Per-item recovery actions (see §3.4)             |
-| `convergence_summary`          | Derived diagnostic         | Per-target convergence (see §3.5)                |
-| `orphan_report`                | Derived diagnostic         | Orphan/invalid-lineage findings                  |
-| `lifecycle_convergence_report` | Derived diagnostic         | Lifecycle delivery findings                      |
-| `sections`                     | Container                  | Nested section objects (see below)               |
+| Field                          | Classification                     | Notes                                            |
+| ------------------------------ | ---------------------------------- | ------------------------------------------------ |
+| `schema_version`               | Schema/example-only                | Always `1` pre-release                           |
+| `status`                       | Derived diagnostic                 | One of `passed`, `partial`, `error`              |
+| `command`                      | Schema/example-only                | Always `"evidence"`                              |
+| `collected_at`                 | Schema/example-only                | ISO-8601 collection start                        |
+| `generated_at`                 | Schema/example-only                | ISO-8601 generation complete                     |
+| `medre_version`                | Schema/example-only                | Package version string                           |
+| `config_source`                | Provenance/report metadata         | How config was discovered                        |
+| `evidence_tier`                | Derived diagnostic                 | Provenance tier (see §3.2)                       |
+| `runtime_started`              | Derived report/provenance metadata | Whether runtime was started for live health      |
+| `errors`                       | Derived diagnostic                 | Section-level error messages                     |
+| `limitations`                  | Schema/example-only                | Known limitation strings                         |
+| `adapter_status`               | Adapter fact                       | Per-adapter runtime status list (see §3.1)       |
+| `shutdown_evidence`            | Derived diagnostic                 | Shutdown classification from snapshot (see §3.3) |
+| `recovery_summary`             | Derived diagnostic                 | Recovery ownership counts (see §3.4)             |
+| `recovery_ledger`              | Derived diagnostic                 | Per-item recovery actions (see §3.4)             |
+| `convergence_summary`          | Derived diagnostic                 | Per-target convergence (see §3.5)                |
+| `orphan_report`                | Derived diagnostic                 | Orphan/invalid-lineage findings                  |
+| `lifecycle_convergence_report` | Derived diagnostic                 | Lifecycle delivery findings                      |
+| `sections`                     | Container                          | Nested section objects (see below)               |
 
 **Sections** (each has `status`, `data`, `error`):
 
@@ -182,8 +187,6 @@ Top-level keys in the JSON bundle returned by `medre evidence --json`:
 | ------------------- | ----------------------------------------- | ----------------------------------------------------- |
 | `status`            | Derived operator/report status            | `"passed"` or `"failed"`                              |
 | `evidence_level`    | Schema/example-only                       | Always `"fake_bridge"` — does not overclaim           |
-| `scenario_category` | Schema/example-only                       | `"smoke"`                                             |
-| `simulated`         | Schema/example-only                       | `true`                                                |
 | `command`           | Schema/example-only                       | `"smoke"`                                             |
 | `timestamp`         | Schema/example-only                       | ISO-8601                                              |
 | `event_id`          | Canonical event identity                  | Generated canonical event ID                          |
@@ -197,7 +200,7 @@ Top-level keys in the JSON bundle returned by `medre evidence --json`:
 | `fail_reasons`      | Derived diagnostic                        | List of failure reasons (only on fail)                |
 | `limitations`       | Schema/example-only                       | Known limitation strings                              |
 
-Run-session report adds: `route_id`, `final_snapshot_checks` (schema_version, runtime_state), `final_snapshot_path`, `commands` (primary + specialized CLI commands for further inspection).
+Run-session report adds: `route_id`, `simulated` (`true`), `scenario_category` (`"smoke"`), `final_snapshot_checks` (schema_version, runtime_state), `final_snapshot_path`, `commands` (primary + specialized CLI commands for further inspection).
 
 ### 2.3 Replay Summary
 
@@ -206,7 +209,7 @@ Run-session report adds: `route_id`, `final_snapshot_checks` (schema_version, ru
 | `mode`            | Schema/example-only           | Replay mode string                     |
 | `events_scanned`  | Derived diagnostic            | Total events examined                  |
 | `events_replayed` | Derived diagnostic            | Events actually processed              |
-| `by_status`       | Authoritative lifecycle state | Counts: passed, skipped, failed, error |
+| `by_status`       | Derived replay outcome counts | Counts: passed, skipped, failed, error |
 | `by_route`        | Derived diagnostic            | Per-route succeeded/failed counts      |
 | `elapsed_ms`      | Derived diagnostic            | Wall-clock time                        |
 | `errors`          | Derived diagnostic            | Error messages (capped at 10)          |
@@ -247,7 +250,7 @@ Source: `src/medre/core/evidence/adapter_status.py`
 | `configured`        | Adapter fact                                      |
 | `adapter_kind`      | Adapter fact                                      |
 | `operator_status`   | Derived diagnostic (mapped from lifecycle state)  |
-| `current_state`     | Authoritative lifecycle state                     |
+| `current_state`     | Adapter runtime lifecycle state                   |
 | `health`            | Adapter fact                                      |
 | `connected`         | Derived diagnostic (derived from operator_status) |
 | `failure_category`  | Adapter fact (caller-supplied)                    |
@@ -289,12 +292,12 @@ Source: `src/medre/core/evidence/shutdown.py`
 
 | Field                      | Classification                                |
 | -------------------------- | --------------------------------------------- |
-| `runtime_state`            | Authoritative lifecycle state                 |
+| `runtime_state`            | Runtime lifecycle state                       |
 | `shutdown_status`          | Derived diagnostic                            |
 | `shutdown_reason`          | Derived diagnostic                            |
-| `pending_outbox_counts`    | Authoritative lifecycle state                 |
+| `pending_outbox_counts`    | Authoritative operational outbox counts       |
 | `pending_retry_work_total` | Derived diagnostic                            |
-| `retry_worker_*`           | Adapter fact (from runtime counters)          |
+| `retry_worker_*`           | Runtime worker diagnostic/counter data        |
 | `in_flight_count`          | Derived diagnostic (from capacity controller) |
 | `tasks_cancelled`          | Derived diagnostic                            |
 | `drain_timeout_detected`   | Derived diagnostic                            |

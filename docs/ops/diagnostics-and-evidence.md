@@ -230,7 +230,7 @@ The `medre evidence` command produces a structured bundle with per-section statu
 | `collected_at`    | `str`       | ISO-8601 UTC timestamp                                     |
 | `medre_version`   | `str`       | Installed package version                                  |
 | `config_source`   | `str`       | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
-| `runtime_started` | `bool`      | `true` only when `--include-refresh-health` was used       |
+| `runtime_started` | `bool`      | Always `false` via CLI (evidence is read-only)             |
 | `sections`        | `dict`      | Grouped evidence, each with its own status                 |
 | `errors`          | `list[str]` | Flat list of error strings across all sections             |
 | `limitations`     | `list[str]` | What the evidence does not prove                           |
@@ -264,19 +264,20 @@ The `medre evidence` command produces a structured bundle with per-section statu
 | MeshCore   | Local node queued the packet                       | Unknown. Fire-and-forget.   |
 | LXMF       | Local LXMRouter accepted for propagation           | Eventual, seconds to hours. |
 
-### Why `--include-refresh-health` Starts Adapters (config path only)
+### Why `medre evidence` Never Starts Adapters
 
-The `--include-refresh-health` flag causes `medre evidence --config PATH` to
-build the runtime, start all enabled adapters, poll each adapter's
-`health_check()` once, capture the live health snapshot, and then stop the
-runtime cleanly. With fake adapters this is trivial. With real adapters, this
-opens real connections (Matrix TCP to homeserver, Meshtastic serial/TCP to
-local node, etc.).
+The `medre evidence --storage-path` command is **read-only**: it inspects an
+existing SQLite database without building the runtime or starting adapters.
+Consequently, `runtime_started` is always `false` and `live_health` is always
+omitted when evidence is collected via the CLI.
 
-When using `--storage-path` instead of `--config`, evidence collection is
-read-only: it inspects the existing database without starting adapters or
-building the runtime. The `--include-refresh-health` flag is not applicable
-in this mode because there are no adapters to health-check.
+The `--include-refresh-health` flag does **not** exist on the `evidence`
+command. Live health data is available only through
+`medre diagnostics --refresh-health --config PATH`, which does build the
+runtime, start all enabled adapters, poll each adapter's `health_check()`
+once, capture the snapshot, and then stop the runtime cleanly. With real
+adapters, this opens real connections (Matrix TCP to homeserver, Meshtastic
+serial/TCP to local node, etc.).
 
 ### Inspect Output Interpretation
 
