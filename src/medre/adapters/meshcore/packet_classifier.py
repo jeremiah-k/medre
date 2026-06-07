@@ -115,7 +115,7 @@ class MeshCorePacketClassifier:
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshcore.MeshCoreConfig`
-        for channel mapping lookups (unused in current tranche).
+        for channel mapping lookups (currently unused).
     """
 
     def __init__(self, config: Any = None) -> None:

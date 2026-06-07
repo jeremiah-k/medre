@@ -148,10 +148,10 @@ class LxmfCodec(AdapterCodec):
                 custom_meta["medre_envelope"] = envelope
 
         # Relation reconstruction from fields envelope is deferred to a
-        # future tranche.  The raw envelope dict is stored under
+        # future revision.  The raw envelope dict is stored under
         # metadata.custom["medre_envelope"] but EventRelation objects
         # are NOT created from envelope relations during decode.
-        # TODO(tranche-2): Reconstruct EventRelation from 0xFD envelope
+        # TODO: Reconstruct EventRelation from 0xFD envelope
         # relations list so that inbound LXMF round-trips preserve
         # cross-transport reply/reaction metadata.
 

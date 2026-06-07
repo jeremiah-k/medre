@@ -44,7 +44,7 @@ The evidence bundle top-level shape (`collect_evidence_bundle()` output) has `sc
 
 There is no `runtime` top-level section. Runtime events live in the in-memory EventBuffer and are not hoisted into the bundle because they are ephemeral. The `runtime_events` section appears only in the diagnostics snapshot, not in the evidence bundle's top-level shape.
 
-Schema/example alignment was verified against the machine-readable JSON Schema and the spec text. No edits were needed.
+Schema/example alignment is maintained against the machine-readable JSON Schema and the spec text.
 
 ## Smoke Report Enrichment
 
@@ -147,15 +147,15 @@ All inspect/evidence/trace commands require `--storage-path`. They cannot inspec
 
 If a gap recorded here is resolved, the entry is updated or removed. The spec is not modified to track implementation status.
 
-## Tests
+## Validation Surfaces
 
-Schema and documentation consistency tests validate alignment between the spec text, JSON Schema definitions, and code behavior:
+The following focused test areas guard this audit's contracts:
 
-- 33 schema tests passed (JSON Schema validation against code output).
-- 41 doc tests passed (spec text consistency checks).
-- 39 smoke runtime evidence tests passed (smoke report shape, failure defaults, enrichment fields).
-- 14 run-session report tests passed (report shape, runtime evidence fields, cross-linked commands).
-- LSP native-ref annotation verified in run-session report test.
+- Schema/example tests validate evidence bundle shape and JSON-safety.
+- Documentation consistency tests validate shutdown_rejection and delayed native-ref wording.
+- Smoke runtime evidence tests validate compact smoke report fields and early-failure defaults.
+- Run-session runtime evidence tests validate adapter_lifecycle, shutdown_status, retry_worker_summary, and cross-linked command shape.
+- Runtime evidence completeness tests validate runtime event taxonomy, read-only evidence behavior, and durable-vs-ephemeral evidence boundaries.
 
 ## Boundary Docstrings
 

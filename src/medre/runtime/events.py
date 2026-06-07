@@ -54,8 +54,8 @@ class RuntimeEventType(str, enum.Enum):
     """Recognised runtime event types.
 
     Each value is a lowercase, underscore-separated string that is directly
-    JSON-safe.  The set is intentionally small — only low-risk internal
-    events are emitted in this tranche.
+    JSON-safe.      The set is intentionally small and should grow only when a runtime
+    event answers a concrete operator/debugging question.
 
     Event taxonomy
     ~~~~~~~~~~~~~~
