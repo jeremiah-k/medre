@@ -87,17 +87,17 @@ are cataloged in [persistence-authority-audit.md](persistence-authority-audit.md
 
 ## Shutdown Semantics
 
-### What shutdown guarantees
+### What shutdown attempts/preserves
 
-1. Every subsystem gets a stop call in reverse dependency order (adapters, pipeline,
-   storage).
+1. Every subsystem receives a stop call (completion is best-effort) in reverse
+   dependency order (adapters, pipeline, storage).
 2. Retry worker gets a bounded stop with cooperative and forced-cancel stages.
 3. In-flight deliveries are tracked and drained with a configurable timeout
    (`shutdown_drain_timeout_seconds`).
 4. Abandoned deliveries receive structured `suppressed` receipts with
    `failure_kind="shutdown_rejection"` so operators can audit what was lost.
 5. Pipeline runner middleware is removed.
-6. Storage is closed (idempotent).
+6. Storage close is attempted (idempotent).
 7. Deferred cancellation: if an external `CancelledError` arrives during shutdown,
    it is drained and re-raised after core cleanup (pipeline stop, storage close)
    completes.
@@ -111,7 +111,7 @@ are cataloged in [persistence-authority-audit.md](persistence-authority-audit.md
 2. All in-flight deliveries complete. The drain timeout is bounded. Deliveries
    still in progress after the deadline are abandoned.
 3. Retry worker task terminates. The worker may be abandoned (state:
-   `running=True, abandoned=True`). A subsequent `start()` call will refuse to
+   `running=False, abandoned=True`). A subsequent `start()` call will refuse to
    launch.
 4. Delayed native refs from Meshtastic queue drain. The drain task is cancelled;
    queued items without native IDs are lost.
@@ -267,8 +267,9 @@ restoring the same count. If any code path between drain and restore calls
 `await` (which can re-raise `CancelledError`), the count may be wrong. The
 current code is correct but tightly coupled to the exact call sequence.
 
-**Classification:** Fragile-by-design. Correctness depends on no `await` between
-drain and restore.
+**Classification:** Fragile-by-design. Correctness depends on no **unguarded**
+`await` between drain and restore (guarded cleanup awaits in `MedreApp.stop()`
+that catch and drain additional `CancelledError`s are safe).
 **Code:** `runtime/app.py:106-124`, `runtime/app.py:1288-1305`
 **Recommendation:** Consider a context manager or decorator that automates
 drain/restore to reduce the coupling surface.

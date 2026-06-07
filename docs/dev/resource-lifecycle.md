@@ -156,11 +156,12 @@ Outcomes:
 - **Cancellation-resistant task** (rare; e.g. an adapter's stop
   suppresses cancellation or a long-blocking storage call refuses to
   release): the task is still alive after both grace periods. `_task`
-  is **kept** (the underlying coroutine may still complete and clean
-  itself up later), `state.abandoned` is set to `True`, `state.running`
-  is set to `False` (the retained task may still be alive, but the
-  worker is no longer considered running), a `retry_abandoned` event is
-  emitted, and `stop()` returns without re-raising. While
+  is cleared; the underlying coroutine is retained via `_abandoned_task`
+  (it may still complete and clean itself up later), `state.abandoned`
+  is set to `True`, `state.running` is set to `False` (the retained task
+  may still be alive, but the worker is no longer considered running), a
+  `retry_abandoned` event is emitted, and `stop()` returns without
+  re-raising. While
   `state.abandoned` is `True`, subsequent `start()` calls are
   **refused** to prevent launching a duplicate worker over the same
   outbox. The caller (operator / supervisor) must inspect

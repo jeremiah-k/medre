@@ -104,7 +104,7 @@ def _monotonic_ms() -> float:
 
 
 def _drain_pending_cancellations() -> int:
-    """Drain all pending cancellation requests from the current task.
+    r"""Drain all pending cancellation requests from the current task.
 
     ``Task.uncancel()`` decrements the cancellation count by one and
     returns the **remaining** count (not the number removed).  To drain
@@ -122,10 +122,11 @@ def _drain_pending_cancellations() -> int:
     the caller's next ``await`` will not see the pending cancellation,
     silently swallowing an external cancel request.
 
-    **Invariant:** Between drain and restore, no ``await`` may execute
-    that could re-raise ``CancelledError`` — doing so would consume one
-    of the drained cancellation slots and leave the restored count too
-    high.
+    **Invariant:** Between drain and restore, no **unguarded** ``await``
+    may execute that could re-raise ``CancelledError`` — doing so would
+    consume one of the drained cancellation slots and leave the restored
+    count too high.  Guarded cleanup awaits (e.g. in :meth:`MedreApp.stop`)
+    that catch and drain additional ``CancelledError``\\s are safe.
 
     Call sites and their restore locations:
 
