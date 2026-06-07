@@ -54,26 +54,108 @@ class RuntimeEventType(str, enum.Enum):
     """Recognised runtime event types.
 
     Each value is a lowercase, underscore-separated string that is directly
-    JSON-safe.  The set is intentionally small — only low-risk internal
-    events are emitted in this tranche.
+    JSON-safe.      The set is intentionally small and should grow only when a runtime
+    event answers a concrete operator/debugging question.
+
+    Event taxonomy
+    ~~~~~~~~~~~~~~
+
+    Events are grouped by the lifecycle phase they observe.  Each group is
+    listed below with a brief summary of what operators should expect.
+
+    **Adapter lifecycle** — adapter instantiation through teardown:
+
+    * ``adapter_started`` — adapter completed its start sequence.
+    * ``adapter_start_failed`` — adapter failed during start; detail
+      carries the error context.
+    * ``adapter_stopped`` — adapter completed its stop sequence (normal
+      or error-driven).
+
+    **Startup classification** — post-startup readiness outcome:
+
+    * ``startup_classified`` — runtime has classified the overall startup
+      result (e.g. all adapters up, partial failure, degraded).
+    * ``route_skipped`` — a route was skipped during startup, typically
+      because its adapter is not ready or is misconfigured.
+    * ``route_unavailable`` — a previously available route is now
+      unavailable (adapter down, session closed, etc.).
+
+    **Runtime state** — internal state-machine transitions:
+
+    * ``state_transition`` — the runtime state machine moved between
+      states (e.g. STARTING → RUNNING → STOPPING).  Detail carries
+      ``from_state`` and ``to_state``.
+
+    **Retry lifecycle** — per-message retry progression:
+
+    * ``retry_started`` — a retry loop began for a message.
+    * ``retry_attempted`` — a single retry attempt was dispatched.
+    * ``retry_succeeded`` — the message was delivered successfully on
+      a retry attempt.
+    * ``retry_failed`` — a retry attempt failed; more attempts may
+      follow.
+    * ``retry_dead_lettered`` — all retries exhausted; message moved to
+      dead-letter store.  This is a terminal outcome for that message.
+    * ``retry_stopped`` — the retry loop completed normally (success or
+      exhaustion).
+
+    **Retry cancellation / abandonment** — mid-flight termination:
+
+    * ``retry_abandoned`` — a running retry loop was abandoned mid-flight.
+      This fires when the runtime is shutting down, a cancellation signal
+      is received, or an upstream decision drops the message.  The retry
+      loop was *already executing* when abandonment was triggered.
+    * ``retry_start_refused`` — a retry was *requested* but refused
+      before it could begin, because an abandon/cancellation was already
+      in effect for that message.  Unlike ``retry_abandoned``, no retry
+      loop was running at the time of refusal.
+
+    **Diagnostics** — health and observational signals only:
+
+    * ``health_refreshed`` — a periodic health check completed.  This is
+      a read-only diagnostic signal and does **not** imply any change in
+      runtime execution state.
     """
 
-    STATE_TRANSITION = "state_transition"
-    ADAPTER_STARTED = "adapter_started"
-    ADAPTER_START_FAILED = "adapter_start_failed"
-    ADAPTER_STOPPED = "adapter_stopped"
-    STARTUP_CLASSIFIED = "startup_classified"
-    ROUTE_SKIPPED = "route_skipped"
-    ROUTE_UNAVAILABLE = "route_unavailable"
-    HEALTH_REFRESHED = "health_refreshed"
-    RETRY_STARTED = "retry_started"
-    RETRY_ATTEMPTED = "retry_attempted"
-    RETRY_SUCCEEDED = "retry_succeeded"
-    RETRY_FAILED = "retry_failed"
-    RETRY_DEAD_LETTERED = "retry_dead_lettered"
-    RETRY_STOPPED = "retry_stopped"
-    RETRY_ABANDONED = "retry_abandoned"
-    RETRY_START_REFUSED = "retry_start_refused"
+    # -- Runtime state -------------------------------------------------------
+    STATE_TRANSITION = (
+        "state_transition"  # runtime FSM moved (detail: from_state, to_state)
+    )
+
+    # -- Adapter lifecycle ---------------------------------------------------
+    ADAPTER_STARTED = "adapter_started"  # adapter completed start sequence
+    ADAPTER_START_FAILED = (
+        "adapter_start_failed"  # adapter raised during start (detail: error context)
+    )
+    ADAPTER_STOPPED = (
+        "adapter_stopped"  # adapter completed stop sequence (normal or error)
+    )
+
+    # -- Startup classification ----------------------------------------------
+    STARTUP_CLASSIFIED = "startup_classified"  # overall startup outcome classified
+    ROUTE_SKIPPED = "route_skipped"  # route skipped during startup (adapter not ready / misconfigured)
+    ROUTE_UNAVAILABLE = "route_unavailable"  # route became unavailable at runtime
+
+    # -- Diagnostics (read-only signals) -------------------------------------
+    HEALTH_REFRESHED = (
+        "health_refreshed"  # periodic health check result (no execution state change)
+    )
+
+    # -- Retry lifecycle: progression ----------------------------------------
+    RETRY_STARTED = "retry_started"  # retry loop began for a message
+    RETRY_ATTEMPTED = "retry_attempted"  # single retry attempt dispatched
+    RETRY_SUCCEEDED = "retry_succeeded"  # message delivered on a retry attempt
+    RETRY_FAILED = "retry_failed"  # retry attempt failed (more may follow)
+    RETRY_DEAD_LETTERED = (
+        "retry_dead_lettered"  # all retries exhausted; message dead-lettered (terminal)
+    )
+    RETRY_STOPPED = (
+        "retry_stopped"  # retry loop completed normally (success or exhaustion)
+    )
+
+    # -- Retry cancellation / abandonment ------------------------------------
+    RETRY_ABANDONED = "retry_abandoned"  # running retry loop abandoned mid-flight (shutdown/cancellation)
+    RETRY_START_REFUSED = "retry_start_refused"  # retry refused: abandon already in effect, loop never started
 
 
 # ---------------------------------------------------------------------------

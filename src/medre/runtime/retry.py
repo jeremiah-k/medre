@@ -57,6 +57,16 @@ _logger = logging.getLogger(__name__)
 class RetryWorkerState:
     """Snapshot-visible state for the retry worker.
 
+    .. note:: **Durability boundary.** All fields in this dataclass are
+       **runtime-local, in-memory state**.  They are *not* persisted to
+       storage and do not survive process restart.  In particular,
+       ``abandoned`` is a per-process flag that protects against
+       double-launching a retry task while a previous one is still alive.
+       After a process restart the flag resets to ``False`` because the
+       old task no longer exists.  Consumers must not treat these fields
+       as durable lifecycle state — they are ephemeral operational
+       visibility for the current process only.
+
     Attributes
     ----------
     abandoned:
@@ -67,6 +77,11 @@ class RetryWorkerState:
         silently launch a duplicate task over the same outbox while the
         abandoned one is still alive.  The caller must inspect this flag
         and either reset the worker or shut the entire runtime down.
+
+        **This flag is runtime-local and non-durable.**  It exists only
+        in the current process's memory.  It is *not* written to storage
+        and will be ``False`` after a process restart, since the abandoned
+        task from the previous process no longer exists.
     """
 
     enabled: bool = False
@@ -275,6 +290,12 @@ class RetryWorker:
                 "background task; worker must not be restarted without "
                 "operator intervention"
             )
+            # NOTE: retry_start_refused is a runtime event for operational
+            # visibility into the current process's worker health.  It is
+            # an in-memory event buffer emission — not persisted state, not
+            # a lifecycle transition, and not durable across process restart.
+            # It exists solely so operators and diagnostic bundles can see
+            # that start was refused during this process's lifetime.
             self._emit(
                 "retry_start_refused",
                 {

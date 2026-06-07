@@ -1327,3 +1327,41 @@ The `lifecycle_convergence_report` dict has the following shape:
 2. **Stall threshold is fixed at collection time**: The `stall_threshold_seconds` parameter defaults to 3600 seconds. Per-adapter or per-route stall thresholds are not supported.
 3. **No cross-event correlation**: Lifecycle convergence findings are scoped to a single event when an `event_id` is provided, or to the global dataset when not. Cross-event patterns (e.g., systematic attempt count regression across many events) are not detected.
 4. **Sequence gap detection limited to positive integers**: Receipts with `sequence == 0` or negative sequence values are excluded from sequence gap detection.
+
+## 24. Delayed Native-Ref Visibility Limitations
+
+### 24.1 Purpose
+
+This section documents the survivability and visibility characteristics of transport-native identifiers ("native refs") across the four adapter families. Native refs are the protocol-level message identifiers returned by each transport after a send operation. They are the strongest available correlation handle between MEDRE delivery records and the external transport, but their availability depends on timing, persistence, and adapter behavior that is not fully under MEDRE's control.
+
+### 24.2 Native-Ref Characteristics by Transport
+
+| Transport      | Native ref                                           | When available                                                                                                               | Persistence dependency                                                                                                           |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned in the nio send response, near-synchronous with the API call                                                        | Persisted to `native_message_refs` storage on receipt write                                                                      |
+| Meshtastic     | Packet ID assigned by the local radio node           | Returned asynchronously via SDK callback after queue acceptance and RF transmission                                          | Written to `OutboundNativeRefRecord` by the send-confirmation callback, then persisted on the supplemental `sent` receipt (§ 15) |
+| MeshCore       | Native message ID from the mesh protocol             | Returned asynchronously after the adapter processes the outbound message                                                     | Persisted on receipt write                                                                                                       |
+| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available after the message is signed and handed to the LXMRouter; delivery along Reticulum paths is inherently asynchronous | Persisted on receipt write                                                                                                       |
+
+### 24.3 Scenarios Where Native Refs May Be Unavailable or Lost
+
+Native refs are not guaranteed to be present on every delivery receipt. The following conditions can cause a native ref to be absent from persisted evidence:
+
+1. **Async callback race.** Queue-based transports (Meshtastic, MeshCore) return native refs via callbacks that fire after the initial send call. If evidence is collected before the callback fires, no native ref is available. The receipt will show `status="queued"` or similar intermediate state without a transport-level identifier.
+
+2. **Adapter queue not drained.** When the adapter's outbound queue has pending items at evidence-collection time, native refs for those items have not been produced by the transport. This is normal for Meshtastic queue operations (§ 15) and does not indicate a failure.
+
+3. **Storage write failure.** If the native ref was received from the transport but the subsequent storage write (receipt append, native_ref insert) fails due to a database error, disk full condition, or constraint violation, the native ref exists only in memory and is lost on process exit.
+
+4. **Adapter or runtime crash before persistence.** If the process crashes (OOM kill, signal, unhandled exception) between receiving the native ref from the transport and persisting it to SQLite, the native ref is permanently lost. MEDRE does not maintain a write-ahead log for native refs independent of the receipt append path.
+
+5. **Callback never fires.** For transports that deliver native refs asynchronously, the callback may never fire due to transport disconnection, firmware error, radio interference, or SDK timeout. In this case no native ref is produced at all, and the delivery record remains in its pre-callback state (e.g. `queued` outbox without a corresponding `sent` receipt).
+
+### 24.4 Operator Guidance
+
+When a native ref is absent from persisted evidence, operators should:
+
+- Inspect persisted receipts and outbox items for the delivery target. A `queued` receipt without a subsequent `sent` receipt indicates the native ref was never produced by the transport, not that delivery failed.
+- Inspect `native_message_refs` storage directly if available, as native refs may have been persisted independently of the receipt chain.
+- Treat missing native refs as **correlation gaps**, not as evidence of delivery success or failure. Absence of a native ref means the delivery outcome cannot be correlated to the transport's own records; it does not mean the message was or was not delivered.
+- Use `delivery_plan_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable.

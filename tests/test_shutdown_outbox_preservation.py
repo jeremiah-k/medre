@@ -1,6 +1,6 @@
 """Integration tests proving graceful shutdown preserves non-terminal outbox rows.
 
-Oracle-approved policy: non-terminal outbox rows are durable/resumable across
+Design policy: non-terminal outbox rows are durable/resumable across
 graceful shutdown.  This module turns that policy into integration-level
 regression tests that operate at the storage layer (SQLite close/reopen)
 plus shutdown-evidence model integration.

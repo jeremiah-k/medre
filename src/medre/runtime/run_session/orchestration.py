@@ -139,6 +139,18 @@ def _resolve_paths(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _adapter_health_from_snap(snap: dict[str, Any]) -> dict[str, Any]:
+    """Extract adapter health entries from the runtime snapshot."""
+    _health = snap.get("health") or {}
+    _live = _health.get("live_health") or {}
+    return _live.get("adapters", {})
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -231,6 +243,9 @@ async def run_bridge_session(
             "evidence_level": "fake_run_session",
             "timestamp": _now().isoformat(),
             "storage_path": storage_path,
+            "adapter_lifecycle": {},
+            "shutdown_status": None,
+            "retry_worker_summary": None,
             "limitations": _LIMITATIONS,
             "sanitized": True,
         }
@@ -261,6 +276,25 @@ async def run_bridge_session(
             "timestamp": _now().isoformat(),
             "config_source": config_source_value,
             "storage_path": storage_path,
+            "adapter_lifecycle": {},
+            "shutdown_status": None,
+            "retry_worker_summary": None,
+            "limitations": _LIMITATIONS,
+            "sanitized": True,
+        }
+
+    # Validate ingress_mode before starting the runtime.
+    if ingress_mode not in _SUPPORTED_INGRESS_MODES:
+        return {
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": f"Invalid ingress_mode: {ingress_mode!r}",
+            "evidence_level": "fake_run_session",
+            "timestamp": _now().isoformat(),
+            "storage_path": storage_path,
+            "adapter_lifecycle": {},
+            "shutdown_status": None,
+            "retry_worker_summary": None,
             "limitations": _LIMITATIONS,
             "sanitized": True,
         }
@@ -278,23 +312,15 @@ async def run_bridge_session(
             "config_source": config_source_value,
             "storage_path": storage_path,
             "started_adapters": list(app.started_adapter_ids),
+            "adapter_lifecycle": {},
+            "shutdown_status": None,
+            "retry_worker_summary": None,
             "limitations": _LIMITATIONS,
             "sanitized": True,
         }
 
     # -- Step 4: Inject event(s) --------------------------------------------
     source_aid, source_adapter = _pick_source_adapter(app)
-
-    if ingress_mode not in _SUPPORTED_INGRESS_MODES:
-        return {
-            "status": "failed",
-            "command": "run_session",
-            "fail_reason": f"Invalid ingress_mode: {ingress_mode!r}",
-            "evidence_level": "fake_run_session",
-            "timestamp": _now().isoformat(),
-            "storage_path": storage_path,
-            "limitations": _LIMITATIONS,
-        }
 
     # Inject scenario-specific failure before event injection.
     scenario_error: str | None = None
@@ -357,7 +383,7 @@ async def run_bridge_session(
             collection_errors.append(f"Stored event lookup error: {exc}")
 
     # Native refs (must be collected before stop closes storage).
-    all_native_refs: list[dict[str, str]] = []
+    all_native_refs: list[dict[str, object]] = []
     for eid in event_ids:
         event_receipts = [r for r in all_receipts if r.event_id == eid]
         refs = await _collect_native_refs(
@@ -424,12 +450,29 @@ async def run_bridge_session(
     receipt_summaries = [delivery_receipt_to_report_dict(r) for r in all_receipts]
 
     # Final snapshot checks
-    lifecycle = snap.get("lifecycle", {})
+    lifecycle = snap.get("lifecycle") or {}
     runtime_state = lifecycle.get("runtime_state", "unknown")
     final_snapshot_checks = {
         "schema_version": snap.get("schema_version", SCHEMA_VERSION),
         "runtime_state": runtime_state,
     }
+
+    # -- Compact runtime evidence (derived from snapshot, no new I/O) --------
+    adapter_lifecycle: dict[str, str] = lifecycle.get("adapters", {})
+
+    shutdown_status: str | None = runtime_state if runtime_state == "stopped" else None
+
+    retry_data = snap.get("retry")
+    retry_worker_summary: dict[str, Any] | None = None
+    if retry_data is not None:
+        retry_worker_summary = {
+            "dead_lettered": retry_data.get("dead_lettered", 0),
+            "enabled": retry_data.get("enabled", False),
+            "failed": retry_data.get("failed", 0),
+            "processed": retry_data.get("processed", 0),
+            "running": retry_data.get("running", False),
+            "succeeded": retry_data.get("succeeded", 0),
+        }
 
     # -- Step 9: Build report -----------------------------------------------
     event_stored = stored_event is not None
@@ -449,14 +492,7 @@ async def run_bridge_session(
         if scenario == "degraded_live_health":
             # Health scenario — not a failure_kind scenario.
             # Check if runtime is still running and health is degraded.
-            adapter_health_entries = (
-                snap.get("health", {})
-                .get(
-                    "live_health",
-                    {},
-                )
-                .get("adapters", {})
-            )
+            adapter_health_entries = _adapter_health_from_snap(snap)
             observed_health = "degraded"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":
@@ -575,6 +611,9 @@ async def run_bridge_session(
         "native_refs": all_native_refs,
         "accounting": accounting_display,
         "final_snapshot_checks": final_snapshot_checks,
+        "adapter_lifecycle": adapter_lifecycle,
+        "shutdown_status": shutdown_status,
+        "retry_worker_summary": retry_worker_summary,
         "commands": commands,
         "errors": list(collection_errors) if collection_errors else [],
         "limitations": _LIMITATIONS,
@@ -600,14 +639,7 @@ async def run_bridge_session(
         if scenario == "degraded_live_health":
             # Health scenario — use health-specific fields instead of
             # failure_kind fields.
-            adapter_health_entries = (
-                snap.get("health", {})
-                .get(
-                    "live_health",
-                    {},
-                )
-                .get("adapters", {})
-            )
+            adapter_health_entries = _adapter_health_from_snap(snap)
             observed_health = "unknown"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":
