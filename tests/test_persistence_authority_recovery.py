@@ -224,14 +224,31 @@ class TestRecoverCLIReadOnly:
     SQLiteStorage.open_readonly — no writes are possible.
     """
 
-    def test_recover_commands_module_imports_readonly_helper(self) -> None:
-        """recover_commands imports _open_readonly_storage."""
+    def test_recover_commands_module_calls_readonly_helper(self) -> None:
+        """recover_commands calls _open_readonly_storage."""
+        import ast
+
         from medre.cli import recover_commands
 
         source = inspect.getsource(recover_commands)
+        tree = ast.parse(source)
+        calls_helper = any(
+            isinstance(node, ast.Call)
+            and (
+                (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "_open_readonly_storage"
+                )
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "_open_readonly_storage"
+                )
+            )
+            for node in ast.walk(tree)
+        )
         assert (
-            "_open_readonly_storage" in source
-        ), "recover_commands must use _open_readonly_storage for storage access"
+            calls_helper
+        ), "recover_commands must call _open_readonly_storage for storage access"
 
     def test_recover_commands_docstring_states_readonly(self) -> None:
         """recover_commands module docstring explicitly states read-only."""

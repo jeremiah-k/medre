@@ -225,7 +225,7 @@ class TestEvidenceNoStorageMutation:
 class TestOpenReadonlyCannotWrite:
     """SQLiteStorage.open_readonly opens a strict read-only connection.
 
-    Attempting to write through a read-only connection raises sqlite3.OperationalError.
+    Attempting to write through a read-only connection raises StorageError.
     """
 
     async def test_readonly_cannot_insert(self, tmp_path) -> None:

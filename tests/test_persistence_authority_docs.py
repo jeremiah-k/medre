@@ -126,13 +126,13 @@ class TestStorageMDOwnershipSection:
 
     @pytest.mark.parametrize(
         "table",
-        (
+        [
             "canonical_events",
             "delivery_receipts",
             "native_message_refs",
             "delivery_outbox",
             "delivery_status",
-        ),
+        ],
     )
     def test_core_tables_mentioned_in_spec(self, table: str) -> None:
         """Core tables are mentioned in storage.md."""
@@ -141,12 +141,12 @@ class TestStorageMDOwnershipSection:
 
     @pytest.mark.parametrize(
         "table",
-        (
+        [
             "canonical_events",
             "delivery_receipts",
             "native_message_refs",
             "delivery_outbox",
-        ),
+        ],
     )
     def test_core_table_delete_authority_is_none(self, table: str) -> None:
         """Core tables have 'None' delete authority in storage.md ownership table."""
@@ -300,12 +300,12 @@ class TestPersistenceAuditDocConsistency:
 
     @pytest.mark.parametrize(
         "read_only_cmd",
-        (
+        [
             "medre inspect",
             "medre evidence",
             "medre trace",
             "medre recover",
-        ),
+        ],
     )
     def test_audit_doc_lists_readonly_operator_commands(
         self, read_only_cmd: str

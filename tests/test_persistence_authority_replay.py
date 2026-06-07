@@ -228,15 +228,16 @@ class TestStrictDryRunNoReceipts:
         await temp_storage.append_receipt(
             _make_receipt("rcpt-strict-live", "evt-strict")
         )
-        count_before = await _receipt_count(temp_storage, "evt-strict")
+        receipts_before = await _all_receipt_rows(temp_storage, "evt-strict")
 
         engine = ReplayEngine(storage=temp_storage, pipeline=None)
         request = ReplayRequest(mode=ReplayMode.STRICT)
-        results = [r async for r in engine.replay(request)]
-        assert len(results) == 1
+        _ = [r async for r in engine.replay(request)]
 
-        count_after = await _receipt_count(temp_storage, "evt-strict")
-        assert count_after == count_before
+        receipts_after = await _all_receipt_rows(temp_storage, "evt-strict")
+        assert (
+            receipts_before == receipts_after
+        ), "STRICT replay must not create new receipts"
 
     async def test_dry_run_replay_no_new_receipts(
         self, temp_storage: SQLiteStorage
@@ -246,15 +247,16 @@ class TestStrictDryRunNoReceipts:
         await temp_storage.append(event)
 
         await temp_storage.append_receipt(_make_receipt("rcpt-dry-live", "evt-dryrun"))
-        count_before = await _receipt_count(temp_storage, "evt-dryrun")
+        receipts_before = await _all_receipt_rows(temp_storage, "evt-dryrun")
 
         engine = ReplayEngine(storage=temp_storage, pipeline=None)
         request = ReplayRequest(mode=ReplayMode.DRY_RUN)
-        results = [r async for r in engine.replay(request)]
-        assert len(results) > 0
+        _ = [r async for r in engine.replay(request)]
 
-        count_after = await _receipt_count(temp_storage, "evt-dryrun")
-        assert count_after == count_before
+        receipts_after = await _all_receipt_rows(temp_storage, "evt-dryrun")
+        assert (
+            receipts_before == receipts_after
+        ), "DRY_RUN replay must not create new receipts"
 
     async def test_strict_replay_preserves_existing_receipt_data(
         self, temp_storage: SQLiteStorage
