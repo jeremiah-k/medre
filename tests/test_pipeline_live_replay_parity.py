@@ -67,6 +67,7 @@ def normalize_receipt(receipt: Any) -> dict[str, Any]:
     - replay_run_id (only set on replay)
     - created_at (wall-clock timestamp)
     - adapter_message_id (generated per delivery)
+    - attempt_number (replay is the next attempt, not the same one)
 
     Skips timing fields:
     - next_retry_at (wall-clock)
@@ -80,7 +81,6 @@ def normalize_receipt(receipt: Any) -> dict[str, Any]:
         "status": receipt.status,
         "error": receipt.error,
         "failure_kind": receipt.failure_kind,
-        "attempt_number": receipt.attempt_number,
         "rendering_evidence": receipt.rendering_evidence,
     }
 

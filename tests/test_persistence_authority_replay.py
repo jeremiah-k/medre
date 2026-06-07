@@ -57,14 +57,6 @@ def _make_receipt(
     )
 
 
-async def _receipt_count(storage: SQLiteStorage, event_id: str) -> int:
-    rows = await storage._read_all(
-        "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
-        (event_id,),
-    )
-    return rows[0]["cnt"]
-
-
 async def _all_receipt_rows(storage: SQLiteStorage, event_id: str) -> list[dict]:
     return await storage._read_all(
         "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
@@ -156,9 +148,6 @@ class TestReplayNewReceiptsPreserveOld:
             log_dir=tmp_path / "logs",
             database_path=tmp_path / "state" / "medre.sqlite",
         )
-        for d in (paths.state_dir, paths.data_dir, paths.cache_dir, paths.log_dir):
-            d.mkdir(parents=True, exist_ok=True)
-
         config = RuntimeConfig(
             storage=StorageConfig(backend="memory"),
             adapters=AdapterConfigSet(
@@ -250,8 +239,6 @@ class TestReplayNewReceiptsPreserveOld:
         self, tmp_path: Path
     ) -> None:
         """Replay receipts use incremented attempt_number across replay runs."""
-        from medre.core.engine.replay.types import ReplayMode, ReplayRequest
-
         paths = MedrePaths(
             config_dir=tmp_path / "config",
             config_file=tmp_path / "config" / "config.toml",
@@ -311,11 +298,8 @@ class TestReplayNewReceiptsPreserveOld:
                 key=lambda r: r.attempt_number,
             )
             assert len(replay_receipts) == 2
-            assert replay_receipts[0].attempt_number >= 1
-            assert (
-                replay_receipts[1].attempt_number
-                >= replay_receipts[0].attempt_number + 1
-            )
+            assert replay_receipts[0].attempt_number == 1
+            assert replay_receipts[1].attempt_number == 2
             assert replay_receipts[1].source == "replay"
             assert replay_receipts[1].replay_run_id == "run-att-2"
         finally:
