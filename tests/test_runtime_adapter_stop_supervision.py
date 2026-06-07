@@ -527,3 +527,95 @@ class TestOutcomeFromCancelledTaskTimeout:
         outcome, exc = _outcome_from_cancelled_task(task)
         assert outcome == "timeout"
         assert isinstance(exc, asyncio.TimeoutError)
+
+
+# ===================================================================
+# Error-collection branches in stop() — lines 1225 and 1229
+# ===================================================================
+
+
+class _TimeoutErrorStopAdapter:
+    """Adapter whose stop() raises TimeoutError within the deadline.
+
+    _outcome_from_task maps TimeoutError to ("timeout", exc), so
+    stop() enters the ``elif outcome == "timeout"`` branch and
+    collects the exception via ``errors.append`` (line 1225).
+    """
+
+    def __init__(self, real_adapter: Any) -> None:
+        self._real = real_adapter
+        self.stop_called = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        raise TimeoutError("simulated timeout during stop")
+
+
+class _RuntimeErrorStopAdapter:
+    """Adapter whose stop() raises RuntimeError within the deadline.
+
+    _outcome_from_task maps non-TimeoutError exceptions to
+    ("error", exc), so stop() enters the ``else`` branch and collects
+    the exception via ``errors.append`` (line 1229).
+    """
+
+    def __init__(self, real_adapter: Any) -> None:
+        self._real = real_adapter
+        self.stop_called = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    async def stop(self, timeout: float = 10.0) -> None:
+        self.stop_called = True
+        raise RuntimeError("simulated stop error")
+
+
+class TestAdapterStopErrorCollection:
+    """Verify that stop() collects adapter errors in the timeout and
+    error branches and raises RuntimeShutdownError."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_error_during_stop_collected(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An adapter whose stop() raises TimeoutError is marked FAILED
+        and the error is collected, raising RuntimeShutdownError."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_id = next(iter(app.adapters))
+        real = app.adapters[adapter_id]
+        error_adapter = _TimeoutErrorStopAdapter(real)
+        app.adapters[adapter_id] = error_adapter
+
+        with pytest.raises(RuntimeShutdownError, match=adapter_id):
+            await app.stop()
+
+        assert error_adapter.stop_called
+        assert app.adapter_states[adapter_id] is AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_during_stop_collected(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An adapter whose stop() raises RuntimeError is marked FAILED
+        and the error is collected, raising RuntimeShutdownError."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_id = next(iter(app.adapters))
+        real = app.adapters[adapter_id]
+        error_adapter = _RuntimeErrorStopAdapter(real)
+        app.adapters[adapter_id] = error_adapter
+
+        with pytest.raises(RuntimeShutdownError, match=adapter_id):
+            await app.stop()
+
+        assert error_adapter.stop_called
+        assert app.adapter_states[adapter_id] is AdapterState.FAILED

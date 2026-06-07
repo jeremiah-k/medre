@@ -38,6 +38,13 @@ The :class:`ShutdownStatus` enum defines the recognised shutdown statuses:
 * ``stopped`` — runtime stopped (generic; no further classification).
 * ``failed`` — runtime in ``failed`` state.
 
+These values are **diagnostic observation labels**, not execution
+commands.  Code that reads ``shutdown_status`` should use it for
+reporting and audit trails; it does not direct runtime behaviour or
+imply that the evidence module has authority to change lifecycle state.
+The runtime's actual lifecycle transitions are governed by
+:class:`~medre.runtime.app.RuntimeState`, not by these evidence labels.
+
 Public symbols
 --------------
 * :class:`ShutdownStatus` — canonical shutdown status enum.
@@ -536,7 +543,10 @@ def build_shutdown_evidence(
 
 #: Resumable outbox statuses and their shutdown classifications.
 #: These are non-terminal statuses where the item is preserved for
-#: restart recovery.  Graceful shutdown does **not** mutate or append.
+#: the retry worker to reclaim on restart.  Graceful shutdown does
+#: **not** mutate or append.  "Restart recovery" here means the
+#: retry worker or operator will re-encounter these items after a
+#: restart — the evidence module does not perform the reclaiming.
 _RESUMABLE_OUTBOX_CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     "pending": (
         "resumable_pending",

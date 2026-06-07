@@ -275,6 +275,17 @@ class RetryWorker:
                 "background task; worker must not be restarted without "
                 "operator intervention"
             )
+            self._emit(
+                "retry_start_refused",
+                {
+                    "reason": "abandoned",
+                    "stop_timeout_seconds": self._stop_timeout,
+                    "processed": self.state.processed,
+                    "succeeded": self.state.succeeded,
+                    "failed": self.state.failed,
+                    "dead_lettered": self.state.dead_lettered,
+                },
+            )
             return
         if self._task is not None:
             return
@@ -350,6 +361,14 @@ class RetryWorker:
                 # A previous stop() already abandoned the worker; do not
                 # emit duplicate retry_stopped / retry_failed events.
                 return
+            _logger.info(
+                "RetryWorker stop requested: two-stage bounded shutdown "
+                "(stage 1: cooperative poll, stage 2: forced cancel), "
+                "effective wall-time up to ~%.1fs "
+                "(stop_timeout_seconds=%.1f x 2 stages)",
+                self._stop_timeout * 2,
+                self._stop_timeout,
+            )
             self._shutdown_event.set()
             loop = asyncio.get_running_loop()
             # Stage 1: cooperative stop.  Poll ``task.done()`` on a
