@@ -8,10 +8,11 @@ leftover alpha/beta test filenames.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.forbidden_terms import FORBIDDEN_TERMS, find_stale_terms
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -235,45 +236,14 @@ def test_ops_docs_show_config_and_storage_path_distinction() -> None:
 # 7. No stale process language in spec/ops
 # ===========================================================================
 
-#: Stale internal process terms that must not appear in spec/ or ops/.
-_STALE_PROCESS_TERMS: list[re.Pattern[str]] = [
-    re.compile(r"\balpha stage\b", re.IGNORECASE),
-    re.compile(r"\bbeta period\b", re.IGNORECASE),
-    re.compile(r"\bbeta contractual\b", re.IGNORECASE),
-    re.compile(r"\bPC-targeted\b"),
-    re.compile(r"\bLSP diagnostics\b", re.IGNORECASE),
-    re.compile(r"\bworking tree clean\b", re.IGNORECASE),
-    re.compile(r"\bfinal report\b", re.IGNORECASE),
-    re.compile(r"\bagent-as-process\b", re.IGNORECASE),
-    re.compile(r"\bfuture tranche\b", re.IGNORECASE),
-]
-
-
-def _collect_md_files(directory: Path) -> list[Path]:
-    """Collect all .md files under a directory recursively, sorted."""
-    if not directory.is_dir():
-        return []
-    return sorted(directory.rglob("*.md"))
-
-
-def _find_stale_terms(directory: Path) -> list[str]:
-    """Find stale process terms in .md files under directory."""
-    md_files = _collect_md_files(directory)
-    violations: list[str] = []
-    for md_file in md_files:
-        text = _read(md_file)
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            for pattern in _STALE_PROCESS_TERMS:
-                if pattern.search(line):
-                    violations.append(
-                        f"  {md_file.relative_to(_ROOT)}:{lineno}: " f"'{line.strip()}'"
-                    )
-    return violations
-
 
 def test_no_stale_process_language_in_spec() -> None:
     """spec/ docs must not contain stale internal process language."""
-    violations = _find_stale_terms(_DOCS / "spec")
+    raw = find_stale_terms(["spec"], FORBIDDEN_TERMS)
+    violations = [
+        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
+        for md_file, lineno, content in raw
+    ]
     assert not violations, "Found stale process language in spec/:\n" + "\n".join(
         violations
     )
@@ -281,7 +251,11 @@ def test_no_stale_process_language_in_spec() -> None:
 
 def test_no_stale_process_language_in_ops() -> None:
     """ops/ docs must not contain stale internal process language."""
-    violations = _find_stale_terms(_DOCS / "ops")
+    raw = find_stale_terms(["ops"], FORBIDDEN_TERMS)
+    violations = [
+        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
+        for md_file, lineno, content in raw
+    ]
     assert not violations, "Found stale process language in ops/:\n" + "\n".join(
         violations
     )
