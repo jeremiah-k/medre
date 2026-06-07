@@ -73,6 +73,7 @@ class RuntimeEventType(str, enum.Enum):
     RETRY_DEAD_LETTERED = "retry_dead_lettered"
     RETRY_STOPPED = "retry_stopped"
     RETRY_ABANDONED = "retry_abandoned"
+    RETRY_START_REFUSED = "retry_start_refused"
 
 
 # ---------------------------------------------------------------------------

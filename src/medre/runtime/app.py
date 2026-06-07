@@ -113,6 +113,36 @@ def _drain_pending_cancellations() -> int:
 
     Returns the number of cancellation requests removed, or 0 when
     called outside an asyncio task context.
+
+    Drain/restore responsibility chain
+    -----------------------------------
+    Every call site that drains cancellations **must** restore the same
+    count by calling ``current.cancel()`` the same number of times
+    before the enclosing handler returns.  If the count is not restored,
+    the caller's next ``await`` will not see the pending cancellation,
+    silently swallowing an external cancel request.
+
+    **Invariant:** Between drain and restore, no ``await`` may execute
+    that could re-raise ``CancelledError`` — doing so would consume one
+    of the drained cancellation slots and leave the restored count too
+    high.
+
+    Call sites and their restore locations:
+
+    * :meth:`MedreApp.stop()` — restores ``_deferred_cancel_count`` at
+      the end of the method, after pipeline runner stop and storage
+      close.
+    * :meth:`MedreApp.start()` (``CancelledError`` handler) — restores
+      ``_total`` (``_cleared + _cleanup_drained +
+      _startup_cleanup_drained``) before re-raising.
+    * :meth:`MedreApp._cleanup_core_resources` — restores
+      ``_cleared_cancels`` before re-raising ``_cancelled``.
+    * Per-adapter cleanup stops inside :meth:`MedreApp.start` —
+      accumulated into ``_startup_cleanup_drained`` and folded into
+      the outer ``start()`` handler's restore.
+    * :meth:`_stop_adapter_with_deadline` — does **not** drain; its
+      ``CancelledError`` handler re-raises so the **caller** drains
+      and restores.
     """
     current = asyncio.current_task()
     if current is None:
@@ -1365,6 +1395,22 @@ class MedreApp:
         handled by giving the adapter one bounded cancel grace and
         then re-raising, so the caller's cleanup still runs.
 
+        Cancellation drain responsibility
+        ---------------------------------
+        This method does **not** call :func:`_drain_pending_cancellations`.
+        When ``CancelledError`` arrives, the helper re-raises it so the
+        **caller** can drain and restore the cancellation count as part
+        of its own cleanup sequence.  Callers that drain:
+
+        * :meth:`MedreApp.stop` — drains in each adapter stop's
+          ``except CancelledError`` block, restores at method end.
+        * :meth:`MedreApp._cleanup_started_adapters` — drains in each
+          adapter stop's ``except CancelledError`` block, accumulates
+          into ``_total_drained`` for the caller to restore.
+        * Per-adapter start-failure cleanup in :meth:`MedreApp.start`
+          — drains and accumulates into ``_startup_cleanup_drained``,
+          folded into the outer ``start()`` handler's restore.
+
         Returns
         -------
         (``outcome``, ``exception``)
@@ -1495,6 +1541,31 @@ class MedreApp:
         ``failure_kind="shutdown_rejection"`` and
         ``error="shutdown_drain_timeout"``, enabling operators to audit
         what was lost via ``medre inspect receipts``.
+
+        Evidence semantics
+        ------------------
+        These receipts are **deliberate runtime-generated evidence facts**.
+        They are:
+
+        * **Not adapter results.**  The adapter did not produce this
+          receipt; the runtime created it because it chose to stop
+          waiting for a delivery that was in progress when the drain
+          deadline expired.
+        * **Not loop-prevention suppression.**  The ``suppressed`` status
+          records a genuine abandonment event — the delivery was in-flight
+          and did not complete, not that a duplicate was suppressed.
+        * **Not delivery success or retry outcomes.**  No delivery
+          succeeded and no retry will claim these items.  They are
+          observable evidence of what was lost during shutdown.
+        * **Source-preserving.**  The ``source`` field on each receipt
+          reflects the original delivery context (``"live"``,
+          ``"retry"``, or ``"replay"``), preserving delivery lineage.
+          It does **not** indicate that the shutdown process was the
+          delivery source.
+
+        The ``failure_kind`` value ``"shutdown_rejection"`` is defined in
+        ``DeliveryFailureKind.SHUTDOWN_REJECTION``
+        (``core/planning/delivery_plan.py``).
 
         Silently skips persistence when storage is unavailable or when no
         in-flight deliveries are tracked by the pipeline runner.
@@ -1725,6 +1796,17 @@ class MedreApp:
 
         Other cleanup errors are logged and suppressed so the original
         startup failure remains the raised exception.
+
+        Cross-reference
+        ---------------
+        This method's drain/restore pattern is the same as the deferred
+        cancellation in :meth:`stop`: drain → continue cleanup → restore
+        count → re-raise.  The difference is that this method's restore
+        re-raises immediately, while :meth:`stop` may accumulate
+        cancellations from multiple phases before restoring once at the
+        end.  Callers of this method (:meth:`_start_failure_cleanup`)
+        intercept the re-raised ``CancelledError``, drain the restored
+        count, and fold it into the outer ``start()`` handler's total.
         """
         # Stop retry worker if it was started.  Defer CancelledError so
         # pipeline runner stop and storage close can still run.
