@@ -61,9 +61,9 @@ medre smoke --config examples/configs/fake-bridge-smoke.toml --json
 medre smoke --config /tmp/medre-sqlite.toml --json
 
 # Installed package
-medre config sample > /tmp/medre-alpha.toml
-# Edit storage section: backend = "sqlite", path = "/tmp/medre-alpha.db"
-medre smoke --config /tmp/medre-alpha.toml --json
+medre config sample > /tmp/medre-walkthrough.toml
+# Edit storage section: backend = "sqlite", path = "/tmp/medre-walkthrough.db"
+medre smoke --config /tmp/medre-walkthrough.toml --json
 ```
 
 Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
@@ -92,7 +92,7 @@ After any run (smoke, live, post-crash), start here. All inspect commands are re
 ### Check the Event
 
 ```bash
-medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --storage-path /tmp/medre-walkthrough.db
 ```
 
 Shows source adapter, event kind, payload, and timestamp.
@@ -100,7 +100,7 @@ Shows source adapter, event kind, payload, and timestamp.
 ### Check Delivery Receipts
 
 ```bash
-medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
+medre inspect receipts --event <event_id> --storage-path /tmp/medre-walkthrough.db
 ```
 
 Shows delivery receipts with target adapter, route, attempt number, and failure kind.
@@ -108,7 +108,7 @@ Shows delivery receipts with target adapter, route, attempt number, and failure 
 ### Assemble a Timeline
 
 ```bash
-medre inspect event <event_id> --timeline --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --timeline --storage-path /tmp/medre-walkthrough.db
 ```
 
 Shows every stage the event passed through: ingestion, routing, delivery, retry, replay. Covers the same output as `medre trace event`.
@@ -116,7 +116,7 @@ Shows every stage the event passed through: ingestion, routing, delivery, retry,
 ### Collect a Full Evidence Bundle
 
 ```bash
-medre inspect event <event_id> --evidence --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --evidence --storage-path /tmp/medre-walkthrough.db
 ```
 
 Shows event, receipts, timeline, and incident summary. The recommended attachment format for bug reports. Covers `medre evidence --event`.
@@ -124,7 +124,7 @@ Shows event, receipts, timeline, and incident summary. The recommended attachmen
 ### Generate Recovery Guidance
 
 ```bash
-medre inspect event <event_id> --recovery --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --recovery --storage-path /tmp/medre-walkthrough.db
 ```
 
 Shows failure classification, affected routes, and recommended next steps. Covers `medre recover --event`.
@@ -134,7 +134,7 @@ Shows failure classification, affected routes, and recommended next steps. Cover
 ```bash
 medre inspect event <event_id> \
   --timeline --evidence --recovery \
-  --storage-path /tmp/medre-alpha.db
+  --storage-path /tmp/medre-walkthrough.db
 ```
 
 The most detailed inspection available. Deterministic JSON, suitable for diffing or pasting into reports.

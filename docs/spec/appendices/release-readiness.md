@@ -14,38 +14,38 @@ commitment.
 
 ## 1. Capability Matrix
 
-| Capability                          | Matrix                               | Meshtastic         | MeshCore    | LXMF        |
-| ----------------------------------- | ------------------------------------ | ------------------ | ----------- | ----------- |
-| Config load                         | live-validated                       | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Instance-scoped env overrides       | live-validated                       | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Env-first adapter creation          | synthetic-tested                          | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Env-driven route creation           | synthetic-tested                          | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Route policy enforcement            | synthetic-tested                          | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Fake lifecycle                      | live-validated                       | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Real adapter import safe            | live-validated                       | opt-in live exists | designed    | designed    |
-| Live start/health                   | live-validated                       | opt-in live exists | not started | not started |
-| Outbound delivery                   | live-validated                       | opt-in live exists | not started | not started |
-| Inbound decode                      | live-validated                       | opt-in live exists | not started | not started |
-| Storage native refs                 | live-validated                       | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Evidence bundle                     | live-validated                       | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Delivery reliability                | synthetic-tested                          | synthetic-tested        | designed    | designed    |
-| Delivery evidence (unified inspect) | synthetic-tested                          | synthetic-tested        | not started | not started |
-| Run-session path                    | live-validated                       | not started        | not started | not started |
-| Operator runbook                    | live-validated                       | opt-in live exists | designed    | designed    |
-| Live validation recorded            | live-validated                       | not started        | not started | not started |
-| Local delivery outbox               | synthetic-tested                          | synthetic-tested        | synthetic-tested | synthetic-tested |
-| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                    |             |             |
+| Capability                          | Matrix                               | Meshtastic         | MeshCore         | LXMF             |
+| ----------------------------------- | ------------------------------------ | ------------------ | ---------------- | ---------------- |
+| Config load                         | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Instance-scoped env overrides       | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Env-first adapter creation          | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Env-driven route creation           | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Route policy enforcement            | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Fake lifecycle                      | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Real adapter import safe            | live-validated                       | opt-in live exists | designed         | designed         |
+| Live start/health                   | live-validated                       | opt-in live exists | not started      | not started      |
+| Outbound delivery                   | live-validated                       | opt-in live exists | not started      | not started      |
+| Inbound decode                      | live-validated                       | opt-in live exists | not started      | not started      |
+| Storage native refs                 | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Evidence bundle                     | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Delivery reliability                | synthetic-tested                     | synthetic-tested   | designed         | designed         |
+| Delivery evidence (unified inspect) | synthetic-tested                     | synthetic-tested   | not started      | not started      |
+| Run-session path                    | live-validated                       | not started        | not started      | not started      |
+| Operator runbook                    | live-validated                       | opt-in live exists | designed         | designed         |
+| Live validation recorded            | live-validated                       | not started        | not started      | not started      |
+| Local delivery outbox               | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
+| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                    |                  |                  |
 
 ## 2. Status Definitions
 
-| Status                    | Meaning                                                                                             |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `not started`             | No implementation exists.                                                                           |
-| `designed`                | Spec/contract exists. No working code.                                                              |
-| `synthetic-tested`             | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
+| Status                    | Meaning                                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `not started`             | No implementation exists.                                                                                             |
+| `designed`                | Spec/contract exists. No working code.                                                                                |
+| `synthetic-tested`        | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
 | `conformance-tested`      | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
 | `docker-validated`        | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
-| `opt-in live test exists` | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results. |
+| `opt-in live test exists` | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results.                   |
 | `live-validated`          | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
 
 Docker SDK-boundary evidence validates SDK integration and adapter wiring but
