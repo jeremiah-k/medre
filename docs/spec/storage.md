@@ -485,6 +485,8 @@ Internal metadata table. Tracks the storage schema version. On initialization, t
 
 ### 4.8 Identity Tables
 
+> **Spec-planned.** The identity tables below are not part of the current SQLite DDL (see [schema.py](../../src/medre/core/storage/sqlite/schema.py)). They document the intended shape for future implementation. Do not assume they exist at runtime.
+
 #### actors
 
 ```sql
@@ -540,6 +542,8 @@ CREATE TABLE actor_permissions (
 ```
 
 ### 4.9 native_archive
+
+> **Spec-planned.** The `native_archive` table is not part of the current SQLite DDL. It documents the intended shape for future opt-in raw-data archiving. Do not assume it exists at runtime.
 
 ```sql
 CREATE TABLE native_archive (
@@ -952,3 +956,49 @@ class StorageConfig:
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
 | Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
 | Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |
+
+## 16. Storage Ownership Semantics
+
+This section states which code owns each table's rows, who may create/mutate/delete them, and what retention guarantees apply. The detailed per-table audit lives in [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
+
+### 16.1 Ownership Summary
+
+| Table / category      | Creator                                                                            | Mutator                                                 | Deleter                                       | Retention      |
+| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------- |
+| `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever        |
+| `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever        |
+| `native_message_refs` | Adapters (ingress correlation) and delivery (outbound correlation)                 | None (idempotent insert)                                | None                                          | Forever        |
+| `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever        |
+| `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever        |
+| `plugin_state`        | Plugins (scoped by `plugin_id`)                                                    | Owning plugin                                           | Owning plugin                                 | Plugin-defined |
+| `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever        |
+
+### 16.2 Ownership Rules
+
+1. **`canonical_events` are canonical ingress facts.** Each row records a normalized event after codec processing and conversation assignment by `ConversationGraphAuthority`. Rows are never updated or deleted. The event log is the single source of truth for what happened.
+
+2. **`native_message_refs` are native transport correlation facts.** Adapters report them as observations of native-to-canonical mappings. Inserts are idempotent. No code path updates or deletes a native ref.
+
+3. **`delivery_receipts` are append-only delivery evidence.** Every delivery attempt (live, retry, or replay) produces a new receipt row. Existing receipt rows are never modified or deleted. The current delivery status is a projection from the `delivery_status` view (Section 4.5), not a mutable field.
+
+4. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
+
+5. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
+
+6. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
+
+7. **Schema metadata identifies the current prerelease shape.** `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen until MEDRE reaches a release-tracked milestone. Column-shape validation (Section 10.2) catches prerelease drift without a version bump. No migration or schema bump work is required now.
+
+8. **Adapters report facts; they do not own storage rows.** Adapters call storage methods (`append`, `store_native_ref`, `append_receipt`) to record observations. Storage semantics are enforced by the storage layer, not by adapter code.
+
+### 16.3 Spec-Planned Tables
+
+The following tables are documented in Sections 4.8 and 4.9 but are not part of the current SQLite DDL. They are included here to define the intended ownership model for when they are implemented:
+
+| Planned table          | Intended creator                  | Intended retention                |
+| ---------------------- | --------------------------------- | --------------------------------- |
+| `actors`               | Identity resolution service       | Until explicitly deleted          |
+| `native_identities`    | Identity resolution service       | Until explicitly deleted          |
+| `actor_identity_links` | Identity resolution service       | Until explicitly deleted          |
+| `actor_permissions`    | Authorization service             | Until explicitly revoked          |
+| `native_archive`       | Archive-enabled adapters (opt-in) | Configurable (time/count pruning) |

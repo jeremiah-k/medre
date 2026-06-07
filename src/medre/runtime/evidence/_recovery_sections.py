@@ -36,6 +36,12 @@ async def _collect_recovery_section(
     as snapshot diagnostics.  Does **not** start a runtime or claim
     actual startup recovery.
 
+    **Persistence boundary:** Reads from the ``delivery_outbox`` storage
+    table via ``SQLiteStorage.open_readonly()``.  The generated
+    ``recovery_run_id`` is scoped to this evidence collection (prefixed
+    ``snapshot-``) and is not persisted.  All output is derived on demand
+    and is not written back to storage.
+
     Parameters
     ----------
     config:

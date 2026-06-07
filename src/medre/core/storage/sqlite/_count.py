@@ -1,4 +1,8 @@
-"""Count query mixins for SQLiteStorage."""
+"""Count query mixins for SQLiteStorage.
+
+Authority surface: all methods are **list/get** (read-only).  Pure
+aggregation queries that never mutate storage.
+"""
 
 from __future__ import annotations
 

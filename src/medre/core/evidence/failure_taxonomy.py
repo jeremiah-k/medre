@@ -4,6 +4,12 @@ Provides a stable vocabulary of failure and suppression categories for
 evidence outputs, together with pure classification functions that derive
 taxon, detail, and retryability from receipt-level data.
 
+**Persistence boundary:** This module has no storage access.  All inputs
+are caller-supplied strings (failure_kind, error, status).  The
+:class:`FailureTaxon` enum values are evidence classification labels,
+not authoritative lifecycle states.  They are derived from persisted
+receipt/outbox fields but are not themselves persisted.
+
 Design goals
 ------------
 * **Consistent with existing behaviour**: :func:`derive_failure_kind_detail`

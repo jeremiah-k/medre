@@ -2,6 +2,10 @@
 
 How to collect, interpret, and reason about MEDRE pipeline evidence before and after a run.
 
+## Evidence is Derived, Not Authoritative State
+
+All reports, bundles, snapshots, and diagnostic output are derived views built by querying SQLite and reading in-memory counters. They are convenient summaries for operator investigation, but they are not authoritative lifecycle state. The authoritative record of what happened lives in the SQLite tables: `canonical_events`, `delivery_receipts`, `delivery_outbox`, and `native_message_refs`. If a report output contradicts the receipt chain, the receipts are the authority.
+
 ## Evidence Provenance
 
 Bridge behavior is validated at six fidelity levels. Each level adds constraints and reduces the gap between test and production:

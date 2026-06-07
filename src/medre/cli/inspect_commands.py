@@ -109,7 +109,10 @@ async def _inspect_receipts(
     *,
     storage_path: str,
 ) -> None:
-    """List delivery receipts for an event or replay run."""
+    """List delivery receipts for an event or replay run.
+
+    Read-only: queries persisted ``delivery_receipts`` rows without mutation.
+    """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
@@ -136,7 +139,14 @@ async def _inspect_native_ref(
     *,
     storage_path: str,
 ) -> None:
-    """Resolve a native message reference to a canonical event."""
+    """Resolve a native message reference to a canonical event.
+
+    Read-only: reads the real persisted ``native_message_refs`` row from
+    storage via ``get_native_ref()``.  The correlation facts (adapter,
+    channel, message → event_id) come directly from the authoritative
+    persisted row — not reconstructed or assumed.  Uses
+    ``native_ref_to_report_dict`` only for display formatting.
+    """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:

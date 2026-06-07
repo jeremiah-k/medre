@@ -70,6 +70,13 @@ async def _collect_storage_data_from_backend(
     Returns a section dict (``status``, ``data``, ``error``) with the same
     shape as the ``storage`` section in the evidence bundle.
 
+    **Persistence boundary:** All data is read from storage tables
+    (``events``, ``delivery_receipts``, ``native_refs``,
+    ``delivery_outbox``) via read-only queries.  Derived fields
+    (delivery outcome ledger, retry outbox summary, convergence summary,
+    orphan report, lifecycle convergence report) are computed on demand
+    and are not persisted.  This function never writes to storage.
+
     The caller is responsible for opening and closing the storage backend.
     """
     import medre.runtime.timeline as _timeline

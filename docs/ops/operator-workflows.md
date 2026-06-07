@@ -2,6 +2,41 @@
 
 Day-to-day workflows for operating MEDRE: smoke testing, inspect-first investigation, evidence collection, event tracing, failure handling, and replay.
 
+## Data Ownership and Immutability
+
+Understanding what is permanent, what is mutable, and what is derived helps you interpret storage output correctly and avoid actions that cannot succeed.
+
+### What is permanent and immutable
+
+- **Canonical events** are never updated or deleted. Every event that entered the pipeline is preserved as an immutable fact. The event log is the definitive record of what happened.
+- **Delivery receipts** are append-only. Each delivery attempt produces a new receipt row. Old receipt rows are never changed. The current delivery status is a projection (latest receipt by sequence number), not a mutable field.
+- **Native message refs** are idempotent correlation facts. They map native transport IDs to canonical events and are never updated or deleted.
+- **Terminal outbox rows** (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. Once an outbox item reaches a terminal status, it becomes permanent operational history.
+
+### What is mutable
+
+- **Non-terminal outbox rows** (`pending`, `in_progress`, `queued`, `retry_wait`) are mutable operational work state. Delivery workers claim, update, and transition these rows. On crash recovery, expired leases and stale queued rows are automatically reclaimed.
+- **Plugin state** is scoped key-value storage owned by individual plugins.
+
+### What is derived (not authoritative lifecycle state)
+
+- **`medre inspect`, `medre trace`, `medre evidence`** read SQLite and present projections. These reports are convenient views, not separate sources of truth. If a report contradicts the receipt chain in `delivery_receipts`, the receipts are the authority.
+- **Diagnostics snapshots** (`medre diagnostics`) are point-in-time readings of in-memory counters. Counters reset on every restart.
+- **Convergence summaries** and **lifecycle convergence reports** are detection-only derived analyses. They flag potential inconsistencies but do not modify storage or represent lifecycle state themselves.
+
+### What recovery can and cannot do
+
+- Recovery identifies orphaned events (stored but never delivered) and stale outbox rows (crashed mid-delivery).
+- Recovery never fabricates a delivery receipt. A `sent` receipt only exists because a real delivery attempt produced it.
+- Recovery never rewrites existing receipts or events. It can only produce new state through actual delivery (via replay or retry).
+- Orphan detection is a bookkeeping query, not a guarantee of successful re-delivery.
+
+### Why deletion is not an operator workflow
+
+All stored rows are either immutable facts (events, receipts, native refs, terminal outbox) or active work state (non-terminal outbox). There is no operator command to delete rows from the database because every row is evidence or active operational state. If the database grows too large, the supported path is to stop the runtime, back up the database, start a fresh database, and optionally replay critical events from the backup.
+
+For the detailed per-table ownership audit, see [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
+
 ## Preferred Product Path
 
 The recommended operator loop:

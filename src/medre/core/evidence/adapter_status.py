@@ -6,6 +6,12 @@ JSON-safe :class:`AdapterStatusEvidence` dataclass with a normalised
 *operator status* string suitable for structured logging, diagnostic
 bundles, and operator dashboards.
 
+**Persistence boundary:** This module has no storage access.  All inputs
+are caller-supplied parameters.  Output operator statuses are derived
+display labels, not authoritative lifecycle states.  The authoritative
+adapter lifecycle state lives in the runtime's in-memory state machine,
+not in evidence output.
+
 Operator status vocabulary
 --------------------------
 The :data:`OPERATOR_STATUSES` tuple defines the canonical set of

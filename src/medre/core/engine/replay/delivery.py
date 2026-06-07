@@ -97,6 +97,12 @@ def _replay_delivery_envelope(receipts: Any) -> dict[str, Any]:
     can inspect ``output["replay"]`` to distinguish replay deliveries
     from live ones.
 
+    Persistence authority: the *receipts* inside this envelope are
+    newly-created adapter results from the current replay attempt
+    (never reused or resurrected from a prior delivery).  Actual
+    receipt/outbox/native-ref persistence is performed by the pipeline
+    lifecycle helpers, not by replay directly.
+
     Parameters
     ----------
     receipts:
@@ -261,6 +267,15 @@ class _ReplayDeliveryMixin:
     * ``self._diagnostician``      – diagnostic recorder (or ``None``)
     * ``self._capacity_controller`` – capacity / shutdown guard (or ``None``)
     * ``self._accounting``         – accounting recorder (or ``None``)
+
+    Persistence authority: this mixin does NOT directly create receipts,
+    outbox rows, or native refs.  It delegates to
+    ``pipeline.deliver_to_targets(source="replay", replay_run_id=...)``
+    which creates new persistence through the standard delivery lifecycle
+    helpers.  Replay-created rows are identifiable by ``source="replay"``
+    and the ``replay_run_id`` field.  The lifecycle ensures new outbox
+    rows get ``attempt_number = max(existing) + 1`` (never mutates
+    existing rows) and receipts are append-only.
     """
 
     async def _stage_deliver(
@@ -417,6 +432,9 @@ class _ReplayDeliveryMixin:
                 replay_output = _replay_delivery_envelope(outcomes)
             else:
                 # Stub pipeline: plan_result is list[Any] (bare plans).
+                # Note: the stub protocol does not carry source/replay_run_id
+                # metadata.  This path is test-only; real replay delivery
+                # always uses deliver_to_targets with source="replay".
                 receipts = await self._pipeline.deliver(event, plan_result)
                 replay_output = _replay_delivery_envelope(receipts)
 

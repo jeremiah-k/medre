@@ -3,6 +3,19 @@
 :func:`build_startup_recovery_ledger` and :func:`build_recovery_summary`
 are pure functions over outbox item snapshots.  No I/O, no storage
 access, no state mutation.
+
+Persistence authority
+---------------------
+These builders are **read-model logic**.  They accept pre-fetched outbox
+snapshots and produce frozen data structures for operator diagnostics.
+They must not and do not:
+
+- Call storage write operations (no ``append_receipt``, no ``UPDATE``,
+  no ``INSERT``, no ``DELETE``).
+- Fabricate delivery success — ownership actions record diagnostic
+  classifications, not delivery outcomes.
+- Mutate historical evidence — receipts and terminal outbox rows are
+  immutable operational records outside recovery scope.
 """
 
 from __future__ import annotations

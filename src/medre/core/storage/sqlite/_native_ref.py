@@ -1,4 +1,19 @@
-"""Native message ref mixins for SQLiteStorage."""
+"""Native message ref mixins for SQLiteStorage.
+
+Authority surface:
+  - store_native_ref:  **create** (idempotent).  Native refs are transport
+    correlation facts, not delivery success.  Inbound and outbound refs
+    share the ``native_message_refs`` table; direction is distinguished by
+    the ``direction`` column (real directional value, not a placeholder).
+    Same native identity must not silently remap to a different canonical
+    event (first-writer-wins via resolve-before-insert + INSERT OR IGNORE).
+    NULL ``native_channel_id`` requires explicit dedup because SQL UNIQUE
+    treats NULL != NULL; the resolve-before-insert uses ``IS`` for proper
+    NULL comparison.
+  - resolve_native_ref: **list/get** (read-only).  No mutation.
+  - get_native_ref:     **list/get** (read-only).
+  - list_native_refs_for_event: **list/get** (read-only).
+"""
 
 from __future__ import annotations
 
@@ -22,12 +37,13 @@ class _NativeRefMixin:
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         """Persist a native-to-canonical message mapping.
 
-        Duplicate ``(adapter, native_channel_id, native_message_id)`` triples
-        are silently ignored (idempotent).  When *native_channel_id* is
-        ``None``, SQLite's UNIQUE constraint cannot detect duplicates
-        because ``NULL != NULL``.  This method therefore performs an
-        explicit resolve-before-insert check so that NULL-channel refs
-        also dedupe deterministically.
+        Authority: **create** (idempotent).  Duplicate
+        ``(adapter, native_channel_id, native_message_id)`` triples
+        are silently ignored.  When *native_channel_id* is ``None``,
+        SQLite's UNIQUE constraint cannot detect duplicates because
+        ``NULL != NULL``.  This method therefore performs an explicit
+        resolve-before-insert check so that NULL-channel refs also
+        dedupe deterministically.
 
         Use :meth:`resolve_native_ref` to retrieve the canonical
         ``event_id`` for an existing mapping.
@@ -63,7 +79,10 @@ class _NativeRefMixin:
         native_channel_id: str | None,
         native_message_id: str,
     ) -> str | None:
-        """Look up the canonical event ID for a native message reference."""
+        """Look up the canonical event ID for a native message reference.
+
+        Authority: **list/get** (read-only).
+        """
         row = await self._read_one(
             _RESOLVE_NATIVE_REF,
             (adapter, native_channel_id, native_message_id),
@@ -78,8 +97,9 @@ class _NativeRefMixin:
     ) -> NativeMessageRef | None:
         """Return the stored NativeMessageRef for the given triple.
 
-        Returns ``None`` when no mapping exists.  Uses ``IS`` for proper
-        ``NULL`` comparison of *native_channel_id*.
+        Authority: **list/get** (read-only).  Returns ``None`` when no
+        mapping exists.  Uses ``IS`` for proper ``NULL`` comparison of
+        *native_channel_id*.
         """
         row = await self._read_one(
             _GET_NATIVE_REF,
@@ -93,9 +113,10 @@ class _NativeRefMixin:
     ) -> list[NativeMessageRef]:
         """Return all native message refs for a specific event.
 
-        Native refs are ordered by ``created_at`` ascending, which reflects
-        the chronological order in which adapters materialised the event
-        into their native namespaces.
+        Authority: **list/get** (read-only).  Native refs are ordered by
+        ``created_at`` ascending, which reflects the chronological order
+        in which adapters materialised the event into their native
+        namespaces.
         """
         rows = await self._read_all(
             _SELECT_NREFS_FOR_EVENT,

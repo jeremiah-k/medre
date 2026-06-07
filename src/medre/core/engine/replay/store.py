@@ -18,6 +18,10 @@ class _ReplayStoreMixin:
         1. The event can still be retrieved by ID from storage.
         2. The ``event_id`` field is non-empty.
         3. The ``event_kind`` is registered in the built-in kind registry.
+
+        Persistence authority: this method reads canonical_events from
+        storage via ``get()`` only.  It never rewrites, appends to, or
+        deletes canonical_events or any other storage rows.
         """
         t0 = time.monotonic()
         try:

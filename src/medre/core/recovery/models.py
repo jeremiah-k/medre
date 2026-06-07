@@ -4,6 +4,15 @@ All dataclasses are frozen and JSON-safe.  The model is diagnostic and
 accountability-focused; it does **not** introduce fake execution
 guarantees.
 
+Persistence authority
+---------------------
+Models capture **diagnostic classifications**, not delivery outcomes.
+A ``RecoveryOwnershipAction`` records *why* an outbox item was classified
+a certain way — it does not create receipts, mark delivery success, or
+delete evidence.  Terminal outbox statuses (``sent``, ``dead_lettered``,
+``cancelled``, ``abandoned``) are immutable operational records; recovery
+never transitions items into or out of these states.
+
 See :mod:`~medre.core.recovery` for the public package interface.
 """
 

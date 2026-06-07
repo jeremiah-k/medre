@@ -105,6 +105,12 @@ _RECEIPT_ONLY_STATUSES = _RECEIPT_STATUSES - _OUTBOX_STATUSES
 def _retry_state_label(status: str, *, source: str = "outbox") -> str:
     """Derive a human-readable retry-state label from a raw status.
 
+    **These return values are derived display labels, not authoritative
+    lifecycle states.**  They are computed from persisted outbox/receipt
+    status strings for evidence reporting purposes only.  Pipeline state
+    transitions must use the canonical constants and helpers in
+    :mod:`~medre.core.engine.pipeline.delivery_state`.
+
     Parameters
     ----------
     status:

@@ -308,27 +308,32 @@ class StorageBackend(Protocol):
     """
 
     # -- Event CRUD ---------------------------------------------------------
+    # Authority: create (append-only).  Canonical events are ingress facts;
+    # once appended they are never updated or deleted by runtime code.
 
     async def append(self, event: CanonicalEvent) -> None:
         """Persist a canonical event together with its inline relations.
 
-        Raises :class:`DuplicateEventError` when *event.event_id* already
-        exists in the store.
+        Authority: **create** (append-only).  Raises
+        :class:`DuplicateEventError` when *event.event_id* already exists
+        in the store.
         """
         ...
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
         """Retrieve a single event by its unique identifier.
 
-        Returns ``None`` when no event with *event_id* exists.
+        Authority: **list/get** (read-only).  Returns ``None`` when no
+        event with *event_id* exists.
         """
         ...
 
     def query(self, filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
         """Yield events matching *filter*, ordered by timestamp ascending.
 
-        Implementations use ``async def`` with ``yield`` (async generator).
-        The protocol declares this as a regular ``def`` returning
+        Authority: **list/get** (read-only).  Implementations use
+        ``async def`` with ``yield`` (async generator).  The protocol
+        declares this as a regular ``def`` returning
         :class:`AsyncGenerator` because calling an async generator function
         returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
         one.
@@ -336,9 +341,17 @@ class StorageBackend(Protocol):
         ...
 
     # -- Native ref correlation ---------------------------------------------
+    # Authority: create (idempotent).  Native refs are transport correlation
+    # facts — they record which native message maps to which canonical event.
+    # Same native identity must not silently remap to a different canonical
+    # event (first-writer-wins).
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
-        """Persist a native-to-canonical message mapping."""
+        """Persist a native-to-canonical message mapping.
+
+        Authority: **create** (idempotent).  Duplicate triples are silently
+        ignored.
+        """
         ...
 
     async def resolve_native_ref(
@@ -349,7 +362,8 @@ class StorageBackend(Protocol):
     ) -> str | None:
         """Look up the canonical event ID for a native message reference.
 
-        Returns ``None`` when no mapping exists for the given triple.
+        Authority: **list/get** (read-only).  Returns ``None`` when no
+        mapping exists for the given triple.
         """
         ...
 
@@ -361,7 +375,8 @@ class StorageBackend(Protocol):
     ) -> NativeMessageRef | None:
         """Return the stored NativeMessageRef for the given triple.
 
-        Returns ``None`` when no mapping exists for the given triple.
+        Authority: **list/get** (read-only).  Returns ``None`` when no
+        mapping exists for the given triple.
 
         Parameters
         ----------
@@ -381,24 +396,40 @@ class StorageBackend(Protocol):
     ) -> list[NativeMessageRef]:
         """Return all native message refs for a specific event.
 
-        Native refs are ordered by ``created_at`` ascending.
+        Authority: **list/get** (read-only).  Native refs are ordered by
+        ``created_at`` ascending.
         """
         ...
 
     # -- Relations ----------------------------------------------------------
+    # Authority: create.  Relations are appended alongside events and never
+    # updated or deleted.
 
     async def store_relation(self, event_id: str, relation: EventRelation) -> None:
-        """Persist a single relation for an existing event."""
+        """Persist a single relation for an existing event.
+
+        Authority: **create**.
+        """
         ...
 
     async def list_relations(self, event_id: str) -> list[EventRelation]:
-        """Return all relations belonging to *event_id*."""
+        """Return all relations belonging to *event_id*.
+
+        Authority: **list/get** (read-only).
+        """
         ...
 
     # -- Receipts -----------------------------------------------------------
+    # Authority: append (append-only).  Delivery receipts are historical
+    # delivery evidence — once appended they are never updated or deleted
+    # by runtime code.  The sequence column provides strict chronological
+    # ordering.
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         """Append a delivery receipt record.
+
+        Authority: **append** (append-only).  Every call creates a new row.
+        Existing receipt rows are never updated or deleted.
 
         The receipt's ``source`` field indicates the origin (``"live"`` or
         ``"replay"``); ``replay_run_id`` is populated when
@@ -414,6 +445,9 @@ class StorageBackend(Protocol):
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
         """Return the latest receipt for a delivery plan / adapter / channel triple.
+
+        Authority: **list/get** (read-only).  Projects the latest receipt
+        via ``MAX(sequence)`` aggregation.
 
         Parameters
         ----------
@@ -443,8 +477,9 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryReceipt]:
         """Return all receipts for a delivery plan / adapter in attempt order.
 
-        Receipts are ordered by ``attempt_number`` ascending so callers
-        can walk the full receipt lineage.
+        Authority: **list/get** (read-only).  Receipts are ordered by
+        ``attempt_number`` ascending so callers can walk the full receipt
+        lineage.
         """
         ...
 
@@ -454,7 +489,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryReceipt]:
         """Return all receipts produced by a specific replay run.
 
-        Receipts are ordered by ``sequence`` ascending.  Only receipts
+        Authority: **list/get** (read-only).  Receipts are ordered by
+        ``sequence`` ascending.  Only receipts
         with ``source='replay'`` and the given ``replay_run_id`` are
         returned.  Returns an empty list when no receipts match.
         """
@@ -466,9 +502,9 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts for a specific event.
 
-        Receipts are ordered by ``sequence`` ascending, which reflects
-        the chronological append order across all delivery plans and
-        adapters for this event.
+        Authority: **list/get** (read-only).  Receipts are ordered by
+        ``sequence`` ascending, which reflects the chronological append
+        order across all delivery plans and adapters for this event.
         """
         ...
 
@@ -478,6 +514,9 @@ class StorageBackend(Protocol):
         offset: int = 0,
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts in sequence order for global analysis.
+
+        Authority: **list/get** (read-only).  Derived/read-only view used
+        for operator inspection and diagnostic analysis.
 
         Used for global convergence and diagnostic analysis across all
         events and delivery plans.  Results are ordered by ``sequence``
@@ -491,6 +530,7 @@ class StorageBackend(Protocol):
         ...
 
     # -- Counts -------------------------------------------------------------
+    # Authority: list/get (read-only).  All count methods are pure queries.
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events."""
@@ -513,6 +553,8 @@ class StorageBackend(Protocol):
         ...
 
     # -- Retry --------------------------------------------------------------
+    # Authority: list/get (read-only).  These methods query receipts to find
+    # retry candidates but do not mutate storage.
 
     async def list_due_retry_receipts(
         self, now: datetime, limit: int = 50, max_attempts: int = 3
@@ -529,9 +571,16 @@ class StorageBackend(Protocol):
         ...
 
     # -- Outbox -------------------------------------------------------------
+    # Authority: create, claim, mark, update.  The outbox is mutable
+    # operational state until terminal, then immutable operational history.
+    # Pending/in_progress creation restriction enforced by create_outbox_item.
+    # Terminal rows are never deleted or replaced — new delivery after
+    # terminal state must use new attempt identity.
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
         """Create a new outbox item or reclaim an existing pending/retry_wait row.
+
+        Authority: **create** / **claim** (reclaim pending/retry_wait).
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
@@ -558,7 +607,8 @@ class StorageBackend(Protocol):
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         """Retrieve a single outbox item by its ID.
 
-        Returns ``None`` when no item with *outbox_id* exists.
+        Authority: **list/get** (read-only).  Returns ``None`` when no
+        item with *outbox_id* exists.
         """
         ...
 
@@ -572,7 +622,7 @@ class StorageBackend(Protocol):
     ) -> DeliveryOutboxItem | None:
         """Retrieve an outbox item by its delivery target key.
 
-        Performs a targeted SELECT matching *event_id*,
+        Authority: **list/get** (read-only).  Performs a targeted SELECT matching *event_id*,
         *delivery_plan_id*, *target_adapter*, *target_channel*
         (using ``IS`` for proper ``NULL`` handling) and optionally
         *status*.  Returns the first match or ``None``.
@@ -591,6 +641,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """List outbox items matching optional status and due filters.
 
+        Authority: **list/get** (read-only).
+
         Ordered by ``next_attempt_at ASC, created_at ASC`` so that
         due items appear first.
         """
@@ -603,8 +655,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """Return all delivery outbox items in creation order for global analysis.
 
-        Used for global convergence and diagnostic analysis across all
-        events and delivery plans.  Results are ordered by
+        Authority: **list/get** (read-only).  Used for global convergence
+        and diagnostic analysis across all events and delivery plans.  Results are ordered by
         ``created_at ASC, outbox_id ASC`` for deterministic output.
 
         The default limit (10,000) is higher than the standard query
@@ -620,6 +672,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """Return all outbox items for a specific event.
 
+        Authority: **list/get** (read-only).
+
         Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
         output.  Read-only — does not mutate storage.
         """
@@ -634,7 +688,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
-        Uses a transaction to SELECT candidates and UPDATE in one step.
+        Authority: **claim** (atomic).  Uses a transaction to SELECT
+        candidates and UPDATE in one step.
         Claims items matching **any** of these status conditions:
 
         - ``status IN ('pending', 'retry_wait')`` — directly
@@ -669,6 +724,8 @@ class StorageBackend(Protocol):
     ) -> None:
         """Mark an outbox item as ``sent`` (terminal).
 
+        Authority: **mark** (terminal transition).
+
         Only transitions from ``in_progress`` or ``queued``.  No-op if
         already terminal.
         """
@@ -681,6 +738,8 @@ class StorageBackend(Protocol):
         attempt_number: int | None = None,
     ) -> None:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
+
+        Authority: **mark** (non-terminal transition).
 
         Only transitions from ``in_progress``.  No-op if already terminal.
         """
@@ -698,6 +757,8 @@ class StorageBackend(Protocol):
     ) -> None:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
+        Authority: **mark** (non-terminal transition).
+
         Sets ``next_attempt_at`` for the next scheduled attempt.
         Only transitions from ``in_progress``.
         """
@@ -714,6 +775,8 @@ class StorageBackend(Protocol):
     ) -> None:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
+        Authority: **mark** (terminal transition).
+
         Only transitions from ``in_progress`` or ``retry_wait``.
         No-op if already terminal.
 
@@ -729,6 +792,8 @@ class StorageBackend(Protocol):
     ) -> None:
         """Mark an outbox item as ``cancelled`` (terminal).
 
+        Authority: **mark** (terminal transition).
+
         May be called from any non-terminal status.  No-op if already
         terminal.
         """
@@ -740,6 +805,8 @@ class StorageBackend(Protocol):
         error_summary: str | None = None,
     ) -> None:
         """Mark an outbox item as ``abandoned`` (terminal).
+
+        Authority: **mark** (terminal transition).
 
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.
@@ -753,6 +820,8 @@ class StorageBackend(Protocol):
         lease_until: str,
     ) -> bool:
         """Renew the lease on an in_progress outbox item.
+
+        Authority: **update** (lease extension only, no status change).
 
         Returns True if the lease was renewed, False if the item is no
         longer owned by this worker or is not in_progress.
@@ -768,6 +837,8 @@ class StorageBackend(Protocol):
     ) -> None:
         """Release a claim on an outbox item, restoring its prior status.
 
+        Authority: **update** (release claim, restore to claimable status).
+
         Clears ``locked_at``, ``lease_until``, and ``worker_id`` and sets
         ``status`` to *release_status* (default ``"pending"``).
         Only succeeds when the current ``worker_id`` matches **and** the
@@ -778,6 +849,8 @@ class StorageBackend(Protocol):
     async def count_outbox_by_status(self) -> dict[str, int]:
         """Return counts of outbox items grouped by status.
 
+        Authority: **list/get** (read-only).
+
         Returns a dict mapping status strings to counts, e.g.
         ``{"pending": 3, "retry_wait": 2, "sent": 5, ...}``.
         Includes all statuses present in the table.
@@ -785,6 +858,8 @@ class StorageBackend(Protocol):
         ...
 
     # -- Lifecycle ----------------------------------------------------------
+    # Authority: infrastructure (not domain data).  These methods manage
+    # connection lifecycle, not domain entity lifecycle.
 
     async def initialize(self) -> None:
         """Prepare the backend for use (open connections, create schema)."""

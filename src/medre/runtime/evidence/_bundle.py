@@ -51,6 +51,15 @@ async def collect_evidence_bundle(
 ) -> dict[str, Any]:
     """Collect a comprehensive evidence bundle.
 
+    **Persistence boundary:** This function reads from storage (events,
+    receipts, native refs, outbox items) via read-only queries.  It never
+    writes to storage or mutates lifecycle state.  All derived sections
+    (delivery outcome ledger, retry summary, convergence, orphan report,
+    recovery) are computed on demand from loaded rows.  The diagnostics
+    snapshot builds and immediately stops a runtime — any state changes
+    during that ephemeral lifecycle are not persisted to the operator's
+    database.
+
     Parameters
     ----------
     config_path:

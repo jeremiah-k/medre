@@ -38,6 +38,13 @@ class ReceiptSummary(msgspec.Struct, frozen=True):
 
     Designed for inclusion in an :class:`EvidenceBundle` without embedding
     the full receipt or large payloads.
+
+    **Persistence boundary:** Fields are derived from rows in the
+    ``delivery_receipts`` storage table (read-only).  The
+    ``rendering_evidence`` field contains the parsed JSON of the persisted
+    ``rendering_evidence`` column on the same receipt row; it is a stored
+    receipt attribute, not a derived computation.  This summary never
+    writes back to storage.
     """
 
     receipt_id: str = ""
@@ -76,17 +83,23 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
         The canonical event ID this bundle covers.
     event_summary:
         Summary dict of the canonical event (or ``None`` if event missing).
+        Source: ``events`` storage table.
     delivery_receipts:
         Ordered list of receipt summaries (by ``sequence``).
+        Source: ``delivery_receipts`` storage table (read-only).
     native_refs:
         Ordered list of native ref summary dicts (by ``created_at``, ``id``).
+        Source: ``native_refs`` storage table (read-only).
     outbox_items:
         Ordered list of outbox item summary dicts (by ``created_at``,
         ``outbox_id``).
+        Source: ``delivery_outbox`` storage table (read-only).
     replay_run_ids:
         Sorted list of distinct ``replay_run_id`` values seen on receipts.
+        Derived from ``delivery_receipts`` rows.
     sources_seen:
         Sorted list of distinct ``source`` values seen on receipts.
+        Derived from ``delivery_receipts`` rows.
     warnings:
         Deterministic list of warning strings collected during assembly.
     generated_at:
@@ -99,33 +112,39 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     delivery_outcome_ledger:
         Per-receipt outcome aggregation from
         :func:`~medre.core.evidence.delivery_ledger.build_delivery_outcome_ledger`,
-        or ``None`` when no receipts exist.
+        or ``None`` when no receipts exist.  **Derived on demand** from
+        storage-sourced receipt and outbox rows.
     retry_outbox_summary:
         Per-outbox-item accountability summary from
         :func:`~medre.core.evidence.retry_outbox.build_retry_outbox_summary`,
-        or ``None`` when no outbox items exist.
+        or ``None`` when no outbox items exist.  **Derived on demand** from
+        storage-sourced receipt and outbox rows.
     convergence_summary:
         Per-target convergence classification from
         :func:`~medre.core.diagnostics.convergence.summary.build_convergence_summary`,
-        or ``None`` when no targets exist.
+        or ``None`` when no targets exist.  **Computed on demand** — not
+        persisted.
     orphan_report:
         Aggregate orphan / invalid-lineage findings from
         :func:`~medre.core.diagnostics.convergence.orphans.build_orphan_report`,
         merged with recovery convergence findings.  ``None`` when no
-        findings exist.
+        findings exist.  **Computed on demand** — not persisted.
     recovery_summary:
         Recovery ownership summary from
         :func:`~medre.core.recovery.builder.build_recovery_summary`,
-        or ``None`` when no recovery actions exist.
+        or ``None`` when no recovery actions exist.  **Computed on demand** —
+        not persisted.
     recovery_ledger:
         Recovery ownership ledger from
         :func:`~medre.core.recovery.builder.build_startup_recovery_ledger`.
         When built per-event the source is ``snapshot_diagnostics``
-        (not a real startup recovery cycle).
+        (not a real startup recovery cycle).  **Computed on demand** — not
+        persisted.
     lifecycle_convergence_report:
         Lifecycle delivery convergence findings from
         :func:`~medre.core.diagnostics.convergence.lifecycle_convergence.build_lifecycle_convergence_findings`,
-        or ``None`` when no findings exist.
+        or ``None`` when no findings exist.  **Computed on demand** — not
+        persisted.
     """
 
     schema_version: int = BUNDLE_SCHEMA_VERSION

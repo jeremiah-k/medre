@@ -3,6 +3,21 @@
 Maps outbox items (duck-typed) to reclamation categories without I/O,
 state mutation, or external dependencies.  Read-only diagnostics
 designed for operator-facing evidence, not action.
+
+Persistence authority
+---------------------
+Classification is a **pure read-model**.  It observes outbox status and
+timestamps and returns a ``(label, reason)`` tuple.  It must not and
+does not:
+
+- Mutate outbox items or transition their status.
+- Create receipts or fabricate delivery outcomes.
+- Delete evidence or canonical facts.
+- Call storage — all input is provided as duck-typed snapshots.
+
+The caller (e.g. :func:`~medre.core.recovery.builder.build_startup_recovery_ledger`)
+is responsible for acting on classification results within allowed
+lifecycle transitions.
 """
 
 from __future__ import annotations

@@ -1,4 +1,9 @@
-"""Trace CLI commands: chronological timeline assembly for events and replay runs."""
+"""Trace CLI commands: read-only chronological timeline assembly for events and replay runs.
+
+All trace commands open storage in read-only mode and produce derived
+projections from authoritative persisted rows.  They never mutate storage
+or alter lifecycle state.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,12 @@ async def _trace_event(
     *,
     storage_path: str,
 ) -> None:
-    """Assemble and print a chronological timeline for a single event."""
+    """Assemble and print a chronological timeline for a single event.
+
+    Read-only derived view: opens storage in read-only mode and queries
+    persisted events, receipts, native refs, and relations.  Does not
+    mutate storage.
+    """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
@@ -122,7 +132,11 @@ async def _trace_replay(
     *,
     storage_path: str,
 ) -> None:
-    """Assemble and print a chronological timeline for a replay run."""
+    """Assemble and print a chronological timeline for a replay run.
+
+    Read-only derived view: opens storage in read-only mode and queries
+    persisted replay receipts.  Does not mutate storage.
+    """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:

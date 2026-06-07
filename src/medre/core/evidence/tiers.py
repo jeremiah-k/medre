@@ -4,6 +4,9 @@ Evidence tiers describe *how* the evidence was produced, not what it claims.
 Conservative inference ensures that storage-only, synthetic, or replay evidence
 is never mislabelled as ``live_service`` or ``hardware``.
 
+**Persistence boundary:** This module has no storage access.  Tier labels
+are derived display values, not persisted state.
+
 Tier hierarchy (weakest → strongest provenance)
 ------------------------------------------------
 * ``synthetic``    — fake adapters, test fixtures, or no live systems involved.

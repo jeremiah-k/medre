@@ -1,4 +1,11 @@
-"""Event CRUD mixins for SQLiteStorage."""
+"""Event CRUD mixins for SQLiteStorage.
+
+Authority surface:
+  - append:  **create** (append-only).  Canonical events are ingress facts;
+    once persisted they are never updated or deleted by runtime code.
+  - get:     **list/get** (read-only).
+  - query:   **list/get** (read-only).
+"""
 
 from __future__ import annotations
 
@@ -29,7 +36,10 @@ class _EventMixin:
     """
 
     async def append(self, event: CanonicalEvent) -> None:
-        """Persist a canonical event together with its inline relations."""
+        """Persist a canonical event together with its inline relations.
+
+        Authority: **create** (append-only).
+        """
         snr = event.source_native_ref
         ops: list[tuple[str, tuple[Any, ...]]] = [
             (
@@ -63,7 +73,10 @@ class _EventMixin:
         await self._write_batch(ops)
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve a single event by ID, including its relations."""
+        """Retrieve a single event by ID, including its relations.
+
+        Authority: **list/get** (read-only).
+        """
         row = await self._read_one(_SELECT_EVENT, (event_id,))
         if row is None:
             return None
@@ -71,7 +84,10 @@ class _EventMixin:
         return _row_to_event(row, [_row_to_relation(r) for r in rel_rows])
 
     async def query(self, filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
-        """Yield events matching *filter*, ordered by timestamp ascending."""
+        """Yield events matching *filter*, ordered by timestamp ascending.
+
+        Authority: **list/get** (read-only).
+        """
         sql, params = _build_query_sql(filter)
         rows = await self._read_all(sql, params)
         if not rows:

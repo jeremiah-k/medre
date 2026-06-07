@@ -1,4 +1,31 @@
-"""Delivery outbox mixins for SQLiteStorage."""
+"""Delivery outbox mixins for SQLiteStorage.
+
+Authority surface:
+  - create_outbox_item:         **create** / **claim** (reclaim pending/retry_wait).
+  - get_outbox_item:            **list/get** (read-only).
+  - get_outbox_item_for_delivery: **list/get** (read-only).
+  - list_outbox_items:          **list/get** (read-only).
+  - list_all_outbox_items:      **list/get** (read-only).
+  - list_outbox_items_for_event: **list/get** (read-only).
+  - claim_due_outbox_items:     **claim** (atomic).
+  - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
+  - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
+  - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
+  - mark_outbox_dead_lettered:  **mark** (terminal, in_progress|retry_wait -> dead_lettered).
+  - mark_outbox_cancelled:      **mark** (terminal, any non-terminal -> cancelled).
+  - mark_outbox_abandoned:      **mark** (terminal, any non-terminal -> abandoned).
+  - renew_outbox_lease:         **update** (lease extension only, no status change).
+  - release_outbox_claim:       **update** (release claim, restore to claimable status).
+  - count_outbox_by_status:     **list/get** (read-only).
+
+Key invariants:
+  - Outbox is mutable operational state until terminal, then immutable
+    operational history.  Terminal rows are never deleted or replaced.
+  - Pending/in_progress are the only valid initial statuses for new rows.
+  - Active (in_progress/queued) rows are never stolen by concurrent callers.
+  - The ``allowed_from`` parameter on each ``mark_*`` method enforces
+    valid transition guardrails.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +59,8 @@ class _OutboxMixin:
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
         """Create a new outbox item, or reclaim an existing pending/retry_wait row.
+
+        Authority: **create** / **claim** (reclaim pending/retry_wait).
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -284,7 +313,10 @@ class _OutboxMixin:
                 raise
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
-        """Retrieve a single outbox item by its ID."""
+        """Retrieve a single outbox item by its ID.
+
+        Authority: **list/get** (read-only).
+        """
         row = await self._read_one(
             "SELECT * FROM delivery_outbox WHERE outbox_id = ?",
             (outbox_id,),
@@ -303,7 +335,7 @@ class _OutboxMixin:
     ) -> DeliveryOutboxItem | None:
         """Retrieve an outbox item by its delivery target key.
 
-        Performs a targeted SELECT matching *event_id*,
+        Authority: **list/get** (read-only).  Performs a targeted SELECT matching *event_id*,
         *delivery_plan_id*, *target_adapter*, *target_channel*
         (using ``IS`` for proper ``NULL`` handling) and optionally
         *status*.  Returns the first match or ``None``.
@@ -335,7 +367,10 @@ class _OutboxMixin:
         limit: int = 100,
         offset: int = 0,
     ) -> list[DeliveryOutboxItem]:
-        """List outbox items matching optional status and due filters."""
+        """List outbox items matching optional status and due filters.
+
+        Authority: **list/get** (read-only).
+        """
         clauses: list[str] = []
         params: list[Any] = []
 
@@ -363,8 +398,8 @@ class _OutboxMixin:
     ) -> list[DeliveryOutboxItem]:
         """Return all delivery outbox items in creation order.
 
-        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
-        output.  Useful for global convergence analysis across all events.
+        Authority: **list/get** (read-only).  Ordered by ``created_at ASC,
+        outbox_id ASC`` for deterministic output.  Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
             "SELECT * FROM delivery_outbox ORDER BY created_at ASC, outbox_id ASC LIMIT ? OFFSET ?",
@@ -378,8 +413,8 @@ class _OutboxMixin:
     ) -> list[DeliveryOutboxItem]:
         """Return all outbox items for a specific event.
 
-        Ordered by ``created_at ASC, outbox_id ASC`` for deterministic
-        output.  Read-only — does not mutate storage.
+        Authority: **list/get** (read-only).  Ordered by ``created_at ASC,
+        outbox_id ASC`` for deterministic output.
         """
         rows = await self._read_all(
             "SELECT * FROM delivery_outbox WHERE event_id = ? "
@@ -397,8 +432,8 @@ class _OutboxMixin:
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
-        Uses a transaction to SELECT FOR UPDATE equivalent (rowid-based)
-        and updates in one step.  Claims items that are:
+        Authority: **claim** (atomic).  Uses a transaction to SELECT FOR
+        UPDATE equivalent (rowid-based) and updates in one step.  Claims items that are:
 
         - ``status IN ('pending', 'retry_wait')`` — directly claimable;
         - ``status = 'in_progress' AND lease_until <= now`` — expired leases;
@@ -483,11 +518,11 @@ class _OutboxMixin:
     ) -> None:
         """Shared helper for status transitions.
 
-        Only updates non-terminal items.  The ``WHERE status NOT IN``
-        clause prevents regression once a terminal status is set.
-        If *allowed_from* is provided, an additional ``AND status IN
-        (...)`` guard is added so the transition is only valid from
-        the listed source statuses.
+        Authority: **mark** (internal transition helper).  Only updates
+        non-terminal items.  The ``WHERE status NOT IN`` clause prevents
+        regression once a terminal status is set.  If *allowed_from* is
+        provided, an additional ``AND status IN (...)`` guard is added so
+        the transition is only valid from the listed source statuses.
 
         Raises :class:`ValueError` if *new_status* is not a known
         outbox status (not in ``OUTBOX_STATUSES``).
@@ -575,7 +610,8 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``sent`` (terminal).
 
-        Only transitions from ``in_progress`` or ``queued``.
+        Authority: **mark** (terminal transition).  Only transitions from
+        ``in_progress`` or ``queued``.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -596,7 +632,8 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
-        Only transitions from ``in_progress``.
+        Authority: **mark** (non-terminal transition).  Only transitions
+        from ``in_progress``.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -618,8 +655,9 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
-        Sets ``next_attempt_at`` for the next scheduled attempt.
-        Only transitions from ``in_progress``.
+        Authority: **mark** (non-terminal transition).  Sets
+        ``next_attempt_at`` for the next scheduled attempt.  Only
+        transitions from ``in_progress``.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -644,9 +682,10 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
-        Only transitions from ``in_progress`` or ``retry_wait``.
-        When *attempt_number* is provided, it is persisted on the outbox
-        row so the terminal state records the final attempt count.
+        Authority: **mark** (terminal transition).  Only transitions from
+        ``in_progress`` or ``retry_wait``.  When *attempt_number* is
+        provided, it is persisted on the outbox row so the terminal state
+        records the final attempt count.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -669,8 +708,8 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``cancelled`` (terminal).
 
-        May be called from ``pending``, ``in_progress``, ``retry_wait``,
-        or ``queued``.
+        Authority: **mark** (terminal transition).  May be called from
+        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -691,8 +730,8 @@ class _OutboxMixin:
     ) -> None:
         """Mark an outbox item as ``abandoned`` (terminal).
 
-        May be called from ``pending``, ``in_progress``, ``retry_wait``,
-        or ``queued``.
+        Authority: **mark** (terminal transition).  May be called from
+        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
         """
         await self._update_outbox_status(
             outbox_id,
@@ -714,6 +753,7 @@ class _OutboxMixin:
     ) -> bool:
         """Renew the lease on an in_progress outbox item.
 
+        Authority: **update** (lease extension only, no status change).
         Returns True if the lease was renewed, False if the item is no
         longer owned by this worker or is not in_progress.
         """
@@ -742,6 +782,7 @@ class _OutboxMixin:
     ) -> None:
         """Release a claim on an outbox item, restoring the caller-specified status.
 
+        Authority: **update** (release claim, restore to claimable status).
         Clears locked_at, lease_until, worker_id and sets status to
         *release_status*.  Only succeeds when the current worker_id matches
         **and** the row is ``in_progress``.  Rows in any other status are
@@ -762,7 +803,10 @@ class _OutboxMixin:
         )
 
     async def count_outbox_by_status(self) -> dict[str, int]:
-        """Return counts of outbox items grouped by status."""
+        """Return counts of outbox items grouped by status.
+
+        Authority: **list/get** (read-only).
+        """
         rows = await self._read_all(
             "SELECT status, COUNT(*) AS cnt FROM delivery_outbox GROUP BY status"
         )
