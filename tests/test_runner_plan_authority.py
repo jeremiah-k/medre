@@ -17,14 +17,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
-    DeliveryOutcome,
     DeliveryPlan,
     DeliveryStrategy,
 )

@@ -22,8 +22,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
-
 from medre.core.contracts.adapter import AdapterDeliveryResult
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
@@ -45,7 +43,6 @@ from medre.core.rendering.evidence import (
 )
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, RouteSource, RouteTarget
-
 
 # ---------------------------------------------------------------------------
 # Local fakes
@@ -140,7 +137,6 @@ def _make_service(
     )
     svc = TargetDeliveryService(
         adapters=adapters or {"plan_auth_adapter": _FakeAdapter()},  # type: ignore[arg-type]
-
         rendering_pipeline=_pipeline,  # type: ignore[arg-type]
         storage=storage,  # type: ignore[arg-type]
         diagnostician=diag,
@@ -293,9 +289,9 @@ class TestRelationEvidenceRenderModeReasonSerialization:
             serialized = json.dumps(d, sort_keys=True)
             parsed = json.loads(serialized)
 
-            assert parsed["render_mode_reason"] == reason, (
-                f"render_mode_reason={reason!r} lost in round-trip"
-            )
+            assert (
+                parsed["render_mode_reason"] == reason
+            ), f"render_mode_reason={reason!r} lost in round-trip"
 
     def test_render_mode_reason_none_serializes_as_null(self) -> None:
         """render_mode_reason=None serializes as JSON null."""

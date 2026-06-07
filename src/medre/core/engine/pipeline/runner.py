@@ -54,7 +54,6 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
 )
-
 from medre.core.planning.conversation_graph import ConversationGraphAuthority
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,

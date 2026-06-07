@@ -270,7 +270,9 @@ class TestRenderModeDerivation:
                 target_native_message_id="msg-1",
             )
             assert mode == "fallback", f"Expected fallback for {rtype}"
-            assert reason == "fallback_applied_match", f"Expected fallback_applied_match for {rtype}"
+            assert (
+                reason == "fallback_applied_match"
+            ), f"Expected fallback_applied_match for {rtype}"
 
     def test_strategy_fallback_text_not_relation_type(self) -> None:
         """strategy_fallback_text does not match any relation type suffix."""
