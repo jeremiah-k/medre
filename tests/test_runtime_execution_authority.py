@@ -207,3 +207,21 @@ class TestDrainPendingCancellationsSafety:
         # Inside an asyncio event loop but not inside a Task,
         # current_task() returns None and the function returns 0.
         assert _drain_pending_cancellations() == 0
+
+    def test_returns_zero_with_no_event_loop(self) -> None:
+        """Synchronous call with no running event loop at all.
+
+        ``asyncio.current_task()`` returns ``None`` when there is no
+        event loop, so the function hits the early return on line 148
+        (``if current is None: return 0``) which the async test above
+        cannot reach because pytest-asyncio wraps every ``async def``
+        test in a Task.
+        """
+        from unittest.mock import patch
+
+        # asyncio.current_task() raises RuntimeError when there is no
+        # event loop; to hit the ``current is None`` guard we must have
+        # a running loop but no Task.  That state is hard to produce in
+        # a test, so patch current_task to return None directly.
+        with patch("asyncio.current_task", return_value=None):
+            assert _drain_pending_cancellations() == 0

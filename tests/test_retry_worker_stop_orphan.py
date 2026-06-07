@@ -677,3 +677,65 @@ class TestRetryWorkerStopOrphan:
                     await asyncio.wait_for(abandoned, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
+
+    async def test_start_when_task_already_exists_is_noop(self):
+        """Calling start() while the background task is already running
+        returns immediately without creating a duplicate task or emitting
+        a second retry_started event (retry.py:290-291)."""
+        from medre.runtime.events import EventBuffer
+        from medre.runtime.retry import RetryWorker
+
+        storage = MagicMock()
+        _claim_entered = asyncio.Event()
+
+        async def _cooperative_claim(*args, **kwargs):
+            _claim_entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                raise
+            return []
+
+        storage.claim_due_outbox_items = AsyncMock(
+            side_effect=_cooperative_claim,
+        )
+        storage.count_outbox_by_status = AsyncMock(return_value={})
+
+        pipeline = MagicMock()
+        pipeline.deliver_to_target = AsyncMock()
+
+        event_buffer = EventBuffer(maxlen=64)
+
+        worker = RetryWorker(
+            storage=storage,
+            pipeline=pipeline,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=300,
+            event_buffer=event_buffer,
+            stop_timeout_seconds=0.2,
+        )
+
+        await worker.start()
+        await wait_until(
+            lambda: _claim_entered.is_set(),
+            timeout=2.0,
+        )
+
+        orig_task = worker._task
+        assert orig_task is not None
+        assert not orig_task.done()
+
+        # Second start() must be a silent no-op.
+        await worker.start()
+
+        assert worker._task is orig_task, "start() must not replace the task"
+        assert not orig_task.done(), "original task must still be running"
+        # Exactly one retry_started event — no duplicate.
+        started_events = [
+            e for e in event_buffer if e.event_type.value == "retry_started"
+        ]
+        assert len(started_events) == 1
+
+        # Clean up.
+        await worker.stop()
