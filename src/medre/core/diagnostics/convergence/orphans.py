@@ -36,6 +36,7 @@ from .types import (
 
 __all__ = [
     "build_orphan_report",
+    "merge_recovery_findings_into_report_dict",
 ]
 
 
@@ -318,3 +319,78 @@ def build_orphan_report(
         worst_severity=worst,
         summary=summary,
     )
+
+
+def merge_recovery_findings_into_report_dict(
+    report_dict: dict[str, Any],
+    recovery_findings: list[OrphanFinding],
+) -> dict[str, Any]:
+    """Merge recovery convergence findings into an orphan report dict.
+
+    Returns a **new** dict (the original ``report_dict`` is not mutated)
+    with recovery findings appended to ``findings``, re-sorted by
+    ``(kind, record_id)``, and with ``total_findings``,
+    ``severity_counts``, and ``worst_severity`` recomputed exactly.
+
+    The severity-counts dict always includes ``"safe": 0`` for structural
+    parity with the :class:`OrphanReport` schema.
+
+    Parameters
+    ----------
+    report_dict:
+        Orphan report dict, typically from
+        :meth:`OrphanReport.to_dict`.  Must contain ``"findings"``
+        (list of dicts), ``"total_findings"`` (int), ``"severity_counts"``
+        (dict), and ``"worst_severity"`` (str or None).
+    recovery_findings:
+        Recovery convergence findings from
+        :func:`~medre.core.diagnostics.convergence.recovery_convergence.build_recovery_convergence_findings`.
+        An empty list returns a copy of *report_dict* unchanged.
+
+    Returns
+    -------
+    dict[str, Any]
+        New dict with merged and re-sorted findings.
+    """
+    if not recovery_findings:
+        # Return a deep-enough copy so callers cannot mutate the original
+        # nested structures (findings list, severity_counts dict).
+        out = dict(report_dict)
+        if "findings" in out:
+            out["findings"] = list(out["findings"])
+        if "severity_counts" in out:
+            out["severity_counts"] = dict(out["severity_counts"])
+        return out
+
+    merged = dict(report_dict)
+
+    existing_findings = merged.get("findings", [])
+    if not isinstance(existing_findings, list):
+        existing_findings = []
+
+    all_findings = list(existing_findings) + [f.to_dict() for f in recovery_findings]
+    all_findings.sort(key=lambda f: (f.get("kind", ""), f.get("record_id", "")))
+
+    merged["findings"] = all_findings
+    merged["total_findings"] = len(all_findings)
+
+    # Recompute severity counts — always include "safe": 0 for schema stability.
+    sev_counts: dict[str, int] = {
+        ConvergenceSeverity.SAFE.value: 0,
+        ConvergenceSeverity.DEGRADED.value: 0,
+        ConvergenceSeverity.INCONSISTENT.value: 0,
+    }
+    for f in all_findings:
+        sev = f.get("severity", "degraded")
+        sev_counts[sev] = sev_counts.get(sev, 0) + 1
+    merged["severity_counts"] = sev_counts
+
+    # Recompute worst_severity consistently.
+    if sev_counts.get(ConvergenceSeverity.INCONSISTENT.value, 0) > 0:
+        merged["worst_severity"] = ConvergenceSeverity.INCONSISTENT.value
+    elif sev_counts.get(ConvergenceSeverity.DEGRADED.value, 0) > 0:
+        merged["worst_severity"] = ConvergenceSeverity.DEGRADED.value
+    else:
+        merged["worst_severity"] = ConvergenceSeverity.SAFE.value
+
+    return merged

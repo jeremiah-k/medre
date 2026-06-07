@@ -24,6 +24,7 @@ from tests.helpers.alpha_cli import (
     optional_sdks_in_modules,
     smoke_config_path,
     write_replay_config,
+    write_sqlite_config_from_example,
 )
 
 # ---------------------------------------------------------------------------
@@ -32,11 +33,12 @@ from tests.helpers.alpha_cli import (
 
 
 class TestAlphaSmokeSeedsCLI:
-    """``medre smoke --config ... --storage-path ... --json`` via main()."""
+    """``medre smoke --config <sqlite-config> --json`` via main()."""
 
     def test_smoke_json_creates_persistent_db(self, tmp_path: Path) -> None:
-        """Smoke with --storage-path creates a SQLite file."""
+        """Smoke with SQLite config creates a persistent SQLite file."""
         db_path = tmp_path / "smoke_seed.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -45,9 +47,7 @@ class TestAlphaSmokeSeedsCLI:
                     [
                         "smoke",
                         "--config",
-                        smoke_config_path(),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -61,6 +61,7 @@ class TestAlphaSmokeSeedsCLI:
     def test_smoke_json_event_id_present(self, tmp_path: Path) -> None:
         """Smoke --json report has a non-empty event_id."""
         db_path = tmp_path / "seed_evt.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -69,9 +70,7 @@ class TestAlphaSmokeSeedsCLI:
                     [
                         "smoke",
                         "--config",
-                        smoke_config_path(),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -91,7 +90,7 @@ class TestAlphaE2EProductPathCLI:
 
     Phases:
       0. ``config check``, ``routes validate`` (pre-flight)
-      1. ``smoke --config --storage-path --json`` → event_id
+      1. ``smoke --config <sqlite-config> --json`` → event_id
       2. ``inspect receipts --event <id> --storage-path``
       3. ``inspect event <id> --timeline / --evidence / --recovery --storage-path``
       4. ``replay --config --mode dry_run --event <id> --json``
@@ -117,6 +116,7 @@ class TestAlphaE2EProductPathCLI:
 
         # --- Phase 1: smoke seeds persistent DB ---
         db_path = tmp_path / "e2e_product.db"
+        sqlite_cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
@@ -124,9 +124,7 @@ class TestAlphaE2EProductPathCLI:
                     [
                         "smoke",
                         "--config",
-                        cfg,
-                        "--storage-path",
-                        str(db_path),
+                        sqlite_cfg,
                         "--json",
                     ]
                 )
@@ -446,7 +444,7 @@ class TestConfigSampleToSmoke:
         assert "event_id" in report
 
     def test_sample_config_smoke_with_storage(self, tmp_path: Path) -> None:
-        """``smoke --config <sample> --storage-path`` produces valid JSON report.
+        """``smoke --config <sample-sqlite>`` produces valid JSON report.
 
         The generated sample config may not pass smoke due to route policy
         filtering (``allowed_event_types``), but the command should not crash
@@ -455,9 +453,20 @@ class TestConfigSampleToSmoke:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
-        cfg_path = tmp_path / "sample.toml"
-        cfg_path.write_text(stdout_buf.getvalue())
+        sample = stdout_buf.getvalue()
+        # Derive a SQLite variant of the sample config with a concrete DB path.
         db_path = str(tmp_path / "sample-smoke.db")
+        path_target = 'path = "{state}/medre.sqlite"'
+        assert (
+            sample.count(path_target) >= 1
+        ), f"Expected at least one '{path_target}' in sample config"
+        sqlite_sample = sample.replace(
+            path_target,
+            f"path = {db_path!r}",
+            1,
+        )
+        cfg_path = tmp_path / "sample_sqlite.toml"
+        cfg_path.write_text(sqlite_sample)
 
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
@@ -467,8 +476,6 @@ class TestConfigSampleToSmoke:
                         "smoke",
                         "--config",
                         str(cfg_path),
-                        "--storage-path",
-                        db_path,
                         "--json",
                     ]
                 )
@@ -576,12 +583,13 @@ class TestFirstRunSourceCheckout:
         assert "Config valid" in output, f"config check failed: {output[:300]!r}"
 
     def test_step5_smoke_with_examples_config(self, tmp_path: Path) -> None:
-        """``smoke --config examples/configs/fake-bridge-smoke.toml`` passes
-        with storage-path for later inspection."""
+        """``smoke --config <sqlite-config>`` passes with persistent storage
+        for later inspection."""
         assert (
             EXAMPLES_SMOKE_CONFIG.is_file()
         ), f"Source-tree example config not found: {EXAMPLES_SMOKE_CONFIG}"
         db_path = tmp_path / "walkthrough-smoke.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
@@ -589,9 +597,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -605,6 +611,7 @@ class TestFirstRunSourceCheckout:
         """After smoke, ``inspect receipts --event <id> --storage-path``
         shows delivery receipts."""
         db_path = tmp_path / "walkthrough-receipts.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
@@ -612,9 +619,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -639,6 +644,7 @@ class TestFirstRunSourceCheckout:
     def test_step7_inspect_event_timeline(self, tmp_path: Path) -> None:
         """``inspect event <id> --timeline --storage-path`` returns timeline."""
         db_path = tmp_path / "walkthrough-timeline.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
@@ -646,9 +652,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -675,6 +679,7 @@ class TestFirstRunSourceCheckout:
     def test_step8_inspect_event_evidence(self, tmp_path: Path) -> None:
         """``inspect event <id> --evidence --storage-path`` returns evidence."""
         db_path = tmp_path / "walkthrough-evidence.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
@@ -682,9 +687,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -712,6 +715,7 @@ class TestFirstRunSourceCheckout:
         """``replay --config <cfg> --mode dry_run --event <id> --json`` after
         smoke works with generated replay config."""
         db_path = tmp_path / "walkthrough-replay.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
@@ -719,9 +723,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )
@@ -767,8 +769,9 @@ class TestFirstRunSourceCheckout:
             main(["config", "check", "--config", str(cfg_path)])
         assert "Config valid" in stdout_buf2.getvalue()
 
-        # 3. Smoke with examples config + storage.
+        # 3. Smoke with examples config (SQLite variant for persistence).
         db_path = tmp_path / "full-walkthrough.db"
+        sqlite_cfg = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf3 = io.StringIO()
         with redirect_stdout(stdout_buf3), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
@@ -776,9 +779,7 @@ class TestFirstRunSourceCheckout:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        sqlite_cfg,
                         "--json",
                     ]
                 )
@@ -917,9 +918,10 @@ class TestOptionalSDKBoundaries:
         ), f"smoke --json leaked SDKs: {sorted(after - before)}"
 
     def test_smoke_with_storage_no_sdk_leak(self, tmp_path: Path) -> None:
-        """``medre smoke --storage-path`` does not import SDKs."""
+        """``medre smoke --config <sqlite-config>`` does not import SDKs."""
         assert EXAMPLES_SMOKE_CONFIG.is_file()
-        db_path = str(tmp_path / "sdk-leak-check.db")
+        db_path = tmp_path / "sdk-leak-check.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
 
         before = optional_sdks_in_modules()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -928,9 +930,7 @@ class TestOptionalSDKBoundaries:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        db_path,
+                        cfg,
                         "--json",
                     ]
                 )
@@ -939,12 +939,13 @@ class TestOptionalSDKBoundaries:
         after = optional_sdks_in_modules()
         assert not (
             after - before
-        ), f"smoke --storage-path leaked SDKs: {sorted(after - before)}"
+        ), f"smoke with SQLite config leaked SDKs: {sorted(after - before)}"
 
     def test_inspect_no_sdk_leak(self, tmp_path: Path) -> None:
         """``inspect receipts`` and ``inspect event`` do not import SDKs."""
         assert EXAMPLES_SMOKE_CONFIG.is_file()
         db_path = tmp_path / "sdk-inspect.db"
+        cfg = write_sqlite_config_from_example(tmp_path, db_path)
 
         # First: smoke to populate DB.
         stdout_buf = io.StringIO()
@@ -954,9 +955,7 @@ class TestOptionalSDKBoundaries:
                     [
                         "smoke",
                         "--config",
-                        str(EXAMPLES_SMOKE_CONFIG),
-                        "--storage-path",
-                        str(db_path),
+                        cfg,
                         "--json",
                     ]
                 )

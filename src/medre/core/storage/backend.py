@@ -353,6 +353,28 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def get_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> NativeMessageRef | None:
+        """Return the stored NativeMessageRef for the given triple.
+
+        Returns ``None`` when no mapping exists for the given triple.
+
+        Parameters
+        ----------
+        adapter:
+            Transport adapter name.
+        native_channel_id:
+            Channel identifier within the adapter.  ``None`` for
+            channelless transports (e.g. Meshtastic, LXMF).
+        native_message_id:
+            Adapter-native message identifier.
+        """
+        ...
+
     async def list_native_refs_for_event(
         self,
         event_id: str,

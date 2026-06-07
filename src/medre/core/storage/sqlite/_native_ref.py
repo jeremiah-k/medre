@@ -5,6 +5,7 @@ from __future__ import annotations
 from medre.core.events import NativeMessageRef
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
+    _GET_NATIVE_REF,
     _INSERT_NATIVE_REF,
     _RESOLVE_NATIVE_REF,
     _SELECT_NREFS_FOR_EVENT,
@@ -68,6 +69,23 @@ class _NativeRefMixin:
             (adapter, native_channel_id, native_message_id),
         )
         return row["event_id"] if row else None
+
+    async def get_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> NativeMessageRef | None:
+        """Return the stored NativeMessageRef for the given triple.
+
+        Returns ``None`` when no mapping exists.  Uses ``IS`` for proper
+        ``NULL`` comparison of *native_channel_id*.
+        """
+        row = await self._read_one(
+            _GET_NATIVE_REF,
+            (adapter, native_channel_id, native_message_id),
+        )
+        return _row_to_native_ref(row) if row else None
 
     async def list_native_refs_for_event(
         self,

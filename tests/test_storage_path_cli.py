@@ -136,12 +136,28 @@ def _smoke_config_path() -> str:
     return path
 
 
+def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
+    """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
+    from tests.helpers.alpha_cli import EXAMPLES_SMOKE_CONFIG
+
+    assert EXAMPLES_SMOKE_CONFIG.is_file()
+    src = EXAMPLES_SMOKE_CONFIG.read_text()
+    assert 'backend = "memory"' in src
+    sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
+    derived = src.replace('backend = "memory"', sqlite_block)
+    cfg = tmp_path / "smoke_sqlite.toml"
+    cfg.write_text(derived)
+    assert 'backend = "sqlite"' in derived
+    return str(cfg)
+
+
 def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
-    """Run smoke with --storage-path to create a populated DB.
+    """Run smoke with SQLite config to create a populated DB.
 
     Returns (event_id, db_path).
     """
     db_path = tmp_path / "smoke_seed.db"
+    cfg = _write_sqlite_smoke_config(tmp_path, db_path)
 
     stdout_buf = io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -150,9 +166,7 @@ def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
                 [
                     "smoke",
                     "--config",
-                    _smoke_config_path(),
-                    "--storage-path",
-                    str(db_path),
+                    cfg,
                     "--json",
                 ]
             )
@@ -256,21 +270,19 @@ class TestInspectEventStoragePath:
         assert "storage error" in stderr.lower()
         assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
-    def test_inspect_event_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive with clear error."""
+    def test_inspect_event_config_not_accepted(self) -> None:
+        """--config is not accepted by inspect (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",
             "event",
             "--config",
             _smoke_config_path(),
             "--storage-path",
-            str(seeded_db),
+            "/dev/null",
             "evt-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
     def test_inspect_event_from_smoke_db(self, tmp_path: Path) -> None:
         """inspect event works against a DB created by smoke."""
@@ -359,10 +371,8 @@ class TestInspectReceiptsStoragePath:
         )
         assert "sent" in stdout
 
-    def test_inspect_receipts_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive for receipts."""
+    def test_inspect_receipts_config_not_accepted(self, seeded_db: Path) -> None:
+        """--config is not accepted by inspect receipts (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",
             "receipts",
@@ -374,7 +384,7 @@ class TestInspectReceiptsStoragePath:
             "evt-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +409,7 @@ class TestInspectNativeRefStoragePath:
             "$sp-msg-1",
         )
         result = json.loads(stdout)
-        assert result["event_id"] == "evt-sp-1"
+        assert result["resolves_to"] == "evt-sp-1"
 
     def test_inspect_native_ref_not_found(self, seeded_db: Path) -> None:
         code, _, _ = _run_cli_exit(
@@ -446,10 +456,8 @@ class TestInspectNativeRefStoragePath:
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_inspect_native_ref_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive for native-ref."""
+    def test_inspect_native_ref_config_not_accepted(self, seeded_db: Path) -> None:
+        """--config is not accepted by inspect native-ref (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",
             "native-ref",
@@ -463,7 +471,7 @@ class TestInspectNativeRefStoragePath:
             "$msg-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -500,10 +508,8 @@ class TestInspectReplayStoragePath:
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_inspect_replay_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive for inspect replay."""
+    def test_inspect_replay_config_not_accepted(self, seeded_db: Path) -> None:
+        """--config is not accepted by inspect replay (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "inspect",
             "replay",
@@ -514,7 +520,7 @@ class TestInspectReplayStoragePath:
             "run-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -587,10 +593,8 @@ class TestTraceEventStoragePath:
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_trace_event_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive for trace event."""
+    def test_trace_event_config_not_accepted(self, seeded_db: Path) -> None:
+        """--config is not accepted by trace event (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "trace",
             "event",
@@ -601,7 +605,7 @@ class TestTraceEventStoragePath:
             "evt-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
     def test_trace_event_from_smoke_db(self, tmp_path: Path) -> None:
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
@@ -676,10 +680,8 @@ class TestTraceReplayStoragePath:
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_trace_replay_config_and_storage_path_exclusive(
-        self, seeded_db: Path
-    ) -> None:
-        """--config and --storage-path are mutually exclusive for trace replay."""
+    def test_trace_replay_config_not_accepted(self, seeded_db: Path) -> None:
+        """--config is not accepted by trace replay (uses --storage-path only)."""
         code, _, stderr = _run_cli_exit(
             "trace",
             "replay",
@@ -690,7 +692,7 @@ class TestTraceReplayStoragePath:
             "run-1",
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -780,7 +782,7 @@ class TestEvidenceStoragePath:
             or "schema" in bundle["sections"]["storage"]["error"].lower()
         )
 
-    def test_evidence_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_evidence_config_not_accepted(self, seeded_db: Path) -> None:
         """--config and --storage-path are mutually exclusive for evidence."""
         code, _, stderr = _run_cli_exit(
             "evidence",
@@ -790,7 +792,7 @@ class TestEvidenceStoragePath:
             str(seeded_db),
         )
         assert code != 0
-        assert "not allowed with" in stderr.lower()
+        assert "unrecognized" in stderr.lower()
 
     def test_evidence_from_smoke_db(self, tmp_path: Path) -> None:
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
@@ -834,19 +836,16 @@ class TestEvidenceStoragePath:
         # The storage section should show ✓ for 'passed' status.
         assert "✓ storage: passed" in stdout
 
-    def test_evidence_storage_path_rejects_refresh_health(
-        self, seeded_db: Path
-    ) -> None:
-        """--storage-path + --include-refresh-health must be rejected."""
-        code, stdout, stderr = _run_cli_exit(
+    def test_evidence_rejects_refresh_health(self, seeded_db: Path) -> None:
+        """--include-refresh-health is no longer accepted by evidence."""
+        code, _, stderr = _run_cli_exit(
             "evidence",
             "--storage-path",
             str(seeded_db),
             "--include-refresh-health",
         )
         assert code != 0
-        assert "--include-refresh-health" in stderr
-        assert "--storage-path" in stderr
+        assert "unrecognized" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------

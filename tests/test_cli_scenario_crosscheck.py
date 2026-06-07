@@ -183,7 +183,7 @@ class TestScenarioCrossCheck:
         scenario: str,
         tmp_path: Path,
     ) -> None:
-        """commands_argv entries are proper lists; read-only use --storage-path, recover uses --config."""
+        """commands_argv entries are proper lists; read-only use --storage-path, recover uses --storage-path."""
         from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"argv-{scenario}.db")
@@ -203,27 +203,20 @@ class TestScenarioCrossCheck:
                 if not argv:
                     continue
 
-                is_config_required = cmd_name == "recover_event"
-                if is_config_required:
-                    assert "--config" in argv, (
-                        f"commands_argv[{category}][{cmd_name!r}] "
-                        f"missing --config (config-required): {argv}"
-                    )
-                else:
-                    assert "--storage-path" in argv, (
-                        f"commands_argv[{category}][{cmd_name!r}] "
-                        f"missing --storage-path (read-only): {argv}"
-                    )
-                    # The actual DB path must follow --storage-path.
-                    sp_idx = argv.index("--storage-path")
-                    assert sp_idx + 1 < len(argv), (
-                        f"commands_argv[{category}][{cmd_name!r}] "
-                        f"--storage-path has no value: {argv}"
-                    )
-                    assert argv[sp_idx + 1] == db_path, (
-                        f"commands_argv[{category}][{cmd_name!r}] "
-                        f"--storage-path value != db_path: {argv}"
-                    )
+                assert "--storage-path" in argv, (
+                    f"commands_argv[{category}][{cmd_name!r}] "
+                    f"missing --storage-path (read-only): {argv}"
+                )
+                # The actual DB path must follow --storage-path.
+                sp_idx = argv.index("--storage-path")
+                assert sp_idx + 1 < len(argv), (
+                    f"commands_argv[{category}][{cmd_name!r}] "
+                    f"--storage-path has no value: {argv}"
+                )
+                assert argv[sp_idx + 1] == db_path, (
+                    f"commands_argv[{category}][{cmd_name!r}] "
+                    f"--storage-path value != db_path: {argv}"
+                )
 
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
@@ -410,11 +403,11 @@ class TestStoragePathInCommands:
             assert argv[sp_idx + 1] == db_path
 
     @pytest.mark.asyncio
-    async def test_recover_remains_config_based(self, tmp_path: Path) -> None:
-        """recover_event uses --config, not --storage-path."""
+    async def test_recover_uses_storage_path(self, tmp_path: Path) -> None:
+        """recover_event uses --storage-path (read-only command)."""
         from medre.runtime.run_session.orchestration import run_bridge_session
 
-        db_path = str(tmp_path / "recover-cfg.db")
+        db_path = str(tmp_path / "recover-sp.db")
         report = await run_bridge_session(
             scenario="happy_path",
             storage_path=db_path,
@@ -422,10 +415,8 @@ class TestStoragePathInCommands:
         assert report["status"] == "passed"
 
         argv = report["commands"]["commands_argv"]["specialized"]["recover_event"]
-        assert "--config" in argv, f"recover_event missing --config: {argv}"
-        assert (
-            "--storage-path" not in argv
-        ), f"recover_event should not have --storage-path: {argv}"
+        assert "--storage-path" in argv, f"recover_event missing --storage-path: {argv}"
+        assert "--config" not in argv, f"recover_event should not have --config: {argv}"
 
     @pytest.mark.asyncio
     async def test_commands_text_shell_safe_spaces(self, tmp_path: Path) -> None:
@@ -433,12 +424,9 @@ class TestStoragePathInCommands:
         from medre.runtime.run_session.report import _build_cross_linked_commands
 
         space_path = "/tmp/path with spaces/session.db"
-        config_path = "/tmp/path with spaces/config.toml"
 
         result = _build_cross_linked_commands(
             event_id="evt_123",
-            config_path=config_path,
-            snapshot_path=None,
             storage_path=space_path,
         )
 
@@ -455,31 +443,43 @@ class TestStoragePathInCommands:
             space_path in round_tripped
         ), f"Path with spaces lost in shell round-trip: {inspect_text}"
 
-        # Verify recover still uses config.
+        # Verify recover uses storage-path (read-only command).
         recover_argv = result["commands_argv"]["specialized"]["recover_event"]
-        assert "--config" in recover_argv
-        assert "--storage-path" not in recover_argv
+        assert "--storage-path" in recover_argv
 
         # Text for recover also round-trips correctly.
         recover_text = result["commands_text"]["specialized"]["recover_event"]
         recover_round = shlex.split(recover_text)
-        assert config_path in recover_round
+        assert space_path in recover_round
 
     @pytest.mark.asyncio
-    async def test_no_storage_path_falls_back_to_config(self) -> None:
-        """Without storage_path, read-only commands fall back to --config."""
+    async def test_no_storage_path_no_config(self) -> None:
+        """Without storage_path, read-only commands are None (not executable)."""
         from medre.runtime.run_session.report import _build_cross_linked_commands
 
         result = _build_cross_linked_commands(
-            event_id="evt_456",
-            config_path="/some/config.toml",
-            snapshot_path=None,
+            event_id="evt_789",
             storage_path=None,
         )
 
-        inspect_argv = result["commands_argv"]["primary"]["inspect_event"]
-        assert "--config" in inspect_argv
-        assert "--storage-path" not in inspect_argv
+        # All read-only command values must be None — they cannot be executed
+        # without --storage-path (required by argparse).
+        for section in ("primary", "specialized"):
+            for key, value in result["commands_argv"][section].items():
+                assert value is None, (
+                    f"commands_argv[{section}][{key!r}] should be None "
+                    f"without storage_path, got: {value!r}"
+                )
+            for key, value in result["commands_text"][section].items():
+                assert value is None, (
+                    f"commands_text[{section}][{key!r}] should be None "
+                    f"without storage_path, got: {value!r}"
+                )
+
+        # Unavailable explanation must be present.
+        assert "read_only_commands_unavailable" in result
+        assert isinstance(result["read_only_commands_unavailable"], str)
+        assert len(result["read_only_commands_unavailable"]) > 0
 
     @pytest.mark.asyncio
     async def test_inspect_argv_executable_via_cli(self, tmp_path: Path) -> None:
@@ -510,7 +510,6 @@ class TestStoragePathInCommands:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf):
             await _inspect_event(
-                config_path=None,
                 event_id=event_id,
                 storage_path=extracted_db_path,
             )

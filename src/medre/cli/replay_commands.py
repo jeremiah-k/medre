@@ -31,6 +31,7 @@ async def _replay(
     target_adapters: list[str] | None,
     route_ids: list[str] | None,
     limit: int,
+    run_id: str = "",
 ) -> None:
     """Execute a replay operation via the built (not started) runtime."""
     # Validate mode.
@@ -90,6 +91,7 @@ async def _replay(
             target_adapters=target_adapters,
             route_ids=tuple(route_ids) if route_ids else (),
             limit=limit,
+            run_id=run_id,
         )
 
         # Execute replay.
@@ -99,6 +101,7 @@ async def _replay(
             results,
             mode=replay_mode,
             elapsed_ms=(_time.monotonic() - t0) * 1000,
+            run_id=run_id,
         )
 
         summary_dict = summary.to_dict()
@@ -110,10 +113,15 @@ async def _replay(
     else:
         # Human-readable summary.
         print(f"Replay: {mode}")
+        if run_id:
+            print(f"  Run ID:        {run_id}")
         print(f"  Events scanned:  {summary.events_scanned}")
         print(f"  Events replayed: {summary.events_replayed}")
         print(f"  Passed:          {summary.by_status.get('passed', 0)}")
         print(f"  Skipped:         {summary.by_status.get('skipped', 0)}")
+        if summary.skip_reasons:
+            for reason, count in sorted(summary.skip_reasons.items()):
+                print(f"    {reason}: {count}")
         print(f"  Failed:          {summary.by_status.get('failed', 0)}")
         print(f"  Errors:          {summary.by_status.get('error', 0)}")
         print(f"  Elapsed:         {summary.elapsed_ms:.1f}ms")

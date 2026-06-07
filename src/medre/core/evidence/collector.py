@@ -20,7 +20,10 @@ from medre.core.diagnostics.convergence.lifecycle_convergence import (
 from medre.core.diagnostics.convergence.lifecycle_report import (
     build_lifecycle_convergence_report_dict,
 )
-from medre.core.diagnostics.convergence.orphans import build_orphan_report
+from medre.core.diagnostics.convergence.orphans import (
+    build_orphan_report,
+    merge_recovery_findings_into_report_dict,
+)
 from medre.core.diagnostics.convergence.recovery_convergence import (
     build_recovery_convergence_findings,
 )
@@ -434,29 +437,10 @@ class EvidenceCollector:
             receipts=receipts,
             recovery_ledger=recovery_ledger_obj,
         )
-        # Merge recovery findings into the orphan report dict.
-        existing_findings = orphan_report_dict.get("findings", [])
-        if isinstance(existing_findings, list):
-            all_findings = list(existing_findings) + [
-                f.to_dict() for f in recovery_findings
-            ]
-            all_findings.sort(key=lambda f: (f.get("kind", ""), f.get("record_id", "")))
-            orphan_report_dict["findings"] = all_findings
-            orphan_report_dict["total_findings"] = len(all_findings)
-            # Recompute severity counts — always preserve the stable shape
-            # including "safe": 0 so consumers see a consistent JSON schema.
-            sev_counts: dict[str, int] = {"safe": 0, "degraded": 0, "inconsistent": 0}
-            for f in all_findings:
-                sev = f.get("severity", "degraded")
-                sev_counts[sev] = sev_counts.get(sev, 0) + 1
-            orphan_report_dict["severity_counts"] = sev_counts
-            # Recompute worst_severity consistently.
-            if sev_counts.get("inconsistent", 0) > 0:
-                orphan_report_dict["worst_severity"] = "inconsistent"
-            elif sev_counts.get("degraded", 0) > 0:
-                orphan_report_dict["worst_severity"] = "degraded"
-            else:
-                orphan_report_dict["worst_severity"] = "safe"
+        orphan_report_dict = merge_recovery_findings_into_report_dict(
+            orphan_report_dict,
+            recovery_findings,
+        )
 
         # -- Lifecycle convergence findings (pure, from receipts + outbox) -----
         lifecycle_findings = build_lifecycle_convergence_findings(

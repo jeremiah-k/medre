@@ -185,21 +185,21 @@ Config file locations:
 **Source checkout (has `examples/` directory):**
 
 ```bash
-medre smoke --config examples/configs/fake-bridge-smoke.toml \
-  --storage-path /tmp/medre-alpha.db --json
+medre smoke --config examples/configs/fake-bridge-smoke.toml --json
 # Expected: JSON with "status": "passed", event_id, delivery receipts.
+# For persistent evidence, edit the config to set storage.backend = "sqlite"
+# with a storage.path, then re-run.
 ```
 
 **Installed package (use generated config):**
 
 ```bash
 medre config sample > /tmp/medre-alpha.toml
-medre smoke --config /tmp/medre-alpha.toml \
-  --storage-path /tmp/medre-alpha.db --json
+medre smoke --config /tmp/medre-alpha.toml --json
 # Expected: same as above.
 ```
 
-Without `--storage-path`, the smoke test uses an in-memory database discarded after the run.
+Storage backend is determined by the config file. The default shipped config uses `storage.backend = "memory"` (ephemeral). For persistent evidence, set `storage.backend = "sqlite"` with a `path` in the config.
 
 Without `--config`, `medre smoke` looks for `examples/configs/fake-bridge-smoke.toml` relative to the source tree — works in development checkouts only.
 
@@ -305,10 +305,14 @@ medre version && medre paths && medre adapters
 medre config sample > /tmp/medre-alpha.toml
 medre config check --config /tmp/medre-alpha.toml
 
-# Smoke test
-medre smoke --config /tmp/medre-alpha.toml --storage-path /tmp/medre-alpha.db --json
+# Smoke test (config controls storage backend)
+medre smoke --config /tmp/medre-alpha.toml --json
 
-# Inspect
+# The smoke report includes event_id and storage_path (or use the
+# config's [storage] path setting).  Use --storage-path to persist:
+#   medre smoke --config /tmp/medre-alpha.toml --storage-path /tmp/medre-alpha.db --json
+
+# Inspect (use the storage path from the smoke report or config)
 medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
 

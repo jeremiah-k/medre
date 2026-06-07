@@ -114,29 +114,62 @@ def assemble_event_timeline(
     entries: list[dict[str, Any]] = []
 
     # Relations precede the event itself (they are structural metadata
-    # that exists at event creation time).
+    # that exists at event creation time).  Concise relation entries
+    # surface the target identity, key discriminator, fallback text,
+    # and a short native-ref summary — without dumping huge metadata.
     for i, rel in enumerate(relations):
+        rel_data: dict[str, Any] = {
+            "relation_type": rel.relation_type,
+            "target_event_id": rel.target_event_id,
+        }
+        if rel.key is not None:
+            rel_data["key"] = rel.key
+        if rel.fallback_text is not None:
+            rel_data["fallback_text"] = rel.fallback_text
+        if rel.target_native_ref is not None:
+            nref = rel.target_native_ref
+            rel_data["target_native_ref"] = {
+                "adapter": nref.adapter,
+                "native_channel_id": nref.native_channel_id,
+                "native_message_id": nref.native_message_id,
+            }
         entries.append(
             _timeline_entry(
                 timestamp=event.timestamp,
                 ordinal=-(len(relations) - i),
                 entry_type="relation",
-                data={"relation_type": rel.relation_type},
+                data=rel_data,
             )
         )
 
-    # The event itself.
+    # The event itself — includes conversation identity fields so operators
+    # can answer "what conversation/thread does this belong to?" without
+    # loading the full event object.
+    event_data: dict[str, Any] = {
+        "event_id": event.event_id,
+        "event_kind": event.event_kind,
+        "source_adapter": event.source_adapter,
+        "source_channel_id": event.source_channel_id,
+    }
+    # Optional identity fields — only included when present so that JSON
+    # output stays backward-compatible (no null keys for events that lack
+    # conversation identity).
+    if event.root_event_id is not None:
+        event_data["root_event_id"] = event.root_event_id
+    if event.conversation_id is not None:
+        event_data["conversation_id"] = event.conversation_id
+    if event.parent_event_id is not None:
+        event_data["parent_event_id"] = event.parent_event_id
+    _trace_id = getattr(event, "trace_id", None)
+    if _trace_id is not None:
+        event_data["trace_id"] = _trace_id
+
     entries.append(
         _timeline_entry(
             timestamp=event.timestamp,
             ordinal=0,
             entry_type="event",
-            data={
-                "event_id": event.event_id,
-                "event_kind": event.event_kind,
-                "source_adapter": event.source_adapter,
-                "source_channel_id": event.source_channel_id,
-            },
+            data=event_data,
         )
     )
 

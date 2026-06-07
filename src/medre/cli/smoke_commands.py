@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as _json
 import sys
+import tempfile
 
 
 def _transport_for_adapter(adapter_id: str, config: object) -> str:
@@ -42,14 +43,19 @@ async def _smoke(
     config_path: str | None,
     message_text: str,
     json_output: bool,
-    storage_path: str | None = None,
     drill_name: str | None = None,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Run fake bridge smoke test and print a compact evidence report.
 
     Builds and starts the runtime with fake adapters, injects one
     ``message.text`` event through the full pipeline, inspects storage
     evidence, and prints a PASS/FAIL report.  Docker-free, network-free.
+
+    Storage backend is determined by the config file.  For persistent
+    evidence, use a config with ``storage.backend = "sqlite"`` or pass
+    ``--storage-path`` to override storage to SQLite at that path.
 
     Exit codes: 0 on PASS, 1 on FAIL.
     """
@@ -119,10 +125,11 @@ async def _smoke(
 
 async def _run_session(
     config_path: str | None,
-    storage_path: str | None,
     snapshot_dir: str | None,
     json_output: bool,
     scenario: str = "happy_path",
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Run a complete bridge session and print a cross-linked evidence report.
 
@@ -130,27 +137,26 @@ async def _run_session(
     gracefully, writes final snapshot, and produces a report with
     cross-linked CLI commands for further inspection.
 
+    Storage backend is determined by the config file.  When config uses
+    ``storage.backend = "memory"``, a temporary SQLite file is created
+    automatically for session evidence.
+
     Exit codes: 0 on PASS, 1 on FAIL.
     """
-    if storage_path is None:
-        import tempfile
-
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=".db",
-            prefix="medre-session-",
-            delete=False,
-        )
-        storage_path = tmp.name
-        tmp.close()
-        print(f"No --storage-path provided; using temporary database: {storage_path}")
-
     from medre.runtime.run_session.orchestration import run_bridge_session
+
+    if storage_path is None:
+        tmp = tempfile.NamedTemporaryFile(
+            prefix="medre-session-", suffix=".db", delete=False
+        )
+        tmp.close()
+        storage_path = tmp.name
 
     report = await run_bridge_session(
         config_path,
-        storage_path=storage_path,
         snapshot_dir=snapshot_dir,
         scenario=scenario,
+        storage_path=storage_path,
     )
 
     if json_output:
@@ -189,7 +195,7 @@ async def _run_session(
         if acc:
             # Same 5 field names as run_commands.py accounting printer.
             print(
-                f"  Accounting:  inbound={acc.get('inbound', 0)} "
+                f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} "
                 f"outbound_delivered={acc.get('outbound_delivered', 0)} "
                 f"outbound_failed={acc.get('outbound_failed', 0)} "
                 f"loop_prevented={acc.get('loop_prevented', 0)} "

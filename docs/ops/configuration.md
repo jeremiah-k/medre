@@ -754,29 +754,29 @@ medre diagnostics [--config PATH] [--refresh-health]
 medre routes (validate|topology|list) [--config PATH]
     Route management: validate, print topology preview, or list routes.
 
-medre smoke [--config PATH] [--storage-path PATH] [--drill NAME] [--run-session] [--json]
-    Run fake bridge smoke test. Uses in-memory storage by default.
-    Pass --storage-path to persist to SQLite.
+medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
+    Run fake bridge smoke test. Storage backend determined by config.
+    Use a config with storage.backend = "sqlite" for persistent evidence.
 
-medre inspect event [--storage-path PATH]
+medre inspect event --storage-path PATH
     Read-only event inspection. Supports --timeline, --evidence, --recovery flags.
 
-medre inspect receipts [--storage-path PATH]
+medre inspect receipts --storage-path PATH
     Read-only receipt inspection. Filter with --event or --replay-run.
 
-medre inspect native-ref [--storage-path PATH]
+medre inspect native-ref --storage-path PATH
     Read-only native transport reference inspection.
 
-medre inspect replay [--storage-path PATH]
+medre inspect replay --storage-path PATH
     Read-only replay run inspection. Shows replay run metadata and receipt summaries.
 
-    All inspect subcommands support --storage-path for direct SQLite access.
+    All inspect subcommands require --storage-path for direct SQLite access.
 
-medre trace (event|replay) [--storage-path PATH] [--json]
+medre trace (event|replay) --storage-path PATH [--json]
     Specialized chronological timeline assembly. Prefer
     inspect event --timeline for per-event timelines.
 
-medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run ID] [--include-refresh-health] [--json]
+medre evidence --storage-path PATH [--event ID] [--replay-run ID] [--json]
     Specialized support bundle collection. Prefer
     inspect event --evidence for per-event bundles.
 
@@ -786,7 +786,7 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
     Modes: strict, re_render, re_route, dry_run, best_effort.
     Requires --config. Duplicate-risky for best_effort.
 
-medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]
+medre recover --storage-path PATH [--event ID] [--failed-only] [--dry-run] [--json]
     Specialized recovery classification. Prefer
     inspect event --recovery for per-event runbook.
 ```

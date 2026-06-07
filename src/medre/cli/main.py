@@ -6,12 +6,10 @@ import argparse
 import asyncio
 import importlib.metadata
 import platform
-import sys
 
 # Lightweight imports only — command modules are imported lazily inside
 # dispatch branches so that ``--help``, ``version``, and ``config sample``
 # never touch optional SDK packages (nio, meshtastic, RNS, LXMF).
-from .exit_codes import EXIT_CONFIG
 
 
 def _get_version() -> str:
@@ -99,7 +97,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # smoke
     smoke_p = sub.add_parser(
         "smoke",
-        help="Local validation tooling, not daily operation (developers/CI; accepts --storage-path)",
+        help="Local validation tooling, not daily operation (developers/CI)",
     )
     smoke_p.add_argument(
         "--config",
@@ -108,12 +106,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     smoke_p.add_argument(
         "--message", default="medre smoke test", help="Text for test message"
-    )
-    smoke_p.add_argument(
-        "--storage-path",
-        default=None,
-        metavar="PATH",
-        help="Persist smoke evidence to SQLite at this path (default: in-memory)",
     )
     smoke_p.add_argument(
         "--drill",
@@ -147,21 +139,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Failure scenario for run-session (default: happy_path)",
     )
     smoke_p.add_argument(
+        "--storage-path",
+        default=None,
+        metavar="PATH",
+        help="Override config storage to SQLite at PATH for persisting smoke evidence",
+    )
+    smoke_p.add_argument(
         "--json", action="store_true", default=False, help="Output JSON report"
     )
 
     # evidence
     evidence_p = sub.add_parser(
         "evidence",
-        help="Specialized support bundle, usually inspect event --evidence (read-only; accepts --storage-path)",
+        help="Specialized support bundle, usually inspect event --evidence (read-only; requires --storage-path)",
     )
-    evidence_mx = evidence_p.add_mutually_exclusive_group()
-    evidence_mx.add_argument("--config", default=None, help="Path to config file")
-    evidence_mx.add_argument(
+    evidence_p.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; collects storage/trace evidence only)",
+        help="Path to SQLite database (read-only)",
     )
     evidence_p.add_argument(
         "--json", action="store_true", default=False, help="Output JSON report"
@@ -178,29 +174,21 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="RUN_ID",
         help="Include delivery receipts for a replay run from storage",
     )
-    evidence_p.add_argument(
-        "--include-refresh-health",
-        action="store_true",
-        default=False,
-        help="Start runtime once to refresh live adapter health",
-    )
 
     # inspect (with sub-subcommands)
     inspect_p = sub.add_parser(
         "inspect",
-        help="Primary read-only investigation command (accepts --storage-path)",
+        help="Primary read-only investigation command (requires --storage-path)",
     )
     inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
 
     # inspect event <event_id>
     inspect_evt = inspect_sub.add_parser("event", help="Inspect a canonical event")
-    inspect_evt_mx = inspect_evt.add_mutually_exclusive_group()
-    inspect_evt_mx.add_argument("--config", default=None, help="Path to config file")
-    inspect_evt_mx.add_argument(
+    inspect_evt.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     inspect_evt.add_argument("event_id", help="Canonical event ID to look up")
     inspect_evt.add_argument(
@@ -224,13 +212,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # inspect receipts (--event <id> | --replay-run <run_id>)
     inspect_rcpt = inspect_sub.add_parser("receipts", help="List delivery receipts")
-    inspect_rcpt_mx = inspect_rcpt.add_mutually_exclusive_group()
-    inspect_rcpt_mx.add_argument("--config", default=None, help="Path to config file")
-    inspect_rcpt_mx.add_argument(
+    inspect_rcpt.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     inspect_rcpt_group = inspect_rcpt.add_mutually_exclusive_group(required=True)
     inspect_rcpt_group.add_argument(
@@ -248,13 +234,11 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_nref = inspect_sub.add_parser(
         "native-ref", help="Resolve native ref to canonical event"
     )
-    inspect_nref_mx = inspect_nref.add_mutually_exclusive_group()
-    inspect_nref_mx.add_argument("--config", default=None, help="Path to config file")
-    inspect_nref_mx.add_argument(
+    inspect_nref.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     inspect_nref.add_argument("--adapter", required=True, help="Adapter name")
     inspect_nref.add_argument(
@@ -268,20 +252,18 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_rpl = inspect_sub.add_parser(
         "replay", help="Inspect a replay run timeline (read-only)"
     )
-    inspect_rpl_mx = inspect_rpl.add_mutually_exclusive_group()
-    inspect_rpl_mx.add_argument("--config", default=None, help="Path to config file")
-    inspect_rpl_mx.add_argument(
+    inspect_rpl.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     inspect_rpl.add_argument("run_id", help="Replay run ID to inspect")
 
     # trace (with sub-subcommands)
     trace_p = sub.add_parser(
         "trace",
-        help="Specialized timeline, usually inspect event --timeline (read-only; accepts --storage-path)",
+        help="Specialized timeline, usually inspect event --timeline (read-only; requires --storage-path)",
     )
     trace_sub = trace_p.add_subparsers(dest="trace_command", required=True)
 
@@ -289,13 +271,11 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_evt = trace_sub.add_parser(
         "event", help="Assemble timeline for a canonical event"
     )
-    trace_evt_mx = trace_evt.add_mutually_exclusive_group()
-    trace_evt_mx.add_argument("--config", default=None, help="Path to config file")
-    trace_evt_mx.add_argument(
+    trace_evt.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     trace_evt.add_argument("event_id", help="Canonical event ID to trace")
     trace_evt.add_argument(
@@ -306,13 +286,11 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_rpl = trace_sub.add_parser(
         "replay", help="Assemble timeline for a replay run"
     )
-    trace_rpl_mx = trace_rpl.add_mutually_exclusive_group()
-    trace_rpl_mx.add_argument("--config", default=None, help="Path to config file")
-    trace_rpl_mx.add_argument(
+    trace_rpl.add_argument(
         "--storage-path",
-        default=None,
+        required=True,
         metavar="PATH",
-        help="Path to SQLite database (read-only; no config required)",
+        help="Path to SQLite database (read-only)",
     )
     trace_rpl.add_argument("run_id", help="Replay run ID to trace")
     trace_rpl.add_argument(
@@ -355,18 +333,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=100, help="Max events to replay (default: 100)"
     )
     replay_p.add_argument(
-        "--storage-path",
+        "--run-id",
         default=None,
-        metavar="PATH",
-        help=argparse.SUPPRESS,
+        metavar="RUN_ID",
+        help="Operator-assigned identifier for this replay execution",
     )
 
     # recover
     recover_p = sub.add_parser(
         "recover",
-        help="Specialized recovery classification, usually inspect event --recovery (read-only; requires --config)",
+        help="Specialized recovery classification, usually inspect event --recovery (read-only; requires --storage-path)",
     )
-    recover_p.add_argument("--config", default=None, help="Path to config file")
+    recover_p.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
     recover_p.add_argument(
         "--event", default=None, metavar="EVENT_ID", help="Event ID to analyze"
     )
@@ -459,10 +442,10 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(
                 _run_session(
                     args.config,
-                    storage_path=args.storage_path,
                     snapshot_dir=getattr(args, "snapshot_dir", None),
                     json_output=args.json,
                     scenario=getattr(args, "scenario", "happy_path"),
+                    storage_path=getattr(args, "storage_path", None),
                 )
             )
         else:
@@ -471,8 +454,8 @@ def main(argv: list[str] | None = None) -> None:
                     args.config,
                     args.message,
                     args.json,
-                    storage_path=args.storage_path,
                     drill_name=args.drill,
+                    storage_path=getattr(args, "storage_path", None),
                 )
             )
     elif args.command == "inspect":
@@ -483,13 +466,11 @@ def main(argv: list[str] | None = None) -> None:
             _inspect_replay,
         )
 
-        _storage_path = getattr(args, "storage_path", None)
         if args.inspect_command == "event":
             asyncio.run(
                 _inspect_event(
-                    args.config,
                     args.event_id,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                     timeline=getattr(args, "timeline", False),
                     evidence=getattr(args, "evidence", False),
                     recovery=getattr(args, "recovery", False),
@@ -498,28 +479,25 @@ def main(argv: list[str] | None = None) -> None:
         elif args.inspect_command == "receipts":
             asyncio.run(
                 _inspect_receipts(
-                    args.config,
                     event_id=args.event,
                     replay_run_id=args.replay_run,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                 )
             )
         elif args.inspect_command == "native-ref":
             asyncio.run(
                 _inspect_native_ref(
-                    args.config,
                     adapter=args.adapter,
                     channel=args.channel,
                     message=args.message,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                 )
             )
         elif args.inspect_command == "replay":
             asyncio.run(
                 _inspect_replay(
-                    args.config,
                     args.run_id,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                 )
             )
     elif args.command == "evidence":
@@ -527,48 +505,33 @@ def main(argv: list[str] | None = None) -> None:
 
         asyncio.run(
             _evidence(
-                args.config,
                 args.json,
                 getattr(args, "event", None),
                 getattr(args, "replay_run", None),
-                args.include_refresh_health,
-                storage_path=getattr(args, "storage_path", None),
+                storage_path=args.storage_path,
             )
         )
     elif args.command == "trace":
         from .trace_commands import _trace_event, _trace_replay
 
-        _storage_path = getattr(args, "storage_path", None)
         if args.trace_command == "event":
             asyncio.run(
                 _trace_event(
-                    args.config,
                     args.event_id,
                     args.json,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                 )
             )
         elif args.trace_command == "replay":
             asyncio.run(
                 _trace_replay(
-                    args.config,
                     args.run_id,
                     args.json,
-                    storage_path=_storage_path,
+                    storage_path=args.storage_path,
                 )
             )
     elif args.command == "replay":
         from .replay_commands import _replay
-
-        if getattr(args, "storage_path", None) is not None:
-            print(
-                "Error: --storage-path is not supported for replay. "
-                "Replay requires a config file with declared routes and "
-                "adapters to determine replay targets. "
-                "Use --config to specify a config file.",
-                file=sys.stderr,
-            )
-            sys.exit(EXIT_CONFIG)
 
         asyncio.run(
             _replay(
@@ -579,6 +542,7 @@ def main(argv: list[str] | None = None) -> None:
                 target_adapters=args.target_adapters,
                 route_ids=args.route_ids,
                 limit=args.limit,
+                run_id=getattr(args, "run_id", None) or "",
             )
         )
     elif args.command == "recover":
@@ -586,12 +550,12 @@ def main(argv: list[str] | None = None) -> None:
 
         asyncio.run(
             _recover(
-                args.config,
                 event_id=args.event,
                 failed_only=args.failed_only,
                 since=args.since,
                 dry_run=args.dry_run,
                 json_output=args.json,
+                storage_path=args.storage_path,
             )
         )
     elif args.command == "adapter":

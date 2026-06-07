@@ -39,7 +39,9 @@ table as historical record, not as active allowlist entries.
 These files are approaching the 1,500-line hard cap and should be split
 opportunistically by behavioral domain:
 
-- `test_runtime_snapshot.py` (1,462 lines) -- highest priority
+- `test_runtime_snapshot.py` (1,462 lines)
+- `test_trace.py` (1,425 lines)
+- `test_replay_recover.py` (1,454 lines)
 - Any other 1,000+ line file should be split when convenient
 
 ### Splitting procedure
@@ -496,6 +498,57 @@ done
 Each file gets a 90-second timeout. Files that hang will report timeout exit code
 `124`. Note that ordering/pollution across files can mask the real hang, so
 always re-run suspect files in isolation to confirm.
+
+### Test-execution discipline for agents
+
+> **Agent responsibility**: These rules prevent timeout-tuning loops, output
+> truncation, and retry storms. Violating them wastes time and hides real
+> failures. Follow them exactly.
+
+1. **No `timeout` wrappers for routine pytest runs.** Run `pytest` directly.
+   The shell `timeout` command is reserved for the diagnostic loop above, not
+   for routine validation or failure collection.
+
+2. **No `tail`, `head`, grep-piping, or output truncation.** Capture full
+   pytest output. Piping through `tail`, `head`, or `grep` hides failure
+   context (tracebacks, fixture teardown errors, import failures). If the
+   output is large, save it to a file or scroll it — never truncate it.
+
+3. **No broad suite after scoped validation passes.** Once a targeted file or
+   keyword run passes, do not escalate to the full suite "just to be sure"
+   unless explicitly requested. The full suite is for pre-merge verification,
+   not iterative debugging.
+
+4. **If a test hangs or times out once, stop.** Do not rerun it with a longer
+   or different timeout. A hang is the test telling you something is wrong
+   (deadlock, missing cleanup, infinite loop). Longer timeouts do not fix the
+   underlying issue — they just waste time before the same hang.
+
+5. **Capture full pytest output once for a failure.** When a test fails, the
+   first run's output is the evidence. Read it completely before taking any
+   other action.
+
+6. **Static-read the failing test and its source before any rerun.** Before
+   rerunning a failing test, use the Read tool to examine both the test file
+   and the source module it exercises. Identify the likely cause from the
+   code, not from repeated execution.
+
+7. **Rerun at most once after a concrete suspected fix.** Only rerun after
+   making an edit that addresses a specific, identified cause. If the rerun
+   still fails, stop and investigate further — do not loop on runs.
+
+8. **Report blockers instead of looping.** If the test still hangs or fails
+   after one fix-attempt rerun, stop and report the issue with: the full
+   pytest output, the test file path, the source path, and what was tried.
+   Do not continue running the test with variations.
+
+9. **Do not repeatedly run hanging tests with varying timeouts.** This is
+   worth stating twice: a test that hangs at 30 s will also hang at 60 s,
+   90 s, and 300 s. Varying the timeout does not diagnose or fix the hang.
+
+10. **Do not use shell pipes to filter pytest output during debugging.**
+    Pipes hide information. If you need specific lines, use the Grep or Read
+    tool on saved output, not shell-level truncation.
 
 ### Failure interpretation
 

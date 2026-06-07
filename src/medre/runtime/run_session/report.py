@@ -33,8 +33,6 @@ _LIMITATIONS: list[str] = [
 
 def _build_cross_linked_commands(
     event_id: str,
-    config_path: str | None,
-    snapshot_path: str | None,
     storage_path: str | None = None,
 ) -> dict[str, Any]:
     """Build cross-linked CLI command strings for the report.
@@ -42,7 +40,7 @@ def _build_cross_linked_commands(
     Returns a dict with ``commands_text`` and ``commands_argv``, each nested
     under ``primary`` (inspect-first) and ``specialized`` (lower-level tools).
 
-    Shape::
+    Shape (when *storage_path* is provided)::
 
         {
             "commands_text": {
@@ -55,27 +53,66 @@ def _build_cross_linked_commands(
             },
         }
 
+    Shape (when *storage_path* is ``None``)::
+
+        {
+            "commands_text": {
+                "primary": { "inspect_event": None, ... },
+                "specialized": { "trace_event": None, ... },
+            },
+            "commands_argv": {
+                "primary": { "inspect_event": None, ... },
+                "specialized": { "trace_event": None, ... },
+            },
+            "read_only_commands_unavailable": "<explanation>",
+        }
+
     Inspect-first: the primary recommended commands use ``medre inspect``.
     Specialised keys (``trace_event``, ``evidence_bundle``, ``recover_event``)
     are lower-level tools retained for advanced use.
 
-    When *storage_path* is provided, read-only commands (inspect, trace,
-    evidence) use ``--storage-path`` pointing at the actual runtime DB.
-    Config-required commands (recover, replay) always use ``--config`` because
-    those subcommands need the full config, not just the storage backend.
+    All read-only inspection commands (inspect, trace, evidence, recover)
+    **require** ``--storage-path`` (it is a required argparse argument).  When
+    *storage_path* is ``None``, no valid executable commands can be produced,
+    so all command values are set to ``None`` and a
+    ``read_only_commands_unavailable`` explanation is included.
     """
-    # --- Config flags (for config-required commands) ---
-    cfg_flag_argv: list[str] = []
-    if config_path:
-        cfg_flag_argv = ["--config", config_path]
+    _PRIMARY_KEYS = (
+        "inspect_event",
+        "inspect_timeline",
+        "inspect_receipts",
+        "inspect_evidence",
+        "inspect_recovery",
+    )
+    _SPECIALIZED_KEYS = (
+        "trace_event",
+        "evidence_bundle",
+        "recover_event",
+    )
 
-    # --- Storage flags (for read-only commands when storage_path is known) ---
-    # Prefer --storage-path over --config for read-only inspection because
-    # the runtime overrides config storage to a temporary/custom DB path.
-    if storage_path:
-        ro_flag_argv: list[str] = ["--storage-path", storage_path]
-    else:
-        ro_flag_argv = list(cfg_flag_argv)
+    # --- No storage_path: cannot emit valid read-only commands -----------
+    # All read-only commands (inspect, trace, evidence, recover) have
+    # required=True on --storage-path in main.py argparse.  Without it,
+    # emitted commands would be invalid (argparse would reject them).
+    if not storage_path:
+        return {
+            "commands_text": {
+                "primary": {k: None for k in _PRIMARY_KEYS},
+                "specialized": {k: None for k in _SPECIALIZED_KEYS},
+            },
+            "commands_argv": {
+                "primary": {k: None for k in _PRIMARY_KEYS},
+                "specialized": {k: None for k in _SPECIALIZED_KEYS},
+            },
+            "read_only_commands_unavailable": (
+                "Read-only inspection commands (inspect, trace, evidence, "
+                "recover) require --storage-path.  No persistent storage path "
+                "was available at report time."
+            ),
+        }
+
+    # --- Storage flags (for read-only commands) --------------------------
+    ro_flag_argv: list[str] = ["--storage-path", storage_path]
 
     # Helper: build both argv list and shell-safe text from an argv list.
     def _cmd(argv: list[str]) -> tuple[list[str], str]:
@@ -120,9 +157,9 @@ def _build_cross_linked_commands(
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 
-    # recover_event is config-required → --config
+    # recover_event is read-only → storage-path
     for key, argv in [
-        ("recover_event", ["medre", "recover", "--event", event_id] + cfg_flag_argv),
+        ("recover_event", ["medre", "recover", "--event", event_id] + ro_flag_argv),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 

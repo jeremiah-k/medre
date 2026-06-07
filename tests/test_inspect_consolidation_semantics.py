@@ -93,8 +93,6 @@ def _seed_db(tmp_path: Path) -> tuple[str, Path]:
                     "smoke",
                     "--config",
                     config_path,
-                    "--storage-path",
-                    str(db_path),
                     "--json",
                 ]
             )
@@ -356,11 +354,10 @@ class TestRecoverEventBaseline:
     def test_recover_runbook_has_scope(self, tmp_path: Path) -> None:
         """Recovery runbook has scope='event'."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -370,11 +367,10 @@ class TestRecoverEventBaseline:
     def test_recover_runbook_has_event_id(self, tmp_path: Path) -> None:
         """Recovery runbook references the correct event_id."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -384,11 +380,10 @@ class TestRecoverEventBaseline:
     def test_recover_runbook_has_failure_classification(self, tmp_path: Path) -> None:
         """Recovery runbook has failure_classification dict."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -401,11 +396,10 @@ class TestRecoverEventBaseline:
     ) -> None:
         """Classification categories are from the known set."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -417,11 +411,10 @@ class TestRecoverEventBaseline:
     def test_recover_runbook_has_timeline(self, tmp_path: Path) -> None:
         """Recovery runbook includes a timeline."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -432,11 +425,10 @@ class TestRecoverEventBaseline:
     def test_recover_has_recommended_commands(self, tmp_path: Path) -> None:
         """Recovery runbook includes recommended_commands list."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -773,7 +765,6 @@ class TestInspectEventRecoveryEquivalence:
     def test_recovery_classification_matches(self, tmp_path: Path) -> None:
         """Both produce the same failure classification categories."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         inspect_result = _run_cli_json(
             "inspect",
             "event",
@@ -784,8 +775,8 @@ class TestInspectEventRecoveryEquivalence:
         )
         recover_result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -800,7 +791,6 @@ class TestInspectEventRecoveryEquivalence:
     def test_recovery_event_id_matches(self, tmp_path: Path) -> None:
         """Both reference the same event_id."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         inspect_result = _run_cli_json(
             "inspect",
             "event",
@@ -811,8 +801,8 @@ class TestInspectEventRecoveryEquivalence:
         )
         recover_result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",
@@ -826,7 +816,6 @@ class TestInspectEventRecoveryEquivalence:
     def test_recovery_timeline_length_matches(self, tmp_path: Path) -> None:
         """Both produce timelines of the same length."""
         event_id, db_path = _seed_db(tmp_path)
-        config_path = _write_config(tmp_path, db_path)
         inspect_result = _run_cli_json(
             "inspect",
             "event",
@@ -837,8 +826,8 @@ class TestInspectEventRecoveryEquivalence:
         )
         recover_result = _run_cli_json(
             "recover",
-            "--config",
-            config_path,
+            "--storage-path",
+            str(db_path),
             "--event",
             event_id,
             "--json",

@@ -7,8 +7,8 @@ All recovery is operator-initiated. There is no automatic remediation, no per-ad
 ## Complete Incident Workflow
 
 ```bash
-# 1. Verify pipeline health with persistent storage
-medre smoke --storage-path /tmp/medre-incident.db --json
+# 1. Verify pipeline health (use a config with storage.backend = "sqlite")
+medre smoke --config /tmp/medre-incident.toml --json
 
 # 2. Inspect the suspect event
 medre inspect event <event_id> --storage-path /tmp/medre-incident.db

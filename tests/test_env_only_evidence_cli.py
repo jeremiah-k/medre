@@ -511,10 +511,11 @@ class TestEnvOnlyCLISmoke:
         config_env_only: Path,
     ) -> None:
         """CLI evidence --json produces valid JSON output."""
+        db_path = str(config_env_only.parent / "state" / "env_only.db")
         output = _run_cli(
             "evidence",
-            "--config",
-            str(config_env_only),
+            "--storage-path",
+            db_path,
             "--json",
         )
         result = json.loads(output)
@@ -528,10 +529,11 @@ class TestEnvOnlyCLISmoke:
         config_env_only: Path,
     ) -> None:
         """CLI evidence without --json produces human-readable output."""
+        db_path = str(config_env_only.parent / "state" / "env_only.db")
         output = _run_cli(
             "evidence",
-            "--config",
-            str(config_env_only),
+            "--storage-path",
+            db_path,
         )
         assert "Evidence:" in output
 

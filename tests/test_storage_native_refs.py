@@ -456,6 +456,72 @@ class TestDistinctChannels:
 
 
 # ===================================================================
+# get_native_ref
+# ===================================================================
+
+
+class TestGetNativeRef:
+    """get_native_ref returns the full stored NativeMessageRef for a triple."""
+
+    async def test_returns_stored_ref(self, temp_storage: SQLiteStorage) -> None:
+        """get_native_ref returns a NativeMessageRef with all stored fields."""
+        event = make_storage_event(event_id="evt-get-nref")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-get-1",
+            event_id="evt-get-nref",
+            adapter="matrix",
+            native_channel_id="!room:get",
+            native_message_id="$msg-get-1",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            metadata={"source": "test"},
+            created_at=datetime(2026, 2, 1, 10, 0, 0, tzinfo=timezone.utc),
+        )
+        await temp_storage.store_native_ref(ref)
+
+        result = await temp_storage.get_native_ref("matrix", "!room:get", "$msg-get-1")
+        assert result is not None
+        assert result.id == "nref-get-1"
+        assert result.event_id == "evt-get-nref"
+        assert result.adapter == "matrix"
+        assert result.direction == "inbound"
+        assert result.metadata == {"source": "test"}
+        assert result.created_at == datetime(2026, 2, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+    async def test_returns_none_when_not_found(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """get_native_ref returns None for non-existent triple."""
+        result = await temp_storage.get_native_ref("ghost", None, "no-msg")
+        assert result is None
+
+    async def test_null_channel_lookup(self, temp_storage: SQLiteStorage) -> None:
+        """get_native_ref handles NULL native_channel_id correctly."""
+        event = make_storage_event(event_id="evt-null-get")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-null-get",
+            event_id="evt-null-get",
+            adapter="meshtastic",
+            native_channel_id=None,
+            native_message_id="radio-99",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref)
+
+        result = await temp_storage.get_native_ref("meshtastic", None, "radio-99")
+        assert result is not None
+        assert result.id == "nref-null-get"
+        assert result.native_channel_id is None
+
+
+# ===================================================================
 # list_native_refs_for_event
 # ===================================================================
 

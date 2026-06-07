@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _json
+import shlex
 import sys
 from typing import Any
 
@@ -16,6 +17,7 @@ from medre.core.observability.classification import (
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
+from medre.runtime.reporting import _derive_capability_evidence
 
 from .exit_codes import EXIT_NOT_FOUND
 from .storage_helpers import _open_readonly_storage
@@ -25,6 +27,8 @@ from .transport_constants import RADIO_TRANSPORTS
 async def _build_event_recovery_runbook(
     storage: Any,
     event_id: str,
+    *,
+    storage_path: str,
 ) -> dict[str, Any] | None:
     """Build a recovery runbook dict for a single event.
 
@@ -61,6 +65,7 @@ async def _build_event_recovery_runbook(
             "receipt_id": r.receipt_id,
             "failure_kind": inferred,
             "category": cat,
+            "delivery_plan_id": getattr(r, "delivery_plan_id", None),
         }
         if getattr(r, "target_channel", None):
             entry["target_channel"] = r.target_channel
@@ -68,6 +73,31 @@ async def _build_event_recovery_runbook(
             entry["route_id"] = r.route_id
         if error_msg:
             entry["error"] = error_msg
+        # Derive suppression reason for operator visibility.
+        cap = _derive_capability_evidence(
+            error_msg,
+            getattr(r, "rendering_evidence", None),
+            inferred,
+            r.status,
+        )
+        if cap.get("suppression_reason"):
+            entry["suppression_reason"] = cap["suppression_reason"]
+        else:
+            # Check receipt's own failure_kind for capability/policy suppression
+            # when the inferred kind doesn't capture it.
+            rk = getattr(r, "failure_kind", None)
+            if (
+                rk in ("capability_suppressed", "policy_suppressed", "loop_suppressed")
+                and error_msg
+            ):
+                import re as _re
+
+                cap_match = _re.match(
+                    r"^(?:capability_suppressed|policy_suppressed|loop_suppressed):\s*(.+)$",
+                    error_msg,
+                )
+                if cap_match:
+                    entry["suppression_reason"] = cap_match.group(1).strip()
         # Include replay context if present.
         r_source = getattr(r, "source", "live")
         r_run_id = getattr(r, "replay_run_id", None)
@@ -99,7 +129,9 @@ async def _build_event_recovery_runbook(
     present_categories = {cat for cat, items in classification.items() if items}
     all_commands: list[str] = []
     for cat in sorted(present_categories):
-        all_commands.extend(_recommended_commands(cat, event_id))
+        all_commands.extend(
+            _recommended_commands(cat, event_id, storage_path=storage_path)
+        )
 
     # Deduplicate while preserving order.
     seen_cmds: set[str] = set()
@@ -123,7 +155,7 @@ async def _build_event_recovery_runbook(
         "commands": {
             "primary": unique_commands,
             "specialized": [
-                f"medre recover --event {event_id}",
+                f"medre recover --event {event_id} --storage-path {shlex.quote(storage_path)}",
             ],
         },
         "timeline": timeline_entries,
@@ -166,15 +198,16 @@ async def _build_event_recovery_runbook(
 
 
 async def _recover(
-    config_path: str | None,
     event_id: str | None,
     failed_only: bool,
     since: str | None,
     dry_run: bool,
     json_output: bool,
+    *,
+    storage_path: str,
 ) -> None:
     """Analyze failed deliveries and generate a recovery runbook."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(storage_path)
     try:
         # Determine scope: single event or broad scan.
         runbook: dict[str, Any]
@@ -182,7 +215,9 @@ async def _recover(
         failed_targets: list[dict[str, Any]] = []
         if event_id is not None:
             # Single-event recovery.
-            result = await _build_event_recovery_runbook(storage, event_id)
+            result = await _build_event_recovery_runbook(
+                storage, event_id, storage_path=storage_path
+            )
             if result is None:
                 print(
                     f"Error: event not found: {event_id}",
@@ -249,6 +284,8 @@ async def _recover(
                             f"    {target_line}: {ft['status']} "
                             f"({fk}, attempt {ft['attempt_number']})"
                         )
+                        if ft.get("suppression_reason"):
+                            print(f"      suppressed: {ft['suppression_reason']}")
                     # Show classification summary.
                     fc = runbook.get("failure_classification", {})
                     if fc:

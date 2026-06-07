@@ -113,29 +113,48 @@ def failure_category(failure_kind: str) -> str:
     return "unknown"
 
 
-def recommended_commands(category: str, event_id: str) -> list[str]:
+def recommended_commands(
+    category: str,
+    event_id: str,
+    *,
+    storage_path: str | None = None,
+) -> list[str]:
     """Return recommended next commands for a failure category.
 
     Generated recommendations prefer ``medre inspect`` commands as the
     primary operator interface.  The ``medre trace event`` command remains
     available as a specialised / lower-level tool but is not the default
     recommendation.
+
+    When *storage_path* is provided, every ``inspect`` and ``recover``
+    command includes ``--storage-path {storage_path}`` so the emitted
+    commands are valid (argparse enforces ``required=True`` on
+    ``--storage-path`` for all read-only subcommands).
+
+    **Replay commands** (``medre replay``) do not include ``--config``
+    in the generated string.  Operators may need to append
+    ``--config PATH`` depending on deployment layout — the CLI
+    auto-discovers the config file via XDG defaults, but explicit
+    paths are required when the config lives outside the standard
+    search locations.
     """
+    sp = f" --storage-path {storage_path}" if storage_path else ""
+
     if category == "retryable":
         return [
-            f"medre inspect event {event_id} --recovery",
+            f"medre inspect event {event_id} --recovery{sp}",
             f"medre replay --mode dry_run --event {event_id}",
             f"medre replay --mode best_effort --event {event_id}",
         ]
     if category == "permanent":
         return [
-            f"medre inspect event {event_id} --evidence",
-            f"medre inspect receipts --event {event_id}",
+            f"medre inspect event {event_id} --evidence{sp}",
+            f"medre inspect receipts --event {event_id}{sp}",
         ]
     if category == "operational":
         return [
             "medre diagnostics",
             "medre config check",
-            f"medre inspect event {event_id} --timeline",
+            f"medre inspect event {event_id} --timeline{sp}",
         ]
-    return [f"medre inspect event {event_id} --timeline"]
+    return [f"medre inspect event {event_id} --timeline{sp}"]

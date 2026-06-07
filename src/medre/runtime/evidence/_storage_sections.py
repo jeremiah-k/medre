@@ -189,13 +189,17 @@ async def _collect_storage_data_from_backend(
                     classification = "unknown"
 
                 cmds = (
-                    recommended_commands(classification, event_id)
+                    recommended_commands(classification, event_id, storage_path=db_path)
                     if classification != "success"
-                    else [f"medre inspect event {event_id} --timeline"]
+                    else [
+                        f"medre inspect event {event_id} --timeline --storage-path {db_path}"
+                    ]
                 )
 
                 # Specialised lower-level command for evidence bundle.
-                evidence_cmd = f"medre evidence --event {event_id} --json"
+                evidence_cmd = (
+                    f"medre evidence --event {event_id} --storage-path {db_path} --json"
+                )
 
                 # Primary commands are the inspect-first recommendations.
                 # Specialised commands are lower-level tools (evidence, trace).
@@ -207,7 +211,7 @@ async def _collect_storage_data_from_backend(
                 # If a replay run is in context, add inspect_replay to primary.
                 if replay_run_id is not None:
                     structured_commands["primary"] = list(cmds) + [
-                        f"medre inspect event {event_id} --replay-run {replay_run_id}",
+                        f"medre inspect replay {replay_run_id} --storage-path {db_path}",
                     ]
 
                 # --- Incident summary enrichment (additive) ---
@@ -380,12 +384,42 @@ async def _collect_storage_data_from_backend(
                 from medre.core.diagnostics.convergence.orphans import (
                     build_orphan_report as _build_orphan_report,
                 )
+                from medre.core.diagnostics.convergence.orphans import (
+                    merge_recovery_findings_into_report_dict as _merge_recovery,
+                )
 
                 _orphan_report = _build_orphan_report(
                     receipts=receipts,
                     outbox_items=outbox_items,
                 )
                 data["orphan_report"] = _orphan_report.to_dict()
+
+                # --- Recovery convergence findings merged into orphan report ---
+                # Align with EvidenceCollector: build a snapshot-diagnostics
+                # recovery ledger and merge recovery convergence findings so
+                # the runtime orphan_report includes the same recovery
+                # accountability data as the per-event EvidenceBundle.
+                from medre.core.diagnostics.convergence.recovery_convergence import (
+                    build_recovery_convergence_findings as _build_recovery_findings,
+                )
+                from medre.core.recovery.builder import (
+                    build_startup_recovery_ledger as _build_recovery_ledger,
+                )
+                from medre.core.recovery.recovery_source import RecoverySource
+
+                _recovery_ledger = _build_recovery_ledger(
+                    outbox_items=outbox_items,
+                    recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
+                )
+                _recovery_findings = _build_recovery_findings(
+                    outbox_items=outbox_items,
+                    receipts=receipts,
+                    recovery_ledger=_recovery_ledger,
+                )
+                data["orphan_report"] = _merge_recovery(
+                    data["orphan_report"],
+                    _recovery_findings,
+                )
             # else: event not found — keep None, not an error for the section.
 
         else:
@@ -453,6 +487,35 @@ async def _collect_storage_data_from_backend(
                     outbox_items=all_outbox,
                 )
                 data["orphan_report"] = _orphan_report.to_dict()
+
+                # --- Recovery convergence findings merged into orphan report ---
+                # Align with per-event EvidenceCollector: build a
+                # snapshot-diagnostics recovery ledger and merge recovery
+                # convergence findings into the global orphan report.
+                from medre.core.diagnostics.convergence.orphans import (
+                    merge_recovery_findings_into_report_dict as _merge_recovery_global,
+                )
+                from medre.core.diagnostics.convergence.recovery_convergence import (
+                    build_recovery_convergence_findings as _build_recovery_findings_global,
+                )
+                from medre.core.recovery.builder import (
+                    build_startup_recovery_ledger as _build_recovery_ledger_global,
+                )
+                from medre.core.recovery.recovery_source import RecoverySource
+
+                _recovery_ledger_global = _build_recovery_ledger_global(
+                    outbox_items=all_outbox,
+                    recovery_source=str(RecoverySource.SNAPSHOT_DIAGNOSTICS),
+                )
+                _recovery_findings_global = _build_recovery_findings_global(
+                    outbox_items=all_outbox,
+                    receipts=all_receipts,
+                    recovery_ledger=_recovery_ledger_global,
+                )
+                data["orphan_report"] = _merge_recovery_global(
+                    data["orphan_report"],
+                    _recovery_findings_global,
+                )
 
         # Optional replay-run receipts.
         if replay_run_id is not None:

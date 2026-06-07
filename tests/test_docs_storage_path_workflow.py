@@ -46,12 +46,12 @@ def _all_doc_text() -> str:
 class TestStoragePathReadOnlyConsistency:
     """Verify that docs consistently describe the storage-path read-only
     workflow: all inspect subcommands (including native-ref and
-    receipts --replay-run), trace subcommands, and evidence support
-    --storage-path; replay (top-level) and recover require --config."""
+    receipts --replay-run), trace subcommands, and evidence require
+    --storage-path; recover uses --storage-path; replay requires --config."""
 
     def test_inspect_examples_show_storage_path_option(self) -> None:
         """Docs with ``inspect`` examples should show --storage-path as a
-        read-only option. All inspect subcommands support --storage-path."""
+        read-only option. All inspect subcommands require --storage-path."""
         for doc_path in TARGET_DOCS:
             text = _read(doc_path)
             # Check for inspect command examples that use --config
@@ -64,7 +64,7 @@ class TestStoragePathReadOnlyConsistency:
                 assert "--storage-path" in text, (
                     f"{doc_path.name} has inspect examples with --config "
                     f"but no --storage-path option shown. All inspect "
-                    f"subcommands support --storage-path."
+                    f"subcommands require --storage-path."
                 )
 
     def test_replay_examples_require_config_not_storage_path(self) -> None:
@@ -80,9 +80,9 @@ class TestStoragePathReadOnlyConsistency:
             "Replay requires --config (it rejects --storage-path)."
         )
 
-    def test_inspect_native_ref_supports_storage_path(self) -> None:
+    def test_inspect_native_ref_requires_storage_path(self) -> None:
         """Docs must not claim inspect native-ref requires --config.
-        It supports --storage-path."""
+        It requires --storage-path."""
         text = _all_doc_text()
         # Look for claims that native-ref requires config.
         stale = re.findall(
@@ -92,12 +92,12 @@ class TestStoragePathReadOnlyConsistency:
         )
         assert not stale, (
             "Found claim that inspect native-ref requires --config. "
-            "It supports --storage-path for direct read-only access."
+            "It requires --storage-path for direct read-only access."
         )
 
-    def test_inspect_receipts_replay_run_supports_storage_path(self) -> None:
+    def test_inspect_receipts_replay_run_requires_storage_path(self) -> None:
         """Docs must not claim inspect receipts --replay-run requires --config.
-        It supports --storage-path."""
+        It requires --storage-path."""
         text = _all_doc_text()
         # Look for claims that receipts --replay-run requires config.
         stale = re.findall(
@@ -107,7 +107,7 @@ class TestStoragePathReadOnlyConsistency:
         )
         assert not stale, (
             "Found claim that inspect receipts --replay-run requires --config. "
-            "It supports --storage-path for direct read-only access."
+            "It requires --storage-path for direct read-only access."
         )
 
     def test_replay_operation_states_config_requirement(self) -> None:

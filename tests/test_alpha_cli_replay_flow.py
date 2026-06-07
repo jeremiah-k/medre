@@ -17,6 +17,7 @@ from tests.helpers.alpha_cli import (
     seed_via_smoke_cli,
     smoke_config_path,
     write_replay_config,
+    write_sqlite_config_from_example,
 )
 
 # ---------------------------------------------------------------------------
@@ -174,7 +175,7 @@ class TestAlphaFullWalkthroughCLI:
         """Prove the documented operator walkthrough sequence works via main().
 
         Phases (as documented in alpha-walkthrough.md):
-        Phase 1: medre smoke --config <path> --storage-path <db> --json  → event_id
+        Phase 1: medre smoke --config <sqlite-config> --json  → event_id
         Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
         Phase 3: medre inspect event <id> --timeline --storage-path <db>  (deeper investigation)
                  medre inspect event <id> --evidence --storage-path <db>
@@ -185,6 +186,7 @@ class TestAlphaFullWalkthroughCLI:
 
         # Phase 1: Optional local smoke seeds persistent DB
         db_path = tmp_path / "full_walkthrough.db"
+        config_path = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
@@ -193,8 +195,6 @@ class TestAlphaFullWalkthroughCLI:
                         "smoke",
                         "--config",
                         config_path,
-                        "--storage-path",
-                        str(db_path),
                         "--json",
                     ]
                 )
@@ -296,10 +296,10 @@ class TestAlphaFullWalkthroughCLI:
 
     def test_event_id_flows_through_all_commands(self, tmp_path: Path) -> None:
         """Verify the exact event_id from smoke appears in every downstream command (inspect-first path)."""
-        config_path = smoke_config_path()
 
         # Phase 1: Seed via optional local smoke
         db_path = tmp_path / "event_flow.db"
+        config_path = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
@@ -308,8 +308,6 @@ class TestAlphaFullWalkthroughCLI:
                         "smoke",
                         "--config",
                         config_path,
-                        "--storage-path",
-                        str(db_path),
                         "--json",
                     ]
                 )

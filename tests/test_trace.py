@@ -26,6 +26,30 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # ---------------------------------------------------------------------------
 
 
+def _close_orphaned_event_loop() -> None:
+    """Close any event loop left behind by pytest-asyncio fixture teardown.
+
+    Older pytest-asyncio releases with function-scoped runners save the event
+    loop created by ``asyncio.get_event_loop()`` and restore it after each
+    async test.  The restored loop is never closed, so its self-pipe sockets
+    trigger ``ResourceWarning`` when garbage collection runs during a later
+    synchronous test that calls ``asyncio.run()``.  Closing the orphaned loop
+    here (before the synchronous test creates its own loop via
+    ``asyncio.run()``) prevents the warning.
+    """
+    import asyncio
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return
+    if loop is not None and not loop.is_closed():
+        loop.close()
+
+
 def _make_event(
     event_id: str = "evt-1",
     event_kind: str = "message.created",
@@ -541,6 +565,8 @@ def _seed_trace_db(
 
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
+    _close_orphaned_event_loop()
+
     async def _seed() -> None:
         storage = SQLiteStorage(db_path)
         await storage.initialize()
@@ -661,6 +687,8 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
+    _close_orphaned_event_loop()
+
     async def _init() -> None:
         storage = SQLiteStorage(db_path)
         await storage.initialize()
@@ -723,7 +751,7 @@ class TestTraceEventParser:
 
     def test_trace_event_requires_event_id(self) -> None:
         with pytest.raises(SystemExit):
-            _run_cli("trace", "event", "--config", "/nonexistent/config.toml")
+            _run_cli("trace", "event", "--storage-path", "/nonexistent/trace.db")
 
 
 class TestTraceEvent:
@@ -737,9 +765,9 @@ class TestTraceEvent:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "evt-trace-1",
-            "--config",
-            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -756,9 +784,9 @@ class TestTraceEvent:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "evt-trace-1",
-            "--config",
-            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -779,9 +807,9 @@ class TestTraceEvent:
             _run_cli(
                 "trace",
                 "event",
+                "--storage-path",
+                str(config_trace_sqlite.parent / "state" / "trace.db"),
                 "nonexistent",
-                "--config",
-                str(config_trace_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
@@ -793,9 +821,9 @@ class TestTraceEvent:
         stdout, stderr = _run_cli_both(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "nonexistent",
-            "--config",
-            str(config_trace_sqlite),
         )
         assert "event not found" in stderr
         assert "nonexistent" in stderr
@@ -808,9 +836,9 @@ class TestTraceEvent:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "evt-trace-1",
-            "--config",
-            str(config_trace_sqlite),
         )
         assert "Event: evt-trace-1 (message.created) from test_adapter" in output
         assert "Timeline (4 entries):" in output
@@ -827,9 +855,9 @@ class TestTraceEvent:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "evt-trace-1",
-            "--config",
-            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -837,28 +865,22 @@ class TestTraceEvent:
             keys = list(entry.keys())
             assert keys == sorted(keys)
 
-    def test_event_memory_backend_exits_config(
+    def test_event_nonexistent_db_exits_build(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Memory backend exits with EXIT_CONFIG."""
-        from medre.cli import EXIT_CONFIG
-
-        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-        config_text = """\
-[runtime]
-name = "test-trace-mem"
-
-[storage]
-backend = "memory"
-"""
-        cfg = tmp_path / "config.toml"
-        cfg.write_text(config_text)
+        """Nonexistent storage-path exits with EXIT_BUILD."""
+        from medre.cli import EXIT_BUILD
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("trace", "event", "evt-1", "--config", str(cfg))
-        assert exc_info.value.code == EXIT_CONFIG
+            _run_cli(
+                "trace",
+                "event",
+                "--storage-path",
+                str(tmp_path / "nonexistent" / "trace.db"),
+                "evt-1",
+            )
+        assert exc_info.value.code == EXIT_BUILD
 
 
 class TestTraceReplay:
@@ -872,9 +894,9 @@ class TestTraceReplay:
         output = _run_cli(
             "trace",
             "replay",
+            "--storage-path",
+            str(config_trace_replay.parent / "state" / "trace.db"),
             "run-trace-42",
-            "--config",
-            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -891,9 +913,9 @@ class TestTraceReplay:
         output = _run_cli(
             "trace",
             "replay",
+            "--storage-path",
+            str(config_trace_replay.parent / "state" / "trace.db"),
             "run-trace-42",
-            "--config",
-            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -912,9 +934,9 @@ class TestTraceReplay:
             _run_cli(
                 "trace",
                 "replay",
+                "--storage-path",
+                str(config_trace_sqlite.parent / "state" / "trace.db"),
                 "nonexistent-run",
-                "--config",
-                str(config_trace_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
@@ -926,9 +948,9 @@ class TestTraceReplay:
         stdout, stderr = _run_cli_both(
             "trace",
             "replay",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "nonexistent-run",
-            "--config",
-            str(config_trace_sqlite),
         )
         assert "no receipts found" in stderr
         assert "nonexistent-run" in stderr
@@ -941,9 +963,9 @@ class TestTraceReplay:
         output = _run_cli(
             "trace",
             "replay",
+            "--storage-path",
+            str(config_trace_replay.parent / "state" / "trace.db"),
             "run-trace-42",
-            "--config",
-            str(config_trace_replay),
         )
         assert "Replay timeline: run-trace-42" in output
         assert "complete" in output
@@ -957,9 +979,9 @@ class TestTraceReplay:
         output = _run_cli(
             "trace",
             "replay",
+            "--storage-path",
+            str(config_trace_replay.parent / "state" / "trace.db"),
             "run-trace-42",
-            "--config",
-            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -978,9 +1000,9 @@ class TestTraceEventChannelRoute:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_channel_route.parent / "state" / "trace.db"),
             "evt-ch-route",
-            "--config",
-            str(config_trace_channel_route),
         )
         assert "channel=!room:channel-a" in output
         assert "route=route-42" in output
@@ -993,9 +1015,9 @@ class TestTraceEventChannelRoute:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_sqlite.parent / "state" / "trace.db"),
             "evt-trace-1",
-            "--config",
-            str(config_trace_sqlite),
         )
         # Should have the adapter but NOT channel=/route= decorations.
         assert "dest_adapter" in output
@@ -1010,9 +1032,9 @@ class TestTraceEventChannelRoute:
         output = _run_cli(
             "trace",
             "event",
+            "--storage-path",
+            str(config_trace_channel_route.parent / "state" / "trace.db"),
             "evt-ch-route",
-            "--config",
-            str(config_trace_channel_route),
             "--json",
         )
         parsed = json.loads(output)

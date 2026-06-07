@@ -100,3 +100,9 @@ SELECT * FROM native_message_refs
 WHERE event_id = ?
 ORDER BY created_at ASC, id ASC
 """
+
+_GET_NATIVE_REF = """
+SELECT * FROM native_message_refs
+WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
+LIMIT 1
+"""

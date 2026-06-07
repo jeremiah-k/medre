@@ -73,6 +73,8 @@ class _FakeEvent:
         self.timestamp = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         self.schema_version = 1
         self.parent_event_id = None
+        self.root_event_id = None
+        self.conversation_id = None
         self.lineage: tuple[object, ...] = ()
         self.relations: tuple[object, ...] = ()
         self.payload: dict[str, object] = {"text": "test"}
@@ -182,7 +184,7 @@ class TestRecoverParser:
     def test_recover_no_args_accepted(self) -> None:
         """Parser accepts bare 'medre recover' (broad scan mode)."""
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("recover", "--config", "/nonexistent")
+            _run_cli("recover", "--storage-path", "/nonexistent")
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
 
     def test_recover_accepts_all_flags(self) -> None:
@@ -196,7 +198,7 @@ class TestRecoverParser:
                 "2026-01-01",
                 "--dry-run",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
@@ -427,7 +429,7 @@ class TestRecoverDispatch:
                     "--event",
                     "nonexistent",
                     "--json",
-                    "--config",
+                    "--storage-path",
                     "/nonexistent",
                 )
             assert exc_info.value.code == EXIT_NOT_FOUND
@@ -452,7 +454,7 @@ class TestRecoverDispatch:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -489,7 +491,7 @@ class TestRecoverDispatch:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -519,7 +521,7 @@ class TestRecoverDispatch:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -549,7 +551,7 @@ class TestRecoverDispatch:
                 "evt-1",
                 "--dry-run",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -580,7 +582,7 @@ class TestRecoverDispatch:
                 "recover",
                 "--event",
                 "evt-1",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             assert "Recovery runbook: evt-1" in output
@@ -598,7 +600,7 @@ class TestRecoverDispatch:
         ):
             output = _run_cli(
                 "recover",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             assert "Recovery scan" in output
@@ -615,7 +617,7 @@ class TestRecoverDispatch:
             output = _run_cli(
                 "recover",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -642,7 +644,7 @@ class TestRecoverDispatch:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -682,7 +684,12 @@ class TestRecoverChannelRoute:
             return_value=mock_storage,
         ):
             output = _run_cli(
-                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--storage-path",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             ft = parsed["failed_targets"][0]
@@ -696,7 +703,12 @@ class TestRecoverChannelRoute:
             return_value=mock_storage,
         ):
             output = _run_cli(
-                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--storage-path",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             ft = parsed["failed_targets"][0]
@@ -712,7 +724,9 @@ class TestRecoverChannelRoute:
             "medre.cli.recover_commands._open_readonly_storage",
             return_value=mock_storage,
         ):
-            output = _run_cli("recover", "--event", "evt-1", "--config", "/nonexistent")
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--storage-path", "/nonexistent"
+            )
             # Should show adapter/channel and route in the failed target line.
             assert "mesh_adptr/!room:beta" in output
             assert "route=route-99" in output
@@ -723,7 +737,9 @@ class TestRecoverChannelRoute:
             "medre.cli.recover_commands._open_readonly_storage",
             return_value=mock_storage,
         ):
-            output = _run_cli("recover", "--event", "evt-1", "--config", "/nonexistent")
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--storage-path", "/nonexistent"
+            )
             # Should show adapter without /channel suffix.
             assert "mesh_adptr route=route-x:" in output
             assert "/!ch-a" not in output
@@ -735,7 +751,12 @@ class TestRecoverChannelRoute:
             return_value=mock_storage,
         ):
             output = _run_cli(
-                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--storage-path",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             ft = parsed["failed_targets"][0]
@@ -984,7 +1005,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1025,7 +1046,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1060,7 +1081,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1093,7 +1114,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1127,7 +1148,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1161,7 +1182,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1195,7 +1216,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1229,7 +1250,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1264,7 +1285,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1296,7 +1317,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1338,7 +1359,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
@@ -1370,7 +1391,7 @@ class TestRecoverClassification:
                 "recover",
                 "--event",
                 "evt-1",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             assert "adapter_transient" in output
@@ -1402,7 +1423,7 @@ class TestRecoverClassification:
                 "--event",
                 "evt-1",
                 "--json",
-                "--config",
+                "--storage-path",
                 "/nonexistent",
             )
             parsed = json.loads(output)
