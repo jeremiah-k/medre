@@ -51,8 +51,9 @@ async def collect_evidence_bundle(
 ) -> dict[str, Any]:
     """Collect a comprehensive evidence bundle.
 
-    **Persistence boundary:** This function reads from storage (events,
-    receipts, native refs, outbox items) via read-only queries.  It never
+    **Persistence boundary:** This function reads from storage
+    (``canonical_events``, ``delivery_receipts``, ``native_message_refs``,
+    ``delivery_outbox`` rows) via read-only queries.  It never
     writes to storage or mutates lifecycle state.  All derived sections
     (delivery outcome ledger, retry summary, convergence, orphan report,
     recovery) are computed on demand from loaded rows.  The diagnostics

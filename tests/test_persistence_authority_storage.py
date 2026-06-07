@@ -17,6 +17,7 @@ Covers:
 
 from __future__ import annotations
 
+import datetime
 import re
 from pathlib import Path
 
@@ -60,8 +61,6 @@ def _make_outbox_item(
     attempt_number: int = 1,
     status: str = "in_progress",
 ) -> DeliveryOutboxItem:
-    import datetime
-
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
         event_id=event_id,
@@ -104,14 +103,14 @@ class TestNoReceiptUpdateDeleteAPI:
 
     @pytest.mark.parametrize(
         "method_name",
-        (
+        [
             "update_receipt",
             "delete_receipt",
             "remove_receipt",
             "replace_receipt",
             "modify_receipt",
             "upsert_receipt",
-        ),
+        ],
     )
     def test_receipt_mutation_method_does_not_exist(self, method_name: str) -> None:
         """Each mutation-like method name must not be on SQLiteStorage."""
@@ -164,7 +163,12 @@ class TestTerminalOutboxImmutability:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        ("sent", "dead_lettered", "cancelled", "abandoned"),
+        [
+            "sent",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+        ],
     )
     async def test_terminal_row_returned_unchanged(
         self, temp_storage: SQLiteStorage, terminal_status: str
@@ -507,11 +511,15 @@ class TestNoDeleteInStorageModule:
         )
 
     def test_no_delete_method_on_storage(self) -> None:
-        """SQLiteStorage has no delete/remove method."""
+        """SQLiteStorage has no delete/remove method.
+
+        Methods like close() and similar cleanup helpers are safe because
+        they do not contain 'delete' or 'remove' in their names, so the
+        substring check below is sufficient to catch violations.
+        """
         for attr_name in dir(SQLiteStorage):
             if "delete" in attr_name.lower() or "remove" in attr_name.lower():
                 if callable(getattr(SQLiteStorage, attr_name, None)):
-                    # Allow close() and similar cleanup methods
                     raise AssertionError(
                         f"SQLiteStorage has suspicious method: {attr_name}"
                     )

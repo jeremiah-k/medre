@@ -270,9 +270,9 @@ class TestPersistenceAuditDocConsistency:
         via pipeline (even if replay delegates rather than writes directly).
         """
         content = _PERSISTENCE_AUDIT.read_text()
-        # Find the replay persistence semantics section
+        # Find the replay persistence semantics section (non-greedy: stop at next ##)
         replay_section_match = re.search(
-            r"(?i)replay persistence semantics.*",
+            r"(?i)replay persistence semantics.*?(?=\n##|\Z)",
             content,
             re.DOTALL,
         )
@@ -284,6 +284,50 @@ class TestPersistenceAuditDocConsistency:
             "Audit doc replay section must mention delivery_outbox "
             "(e.g., replay delegates to pipeline which may create outbox rows)"
         )
+
+    def test_audit_doc_does_not_claim_all_operator_commands_readonly(self) -> None:
+        """Audit doc must not blanket-assert all operator commands are read-only.
+
+        `medre smoke` and `medre run-session` are executable runtime workflows
+        that may write to the database through normal pipeline authorities when
+        persistent storage is configured.
+        """
+        content = _PERSISTENCE_AUDIT.read_text()
+        assert "no operator command writes" not in content.lower(), (
+            "Audit doc must not claim 'no operator command writes to the database' — "
+            "medre smoke and run-session may write through normal pipeline authorities"
+        )
+
+    @pytest.mark.parametrize(
+        "read_only_cmd",
+        (
+            "medre inspect",
+            "medre evidence",
+            "medre trace",
+            "medre recover",
+        ),
+    )
+    def test_audit_doc_lists_readonly_operator_commands(
+        self, read_only_cmd: str
+    ) -> None:
+        """Audit doc operator visibility section lists read-only inspection commands."""
+        content = _PERSISTENCE_AUDIT.read_text()
+        assert read_only_cmd in content, (
+            f"Audit doc must list {read_only_cmd!r} as a read-only operator command "
+            f"in the operator visibility section"
+        )
+
+    def test_audit_doc_mentions_smoke_as_runtime_workflow(self) -> None:
+        """Audit doc mentions medre smoke as a runtime workflow that may write.
+
+        `medre smoke` is an executable runtime workflow (not just a passive
+        diagnostic). When persistent storage is configured, smoke may trigger
+        writes through the normal pipeline authority path.
+        """
+        content = _PERSISTENCE_AUDIT.read_text()
+        assert (
+            "medre smoke" in content
+        ), "Audit doc operator visibility section must mention 'medre smoke'"
 
 
 # ===================================================================

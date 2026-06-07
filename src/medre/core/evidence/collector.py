@@ -310,7 +310,7 @@ class EvidenceCollector:
     async def collect_for_event(self, event_id: str) -> EvidenceBundle:
         """Collect a deterministic evidence bundle for one event.
 
-        Reads event, receipts, native refs, and outbox items from storage
+        Reads canonical_events, delivery_receipts, native_message_refs, and delivery_outbox rows from storage
         (all read-only).  Assembles a frozen bundle with deterministic
         ordering.  Missing event produces a warning but not a crash.
         Missing related records produce empty collections, not errors.

@@ -172,17 +172,15 @@ Bundle schema version is unchanged. Evidence generation code does not create, mu
 
 ## Operator Visibility
 
-Operators interact with persisted data through read-only diagnostic commands and derived views. No operator command writes to the database.
+Operators inspect persisted data through read-only diagnostic commands and derived views. `medre inspect`, `medre evidence`, `medre trace`, and `medre recover` do not mutate storage. Executable runtime workflows such as `medre smoke` / run-session may create canonical events, outbox rows, receipts, and native refs when configured with persistent storage; those writes occur through the normal pipeline authorities.
 
-| Command          | What it reads                                      | Classification            |
-| ---------------- | -------------------------------------------------- | ------------------------- |
-| `medre inspect`  | Schema version, table stats, event/receipt samples | Diagnostic projection     |
-| `medre evidence` | Receipt chains, rendering evidence, convergence    | Derived report            |
-| `medre trace`    | Event lineage, receipt history, native refs        | Derived report            |
-| `medre recover`  | Orphan events, stale outbox rows                   | Diagnostic classification |
-| `medre smoke`    | Runtime health, adapter status                     | Ephemeral diagnostic      |
+Classification:
 
-Operator documentation clarifies: data is immutable, replay/retry/recovery are the mechanisms for correcting delivery issues, reports are derived views, and there is no deletion workflow.
+- `medre inspect` — Diagnostic projection, read-only
+- `medre evidence` — Derived report, read-only
+- `medre trace` — Derived lineage report, read-only
+- `medre recover` — Diagnostic classification, read-only
+- `medre smoke` — Executable runtime diagnostic / pipeline exercise; may write when persistent storage is configured
 
 ## Schema Version
 

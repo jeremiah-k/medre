@@ -328,8 +328,8 @@ class StorageBackend(Protocol):
         """
         ...
 
-    def query(self, filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
-        """Yield events matching *filter*, ordered by timestamp ascending.
+    def query(self, event_filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
+        """Yield events matching *event_filter*, ordered by timestamp ascending.
 
         Authority: **list/get** (read-only).  Implementations use
         ``async def`` with ``yield`` (async generator).  The protocol

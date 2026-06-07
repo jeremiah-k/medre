@@ -83,12 +83,14 @@ class _EventMixin:
         rel_rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
         return _row_to_event(row, [_row_to_relation(r) for r in rel_rows])
 
-    async def query(self, filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
-        """Yield events matching *filter*, ordered by timestamp ascending.
+    async def query(
+        self, event_filter: EventFilter
+    ) -> AsyncGenerator[CanonicalEvent, None]:
+        """Yield events matching *event_filter*, ordered by timestamp ascending.
 
         Authority: **list/get** (read-only).
         """
-        sql, params = _build_query_sql(filter)
+        sql, params = _build_query_sql(event_filter)
         rows = await self._read_all(sql, params)
         if not rows:
             return
