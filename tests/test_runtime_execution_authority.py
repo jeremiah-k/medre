@@ -7,8 +7,8 @@ are module-level functions, and evidence/recovery modules have the expected
 read-only properties.  They do **not** test runtime behaviour — they guard
 against accidental refactorings that would violate the authority model.
 
-See ``docs/dev/runtime-execution-authority-audit.md`` for the normative
-reference.
+See ``docs/dev/runtime-execution-authority-audit.md`` for the developer
+authority reference.
 """
 
 from __future__ import annotations
@@ -203,9 +203,11 @@ class TestRecoveryModuleReadOnly:
 class TestDrainPendingCancellationsSafety:
     """Calling _drain_pending_cancellations outside a task returns 0."""
 
-    async def test_returns_zero_outside_task(self) -> None:
-        # Inside an asyncio event loop but not inside a Task,
-        # current_task() returns None and the function returns 0.
+    async def test_returns_zero_when_current_task_has_no_pending_cancellations(
+        self,
+    ) -> None:
+        # Inside a pytest-asyncio Task with no pending cancellations,
+        # the helper returns 0.
         assert _drain_pending_cancellations() == 0
 
     def test_returns_zero_with_no_event_loop(self) -> None:

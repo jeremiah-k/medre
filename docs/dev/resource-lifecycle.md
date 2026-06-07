@@ -177,8 +177,9 @@ Outcomes:
     worker does **clean-stop** cleanup — `_task` is cleared,
     `state.running` is set to `False`, a `retry_stopped` event is
     emitted — and then the `CancelledError` is re-raised. This
-    prevents `_task` and `state.running=True` from leaking when the
-    cancellation arrives a tick after the task finished naturally.
+    prevents the old leak of `_task` and `state.running=True` — the
+    historical race where cancellation arrived a tick after the task
+    finished naturally and neither was cleaned up.
   - **Task still alive**: the worker is marked abandoned
     (`state.abandoned = True`, `state.running` set to `False`; the
     retained task may still be alive), a `retry_abandoned` event with

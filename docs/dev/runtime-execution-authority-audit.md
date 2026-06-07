@@ -338,8 +338,6 @@ are exercised by existing test files:
   increments correctly.
 - `test_replay_policy.py::test_replay_never_mutates_historical_event`:
   proves historical events are unchanged after replay.
-- `test_replay_pipeline_integration.py::test_original_event_not_mutated`:
-  stored event metadata unchanged after replay.
 - `test_replay_routing_durability.py`: replay does not mutate storage.
 
 ### Authority: live/replay ownership metadata remain distinct
@@ -395,10 +393,10 @@ The following items should be addressed next, ordered by impact and feasibility.
    that detects orphaned `in_progress` outbox rows from a previous abandoned
    worker.
 
-2. **Runtime cancellation doc cross-references.** The deferred cancellation,
-   drain/restore, and two-stage deadline patterns are documented in source
-   docstrings but not in any developer doc. Add cross-references from
-   `resource-lifecycle.md` to the relevant source sections.
+2. **Runtime cancellation documentation consolidation.** The drain/restore
+   pattern is now documented in source docstrings, this audit, and
+   `resource-lifecycle.md`. A future cleanup could consolidate the pattern
+   behind a helper/context manager and reduce duplicated explanatory text.
 
 3. **Vocabulary disambiguation: "recovery" vs "repair".** The recovery module
    (`core/recovery/`) is read-only diagnostic, but its naming implies repair.
