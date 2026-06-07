@@ -13,10 +13,21 @@ Covers:
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from medre.config.model import (
+    AdapterConfigSet,
+    MatrixRuntimeConfig,
+    RuntimeConfig,
+    StorageConfig,
+)
+from medre.config.paths import MedrePaths
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import DeliveryReceipt
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.runtime.builder import RuntimeBuilder
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------
@@ -69,139 +80,246 @@ async def _all_receipt_rows(storage: SQLiteStorage, event_id: str) -> list[dict]
 class TestReplayNewReceiptsPreserveOld:
     """Replay creates new receipt rows; existing receipt data is immutable."""
 
-    async def test_replay_receipts_have_source_replay(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """Replay-generated receipts carry source='replay'."""
-        event = make_storage_event(event_id="evt-replay-src")
-        await temp_storage.append(event)
-
-        # Live receipt first
-        await temp_storage.append_receipt(
-            _make_receipt("rcpt-live-1", "evt-replay-src", source="live")
+    async def test_replay_receipts_have_source_replay(self, tmp_path: Path) -> None:
+        """Replay-generated receipts carry source='replay' and replay_run_id."""
+        paths = MedrePaths(
+            config_dir=tmp_path / "config",
+            config_file=tmp_path / "config" / "config.toml",
+            state_dir=tmp_path / "state",
+            data_dir=tmp_path / "data",
+            cache_dir=tmp_path / "cache",
+            log_dir=tmp_path / "logs",
+            database_path=tmp_path / "state" / "medre.sqlite",
         )
-
-        # Simulate replay appending a new receipt
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-replay-1",
-                "evt-replay-src",
-                source="replay",
-                replay_run_id="run-src-1",
-                attempt_number=2,
-            )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                    "secondary": MatrixRuntimeConfig(
+                        adapter_id="secondary",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                },
+            ),
+            routes=RouteConfigSet(
+                routes=(
+                    RouteConfig(
+                        route_id="route_a",
+                        source_adapters=("main",),
+                        dest_adapters=("secondary",),
+                    ),
+                ),
+            ),
         )
+        app = RuntimeBuilder(config, paths).build()
+        await app.start()
+        try:
+            event = make_storage_event(event_id="evt-replay-src", source_adapter="main")
+            await app.storage.append(event)
 
-        rows = await _all_receipt_rows(temp_storage, "evt-replay-src")
-        assert len(rows) == 2
-        assert rows[0]["source"] == "live"
-        assert rows[0]["replay_run_id"] is None
-        assert rows[1]["source"] == "replay"
-        assert rows[1]["replay_run_id"] == "run-src-1"
+            # Pre-seed a live receipt
+            live_rcpt = _make_receipt("rcpt-live-1", "evt-replay-src", source="live")
+            await app.storage.append_receipt(live_rcpt)
+
+            engine = ReplayEngine(storage=app.storage, pipeline=app.pipeline_runner)
+            request = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-src-1")
+            _ = [r async for r in engine.replay(request)]
+
+            rows = await _all_receipt_rows(app.storage, "evt-replay-src")
+            assert len(rows) == 2
+            assert rows[0]["source"] == "live"
+            assert rows[0]["replay_run_id"] is None
+            assert rows[1]["source"] == "replay"
+            assert rows[1]["replay_run_id"] == "run-src-1"
+        finally:
+            await app.stop()
 
     async def test_old_receipt_rows_unchanged_after_replay_append(
-        self, temp_storage: SQLiteStorage
+        self,
+        tmp_path: Path,
     ) -> None:
-        """After replay appends a new receipt, old receipt data is byte-for-byte identical."""
-        event = make_storage_event(event_id="evt-immutable")
-        await temp_storage.append(event)
-
-        # Pre-replay receipts with rich data
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-old-1",
-                "evt-immutable",
-                delivery_plan_id="plan-imm",
-                target_adapter="adapter_imm",
-                status="sent",
-                source="live",
-            )
+        """After replay appends a new receipt, old receipt rows are byte-for-byte identical."""
+        paths = MedrePaths(
+            config_dir=tmp_path / "config",
+            config_file=tmp_path / "config" / "config.toml",
+            state_dir=tmp_path / "state",
+            data_dir=tmp_path / "data",
+            cache_dir=tmp_path / "cache",
+            log_dir=tmp_path / "logs",
+            database_path=tmp_path / "state" / "medre.sqlite",
         )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-old-2",
-                "evt-immutable",
-                delivery_plan_id="plan-imm",
-                target_adapter="adapter_imm",
-                status="failed",
-                source="live",
-                attempt_number=2,
-            )
-        )
+        for d in (paths.state_dir, paths.data_dir, paths.cache_dir, paths.log_dir):
+            d.mkdir(parents=True, exist_ok=True)
 
-        # Snapshot old receipt data
-        old_rows = await _all_receipt_rows(temp_storage, "evt-immutable")
-        assert len(old_rows) == 2
-        old_data = [
-            {
-                "receipt_id": r["receipt_id"],
-                "status": r["status"],
-                "source": r["source"],
-                "replay_run_id": r["replay_run_id"],
-                "attempt_number": r["attempt_number"],
-            }
-            for r in old_rows
-        ]
-
-        # Simulate replay appending new receipts
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-replay-1",
-                "evt-immutable",
-                delivery_plan_id="plan-imm",
-                target_adapter="adapter_imm",
-                status="sent",
-                source="replay",
-                replay_run_id="run-imm",
-                attempt_number=3,
-            )
-        )
-
-        # Re-read all rows
-        all_rows = await _all_receipt_rows(temp_storage, "evt-immutable")
-        assert len(all_rows) == 3
-
-        # First two rows must be byte-identical to the snapshot
-        for i, old in enumerate(old_data):
-            for key, expected_val in old.items():
-                assert all_rows[i][key] == expected_val, (
-                    f"Row {i} field {key}: expected {expected_val!r}, "
-                    f"got {all_rows[i][key]!r}"
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                    "secondary": MatrixRuntimeConfig(
+                        adapter_id="secondary",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                }
+            ),
+            routes=RouteConfigSet(
+                routes=(
+                    RouteConfig(
+                        route_id="route_a",
+                        source_adapters=("main",),
+                        dest_adapters=("secondary",),
+                    ),
                 )
+            ),
+        )
+        app = RuntimeBuilder(config, paths).build()
+        await app.start()
+        try:
+            event = make_storage_event(event_id="evt-immutable", source_adapter="main")
+            await app.storage.append(event)
+
+            # Pre-seed two live receipts with rich data
+            await app.storage.append_receipt(
+                _make_receipt(
+                    "rcpt-old-1",
+                    "evt-immutable",
+                    delivery_plan_id="plan-imm",
+                    target_adapter="adapter_imm",
+                    status="sent",
+                    source="live",
+                )
+            )
+            await app.storage.append_receipt(
+                _make_receipt(
+                    "rcpt-old-2",
+                    "evt-immutable",
+                    delivery_plan_id="plan-imm",
+                    target_adapter="adapter_imm",
+                    status="failed",
+                    source="live",
+                    attempt_number=2,
+                )
+            )
+
+            # Snapshot old receipt data
+            old_rows = await _all_receipt_rows(app.storage, "evt-immutable")
+            assert len(old_rows) == 2
+            old_data = [
+                {
+                    "receipt_id": r["receipt_id"],
+                    "status": r["status"],
+                    "source": r["source"],
+                    "replay_run_id": r["replay_run_id"],
+                    "attempt_number": r["attempt_number"],
+                }
+                for r in old_rows
+            ]
+
+            engine = ReplayEngine(storage=app.storage, pipeline=app.pipeline_runner)
+            request = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-imm")
+            _ = [r async for r in engine.replay(request)]
+
+            all_rows = await _all_receipt_rows(app.storage, "evt-immutable")
+            assert len(all_rows) == 3  # 2 old + 1 replay
+
+            # First two rows must be byte-identical to the snapshot
+            for i, old in enumerate(old_data):
+                for key, expected_val in old.items():
+                    assert (
+                        all_rows[i][key] == expected_val
+                    ), f"Row {i} field {key}: expected {expected_val!r}, got {all_rows[i][key]!r}"
+        finally:
+            await app.stop()
 
     async def test_replay_receipt_attempt_number_increments(
-        self, temp_storage: SQLiteStorage
+        self, tmp_path: Path
     ) -> None:
-        """Replay receipts use incremented attempt_number."""
-        event = make_storage_event(event_id="evt-attempt")
-        await temp_storage.append(event)
+        """Replay receipts use incremented attempt_number across replay runs."""
+        from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-att-1",
-                "evt-attempt",
-                attempt_number=1,
-                status="failed",
-            )
+        paths = MedrePaths(
+            config_dir=tmp_path / "config",
+            config_file=tmp_path / "config" / "config.toml",
+            state_dir=tmp_path / "state",
+            data_dir=tmp_path / "data",
+            cache_dir=tmp_path / "cache",
+            log_dir=tmp_path / "logs",
+            database_path=tmp_path / "state" / "medre.sqlite",
         )
-        await temp_storage.append_receipt(
-            _make_receipt(
-                "rcpt-att-2",
-                "evt-attempt",
-                attempt_number=2,
-                source="replay",
-                replay_run_id="run-att",
-                status="sent",
-            )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                    "secondary": MatrixRuntimeConfig(
+                        adapter_id="secondary",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                },
+            ),
+            routes=RouteConfigSet(
+                routes=(
+                    RouteConfig(
+                        route_id="route_a",
+                        source_adapters=("main",),
+                        dest_adapters=("secondary",),
+                    ),
+                )
+            ),
         )
+        app = RuntimeBuilder(config, paths).build()
+        await app.start()
+        try:
+            event = make_storage_event(event_id="evt-attempt", source_adapter="main")
+            await app.storage.append(event)
 
-        receipts = await temp_storage.list_receipts_for_event("evt-attempt")
-        assert len(receipts) == 2
-        assert receipts[0].attempt_number == 1
-        assert receipts[0].source == "live"
-        assert receipts[1].attempt_number == 2
-        assert receipts[1].source == "replay"
-        assert receipts[1].replay_run_id == "run-att"
+            engine = ReplayEngine(storage=app.storage, pipeline=app.pipeline_runner)
+
+            # First replay — creates outbox + receipt with attempt_number
+            request1 = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-att-1")
+            _ = [r async for r in engine.replay(request1)]
+
+            # Second replay — finds existing outbox, increments attempt_number
+            request2 = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-att-2")
+            _ = [r async for r in engine.replay(request2)]
+
+            receipts = await app.storage.list_receipts_for_event("evt-attempt")
+            replay_receipts = sorted(
+                [r for r in receipts if r.source == "replay"],
+                key=lambda r: r.attempt_number,
+            )
+            assert len(replay_receipts) == 2
+            assert replay_receipts[0].attempt_number >= 1
+            assert (
+                replay_receipts[1].attempt_number
+                >= replay_receipts[0].attempt_number + 1
+            )
+            assert replay_receipts[1].source == "replay"
+            assert replay_receipts[1].replay_run_id == "run-att-2"
+        finally:
+            await app.stop()
 
 
 # ===================================================================
