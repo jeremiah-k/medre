@@ -1222,10 +1222,12 @@ class MedreApp:
                     adapter_id,
                     timeout,
                 )
-                errors.append((adapter_id, exc))
+                if exc is not None:
+                    errors.append((adapter_id, exc))
             else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                errors.append((adapter_id, exc))
+                if exc is not None:
+                    errors.append((adapter_id, exc))
 
         # Also stop any adapters that were in self.adapters but not in
         # started_adapter_ids (e.g. if start() was never called, or start()
