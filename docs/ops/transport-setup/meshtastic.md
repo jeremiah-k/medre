@@ -1,6 +1,6 @@
 # Meshtastic Transport Setup
 
-Setting up and running the MEDRE Meshtastic adapter against a real radio node. Alpha status — not production.
+Setting up and running the MEDRE Meshtastic adapter against a real radio node. Pre-release — no stable public API.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ sudo usermod -aG dialout $USER
 
 ### BLE Connectivity
 
-BLE is a supported connection type but has not been validated against real hardware in alpha.
+BLE is a supported connection type but has not been validated against real hardware.
 
 ```bash
 bluetoothctl scan on
@@ -116,7 +116,7 @@ config = MeshtasticConfig(
 
 ### BLE Mode
 
-Connects via Bluetooth Low Energy. Documented but not validated in alpha.
+Connects via Bluetooth Low Energy. Documented but not validated against real hardware.
 
 ```python
 config = MeshtasticConfig(

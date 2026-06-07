@@ -138,7 +138,7 @@ def _smoke_config_path() -> str:
 
 def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
     """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
-    from tests.helpers.alpha_cli import EXAMPLES_SMOKE_CONFIG
+    from tests.helpers.walkthrough import EXAMPLES_SMOKE_CONFIG
 
     assert EXAMPLES_SMOKE_CONFIG.is_file()
     src = EXAMPLES_SMOKE_CONFIG.read_text()

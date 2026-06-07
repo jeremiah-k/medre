@@ -75,7 +75,7 @@ The adapter-wrapper callback bridge is proven at the fake-pipeline level:
 
 ## Delivery Method Testing
 
-### DIRECT (recommended for alpha)
+### DIRECT (recommended)
 
 ```python
 config = LxmfConfig(

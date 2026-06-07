@@ -16,7 +16,7 @@ Tests cover:
 - ``--target-adapters`` and ``--route-ids`` filter behaviour at CLI surface
 - Exit code conventions (0 on success, 2 on config/arg errors)
 
-Runtime-level replay tests remain in test_alpha_walkthrough_runtime_retry_replay.py.
+Runtime-level replay tests remain in test_walkthrough_runtime_retry_replay.py.
 """
 
 from __future__ import annotations

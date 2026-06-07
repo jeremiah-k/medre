@@ -1,6 +1,6 @@
-"""Alpha CLI tests: inspect flow (receipts, timeline, evidence, recovery).
+"""CLI inspect-flow tests: receipts, timeline, evidence, recovery.
 
-Split from the original test_alpha_walkthrough_cli.py monolith.
+Split from the original walkthrough CLI test monolith.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from medre.cli import main
-from tests.helpers.alpha_cli import (
+from tests.helpers.walkthrough import (
     seed_via_smoke_cli,
 )
 

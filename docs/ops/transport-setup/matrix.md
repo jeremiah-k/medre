@@ -1,6 +1,6 @@
 # Matrix Transport Setup
 
-Setting up and running the MEDRE Matrix adapter against a real homeserver. Alpha status — not production.
+Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
 
 ## Prerequisites
 
@@ -81,13 +81,13 @@ Do not commit the token. Do not log the token. Set it as an environment variable
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
+6. Confirm the room is unencrypted for plaintext testing. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
 
 ## Allowlist Configuration
 
 The adapter accepts an optional `room_allowlist`: a set of room IDs. When set, the inbound callback ignores messages from any room not in the set. When unset (`None`), the adapter accepts messages from all rooms.
 
-In alpha mode, always set the allowlist to exactly the room(s) you intend to monitor. Running without an allowlist means the adapter processes every message from every room the bot has joined.
+Always set the allowlist to exactly the room(s) you intend to monitor. Running without an allowlist means the adapter processes every message from every room the bot has joined.
 
 Environment variable: `MATRIX_ROOM_ALLOWLIST` — a comma-separated list of room IDs.
 

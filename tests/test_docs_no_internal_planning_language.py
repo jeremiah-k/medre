@@ -1,10 +1,10 @@
 """Internal planning-language guard tests.
 
 Asserts that normative and operational documentation does not contain
-internal planning-cycle vocabulary.  The term "tranche" (case-insensitive)
-is an internal planning artifact and MUST NOT appear in spec/, ops/,
-or dev/ documentation.  It is permitted only in docs/changes/ which
-tracks historical change fragments.
+internal planning-cycle vocabulary.  Terms like "tranche", "boulder",
+"sprint", and other internal process labels are planning artifacts and
+MUST NOT appear in spec/, ops/, or dev/ documentation.  They are
+permitted only in docs/changes/ which tracks historical change fragments.
 """
 
 from __future__ import annotations
@@ -33,6 +33,15 @@ _FORBIDDEN_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\btranche\b", re.IGNORECASE),
     re.compile(r"\bboulder\b", re.IGNORECASE),
     re.compile(r"\bsprint\b", re.IGNORECASE),
+    re.compile(r"\balpha stage\b", re.IGNORECASE),
+    re.compile(r"\bbeta period\b", re.IGNORECASE),
+    re.compile(r"\bbeta contractual\b", re.IGNORECASE),
+    re.compile(r"\bPC-targeted\b"),
+    re.compile(r"\bLSP diagnostics\b", re.IGNORECASE),
+    re.compile(r"\bworking tree clean\b", re.IGNORECASE),
+    re.compile(r"\bfinal report\b", re.IGNORECASE),
+    re.compile(r"\bagent-as-process\b", re.IGNORECASE),
+    re.compile(r"\bfuture tranche\b", re.IGNORECASE),
 ]
 
 

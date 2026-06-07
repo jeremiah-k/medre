@@ -50,3 +50,22 @@ Key terms used across the MEDRE specification.
 | **Transport Adapter**     | An adapter that moves data to/from a physical or logical transport layer (e.g., Meshtastic, LXMF).                |
 | **Verification Status**   | The trust level of an identity mapping: verified, manual, auto, or unverified.                                    |
 | **XDG**                   | XDG Base Directory Specification, used for MEDRE path resolution.                                                 |
+
+---
+
+## Authority Map
+
+Each domain below has an established authority boundary. The map records the
+domain name, primary spec page, key source modules, developer audit doc, and
+what the domain is explicitly **not** responsible for.
+
+| Domain             | Spec page                        | Key modules                                                                                    | Audit doc                                         | Not responsible for                                                   |
+| ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| Lifecycle          | `delivery-lifecycle.md`          | `core/engine/pipeline/delivery_state.py`, `delivery_lifecycle.py`                              | `docs/dev/lifecycle-authority-audit.md`           | Adapter delivery facts, runtime orchestration, storage DDL            |
+| Adapter boundary   | `adapter-runtime.md`             | `adapters/*/adapter.py`, `adapters/*/session.py`                                               | `docs/dev/adapter-reality-audit.md`               | Lifecycle state transitions, relation resolution, rendering decisions |
+| Conversation graph | `event-model.md`                 | `core/planning/conversation_graph.py`, `relation_resolution.py`, `relation_enricher.py`        | `docs/dev/conversation-graph-audit.md`            | Adapter transport-level message IDs, rendering output format          |
+| Planning           | `routing-delivery.md`            | `core/planning/capability_decision.py`, `fallback_resolution.py`, `core/routing/router.py`     | `docs/dev/planning-authority-audit.md`            | Adapter invocation, storage writes, runtime task lifecycle            |
+| Operator surface   | `diagnostics-evidence.md`        | `cli/inspect_commands.py`, `cli/trace_commands.py`, `runtime/evidence/`, `runtime/snapshot.py` | `docs/dev/operator-surface-audit.md`              | Spec semantics, adapter behavior, storage mutations                   |
+| Persistence        | `storage.md`                     | `core/storage/sqlite/`                                                                         | `docs/dev/persistence-authority-audit.md`         | Runtime task scheduling, adapter lifecycle, evidence derivation       |
+| Runtime execution  | (no spec page; audit is interim) | `runtime/app.py`, `runtime/retry.py`, `core/engine/pipeline/runner.py`                         | `docs/dev/runtime-execution-authority-audit.md`   | Lifecycle vocabulary, planning decisions, storage schema              |
+| Runtime evidence   | `diagnostics-evidence.md`        | `core/evidence/`, `runtime/evidence/`, `runtime/events.py`                                     | `docs/dev/runtime-evidence-completeness-audit.md` | Execution authority, storage writes, adapter transport operations     |

@@ -4,7 +4,7 @@ These tests exercise internal runtime APIs (RetryWorker._process_due,
 ReplayEngine, RuntimeBuilder) rather than operator CLI commands.
 They are valuable for deterministic verification but are NOT
 operator walkthrough tests. For operator-facing walkthrough tests,
-see test_alpha_walkthrough_cli.py.
+see test_cli_config_and_smoke.py and related CLI test files.
 """
 
 from __future__ import annotations

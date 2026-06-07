@@ -1,6 +1,6 @@
-"""Shared helpers for alpha walkthrough CLI test modules.
+"""Shared helpers for walkthrough CLI test modules.
 
-Extracted from the original test_alpha_walkthrough_cli.py monolith.
+Extracted from the original walkthrough CLI test monolith.
 Contains constants, TOML config templates, seed helpers, and the
 autouse path-cleanup fixture used across the split test files.
 """

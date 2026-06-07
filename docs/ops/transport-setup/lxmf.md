@@ -1,6 +1,6 @@
 # LXMF Transport Setup
 
-Setting up and running the MEDRE LXMF adapter against a real Reticulum network. Alpha status — not production.
+Setting up and running the MEDRE LXMF adapter against a real Reticulum network. Pre-release — no stable public API.
 
 ## Prerequisites
 
@@ -86,7 +86,7 @@ config = LxmfConfig(
 )
 ```
 
-**DIRECT is the expected default for alpha.** It provides the best reliability trade-off: link-based delivery with retries and proof receipts. However:
+**DIRECT is the recommended default.** It provides the best reliability trade-off: link-based delivery with retries and proof receipts. However:
 
 - Path discovery is asynchronous. No guarantee a path exists.
 - Link establishment takes time. First delivery to a new peer may take seconds to minutes.

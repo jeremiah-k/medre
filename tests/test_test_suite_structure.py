@@ -69,10 +69,10 @@ NEW_BRIDGE_OPERATOR_FILES = [
     "test_cli_evidence_commands.py",
     "test_cli_command_help_hints.py",
     "test_cli_replay_surface.py",
-    "test_alpha_cli_config_and_smoke.py",
-    "test_alpha_cli_inspect_flow.py",
-    "test_alpha_cli_replay_flow.py",
-    "test_alpha_cli_error_paths.py",
+    "test_cli_config_and_smoke.py",
+    "test_cli_inspect_flow.py",
+    "test_cli_replay_flow.py",
+    "test_cli_error_paths.py",
     "test_docker_artifact_core.py",
     "test_docker_artifact_plan.py",
     "test_docker_artifact_metadata.py",
@@ -81,7 +81,7 @@ NEW_BRIDGE_OPERATOR_FILES = [
 
 # New helper modules — must not contain broad type: ignore / pyright: ignore.
 HELPER_FILES = [
-    "helpers/alpha_cli.py",
+    "helpers/walkthrough.py",
     "helpers/async_utils.py",
     "helpers/assertions.py",
     "helpers/bridge.py",

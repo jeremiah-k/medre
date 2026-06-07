@@ -8,7 +8,7 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 **Platform identifier:** `meshcore`
 
-**Maturity note:** MeshCore integration is at an **alpha** stage. Delivery status reflects local acceptance only; there is no end-to-end ACK mechanism.
+**Maturity note:** MeshCore integration is at a **pre-release** stage. Delivery status reflects local acceptance only; there is no end-to-end ACK mechanism.
 
 ---
 
@@ -182,7 +182,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Known Limitations
 
-- **Alpha maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
+- **Pre-release maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. MeshCore has no built-in threading/reply mechanism.
 - **Sender identity is a pubkey prefix.** 6-byte hex prefix is not human-readable; downstream consumers must map to display names externally.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.

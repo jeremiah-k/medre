@@ -1,11 +1,12 @@
-"""Alpha walkthrough tests exercising operator-visible paths.
+"""Walkthrough tests exercising operator-visible paths.
 
 Uses run_fake_bridge_smoke (the function behind medre smoke) and
 build_runtime_snapshot. For CLI handler-level tests that call
-the command functions directly, see test_alpha_walkthrough_cli.py.
+the command functions directly, see test_cli_config_and_smoke.py
+and related CLI test files.
 
 Retry and replay runtime integration tests are in
-test_alpha_walkthrough_runtime_retry_replay.py.
+test_walkthrough_runtime_retry_replay.py.
 """
 
 from __future__ import annotations

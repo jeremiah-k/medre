@@ -20,7 +20,7 @@ This specification governs:
 - Sanitization guarantees for all diagnostic and evidence paths.
 - Evidence boundary definitions (live, docker, hardware).
 - Limitations of what evidence can and cannot prove.
-- Beta contractual guarantees.
+- Pre-release contractual guarantees.
 
 ## 2. Common Diagnostic Keys
 
@@ -424,9 +424,9 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 
 **Planning authority boundary for diagnostics and evidence.** Diagnostics and evidence are derived-only consumers of `DeliveryPlan` fields (`capability_level`, `capability_field`, `capability_reason`, `primary_strategy`). They observe and record what the planning pipeline decided; they do not re-decide capability or strategy. The one exception is replay execution (§ 14.5): replay intentionally re-runs planning against current capabilities and configuration rather than reusing the original live `DeliveryPlan`. This is by design — replay produces its own `DeliveryPlan` instances (with `source="replay"`) so that replay outcomes reflect current transport reality, not stale historical planning state. Replay planning uses the same `CapabilityDecisionResolver` as live delivery (see Routing and Delivery Specification, § 6.3.8).
 
-## 13. Beta Contractual Guarantees
+## 13. Pre-Release Contractual Guarantees
 
-The following six guarantees are contractual for the current beta period:
+The following six guarantees are contractual during the pre-release period:
 
 1. **No secret leakage through any diagnostic path.** Frozen dataclasses and explicit sanitization enforce this. Turning up log verbosity MUST NOT leak secrets.
 
