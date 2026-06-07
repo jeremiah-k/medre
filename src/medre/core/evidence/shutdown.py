@@ -5,6 +5,13 @@ evidence from runtime state, outbox counts, retry worker state, runtime
 events, capacity state, and optional caller-supplied hints.  The function
 is **pure**: no I/O, no side effects, no async, no SDK objects.
 
+**Persistence boundary:** This module has no storage access.  All inputs
+are caller-supplied parameters (snapshots, dicts, enums).  The
+:class:`ShutdownStatus` enum values are evidence classification labels,
+not authoritative lifecycle states.  The ``mutate_outbox`` and
+``append_receipt`` fields on :class:`OutboxShutdownClassification` are
+always ``False`` — this module never requests storage mutation.
+
 Design constraints
 ------------------
 * **JSON-safe**: every value is ``str``/``int``/``float``/``bool``/``None``

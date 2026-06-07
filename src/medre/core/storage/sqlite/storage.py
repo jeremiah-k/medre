@@ -4,6 +4,19 @@ Uses *aiosqlite* when available for native async database access; otherwise
 falls back to synchronous ``sqlite3`` dispatched through a private
 ``ThreadPoolExecutor``.  The database runs in WAL mode for safe concurrent
 reads.
+
+Storage authority summary:
+  - canonical_events: **create** (append-only ingress facts).
+  - native_message_refs: **create** (idempotent transport correlation facts).
+  - event_relations: **create** (append alongside events).
+  - delivery_receipts: **append** (append-only historical delivery evidence;
+    never updated or deleted by runtime code).
+  - delivery_outbox: mutable operational state until terminal, then immutable
+    operational history.  Terminal rows are never deleted or replaced.
+  - No DELETE statements exist in the storage layer.  No runtime code path
+    deletes historical data.
+  - ``open_readonly`` opens a strict read-only connection — suitable for
+    ``medre inspect`` commands that must never mutate storage.
 """
 
 from __future__ import annotations
@@ -398,7 +411,7 @@ class _SQLiteStorageBase:
                             # original cancellation.
                             self._db = db
                             self._closed = False
-                            raise orig_cancelled
+                            raise orig_cancelled from None
                         except BaseException as close_exc:
                             # If the close task raises a non-cancellation
                             # exception, we must restore _db so a later
@@ -409,7 +422,7 @@ class _SQLiteStorageBase:
                             # prevents silent resource leaks.
                             self._db = db
                             self._closed = False
-                            raise close_exc
+                            raise close_exc from orig_cancelled
                         raise orig_cancelled
                     except BaseException:
                         # On any non-cancellation failure, ensure the close

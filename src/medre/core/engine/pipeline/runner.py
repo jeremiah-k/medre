@@ -1564,10 +1564,47 @@ class PipelineRunner:
                     # Accounting: outbound delivery attempt.
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_attempt()
+
+                    # For replay deliveries, look up the most recent
+                    # receipt for the same delivery identity so that
+                    # compute_attempt_context returns the correct
+                    # attempt_number instead of always 1.
+                    _previous_receipt: DeliveryReceipt | None = None
+                    if source == "replay":
+                        try:
+                            _existing_receipts = (
+                                await self._config.storage.list_receipts_for_event(
+                                    event.event_id,
+                                )
+                            )
+                            _matching = [
+                                r
+                                for r in _existing_receipts
+                                if r.delivery_plan_id == route_plan.plan_id
+                                and r.target_adapter == adapter_id
+                                and (r.target_channel or None)
+                                == (target.channel or None)
+                            ]
+                            if _matching:
+                                _previous_receipt = max(
+                                    _matching,
+                                    key=lambda r: r.attempt_number,
+                                )
+                        except Exception:
+                            self._log.debug(
+                                "Failed to look up previous receipt for "
+                                "replay delivery; proceeding without "
+                                "attempt lineage: event_id=%s adapter=%s",
+                                event.event_id,
+                                adapter_id,
+                                exc_info=True,
+                            )
+
                     receipt = await self.deliver_to_target(
                         event,
                         route,
                         route_plan,
+                        previous_receipt=_previous_receipt,
                         source=source,
                         replay_run_id=replay_run_id,
                         cached_get_fn=cached_get_fn,

@@ -1,7 +1,8 @@
 """Read-only evidence collector backed by :class:`~medre.core.storage.backend.StorageBackend`.
 
-The :class:`EvidenceCollector` reads stored data (events, receipts, native
-refs, outbox items) and assembles a deterministic, JSON-safe
+The :class:`EvidenceCollector` reads stored data from ``canonical_events``,
+``delivery_receipts``, ``native_message_refs``, and ``delivery_outbox`` and
+assembles a deterministic, JSON-safe
 :class:`~medre.core.evidence.bundle.EvidenceBundle` for a single event.
 It **never** writes to storage or mutates runtime state.
 """
@@ -279,6 +280,14 @@ def _retry_outbox_summary_to_dict(summary: RetryOutboxSummary) -> dict[str, Any]
 class EvidenceCollector:
     """Read-only collector that assembles an :class:`EvidenceBundle`.
 
+    **Persistence boundary:** This collector reads from the following
+    storage tables via the injected storage backend (all read-only):
+    ``canonical_events``, ``delivery_receipts``, ``native_message_refs``, and optionally
+    ``delivery_outbox``.  It never writes to storage or mutates runtime
+    state.  All derived fields (delivery outcome ledger, retry outbox
+    summary, convergence, orphan report, recovery) are computed on demand
+    from the loaded rows and are not persisted.
+
     Parameters
     ----------
     storage:
@@ -301,7 +310,7 @@ class EvidenceCollector:
     async def collect_for_event(self, event_id: str) -> EvidenceBundle:
         """Collect a deterministic evidence bundle for one event.
 
-        Reads event, receipts, native refs, and outbox items from storage
+        Reads canonical_events, delivery_receipts, native_message_refs, and delivery_outbox rows from storage
         (all read-only).  Assembles a frozen bundle with deterministic
         ordering.  Missing event produces a warning but not a crash.
         Missing related records produce empty collections, not errors.

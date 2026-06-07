@@ -4,8 +4,12 @@ Builds deterministic, chronological timelines from storage evidence
 (events, receipts, native refs, relations).  All output is JSON-safe
 and bounded to prevent unbounded memory use.
 
-This module is the sole authority for timeline construction logic used
-by ``medre trace event`` and ``medre trace replay`` CLI commands.
+**Persistence boundary:** This module is the sole authority for timeline
+construction logic used by ``medre trace event`` and ``medre trace replay``
+CLI commands.  It is pure — it accepts already-loaded data objects and
+never reads from or writes to storage directly.  All state labels in
+timeline output are derived display values, not authoritative lifecycle
+states.
 """
 
 from __future__ import annotations

@@ -17,7 +17,12 @@ async def _evidence(
     *,
     storage_path: str,
 ) -> None:
-    """Collect and print an evidence bundle."""
+    """Collect and print an evidence bundle.
+
+    Read-only derived view: delegates to ``collect_evidence_bundle`` which
+    opens storage in read-only mode and queries persisted rows.  All derived
+    sections are computed on demand — no storage mutation occurs.
+    """
     report = await collect_evidence_bundle(
         None,
         event_id=event_id,

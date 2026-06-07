@@ -393,6 +393,12 @@ def build_delivery_outcome_ledger(
     * ``replay_run_id`` is populated only when ``source == "replay"``.
     * Fields that cannot be derived from the input records are set to
       ``None``.
+
+    **Persistence boundary:** Input records originate from the
+    ``delivery_receipts`` and ``delivery_outbox`` storage tables (read-only).
+    This function is pure and never writes to storage.  Output labels
+    (e.g. ``retry_state``) are derived display values, not authoritative
+    lifecycle states.
     """
     # Phase 1: Normalise all records into a single list.
     normalised: list[dict[str, Any]] = []

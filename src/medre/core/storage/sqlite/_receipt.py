@@ -1,4 +1,19 @@
-"""Delivery receipt mixins for SQLiteStorage."""
+"""Delivery receipt mixins for SQLiteStorage.
+
+Authority surface:
+  - append_receipt: **append** (append-only).  Delivery receipts are
+    historical delivery evidence — once appended they must never be updated
+    or deleted by runtime code.  The ``sequence`` column (INTEGER PRIMARY KEY
+    AUTOINCREMENT) provides strict chronological ordering.  No update-receipt
+    or delete-receipt method exists by design.
+  - delivery_status:              **list/get** (read-only).
+  - list_receipts_for_plan:       **list/get** (read-only).
+  - list_receipts_by_replay_run:  **list/get** (read-only).
+  - list_receipts_for_event:      **list/get** (read-only).
+  - list_all_receipts:            **list/get** (read-only).
+  - list_due_retry_receipts:      **list/get** (read-only).
+  - count_pending_retry:          **list/get** (read-only).
+"""
 
 from __future__ import annotations
 
@@ -27,8 +42,9 @@ class _ReceiptMixin:
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         """Append a delivery receipt record.
 
-        Receipts are append-only: every call creates a new row.  Existing
-        receipt rows are never updated or deleted.  The ``delivery_status``
+        Authority: **append** (append-only).  Receipts are append-only:
+        every call creates a new row.  Existing receipt rows are never
+        updated or deleted.  The ``delivery_status``
         view projects the latest receipt as a ``MAX(sequence)`` aggregation.
 
         Empty-string ``target_channel`` values are normalised to ``None``
@@ -86,7 +102,7 @@ class _ReceiptMixin:
     ) -> DeliveryReceipt | None:
         """Return the latest receipt for a delivery plan / adapter / channel triple.
 
-        Queries the ``delivery_receipts`` base table directly (rather than
+        Authority: **list/get** (read-only).  Queries the ``delivery_receipts`` base table directly (rather than
         the ``delivery_status`` view) so that NULL and empty-string channel
         values are handled robustly without relying on the view's
         ``COALESCE(target_channel, '')`` grouping.
@@ -124,7 +140,7 @@ class _ReceiptMixin:
         """Return all receipts for a delivery plan / adapter pair in
         attempt order.
 
-        Receipts are ordered by ``attempt_number`` ascending (then
+        Authority: **list/get** (read-only).  Receipts are ordered by ``attempt_number`` ascending (then
         ``sequence`` as tiebreaker) so callers can walk the full
         receipt lineage from first attempt to last.
         """
@@ -140,7 +156,7 @@ class _ReceiptMixin:
     ) -> list[DeliveryReceipt]:
         """Return all receipts produced by a specific replay run.
 
-        Receipts are ordered by ``sequence`` ascending.  Only receipts
+        Authority: **list/get** (read-only).  Receipts are ordered by ``sequence`` ascending.  Only receipts
         with the given ``replay_run_id`` are returned.  Returns an
         empty list when no receipts match.
         """
@@ -156,7 +172,7 @@ class _ReceiptMixin:
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts for a specific event.
 
-        Receipts are ordered by ``sequence`` ascending, which reflects
+        Authority: **list/get** (read-only).  Receipts are ordered by ``sequence`` ascending, which reflects
         the chronological append order across all delivery plans and
         adapters for this event.
         """
@@ -173,7 +189,8 @@ class _ReceiptMixin:
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts in sequence order.
 
-        Ordered by ``sequence`` ascending for deterministic output.
+        Authority: **list/get** (read-only).  Ordered by ``sequence``
+        ascending for deterministic output.
         Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
@@ -187,7 +204,10 @@ class _ReceiptMixin:
     ) -> list[DeliveryReceipt]:
         """Return transient-failure receipts whose next_retry_at <= now,
         ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
-        Excludes receipts that have reached *max_attempts* or are dead_lettered."""
+        Excludes receipts that have reached *max_attempts* or are dead_lettered.
+
+        Authority: **list/get** (read-only).
+        """
         rows = await self._read_all(
             """SELECT * FROM delivery_receipts r
              WHERE r.status = 'failed'
@@ -207,7 +227,10 @@ class _ReceiptMixin:
         return [_row_to_receipt(r) for r in rows]
 
     async def count_pending_retry(self, now: datetime, max_attempts: int = 3) -> int:
-        """Count transient-failure receipts due for retry."""
+        """Count transient-failure receipts due for retry.
+
+        Authority: **list/get** (read-only).
+        """
         row = await self._read_one(
             """SELECT COUNT(*) AS cnt FROM delivery_receipts r
              WHERE r.status = 'failed'

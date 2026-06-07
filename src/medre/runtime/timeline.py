@@ -78,6 +78,11 @@ async def assemble_event_timeline(
 
     Returns ``None`` when the event does not exist in storage.
 
+    **Persistence boundary:** Reads from ``canonical_events``, ``delivery_receipts``,
+    ``native_message_refs``, and ``event_relations`` storage tables (all read-only).
+    Never writes to storage.  Source classification (live/replay/retry/mixed)
+    and replay-run grouping are derived on demand from receipt rows.
+
     The returned dict contains:
 
     - **event**: the :class:`CanonicalEvent` (or ``None``).
@@ -164,6 +169,9 @@ async def assemble_replay_timeline(
 
     Returns ``None`` when no receipts exist for the given run ID.
 
+    **Persistence boundary:** Reads from ``delivery_receipts`` and
+    ``canonical_events`` storage tables (all read-only).  Never writes to storage.
+
     The returned dict contains:
 
     - **replay_run_id**: the run ID passed by the caller.
@@ -210,6 +218,9 @@ async def assemble_replay_timeline(
 
 async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
     """Return aggregate counts and ordering documentation for *storage*.
+
+    **Persistence boundary:** Read-only queries against storage tables.
+    Never writes to storage.
 
     Uses existing public count methods where available; falls back to
     lightweight SQL for counts not exposed as dedicated methods.

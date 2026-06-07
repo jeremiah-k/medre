@@ -4,6 +4,13 @@ These functions are dispatched through
 :class:`~medre.core.storage.sqlite.storage.SQLiteStorage`'s private
 ``ThreadPoolExecutor`` via ``loop.run_in_executor``.  Each function is
 pure with respect to the connection — no instance state is accessed.
+
+Internal authority:
+  - sync_open / sync_open_readonly: infrastructure (connection lifecycle).
+  - sync_create_indexes: infrastructure (DDL).
+  - sync_write / sync_write_batch: **internal write primitives** — all
+    domain authority is enforced by the calling mixin methods, not here.
+  - sync_read_one / sync_read_all: **internal read primitives**.
 """
 
 from __future__ import annotations

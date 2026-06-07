@@ -1,4 +1,10 @@
-"""Relation mixins for SQLiteStorage."""
+"""Relation mixins for SQLiteStorage.
+
+Authority surface:
+  - _relation_op:    internal (builds SQL/params, no I/O).
+  - store_relation:  **create** (append-only alongside events).
+  - list_relations:  **list/get** (read-only).
+"""
 
 from __future__ import annotations
 
@@ -40,11 +46,17 @@ class _RelationMixin:
         )
 
     async def store_relation(self, event_id: str, relation: EventRelation) -> None:
-        """Persist a single relation for an existing event."""
+        """Persist a single relation for an existing event.
+
+        Authority: **create**.
+        """
         sql, params = self._relation_op(event_id, relation)
         await self._write(sql, params)
 
     async def list_relations(self, event_id: str) -> list[EventRelation]:
-        """Return all relations belonging to *event_id*."""
+        """Return all relations belonging to *event_id*.
+
+        Authority: **list/get** (read-only).
+        """
         rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
         return [_row_to_relation(r) for r in rows]

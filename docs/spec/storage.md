@@ -10,7 +10,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 
 ## 1. Scope
 
-This document specifies the MEDRE storage layer: the single source of truth for canonical events, native message references, delivery receipts, event relations, identity data, plugin state, raw native archives, operational delivery outbox state, and filesystem path resolution.
+This document specifies the MEDRE storage layer. The current SQLite backend persists `canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`, `delivery_outbox`, a schema-reserved `plugin_state` table, and schema metadata. Identity tables (`actors`, `native_identities`, `actor_identity_links`, `actor_permissions`) and `native_archive` are spec-planned and documented here but not part of the current DDL.
 
 The initial and current backend is SQLite. The `StorageBackend` protocol (Section 3) abstracts over implementation so that future backends (PostgreSQL, NATS JetStream, Redis Streams, Kafka) MAY be substituted without changing callers.
 
@@ -296,9 +296,9 @@ CREATE TABLE canonical_events (
 
 **Indexes:**
 
-| Index                           | Columns                 | Purpose                      |
-| ------------------------------- | ----------------------- | ---------------------------- |
-| `idx_events_timestamp_event_id` | `(timestamp, event_id)` | ORDER BY timestamp ascending |
+| Index                  | Columns                 | Purpose                      |
+| ---------------------- | ----------------------- | ---------------------------- |
+| `idx_events_timestamp` | `(timestamp, event_id)` | ORDER BY timestamp ascending |
 
 `source_transport_id` identifies the native actor (who produced the event), not the native message. `source_channel_id` is the native channel/room/topic where the event originated; `NULL` if the transport has no channel concept.
 
@@ -355,10 +355,10 @@ CREATE TABLE native_message_refs (
 
 **Indexes:**
 
-| Index                      | Columns                                           | Purpose                                            |
-| -------------------------- | ------------------------------------------------- | -------------------------------------------------- |
-| `idx_native_refs_event_id` | `(event_id)`                                      | Reverse lookup from canonical event to native refs |
-| _(autoindex)_              | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint            |
+| Index                     | Columns                                           | Purpose                                                                   |
+| ------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------- |
+| `idx_nrefs_event_created` | `(event_id, created_at)`                          | Reverse lookup from canonical event to native refs, ordered by created_at |
+| _(autoindex)_             | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint                                   |
 
 The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the foundation of idempotent correlation. Two calls to `store_native_ref` with the same adapter, channel, and message ID **MUST NOT** create duplicate rows.
 
@@ -470,7 +470,7 @@ CREATE TABLE plugin_state (
 );
 ```
 
-Scoped key-value storage for plugins. Keys are scoped to `plugin_id`. Plugins **MUST NOT** read or write state belonging to other plugins.
+Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
 
 ### 4.7 \_medre_schema_meta
 
@@ -484,6 +484,8 @@ CREATE TABLE _medre_schema_meta (
 Internal metadata table. Tracks the storage schema version. On initialization, the implementation **MUST** check that the stored `schema_version` matches `_EXPECTED_SCHEMA_VERSION`. On a fresh database, the version row is inserted. If the version mismatches, `StorageInitializationError` **MUST** be raised.
 
 ### 4.8 Identity Tables
+
+> **Spec-planned.** The identity tables below are not part of the current SQLite DDL (see [schema.py](../../src/medre/core/storage/sqlite/schema.py)). They document the intended shape for future implementation. Do not assume they exist at runtime.
 
 #### actors
 
@@ -540,6 +542,8 @@ CREATE TABLE actor_permissions (
 ```
 
 ### 4.9 native_archive
+
+> **Spec-planned.** The `native_archive` table is not part of the current SQLite DDL. It documents the intended shape for future opt-in raw-data archiving. Do not assume it exists at runtime.
 
 ```sql
 CREATE TABLE native_archive (
@@ -871,10 +875,11 @@ Native message refs created during replay are not tagged with `source` or `repla
 
 ### 13.4 Replay Constraints
 
-- Replay **MUST NOT** modify existing canonical events. Replay reads historical
-  events from storage. BEST_EFFORT may create new delivery receipts and native
-  refs through adapter delivery. Non-BEST_EFFORT modes are read-only. Derived
-  canonical event creation is not part of current replay semantics.
+- Replay **MUST NOT** modify existing canonical events, receipts, native refs, or terminal outbox rows. Replay reads historical
+  events from storage. In BEST_EFFORT mode, replay delegates delivery to the normal pipeline; that pipeline may create
+  new `delivery_outbox` rows for replay attempts, `delivery_receipts` with `source='replay'`, and outbound
+  `native_message_refs`. New outbox rows **MUST** use new attempt identity and **MUST NOT** mutate terminal or active live
+  rows. Non-BEST_EFFORT modes are read-only. Derived canonical event creation is not part of current replay semantics.
 - Replay **MAY** target specific stages (e.g., re-run transforms only, skip policy).
   When `target_stages` is explicitly provided in a ReplayRequest, replay runs
   the intersection of the requested stages and the mode-allowed stages. The
@@ -952,3 +957,49 @@ class StorageConfig:
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
 | Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
 | Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |
+
+## 16. Storage Ownership Semantics
+
+This section states which code owns each table's rows, who may create/mutate/delete them, and what retention guarantees apply. The detailed per-table audit lives in [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
+
+### 16.1 Ownership Summary
+
+| Table / category      | Creator                                                                            | Mutator                                                 | Deleter                                       | Retention                        |
+| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever                          |
+| `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever                          |
+| `native_message_refs` | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                | None                                          | Forever                          |
+| `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
+| `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
+| `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |
+| `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever                          |
+
+### 16.2 Ownership Rules
+
+1. **`canonical_events` are canonical ingress facts.** Each row records a normalized event after codec processing and conversation assignment by `ConversationGraphAuthority`. Rows are never updated or deleted. The event log is the single source of truth for what happened.
+
+2. **`native_message_refs` are native transport correlation facts.** Adapters report them as observations of native-to-canonical mappings. Inserts are idempotent. No code path updates or deletes a native ref.
+
+3. **`delivery_receipts` are append-only delivery evidence.** Every delivery attempt (live, retry, or replay) produces a new receipt row. Existing receipt rows are never modified or deleted. The current delivery status is a projection from the `delivery_status` view (Section 4.5), not a mutable field.
+
+4. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
+
+5. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
+
+6. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
+
+7. **Schema metadata identifies the current prerelease shape.** `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen until MEDRE reaches a release-tracked milestone. Column-shape validation (Section 10.2) catches prerelease drift without a version bump. No migration or schema bump work is required now.
+
+8. **Adapters report facts; core records persistence.** Adapters surface canonical events, adapter delivery facts, and native transport facts to the runtime. Core pipeline/runtime code records those facts through storage methods such as `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle persistence, do not append receipts directly, and do not mutate storage rows.
+
+### 16.3 Spec-Planned Tables
+
+The following tables are documented in Sections 4.8 and 4.9 but are not part of the current SQLite DDL. They are included here to define the intended ownership model for when they are implemented:
+
+| Planned table          | Intended creator                  | Intended retention                |
+| ---------------------- | --------------------------------- | --------------------------------- |
+| `actors`               | Identity resolution service       | Until explicitly deleted          |
+| `native_identities`    | Identity resolution service       | Until explicitly deleted          |
+| `actor_identity_links` | Identity resolution service       | Until explicitly deleted          |
+| `actor_permissions`    | Authorization service             | Until explicitly revoked          |
+| `native_archive`       | Archive-enabled adapters (opt-in) | Configurable (time/count pruning) |

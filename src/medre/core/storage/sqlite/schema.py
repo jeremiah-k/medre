@@ -160,7 +160,9 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 # NOTE: idx_nrefs_event_created replaces the older idx_nrefs_event_id.  The
 # composite (event_id, created_at) covers the WHERE + ORDER BY of
 # _SELECT_NREFS_FOR_EVENT and is a strict superset of the single-column index.
-# The DROP IF EXISTS handles databases created before this migration.
+# The DROP IF EXISTS handles old prerelease databases that still have the
+# previous single-column index.  This is index-shape cleanup, not a
+# schema-versioned migration.
 _INDEXES: str = """
 CREATE INDEX IF NOT EXISTS idx_events_timestamp
     ON canonical_events(timestamp, event_id);

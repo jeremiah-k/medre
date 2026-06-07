@@ -1,4 +1,13 @@
-"""Recover CLI command: analyze failed deliveries and generate recovery runbooks."""
+"""Recover CLI command: analyze failed deliveries and generate recovery runbooks.
+
+Read-only diagnostic / operator recovery surface.  Opens storage in
+read-only mode, inspects events/receipts/timeline, classifies failures,
+and prints structured runbooks.  Does not mutate storage, create
+receipts, or transition outbox status.
+
+The only write-like behaviour is printing to stdout/stderr.  All storage
+access uses ``_open_readonly_storage``.
+"""
 
 from __future__ import annotations
 

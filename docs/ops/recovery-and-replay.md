@@ -4,6 +4,15 @@ How to recover from crashes, detect orphaned events, and re-process historical d
 
 All recovery is operator-initiated. There is no automatic remediation, no per-adapter restart, and no auto-healing. The RetryWorker handles transient failures automatically when enabled, but replay for orphaned events is always manual.
 
+## Recovery Boundaries
+
+Recovery operates within strict boundaries set by storage ownership:
+
+- **Recovery never invents delivery success.** A `sent` receipt only exists because a real delivery attempt produced it. Orphan detection identifies events without receipts, but producing a receipt requires an actual delivery attempt through replay or retry.
+- **Recovery never rewrites history.** Existing receipts, events, and native refs are immutable. Recovery can only produce new state: new delivery attempts through replay, new retry receipts through the RetryWorker, or reclaimed outbox rows through lease expiry.
+- **Outbox reclaim is not lifecycle success.** Reclaiming an expired `in_progress` row or stale `queued` row restores operational work state. It does not imply the delivery succeeded. The outbox row must still complete the delivery pipeline and produce a receipt.
+- **Orphan detection is bookkeeping.** The orphan query (events with no receipts) is a diagnostic observation. It does not create, modify, or delete any storage rows. Re-delivering orphans requires explicit operator action via replay.
+
 ## Complete Incident Workflow
 
 ```bash
