@@ -133,7 +133,7 @@ async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
     # Backup (if requested), then delete main DB and WAL/SHM sidecars.
     try:
         if backup:
-            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             backup_path = resolved.with_suffix(f".bak-{ts}.db")
             shutil.copy2(resolved, backup_path)
             print(f"Backup: {backup_path}")
