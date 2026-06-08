@@ -960,9 +960,7 @@ class MeshtasticAdapter(AdapterContract):
             # remaining queued items as abandoned.
             await self._report_cancelled_and_drain()
 
-    async def _report_queue_terminal(
-        self, result: QueueTerminalResult
-    ) -> None:
+    async def _report_queue_terminal(self, result: QueueTerminalResult) -> None:
         """Report a terminal queue outcome to core.
 
         Constructs a :class:`QueueTerminalRecord` from the terminal
@@ -985,11 +983,7 @@ class MeshtasticAdapter(AdapterContract):
             outcome=result.outcome,
             error=result.error,
         )
-        callback = (
-            self.ctx.record_outbound_terminal
-            if self.ctx is not None
-            else None
-        )
+        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
         if callback is not None:
             try:
                 await callback(record)
@@ -1012,11 +1006,7 @@ class MeshtasticAdapter(AdapterContract):
         ``"cancelled"``.  Then drains all remaining queued items and
         reports each as ``"abandoned"``.
         """
-        callback = (
-            self.ctx.record_outbound_terminal
-            if self.ctx is not None
-            else None
-        )
+        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
         if callback is None:
             # No callback wired — just drain silently.
             self._queue.drain_all()

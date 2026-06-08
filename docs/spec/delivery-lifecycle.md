@@ -183,12 +183,12 @@ When a queue-based adapter cannot deliver a previously-enqueued item, it
 reports a terminal outcome to the pipeline via `QueueTerminalRecord` with one
 of four outcomes:
 
-| Outcome            | Meaning                                                  |
-| ------------------ | -------------------------------------------------------- |
-| `exhausted`        | Local retry budget exhausted after transient failures    |
-| `permanent_failed` | Permanent send failure; no retry attempted               |
-| `cancelled`        | Item cancelled while in-flight (e.g. task cancellation)  |
-| `abandoned`        | Adapter shutdown with unsent queued items remaining      |
+| Outcome            | Meaning                                                 |
+| ------------------ | ------------------------------------------------------- |
+| `exhausted`        | Local retry budget exhausted after transient failures   |
+| `permanent_failed` | Permanent send failure; no retry attempted              |
+| `cancelled`        | Item cancelled while in-flight (e.g. task cancellation) |
+| `abandoned`        | Adapter shutdown with unsent queued items remaining     |
 
 The pipeline maps adapter-reported facts to lifecycle transitions:
 `exhausted` and `permanent_failed` → `dead_lettered` outbox + `failed` receipt;

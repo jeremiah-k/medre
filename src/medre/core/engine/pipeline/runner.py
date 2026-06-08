@@ -39,6 +39,7 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
+from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -1948,6 +1949,25 @@ class PipelineRunner:
                     "destination_name": target.destination.destination_name,
                     "destination_metadata": target.destination.metadata,
                 }
+
+            # Persist route-decision metadata so retry reconstruction
+            # recovers the original capability and strategy decisions
+            # instead of defaulting to capability_level=None / strategy="direct".
+            _route_decision_meta: dict[str, object] = {
+                "capability_level": route_plan.capability_level,
+                "delivery_strategy": route_plan.primary_strategy.method,
+                "capability_field": route_plan.capability_field,
+                "capability_reason": route_plan.capability_reason,
+                "deadline": (
+                    route_plan.deadline.isoformat()
+                    if route_plan.deadline is not None
+                    else None
+                ),
+            }
+            if _dest_meta is not None:
+                _dest_meta.update(_route_decision_meta)
+            else:
+                _dest_meta = _route_decision_meta
 
             attempt_number = 1
 

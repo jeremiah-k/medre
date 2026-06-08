@@ -1,10 +1,10 @@
-## Queued Delivery Outbox Correlation and Terminal Outcome Reporting
+# Queued Delivery Outbox Correlation and Terminal Outcome Reporting
 
 Add exact `outbox_id`/`attempt_number` correlation for async queued adapters,
 stale callback protection, terminal queue outcome reporting, and remove
 `delivery_plan_id=None` legacy fallback.
 
-### Changed
+## Changed
 
 - `src/medre/core/contracts/adapter.py` — added `QueueTerminalRecord`, `outbox_id`/`attempt_number` on `OutboundNativeRefRecord`, `record_outbound_terminal` callback on `AdapterContext`
 - `src/medre/core/rendering/renderer.py` — added `outbox_id`, `attempt_number` to `RenderingResult`
