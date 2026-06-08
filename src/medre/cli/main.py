@@ -384,9 +384,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     storage_status_p.add_argument(
         "--storage-path",
-        required=True,
+        required=False,
+        default=None,
         metavar="PATH",
-        help="Path to SQLite database (read-only)",
+        help="Path to SQLite database (default: standard database path)",
     )
 
     storage_reset_p = storage_sub.add_parser(
@@ -394,9 +395,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     storage_reset_p.add_argument(
         "--storage-path",
-        required=True,
+        required=False,
+        default=None,
         metavar="PATH",
-        help="Path to SQLite database to delete",
+        help="Path to SQLite database to delete (default: standard database path)",
     )
     storage_reset_p.add_argument(
         "--backup",
@@ -595,14 +597,18 @@ def main(argv: list[str] | None = None) -> None:
             )
         )
     elif args.command == "storage":
+        from medre.config.paths import resolve as resolve_paths
+
         from .storage_commands import _storage_reset, _storage_status
 
         if args.storage_command == "status":
-            asyncio.run(_storage_status(args.storage_path))
+            path = args.storage_path or str(resolve_paths().database_path)
+            asyncio.run(_storage_status(path))
         elif args.storage_command == "reset":
+            path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(
                 _storage_reset(
-                    args.storage_path,
+                    path,
                     backup=args.backup,
                     yes=args.yes,
                 )
