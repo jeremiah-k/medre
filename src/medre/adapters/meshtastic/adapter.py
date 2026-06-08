@@ -1003,63 +1003,70 @@ class MeshtasticAdapter(AdapterContract):
         Called when the queue drain task catches CancelledError.  Retrieves
         the in-flight item that was being processed when cancellation
         occurred (via :meth:`pop_cancelled_item`) and reports it as
-        ``"cancelled"``.  Then drains all remaining queued items and
-        reports each as ``"abandoned"``.
+        ``"cancelled"``.
+
+        Only drains remaining queued items when there is evidence the
+        drain task was actively processing work (a cancelled in-flight
+        item exists).  When no item was in-flight the drain task was
+        cancelled before doing any work (e.g. immediately after start());
+        remaining items are left in the queue so they survive across the
+        stop boundary for the next start() cycle.
         """
         callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
-        if callback is None:
-            # No callback wired — just drain silently.
-            self._queue.drain_all()
-            self._queue.pop_cancelled_item()
-            return
 
         # Report the in-flight cancelled item.
         cancelled_item = self._queue.pop_cancelled_item()
         if cancelled_item is not None:
-            record = QueueTerminalRecord(
-                event_id=cancelled_item.get("event_id") or "",
-                adapter=self.adapter_id,
-                outbox_id=cancelled_item.get("outbox_id"),
-                delivery_plan_id=cancelled_item.get("delivery_plan_id"),
-                attempt_number=cancelled_item.get("attempt_number"),
-                native_channel_id=str(cancelled_item.get("channel_index", "")),
-                outcome="cancelled",
-                error="queue drain task cancelled while item was in-flight",
-            )
-            try:
-                await callback(record)
-            except Exception:
-                if self.ctx is not None:
-                    self.ctx.logger.exception(
-                        "MeshtasticAdapter %s: error reporting cancelled "
-                        "item for event_id=%s",
-                        self.adapter_id,
-                        record.event_id,
-                    )
+            if callback is not None:
+                record = QueueTerminalRecord(
+                    event_id=cancelled_item.get("event_id") or "",
+                    adapter=self.adapter_id,
+                    outbox_id=cancelled_item.get("outbox_id"),
+                    delivery_plan_id=cancelled_item.get("delivery_plan_id"),
+                    attempt_number=cancelled_item.get("attempt_number"),
+                    native_channel_id=str(cancelled_item.get("channel_index", "")),
+                    outcome="cancelled",
+                    error="queue drain task cancelled while item was in-flight",
+                )
+                try:
+                    await callback(record)
+                except Exception:
+                    if self.ctx is not None:
+                        self.ctx.logger.exception(
+                            "MeshtasticAdapter %s: error reporting cancelled "
+                            "item for event_id=%s",
+                            self.adapter_id,
+                            record.event_id,
+                        )
 
-        # Drain remaining items as abandoned.
-        remaining = self._queue.drain_all()
-        for item in remaining:
-            record = QueueTerminalRecord(
-                event_id=item.get("event_id") or "",
-                adapter=self.adapter_id,
-                outbox_id=item.get("outbox_id"),
-                delivery_plan_id=item.get("delivery_plan_id"),
-                attempt_number=item.get("attempt_number"),
-                native_channel_id=str(item.get("channel_index", "")),
-                outcome="abandoned",
-                error="adapter shutdown with unsent queued items",
-            )
-            try:
-                await callback(record)
-            except Exception:
-                if self.ctx is not None:
-                    self.ctx.logger.exception(
-                        "MeshtasticAdapter %s: error reporting abandoned "
-                        "item for event_id=%s",
-                        self.adapter_id,
-                        record.event_id,
+            # Drain remaining items as abandoned — the drain task was
+            # actively processing, so all remaining work is orphaned.
+            remaining = self._queue.drain_all()
+            if callback is not None:
+                for item in remaining:
+                    record = QueueTerminalRecord(
+                        event_id=item.get("event_id") or "",
+                        adapter=self.adapter_id,
+                        outbox_id=item.get("outbox_id"),
+                        delivery_plan_id=item.get("delivery_plan_id"),
+                        attempt_number=item.get("attempt_number"),
+                        native_channel_id=str(item.get("channel_index", "")),
+                        outcome="abandoned",
+                        error="adapter shutdown with unsent queued items",
                     )
+                    try:
+                        await callback(record)
+                    except Exception:
+                        if self.ctx is not None:
+                            self.ctx.logger.exception(
+                                "MeshtasticAdapter %s: error reporting abandoned "
+                                "item for event_id=%s",
+                                self.adapter_id,
+                                record.event_id,
+                            )
+            else:
+                # No callback — just drain silently.
+                self._queue.drain_all()
 
     async def _record_delayed_outbound_ref(
         self,
