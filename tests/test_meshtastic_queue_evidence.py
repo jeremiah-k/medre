@@ -573,6 +573,7 @@ class TestSupplementalReceiptChannelCorrelation:
             route_id="route-a",
             status="queued",
             created_at=now,
+            outbox_id="obox-ch0",
         )
         rcpt_ch1 = DeliveryReceipt(
             receipt_id="rcpt-ch1",
@@ -583,6 +584,7 @@ class TestSupplementalReceiptChannelCorrelation:
             route_id="route-b",
             status="queued",
             created_at=now,
+            outbox_id="obox-ch1",
         )
         await temp_storage.append_receipt(rcpt_ch0)
         await temp_storage.append_receipt(rcpt_ch1)
@@ -757,6 +759,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 route_id="route-z",
                 status="queued",
                 created_at=now,
+                outbox_id="obox-single",
             )
         )
 
@@ -820,7 +823,8 @@ class TestSupplementalReceiptChannelCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Two queued receipts on the same channel (retry scenario).
-        # Same plan_id = retry lineage.
+        # Same plan_id = retry lineage. Both carry the same outbox_id so the
+        # exact outbox correlation filter can find them.
         await temp_storage.append_receipt(
             DeliveryReceipt(
                 receipt_id="rcpt-first",
@@ -832,6 +836,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 status="queued",
                 attempt_number=1,
                 created_at=now - timedelta(minutes=5),
+                outbox_id="obox-retry",
             )
         )
         await temp_storage.append_receipt(
@@ -845,6 +850,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 status="queued",
                 attempt_number=2,
                 created_at=now,
+                outbox_id="obox-retry",
             )
         )
 

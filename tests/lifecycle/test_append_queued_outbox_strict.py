@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from msgspec.structs import replace
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 from .conftest import _make_lifecycle, _make_receipt

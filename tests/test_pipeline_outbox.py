@@ -894,6 +894,7 @@ class TestTargetedOutboxLookupRegression:
             attempt_number=1,
             parent_receipt_id=None,
             source="live",
+            outbox_id="obox-target-regression",
         )
         await temp_storage.append_receipt(queued_receipt)
 

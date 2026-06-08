@@ -77,6 +77,7 @@ class TestDelegationIntegration:
             status="queued",
             adapter="mesh",
             channel="0",
+            outbox_id="obox-delegate-qs",
         )
         await temp_storage.append_receipt(queued)
 

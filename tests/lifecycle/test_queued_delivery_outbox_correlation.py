@@ -66,6 +66,7 @@ def _make_receipt(
     next_retry_at: datetime | None = None,
     source: str = "live",
     replay_run_id: str | None = None,
+    outbox_id: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         sequence=0,
@@ -83,6 +84,7 @@ def _make_receipt(
         next_retry_at=next_retry_at,
         source=source,
         replay_run_id=replay_run_id,
+        outbox_id=outbox_id,
     )
 
 
@@ -424,6 +426,7 @@ class TestStaleCallbackAfterRetryReclaim:
                 channel="0",
                 plan_id="plan-retry-b",
                 event_id="evt-retry",
+                outbox_id="obox-b",
             )
         )
         outbox_b = DeliveryOutboxItem(
@@ -648,6 +651,7 @@ class TestExactOutboxIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-exact",
+                outbox_id="obox-exact",
             )
         )
 
@@ -708,6 +712,7 @@ class TestExactOutboxIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-a",
+                outbox_id="obox-plan-a",
             )
         )
         await temp_storage.append_receipt(
@@ -829,6 +834,7 @@ class TestDuplicateCallbackIdempotent:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-dup",
+                outbox_id="obox-dup",
             )
         )
 
@@ -900,6 +906,7 @@ class TestDuplicateCallbackIdempotent:
                 channel="0",
                 plan_id="plan-dup2",
                 event_id="evt-002",
+                outbox_id="obox-dup2",
             )
         )
 

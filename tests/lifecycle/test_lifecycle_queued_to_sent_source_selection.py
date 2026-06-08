@@ -52,6 +52,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-src",
                 source="replay",
                 replay_run_id="run-42",
+                outbox_id="obox-live-vs-replay",
             )
         )
         # Live queued receipt (appended second — would also win by recency).
@@ -63,6 +64,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-src",
                 source="live",
+                outbox_id="obox-live-vs-replay",
             )
         )
 
@@ -118,6 +120,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-order",
                 source="live",
+                outbox_id="obox-order",
             )
         )
         # Replay queued receipt (appended second — would win by recency alone).
@@ -130,6 +133,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-order",
                 source="replay",
                 replay_run_id="run-99",
+                outbox_id="obox-order",
             )
         )
 
@@ -231,6 +235,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-live",
                 source="live",
+                outbox_id="obox-live-single",
             )
         )
 
@@ -293,6 +298,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-dup",
                 source="live",
+                outbox_id="obox-dup-1",
             )
         )
 
@@ -337,6 +343,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-dup",
                 source="live",
                 attempt_number=2,
+                outbox_id="obox-dup-2",
             )
         )
         outbox_item2 = DeliveryOutboxItem(
@@ -389,6 +396,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-nc",
                 source="replay",
                 replay_run_id="run-10",
+                outbox_id="obox-nc",
             )
         )
         # Live candidate second.
@@ -400,6 +408,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-nc",
                 source="live",
+                outbox_id="obox-nc",
             )
         )
 
@@ -510,6 +519,7 @@ class TestSourceAwareCandidateSelection:
                 adapter="m",
                 channel="0",
                 plan_id="plan-single",
+                outbox_id="obox-single",
             )
         )
 
@@ -561,6 +571,7 @@ class TestSourceAwareCandidateSelection:
                 adapter="m",
                 channel="0",
                 attempt_number=1,
+                outbox_id="obox-retry",
             )
         )
         await temp_storage.append_receipt(
@@ -570,6 +581,7 @@ class TestSourceAwareCandidateSelection:
                 adapter="m",
                 channel="0",
                 attempt_number=2,
+                outbox_id="obox-retry",
             )
         )
 

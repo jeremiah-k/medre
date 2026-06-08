@@ -52,6 +52,7 @@ def _make_receipt(
     next_retry_at: datetime | None = None,
     source: str = "live",
     replay_run_id: str | None = None,
+    outbox_id: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         sequence=0,
@@ -69,4 +70,5 @@ def _make_receipt(
         next_retry_at=next_retry_at,
         source=source,
         replay_run_id=replay_run_id,
+        outbox_id=outbox_id,
     )

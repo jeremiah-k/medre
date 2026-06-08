@@ -43,6 +43,7 @@ class TestAppendQueuedToSentReceipt:
             adapter="mesh-1",
             channel="0",
             plan_id="plan-q",
+            outbox_id="obox-supplemental-sent",
         )
         await temp_storage.append_receipt(queued)
 
@@ -116,6 +117,7 @@ class TestSameChannelRetryLineageRegression:
                 channel="0",
                 plan_id="plan-r",
                 attempt_number=1,
+                outbox_id="obox-retry-multi",
             )
         )
         await temp_storage.append_receipt(
@@ -126,6 +128,7 @@ class TestSameChannelRetryLineageRegression:
                 channel="0",
                 plan_id="plan-r",
                 attempt_number=2,
+                outbox_id="obox-retry-multi",
             )
         )
 
@@ -237,6 +240,7 @@ class TestSupplementalOutboxTransition:
             adapter="mesh-1",
             channel="0",
             plan_id="plan-outbox",
+            outbox_id="obox-supplemental",
         )
         await temp_storage.append_receipt(queued)
 
@@ -352,7 +356,11 @@ class TestAppendQueuedToSentErrorPaths:
         lifecycle = _make_lifecycle()
         await temp_storage.append_receipt(
             _make_receipt(
-                receipt_id="rcpt-ob", status="queued", adapter="m", channel="0"
+                receipt_id="rcpt-ob",
+                status="queued",
+                adapter="m",
+                channel="0",
+                outbox_id="obox-supp-err",
             )
         )
 
@@ -434,6 +442,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="mesh",
                 channel="0",
                 plan_id="plan-b",
+                outbox_id="obox-plan-b",
             )
         )
 
@@ -497,6 +506,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-a2",
+                outbox_id="obox-a2",
             )
         )
         await temp_storage.append_receipt(
@@ -506,6 +516,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-b2",
+                outbox_id="obox-b2",
             )
         )
 
@@ -596,6 +607,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-retry",
                 attempt_number=1,
+                outbox_id="obox-retry-latest",
             )
         )
         await temp_storage.append_receipt(
@@ -606,6 +618,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-retry",
                 attempt_number=2,
+                outbox_id="obox-retry-latest",
             )
         )
 
@@ -957,6 +970,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-match",
+                outbox_id="obox-match",
             )
         )
 
