@@ -979,7 +979,9 @@ class MeshtasticAdapter(AdapterContract):
             outbox_id=result.item.get("outbox_id"),
             delivery_plan_id=result.item.get("delivery_plan_id"),
             attempt_number=result.item.get("attempt_number"),
-            native_channel_id=str(result.item.get("channel_index", "")),
+            native_channel_id=(
+                str(ch) if (ch := result.item.get("channel_index")) is not None else ""
+            ),
             outcome=result.outcome,
             error=result.error,
         )
@@ -1024,7 +1026,11 @@ class MeshtasticAdapter(AdapterContract):
                     outbox_id=cancelled_item.get("outbox_id"),
                     delivery_plan_id=cancelled_item.get("delivery_plan_id"),
                     attempt_number=cancelled_item.get("attempt_number"),
-                    native_channel_id=str(cancelled_item.get("channel_index", "")),
+                    native_channel_id=(
+                        str(ch)
+                        if (ch := cancelled_item.get("channel_index")) is not None
+                        else ""
+                    ),
                     outcome="cancelled",
                     error="queue drain task cancelled while item was in-flight",
                 )
@@ -1050,7 +1056,11 @@ class MeshtasticAdapter(AdapterContract):
                         outbox_id=item.get("outbox_id"),
                         delivery_plan_id=item.get("delivery_plan_id"),
                         attempt_number=item.get("attempt_number"),
-                        native_channel_id=str(item.get("channel_index", "")),
+                        native_channel_id=(
+                            str(ch)
+                            if (ch := item.get("channel_index")) is not None
+                            else ""
+                        ),
                         outcome="abandoned",
                         error="adapter shutdown with unsent queued items",
                     )

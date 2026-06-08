@@ -761,11 +761,17 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         # Create matching outbox item for exact correlation.
-        await temp_storage.create_outbox_item(DeliveryOutboxItem(
-            outbox_id="obox-single", event_id=event_id, route_id="route-z",
-            delivery_plan_id="plan-only", target_adapter="mesh-1",
-            target_channel="0", status="in_progress",
-        ))
+        await temp_storage.create_outbox_item(
+            DeliveryOutboxItem(
+                outbox_id="obox-single",
+                event_id=event_id,
+                route_id="route-z",
+                delivery_plan_id="plan-only",
+                target_adapter="mesh-1",
+                target_channel="0",
+                status="in_progress",
+            )
+        )
         await temp_storage.mark_outbox_queued("obox-single")
 
         runner = PipelineRunner(

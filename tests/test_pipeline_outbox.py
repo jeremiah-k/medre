@@ -1228,8 +1228,8 @@ class TestRecordTerminalAttemptNumber:
             "evt-terminal-attempt",
         )
         assert len(receipts) == 1
-        assert receipts[0].attempt_number == 3, (
-            f"Expected attempt_number=3, got {receipts[0].attempt_number}"
-        )
+        assert (
+            receipts[0].attempt_number == 3
+        ), f"Expected attempt_number=3, got {receipts[0].attempt_number}"
         assert receipts[0].status == "failed"
         assert receipts[0].outbox_id == "obox-attempt-3"

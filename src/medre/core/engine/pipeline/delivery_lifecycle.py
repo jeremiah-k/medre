@@ -678,7 +678,7 @@ class DeliveryLifecycleService:
                 r
                 for r in candidates
                 if r.delivery_plan_id == outbox_item.delivery_plan_id
-                and r.target_channel == outbox_item.target_channel
+                and (r.target_channel or None) == (outbox_item.target_channel or None)
             ]
 
             if not outbox_matches:
