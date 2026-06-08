@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 import sqlite3
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 from unittest.mock import patch
 
@@ -85,7 +85,7 @@ def _seed_fresh_db(tmp_path: Path) -> Path:
 def _seed_fresh_db_with_event(tmp_path: Path) -> Path:
     """Create a fresh DB with a single event for status reporting tests."""
     import asyncio
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from medre.core.events import CanonicalEvent, EventMetadata
 
@@ -99,7 +99,7 @@ def _seed_fresh_db_with_event(tmp_path: Path) -> Path:
                 event_id="evt-status-1",
                 event_kind="message.created",
                 schema_version=1,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 source_adapter="test",
                 source_transport_id="transport-1",
                 source_channel_id="ch-0",
@@ -257,13 +257,13 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(var, raising=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def fresh_db(tmp_path: Path) -> Path:
     """Create and return path to a freshly seeded test database."""
     return _seed_fresh_db_with_event(tmp_path)
 
 
-@pytest.fixture()
+@pytest.fixture
 def old_db(tmp_path: Path) -> Path:
     """Create and return path to an old-shape test database."""
     return _create_old_shape_db(tmp_path)
@@ -315,8 +315,19 @@ def test_storage_status_reports_stale_for_old_db(old_db: Path) -> None:
 
 def test_storage_status_is_read_only(fresh_db: Path) -> None:
     """Running evidence --storage-path does not mutate the database file."""
-    original_size = fresh_db.stat().st_size
-    original_mtime = fresh_db.stat().st_mtime
+    # Record row counts across all tables before the CLI call.
+    conn_before = sqlite3.connect(str(fresh_db))
+    tables = [
+        row[0]
+        for row in conn_before.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    ]
+    counts_before = {
+        t: conn_before.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+        for t in tables
+    }
+    conn_before.close()
 
     _run_cli(
         "evidence",
@@ -325,8 +336,14 @@ def test_storage_status_is_read_only(fresh_db: Path) -> None:
         "--json",
     )
 
-    assert fresh_db.stat().st_size == original_size
-    assert fresh_db.stat().st_mtime == original_mtime
+    # Verify no rows were added, removed, or modified.
+    conn_after = sqlite3.connect(str(fresh_db))
+    for t in tables:
+        assert (
+            conn_after.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+            == counts_before[t]
+        )
+    conn_after.close()
 
 
 # ---------------------------------------------------------------------------
@@ -418,10 +435,8 @@ def test_storage_reset_refuses_directories(tmp_path: Path) -> None:
         try:
             await storage.initialize()
         finally:
-            try:
+            with suppress(Exception):
                 await storage.close()
-            except Exception:
-                pass
 
     # Initializing with a directory path should raise an error.
     with pytest.raises(

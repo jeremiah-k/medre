@@ -156,9 +156,8 @@ def _create_old_shape_db() -> str:
 
     The caller is responsible for deleting the file.
     """
-    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    db_path = f.name
-    f.close()
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
 
     raw = sqlite3.connect(db_path)
     try:
@@ -276,9 +275,8 @@ async def test_schema_mismatch_is_initialization_error_subclass() -> None:
 
 async def test_fresh_db_no_schema_mismatch() -> None:
     """A freshly initialized DB does not trigger schema shape mismatch."""
-    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    db_path = f.name
-    f.close()
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
 
     try:
         storage = SQLiteStorage(db_path=db_path)
