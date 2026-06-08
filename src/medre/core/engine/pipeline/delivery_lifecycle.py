@@ -672,14 +672,69 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Find the queued receipt matching the outbox item's plan
-            # and target identity.
-            outbox_matches = [
-                r
-                for r in candidates
-                if r.delivery_plan_id == outbox_item.delivery_plan_id
-                and (r.target_channel or None) == (outbox_item.target_channel or None)
-            ]
+            # Validate adapter matches the outbox item's target.
+            if record.adapter != outbox_item.target_adapter:
+                self._log.warning(
+                    "Adapter mismatch: outbox_id=%s callback adapter=%s "
+                    "but outbox target_adapter=%s for event_id=%s; "
+                    "skipping supplemental receipt",
+                    record.outbox_id,
+                    record.adapter,
+                    outbox_item.target_adapter,
+                    record.event_id,
+                )
+                return
+
+            # Validate delivery_plan_id matches (when present on record).
+            if (
+                record.delivery_plan_id is not None
+                and record.delivery_plan_id != outbox_item.delivery_plan_id
+            ):
+                self._log.warning(
+                    "delivery_plan_id mismatch: outbox_id=%s callback "
+                    "plan_id=%s but outbox plan_id=%s for event_id=%s; "
+                    "skipping supplemental receipt",
+                    record.outbox_id,
+                    record.delivery_plan_id,
+                    outbox_item.delivery_plan_id,
+                    record.event_id,
+                )
+                return
+
+            # Validate native_channel_id matches outbox target_channel
+            # (when present on record).
+            if record.native_channel_id is not None and (
+                record.native_channel_id or None
+            ) != (outbox_item.target_channel or None):
+                self._log.warning(
+                    "native_channel_id mismatch: outbox_id=%s callback "
+                    "channel=%s but outbox target_channel=%s for "
+                    "event_id=%s; skipping supplemental receipt",
+                    record.outbox_id,
+                    record.native_channel_id,
+                    outbox_item.target_channel,
+                    record.event_id,
+                )
+                return
+
+            # Validate attempt_number matches (when present on record).
+            if (
+                record.attempt_number is not None
+                and record.attempt_number != outbox_item.attempt_number
+            ):
+                self._log.warning(
+                    "attempt_number mismatch: outbox_id=%s callback "
+                    "attempt=%d but outbox attempt=%d for event_id=%s; "
+                    "skipping supplemental receipt",
+                    record.outbox_id,
+                    record.attempt_number,
+                    outbox_item.attempt_number,
+                    record.event_id,
+                )
+                return
+
+            # Find the queued receipt matching by outbox_id (exact).
+            outbox_matches = [r for r in candidates if r.outbox_id == record.outbox_id]
 
             if not outbox_matches:
                 self._log.debug(
@@ -758,7 +813,7 @@ class DeliveryLifecycleService:
             event_id=record.event_id,
             delivery_plan_id=queued_receipt.delivery_plan_id,
             target_adapter=record.adapter,
-            target_channel=record.native_channel_id or queued_receipt.target_channel,
+            target_channel=outbox_item.target_channel or queued_receipt.target_channel,
             route_id=queued_receipt.route_id,
             status="sent",
             adapter_message_id=record.native_message_id,

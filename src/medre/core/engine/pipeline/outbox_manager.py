@@ -221,11 +221,12 @@ class OutboxManager:
                 adapter_name,
             )
             # Non-fatal: pipeline continues without outbox tracking.
+            skip_reason = "outbox_creation_failed"
         return OutboxContext(
             outbox_id=outbox_id,
             created=outbox_created,
             pipeline_worker=pipeline_worker,
-            skip_reason=None,
+            skip_reason=skip_reason,
         )
 
     # -- Lease renewal --
@@ -410,31 +411,92 @@ class OutboxManager:
                         record.outcome,
                     )
                     return
-            else:
-                # No outbox_id — validate that the event has receipts before
-                # creating an orphaned terminal receipt.
-                try:
-                    existing_receipts = await self._storage.list_receipts_for_event(
-                        record.event_id,
-                    )
-                    if not existing_receipts:
-                        self._log.warning(
-                            "Terminal outcome rejected: no receipts found "
-                            "for event_id=%s adapter=%s outcome=%s; "
-                            "cannot validate orphan terminal record",
-                            record.event_id,
-                            record.adapter,
-                            record.outcome,
-                        )
-                        return
-                except Exception:
-                    self._log.exception(
-                        "Failed to validate event existence for terminal "
-                        "record: event_id=%s adapter=%s",
-                        record.event_id,
+                # Validate adapter matches the outbox row.
+                if existing_item.target_adapter != record.adapter:
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "target_adapter=%s but record has adapter=%s; "
+                        "outcome=%s",
+                        record.outbox_id,
+                        existing_item.target_adapter,
                         record.adapter,
+                        record.outcome,
                     )
                     return
+                # Validate channel matches the outbox row.
+                if record.native_channel_id is not None and (
+                    record.native_channel_id or None
+                ) != (existing_item.target_channel or None):
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "target_channel=%s but record has native_channel_id=%s; "
+                        "adapter=%s outcome=%s",
+                        record.outbox_id,
+                        existing_item.target_channel,
+                        record.native_channel_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                # Validate delivery_plan_id matches the outbox row.
+                if (
+                    record.delivery_plan_id is not None
+                    and record.delivery_plan_id != existing_item.delivery_plan_id
+                ):
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "delivery_plan_id=%s but record has %s; "
+                        "adapter=%s outcome=%s",
+                        record.outbox_id,
+                        existing_item.delivery_plan_id,
+                        record.delivery_plan_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                # Validate attempt_number matches the outbox row.
+                if (
+                    record.attempt_number is not None
+                    and record.attempt_number != existing_item.attempt_number
+                ):
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "attempt_number=%d but record has %d; "
+                        "adapter=%s outcome=%s",
+                        record.outbox_id,
+                        existing_item.attempt_number,
+                        record.attempt_number,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                # Only queued/in_progress are eligible for terminal outcome
+                # recording — pending and retry_wait indicate states where
+                # the adapter should not be reporting a terminal outcome.
+                if existing_item.status not in ("queued", "in_progress"):
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "status=%s which is not eligible for queue terminal "
+                        "outcomes (expected queued or in_progress); "
+                        "adapter=%s outcome=%s",
+                        record.outbox_id,
+                        existing_item.status,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+            else:
+                # No outbox_id — hard-reject.  Queue terminal callbacks
+                # MUST carry outbox_id for exact correlation.
+                self._log.warning(
+                    "Terminal outcome rejected: no outbox_id for "
+                    "event_id=%s adapter=%s outcome=%s; exact outbox "
+                    "correlation is required",
+                    record.event_id,
+                    record.adapter,
+                    record.outcome,
+                )
+                return
 
             # Derive attempt_number: prefer the validated outbox item's value
             # (authoritative), then the record's, then default to 1.
@@ -464,7 +526,7 @@ class OutboxManager:
                 delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
                 target_channel=_enriched_channel,
-                route_id="",
+                route_id=(existing_item.route_id if existing_item is not None else ""),
                 status=receipt_status,
                 error=error_msg,
                 failure_kind=failure_kind,
