@@ -1168,3 +1168,68 @@ class TestLeaseRenewalResilience:
             ), f"Expected ≥2 renewal attempts, got {renew_call_count}"
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# record_terminal attempt_number preservation
+# ===================================================================
+
+
+class TestRecordTerminalAttemptNumber:
+    """Verify OutboxManager.record_terminal preserves attempt_number from
+    the outbox item rather than defaulting to 1.
+
+    Regression: the original implementation omitted attempt_number from
+    the terminal receipt, causing every terminal receipt to record
+    attempt_number=1 regardless of how many retries occurred.
+    """
+
+    async def test_terminal_receipt_uses_outbox_attempt_number(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Outbox item at attempt_number=3 → terminal receipt has attempt_number=3."""
+        from medre.core.contracts.adapter import QueueTerminalRecord
+        from medre.core.engine.pipeline.delivery_lifecycle import (
+            DeliveryLifecycleService,
+        )
+        from medre.core.engine.pipeline.outbox_manager import OutboxManager
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        lifecycle = DeliveryLifecycleService()
+        manager = OutboxManager(temp_storage, lifecycle)
+
+        # Create an outbox item at attempt_number=3 (simulates retry #3).
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-attempt-3",
+            event_id="evt-terminal-attempt",
+            route_id="route-1",
+            delivery_plan_id="plan-terminal",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=3,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+
+        record = QueueTerminalRecord(
+            event_id="evt-terminal-attempt",
+            adapter="mesh-1",
+            native_channel_id="0",
+            outcome="exhausted",
+            error="retry budget exhausted",
+            outbox_id="obox-attempt-3",
+            delivery_plan_id="plan-terminal",
+        )
+        await manager.record_terminal(record)
+
+        # Verify receipt has attempt_number=3, NOT the default 1.
+        receipts = await temp_storage.list_receipts_for_event(
+            "evt-terminal-attempt",
+        )
+        assert len(receipts) == 1
+        assert receipts[0].attempt_number == 3, (
+            f"Expected attempt_number=3, got {receipts[0].attempt_number}"
+        )
+        assert receipts[0].status == "failed"
+        assert receipts[0].outbox_id == "obox-attempt-3"
