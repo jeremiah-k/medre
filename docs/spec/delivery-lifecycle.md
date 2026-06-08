@@ -189,7 +189,7 @@ of four outcomes:
 
 The pipeline maps adapter-reported facts to lifecycle transitions:
 `exhausted` and `permanent_failed` → `dead_lettered` outbox + `failed` receipt;
-`cancelled` → `cancelled` outbox; `abandoned` → `abandoned` outbox.
+`cancelled` → `cancelled` outbox + `failed` receipt; `abandoned` → `abandoned` outbox + `failed` receipt.
 
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.

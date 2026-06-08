@@ -505,7 +505,7 @@ class RetryPolicy:
 
 ### 6.4 Route-Decision Metadata Persistence
 
-When `_create_outbox_for_delivery()` creates a `DeliveryOutboxItem`, the outbox `metadata` JSON dict includes route-decision fields alongside destination metadata. These fields are:
+When `OutboxManager.create_for_delivery()` creates a `DeliveryOutboxItem`, the outbox `metadata` JSON dict includes route-decision fields alongside destination metadata. These fields are:
 
 | Metadata key        | Source                                 | Type                   |
 | ------------------- | -------------------------------------- | ---------------------- |

@@ -409,6 +409,7 @@ class MeshtasticOutboundQueue:
                 # Permanent failure: no retry.
                 self._total_failed += 1
                 self._total_permanent_failed += 1
+                self._last_cancelled_item = None
                 _logger.warning(
                     "MeshtasticOutboundQueue: permanent send failure for "
                     "event_id=%s; dropping item (attempt %d/%d): %s",
@@ -423,6 +424,7 @@ class MeshtasticOutboundQueue:
                     error=str(exc),
                 )
             # Transient: front-requeue if attempts remain.
+            self._last_cancelled_item = None
             terminal = self._handle_transient_failure(item)
             return terminal
         except Exception:
@@ -439,6 +441,7 @@ class MeshtasticOutboundQueue:
                 self._max_attempts,
                 exc_info=True,
             )
+            self._last_cancelled_item = None
             terminal = self._handle_transient_failure(item)
             return terminal
 

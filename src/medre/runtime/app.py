@@ -1611,6 +1611,7 @@ class MedreApp:
                 parent_receipt_id=None,
                 source=inflight.source,
                 replay_run_id=inflight.replay_run_id,
+                outbox_id=inflight.outbox_id,
             )
             try:
                 await self.storage.append_receipt(receipt)

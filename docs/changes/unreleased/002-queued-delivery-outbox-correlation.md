@@ -8,7 +8,7 @@ stale callback protection, terminal queue outcome reporting, and remove
 
 - `src/medre/core/contracts/adapter.py` — added `QueueTerminalRecord`, `outbox_id`/`attempt_number` on `OutboundNativeRefRecord`, `record_outbound_terminal` callback on `AdapterContext`
 - `src/medre/core/rendering/renderer.py` — added `outbox_id`, `attempt_number` to `RenderingResult`
-- `src/medre/core/engine/pipeline/delivery_lifecycle.py` — rewritten 3-priority correlation: exact `outbox_id` (stale-safe) → `delivery_plan_id` fallback → no keys warn+return
+- `src/medre/core/engine/pipeline/delivery_lifecycle.py` — exact `outbox_id` + `attempt_number` correlation (stale-safe); hard-reject when `outbox_id` or `attempt_number` missing; no `delivery_plan_id` fallback
 - `src/medre/core/engine/pipeline/runner.py` — added `_record_outbound_terminal()` mapping 4 outcomes to receipt status + outbox transitions
 - `src/medre/core/engine/pipeline/target_delivery.py` — stamps `outbox_id`/`attempt_number` onto `RenderingResult`
 - `src/medre/core/engine/pipeline/receipt_factory.py` — `outbox_id` param on `build_delivery_receipt`

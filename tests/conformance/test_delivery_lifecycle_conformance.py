@@ -94,7 +94,9 @@ class _MemoryStorage(StorageBackend):
         attempt_number: int | None = None,
     ) -> None:
         item = self._outbox.get(outbox_id)
-        if item is not None:
+        if item is not None and (
+            attempt_number is None or item.attempt_number == attempt_number
+        ):
             object.__setattr__(item, "status", "queued")
 
     async def mark_outbox_sent(
@@ -104,7 +106,9 @@ class _MemoryStorage(StorageBackend):
         attempt_number: int | None = None,
     ) -> None:
         item = self._outbox.get(outbox_id)
-        if item is not None:
+        if item is not None and (
+            attempt_number is None or item.attempt_number == attempt_number
+        ):
             object.__setattr__(item, "status", "sent")
 
     # -- Required by abstract protocol but unused in these tests --
