@@ -38,6 +38,7 @@ from medre.core.rendering.renderer import (
     RenderingResult,
 )
 from medre.core.routing.models import RouteSource
+from medre.core.storage.backend import DeliveryOutboxItem
 
 # Reuse helpers from the flow module.
 from tests.operational.test_matrix_meshtastic_flow import (
@@ -211,6 +212,7 @@ class TestQueuedSentCorrelation:
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
 
         plan_id = str(uuid.uuid4())
+        outbox_id = f"obox-{uuid.uuid4()}"
         queued_receipt = DeliveryReceipt(
             receipt_id=f"rcpt-{uuid.uuid4()}",
             event_id="evt-1",
@@ -220,8 +222,22 @@ class TestQueuedSentCorrelation:
             route_id="route-1",
             status="queued",
             created_at=datetime.now(timezone.utc),
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(queued_receipt)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id="evt-1",
+            route_id="route-1",
+            delivery_plan_id=plan_id,
+            target_adapter="test_mesh",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await storage.create_outbox_item(outbox_item)
+        await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
             event_id="evt-1",
@@ -230,6 +246,7 @@ class TestQueuedSentCorrelation:
             native_message_id="42",
             delivery_plan_id=plan_id,
             metadata={},
+            outbox_id=outbox_id,
         )
 
         await lifecycle.append_queued_to_sent_receipt(
@@ -259,6 +276,7 @@ class TestQueuedSentCorrelation:
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
 
         plan_id = str(uuid.uuid4())
+        outbox_id = f"obox-{uuid.uuid4()}"
         evidence = '{"renderer":"meshtastic","target_platform":"meshtastic"}'
         queued = DeliveryReceipt(
             receipt_id="rcpt-q1",
@@ -270,8 +288,22 @@ class TestQueuedSentCorrelation:
             status="queued",
             created_at=datetime.now(timezone.utc),
             rendering_evidence=evidence,
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(queued)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id="evt-2",
+            route_id="route-x",
+            delivery_plan_id=plan_id,
+            target_adapter="test_mesh",
+            target_channel="1",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await storage.create_outbox_item(outbox_item)
+        await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
             event_id="evt-2",
@@ -280,6 +312,7 @@ class TestQueuedSentCorrelation:
             native_message_id="99",
             delivery_plan_id=plan_id,
             metadata={},
+            outbox_id=outbox_id,
         )
 
         await lifecycle.append_queued_to_sent_receipt(
@@ -301,6 +334,7 @@ class TestQueuedSentCorrelation:
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
 
         plan_id = str(uuid.uuid4())
+        outbox_id = f"obox-{uuid.uuid4()}"
         queued1 = DeliveryReceipt(
             receipt_id="rcpt-q-first",
             event_id="evt-3",
@@ -322,9 +356,23 @@ class TestQueuedSentCorrelation:
             status="queued",
             created_at=datetime.now(timezone.utc),
             attempt_number=2,
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(queued1)
         await storage.append_receipt(queued2)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id="evt-3",
+            route_id="route-1",
+            delivery_plan_id=plan_id,
+            target_adapter="test_mesh",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=2,
+        )
+        await storage.create_outbox_item(outbox_item)
+        await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
             event_id="evt-3",
@@ -333,6 +381,7 @@ class TestQueuedSentCorrelation:
             native_message_id="55",
             delivery_plan_id=plan_id,
             metadata={},
+            outbox_id=outbox_id,
         )
 
         await lifecycle.append_queued_to_sent_receipt(

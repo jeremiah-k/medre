@@ -50,7 +50,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 # ---------------------------------------------------------------------------
 # In-memory storage for receipt inspection
@@ -63,6 +63,7 @@ class _MemoryStorage(StorageBackend):
     def __init__(self) -> None:
         self._receipts: list[DeliveryReceipt] = []
         self._native_refs: list[NativeMessageRef] = []
+        self._outbox: dict[str, DeliveryOutboxItem] = {}
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
@@ -76,6 +77,35 @@ class _MemoryStorage(StorageBackend):
     async def count_native_refs(self) -> int:
         """Return the number of stored native refs."""
         return len(self._native_refs)
+
+    # -- Outbox stubs for queued→sent correlation tests --
+
+    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+        self._outbox[item.outbox_id] = item
+        return item
+
+    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
+        return self._outbox.get(outbox_id)
+
+    async def mark_outbox_queued(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "queued")
+
+    async def mark_outbox_sent(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "sent")
 
     # -- Required by abstract protocol but unused in these tests --
 
@@ -174,6 +204,8 @@ class TestDeliveryLifecycleConformance:
         plan_id = f"plan-{uuid.uuid4()}"
         now = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
+        outbox_id = f"obox-{uuid.uuid4()}"
+
         # First: queued receipt
         queued = DeliveryReceipt(
             sequence=0,
@@ -187,8 +219,23 @@ class TestDeliveryLifecycleConformance:
             source="live",
             attempt_number=1,
             rendering_evidence='{"schema_version":"1"}',
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(queued)
+
+        # Create matching outbox item for exact correlation.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id=event_id,
+            route_id="route-1",
+            delivery_plan_id=plan_id,
+            target_adapter="mesh_conf",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await storage.create_outbox_item(outbox_item)
+        await storage.mark_outbox_queued(outbox_id)
 
         # Simulate the queued->sent callback
         record = OutboundNativeRefRecord(
@@ -197,6 +244,7 @@ class TestDeliveryLifecycleConformance:
             native_channel_id="0",
             native_message_id="pkt-999",
             delivery_plan_id=plan_id,
+            outbox_id=outbox_id,
         )
         await lifecycle.append_queued_to_sent_receipt(storage, record, now)
 
@@ -218,6 +266,8 @@ class TestDeliveryLifecycleConformance:
         now = datetime(2025, 1, 1, tzinfo=timezone.utc)
         evidence_json = '{"schema_version":"1","renderer":"meshtastic"}'
 
+        outbox_id = f"obox-{uuid.uuid4()}"
+
         queued = DeliveryReceipt(
             sequence=0,
             receipt_id=f"rcpt-qed-{uuid.uuid4()}",
@@ -229,8 +279,22 @@ class TestDeliveryLifecycleConformance:
             status="queued",
             source="live",
             rendering_evidence=evidence_json,
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(queued)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id=event_id,
+            route_id="route-1",
+            delivery_plan_id=plan_id,
+            target_adapter="mesh_conf",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await storage.create_outbox_item(outbox_item)
+        await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
             event_id=event_id,
@@ -238,6 +302,7 @@ class TestDeliveryLifecycleConformance:
             native_channel_id="0",
             native_message_id="pkt-888",
             delivery_plan_id=plan_id,
+            outbox_id=outbox_id,
         )
         await lifecycle.append_queued_to_sent_receipt(storage, record, now)
 

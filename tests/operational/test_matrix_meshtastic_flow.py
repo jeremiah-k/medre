@@ -53,7 +53,7 @@ from medre.core.rendering.renderer import (
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
@@ -71,6 +71,7 @@ class _FakeStorage(StorageBackend):
         self._native_refs: dict[str, NativeMessageRef] = {}
         self._receipts: list[DeliveryReceipt] = []
         self._native_ref_index: dict[tuple[str, str, str], str] = {}
+        self._outbox: dict[str, DeliveryOutboxItem] = {}
 
     async def append(self, event: CanonicalEvent) -> None:
         self._events[event.event_id] = event
@@ -113,6 +114,80 @@ class _FakeStorage(StorageBackend):
                 object.__setattr__(r, "status", status)
                 for key, value in kwargs.items():
                     object.__setattr__(r, key, value)
+
+    # -- Outbox stubs for queued→sent correlation tests --
+
+    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+        self._outbox[item.outbox_id] = item
+        return item
+
+    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
+        return self._outbox.get(outbox_id)
+
+    async def mark_outbox_queued(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "queued")
+
+    async def mark_outbox_sent(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "sent")
+
+    async def mark_outbox_retry_wait(
+        self,
+        outbox_id: str,
+        next_attempt_at: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "retry_wait")
+
+    async def mark_outbox_dead_lettered(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "dead_lettered")
+
+    async def mark_outbox_cancelled(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "cancelled")
+
+    async def mark_outbox_abandoned(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "abandoned")
 
 
 def _make_ctx(
