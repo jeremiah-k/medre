@@ -1064,3 +1064,233 @@ class TestSelfEchoSuppression:
         packet = _make_text_packet()
         result = cls.classify(packet)
         assert result.is_self_echo is False
+
+
+# ===================================================================
+# Configurable classification policy tests
+# ===================================================================
+
+
+def _make_config(**overrides):
+    """Create a MeshtasticConfig with sensible test defaults."""
+    from medre.config.adapters.meshtastic import MeshtasticConfig
+
+    defaults = {"adapter_id": "test"}
+    defaults.update(overrides)
+    return MeshtasticConfig(**defaults)
+
+
+class TestConfigurableEncryptedAction:
+    """encrypted_action config field controls encrypted packet disposition."""
+
+    def test_encrypted_drop_default(self) -> None:
+        """config=None → encrypted packets are dropped (backward compat)."""
+        cls = MeshtasticPacketClassifier(config=None)
+        packet = _make_text_packet()
+        packet["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "encrypted packet"
+
+    def test_encrypted_drop_explicit(self) -> None:
+        """config with encrypted_action='drop' → encrypted packets dropped."""
+        cfg = _make_config(encrypted_action="drop")
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet()
+        packet["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "encrypted packet"
+
+    def test_encrypted_deferred(self) -> None:
+        """config with encrypted_action='deferred' → encrypted packets deferred."""
+        cfg = _make_config(encrypted_action="deferred")
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet()
+        packet["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.action == "deferred"
+        assert result.reason == "encrypted packet"
+        assert result.is_encrypted is True
+
+
+class TestDisabledPortnums:
+    """disabled_portnums blacklist always drops matching portnums."""
+
+    def test_disabled_portnum_dropped(self) -> None:
+        """Telemetry in disabled_portnums → dropped."""
+        cfg = _make_config(disabled_portnums=frozenset({"telemetry"}))
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "telemetry"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "disabled portnum: telemetry"
+
+    def test_disabled_overrides_chat(self) -> None:
+        """Portnum in both disabled and chat → disabled wins (dropped)."""
+        cfg = _make_config(
+            disabled_portnums=frozenset({"telemetry"}),
+            chat_portnums=frozenset({"telemetry"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "telemetry"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "disabled portnum: telemetry"
+
+    def test_empty_disabled_no_effect(self) -> None:
+        """config with empty disabled_portnums → normal classification."""
+        cfg = _make_config(disabled_portnums=frozenset())
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "telemetry"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.reason == "non-chat message type"
+
+    def test_disabled_symbolic_app_name(self) -> None:
+        """Config accepts symbolic _APP names which are normalized."""
+        cfg = _make_config(
+            disabled_portnums=frozenset({"TELEMETRY_APP"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "telemetry"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "disabled portnum: telemetry"
+
+
+class TestChatPortnums:
+    """chat_portnums promotes non-text portnums to relay."""
+
+    def test_chat_portnum_promoted_to_relay(self) -> None:
+        """RANGE_TEST_APP in chat_portnums → promoted to relay."""
+        cfg = _make_config(
+            chat_portnums=frozenset({"RANGE_TEST_APP"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "RANGE_TEST_APP"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "promoted by chat_portnums"
+
+    def test_chat_portnum_empty_no_effect(self) -> None:
+        """config with empty chat_portnums → unknown portnum still deferred."""
+        cfg = _make_config(chat_portnums=frozenset())
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "some_unknown_type"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "deferred"
+        assert result.reason == "unknown or custom portnum"
+
+    def test_text_message_unaffected_by_chat_portnums(self) -> None:
+        """Text messages still relay regardless of chat_portnums."""
+        cfg = _make_config(chat_portnums=frozenset())
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet(text="hello")
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "text message"
+
+    def test_telemetry_promoted_by_chat_portnums(self) -> None:
+        """Telemetry in chat_portnums → promoted to relay instead of ignored."""
+        cfg = _make_config(
+            chat_portnums=frozenset({"TELEMETRY_APP"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "telemetry"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "promoted by chat_portnums"
+
+
+class TestDetectionSensorConfig:
+    """detection_sensor_relay controls detection sensor packet disposition."""
+
+    def test_detection_sensor_deferred_default(self) -> None:
+        """config=None → detection sensor deferred (backward compat)."""
+        cls = MeshtasticPacketClassifier(config=None)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "detection_sensor"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "deferred"
+        assert result.reason == "detection sensor packets are deferred"
+        assert result.is_detection_sensor is True
+
+    def test_detection_sensor_relay_with_chat_portnums(self) -> None:
+        """detection_sensor_relay=True + in chat_portnums → relay."""
+        cfg = _make_config(
+            detection_sensor_relay=True,
+            chat_portnums=frozenset({"DETECTION_SENSOR_APP"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "detection_sensor"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "detection sensor promoted by chat_portnums"
+
+    def test_detection_sensor_deferred_without_chat_portnums(self) -> None:
+        """detection_sensor_relay=True but NOT in chat_portnums → deferred."""
+        cfg = _make_config(
+            detection_sensor_relay=True,
+            chat_portnums=frozenset(),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "detection_sensor"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "deferred"
+        assert result.reason == "detection sensor packets are deferred"
+
+    def test_detection_sensor_false_with_chat_portnums_still_deferred(self) -> None:
+        """detection_sensor_relay=False → always deferred even if in chat_portnums."""
+        cfg = _make_config(
+            detection_sensor_relay=False,
+            chat_portnums=frozenset({"detection_sensor"}),
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "detection_sensor"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "deferred"
+        assert result.reason == "detection sensor packets are deferred"

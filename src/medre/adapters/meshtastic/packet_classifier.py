@@ -43,6 +43,9 @@ REASON_PLUGIN_ONLY: str = "plugin_only packets are deferred"
 REASON_EMPTY_TEXT: str = "empty text"
 REASON_SELF_ECHO: str = "self echo"
 REASON_UNCLASSIFIED: str = "unclassified packet"
+REASON_DISABLED_PORTNUM: str = "disabled portnum"
+REASON_CHAT_PORTNUM_PROMOTED: str = "promoted by chat_portnums"
+REASON_DETECTION_SENSOR_PROMOTED: str = "detection sensor promoted by chat_portnums"
 
 # When fromId is absent (rare: node not in nodesByNum), derive sender_id
 # from the numeric `from` field using canonical "!" + 8-char hex format
@@ -304,6 +307,24 @@ class MeshtasticPacketClassifier:
 
     def __init__(self, config: Any = None) -> None:
         self._config = config
+        # Pre-normalize portnum sets from config for efficient lookup.
+        # Uses normalize_portnum so config can accept both canonical
+        # MEDRE names ("telemetry") and real symbolic names ("TELEMETRY_APP").
+        self._disabled_portnums: frozenset[str] = frozenset()
+        self._chat_portnums: frozenset[str] = frozenset()
+        if config is not None:
+            _disabled = getattr(config, "disabled_portnums", None)
+            _chat = getattr(config, "chat_portnums", None)
+            if _disabled:
+                self._disabled_portnums = frozenset(
+                    p
+                    for p in (normalize_portnum(x) for x in _disabled)
+                    if p is not None
+                )
+            if _chat:
+                self._chat_portnums = frozenset(
+                    p for p in (normalize_portnum(x) for x in _chat) if p is not None
+                )
 
     @staticmethod
     def _is_broadcast(to_id: Any) -> bool:
@@ -496,18 +517,50 @@ class MeshtasticPacketClassifier:
         if is_self_echo:
             action = "ignore"
             reason = REASON_SELF_ECHO
-        # 1. Encrypted
+        # 1. Encrypted (configurable: "drop" or "deferred")
         elif is_encrypted:
-            action = "drop"
+            if (
+                self._config is not None
+                and getattr(self._config, "encrypted_action", "drop") == "deferred"
+            ):
+                action = "deferred"
+            else:
+                action = "drop"
             reason = REASON_ENCRYPTED
         # 2. Malformed / no decoded payload
         elif not decoded and not is_encrypted:
             action = "drop"
             reason = REASON_MALFORMED
-        # 3. Detection sensor
+        # 2.5. Disabled portnums (blacklist — always wins over chat_portnums)
+        elif (
+            self._disabled_portnums
+            and portnum is not None
+            and portnum in self._disabled_portnums
+        ):
+            action = "drop"
+            reason = f"{REASON_DISABLED_PORTNUM}: {portnum}"
+        # 3. Detection sensor (configurable)
         elif is_detection_sensor:
-            action = "deferred"
-            reason = REASON_DETECTION_SENSOR
+            if self._config is not None and getattr(
+                self._config, "detection_sensor_relay", False
+            ):
+                if portnum in self._chat_portnums:
+                    action = "relay"
+                    reason = REASON_DETECTION_SENSOR_PROMOTED
+                else:
+                    action = "deferred"
+                    reason = REASON_DETECTION_SENSOR
+            else:
+                action = "deferred"
+                reason = REASON_DETECTION_SENSOR
+        # 3.5. Chat portnums (promoted to relay)
+        elif (
+            self._chat_portnums
+            and portnum is not None
+            and portnum in self._chat_portnums
+        ):
+            action = "relay"
+            reason = REASON_CHAT_PORTNUM_PROMOTED
         # 4. Ack / admin
         elif is_ack or category == "admin":
             action = "ignore"

@@ -287,6 +287,14 @@ class MatrixCodec(AdapterCodec):
             "event_id": event_id,
             "sender": sender,
         }
+
+        # Extract formatted body from Matrix event content when present
+        formatted_body = content.get("formatted_body")
+        if formatted_body is not None:
+            native_data["formatted_body"] = formatted_body
+        if content.get("format"):
+            native_data["format"] = content["format"]
+
         self._capture_mmrelay_fields(content, native_data)
 
         # Build event metadata

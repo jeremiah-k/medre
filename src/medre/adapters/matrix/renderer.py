@@ -212,6 +212,8 @@ class MatrixRenderer:
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
         }
 
         # Handle relations — reply and reaction
@@ -332,6 +334,8 @@ class MatrixRenderer:
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
         }
 
         # Embed metadata envelope
@@ -517,9 +521,11 @@ class MatrixRenderer:
 
         if mx_event_id is not None and not self._get_mmrelay_compat(event):
             # True Matrix reaction — adapter will use _matrix_event_type
-            # Remove default msgtype/body set at top of render()
+            # Remove default msgtype/body/format/formatted_body set at top of render()
             content.pop("msgtype", None)
             content.pop("body", None)
+            content.pop("format", None)
+            content.pop("formatted_body", None)
             symbol = self._extract_reaction_symbol(rel, event)
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
@@ -545,6 +551,7 @@ class MatrixRenderer:
 
             content["msgtype"] = "m.emote"
             content["body"] = emote_body
+            content["formatted_body"] = self._text_to_html(emote_body)
             content[KEY_EMOJI] = EMOJI_FLAG_VALUE
             content[KEY_REACTION_KEY] = symbol
 
@@ -569,6 +576,26 @@ class MatrixRenderer:
             content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
             content[KEY_MESHNET] = self._get_meshnet_name(event)
             content[KEY_PORTNUM] = PORTNUM_TEXT
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _text_to_html(text: str) -> str:
+        """Convert plain text to a safe HTML formatted body.
+
+        Applies HTML escaping, converts line breaks to ``<br/>``, and
+        wraps the result in ``<p>`` tags.  This provides a safe baseline
+        formatted body for Matrix clients that prefer HTML.
+        """
+        import html as _html
+
+        escaped = _html.escape(text, quote=False)
+        # Convert line breaks to <br/>
+        br = escaped.replace("\n", "<br/>")
+        # Wrap in <p> tags
+        return f"<p>{br}</p>"
 
     # ------------------------------------------------------------------
     # Relay prefix

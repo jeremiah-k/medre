@@ -144,6 +144,12 @@ class MeshtasticConfig:
     queue_send_max_attempts: int = 3
     outbound_mode: Literal["enabled", "listen_only"] = "enabled"
 
+    # Packet routing configuration (configurable classification policy)
+    encrypted_action: Literal["drop", "deferred"] = "drop"
+    chat_portnums: frozenset[str] = field(default_factory=frozenset)
+    disabled_portnums: frozenset[str] = field(default_factory=frozenset)
+    detection_sensor_relay: bool = False
+
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
 
@@ -226,5 +232,33 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"outbound_mode must be one of enabled/listen_only, "
                 f"got {self.outbound_mode!r}"
+            )
+        if self.encrypted_action not in ("drop", "deferred"):
+            raise MeshtasticConfigError(
+                f"encrypted_action must be one of drop/deferred, "
+                f"got {self.encrypted_action!r}"
+            )
+        if not isinstance(self.chat_portnums, frozenset):
+            raise MeshtasticConfigError(
+                f"chat_portnums must be a frozenset, "
+                f"got {type(self.chat_portnums).__name__}"
+            )
+        if self.chat_portnums and not all(
+            isinstance(p, str) for p in self.chat_portnums
+        ):
+            raise MeshtasticConfigError("chat_portnums must contain only strings")
+        if not isinstance(self.disabled_portnums, frozenset):
+            raise MeshtasticConfigError(
+                f"disabled_portnums must be a frozenset, "
+                f"got {type(self.disabled_portnums).__name__}"
+            )
+        if self.disabled_portnums and not all(
+            isinstance(p, str) for p in self.disabled_portnums
+        ):
+            raise MeshtasticConfigError("disabled_portnums must contain only strings")
+        if not isinstance(self.detection_sensor_relay, bool):
+            raise MeshtasticConfigError(
+                f"detection_sensor_relay must be a bool, "
+                f"got {type(self.detection_sensor_relay).__name__}"
             )
         return self
