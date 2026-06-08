@@ -25,7 +25,7 @@ from tests.helpers.walkthrough import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaReplayDryRunCLI:
+class TestReplayDryRunCLI:
     """``medre replay --config <cfg> --mode dry_run --event <id> --json``."""
 
     def test_dry_run_exits_cleanly(self, tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ class TestAlphaReplayDryRunCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaReplayBestEffortCLI:
+class TestReplayBestEffortCLI:
     """``medre replay --config <cfg> --mode best_effort --event <id> --json``."""
 
     def test_best_effort_exits_cleanly(self, tmp_path: Path) -> None:
@@ -168,7 +168,7 @@ class TestAlphaReplayBestEffortCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaFullWalkthroughCLI:
+class TestFullWalkthroughCLI:
     """Full alpha walkthrough: smoke → inspect → inspect flags → replay via main()."""
 
     def test_full_walkthrough_sequence(self, tmp_path: Path) -> None:

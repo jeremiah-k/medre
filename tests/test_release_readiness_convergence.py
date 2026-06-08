@@ -259,3 +259,115 @@ def test_no_stale_process_language_in_ops() -> None:
     assert not violations, "Found stale process language in ops/:\n" + "\n".join(
         violations
     )
+
+
+# ===========================================================================
+# 8. Durable docs free of stale alpha/beta branding
+# ===========================================================================
+
+
+def test_no_stale_alpha_beta_branding_in_spec() -> None:
+    """spec/ docs must not contain stale alpha/beta branding terms
+    like 'until beta', 'Status: Alpha', 'E2EE Text Alpha', etc."""
+    raw = find_stale_terms(["spec"], FORBIDDEN_TERMS)
+    violations = [
+        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
+        for md_file, lineno, content in raw
+    ]
+    assert not violations, "Found stale alpha/beta branding in spec/:\n" + "\n".join(
+        violations
+    )
+
+
+def test_no_stale_alpha_beta_branding_in_ops() -> None:
+    """ops/ docs must not contain stale alpha/beta branding terms."""
+    raw = find_stale_terms(["ops"], FORBIDDEN_TERMS)
+    violations = [
+        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
+        for md_file, lineno, content in raw
+    ]
+    assert not violations, "Found stale alpha/beta branding in ops/:\n" + "\n".join(
+        violations
+    )
+
+
+# ===========================================================================
+# 9. No TestAlpha class names in test suite
+# ===========================================================================
+
+
+def test_no_test_alpha_class_names() -> None:
+    """No test class name should start with 'TestAlpha'.
+
+    All 'TestAlpha*' classes are stale naming from the alpha walkthrough
+    era. They must be renamed to drop the 'Alpha' qualifier.
+    """
+    import ast as _ast
+
+    violations: list[str] = []
+    for path in sorted(_TESTS.rglob("test_*.py")):
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = _ast.parse(source)
+        except SyntaxError:
+            continue
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ClassDef) and node.name.startswith("TestAlpha"):
+                violations.append(
+                    f"  {path.relative_to(_ROOT)}:{node.lineno}: " f"class {node.name}"
+                )
+    assert not violations, (
+        "Found test classes starting with 'TestAlpha'. "
+        "Rename them to drop the 'Alpha' qualifier:\n" + "\n".join(violations)
+    )
+
+
+# ===========================================================================
+# 10. Historical monolith references include 'Former'
+# ===========================================================================
+
+
+def test_deleted_monolith_refs_include_former() -> None:
+    """References to deleted monoliths in docs must include 'Former' to mark
+    them as historical.
+
+    The DELETED_MONOLITHS list in test_test_suite_structure.py tracks files
+    that were split and deleted. Any reference to these filenames (with .py
+    extension) in docs/ must appear alongside 'Former' (case-insensitive)
+    to avoid confusion with currently-existing files.
+    """
+    # Same list as test_test_suite_structure.DELETED_MONOLITHS — kept in sync
+    # manually to avoid cross-module test imports.
+    _DELETED_MONOLITHS = (
+        "test_adapter_callback_bridge",
+        "test_longrun_callback_bridge",
+        "test_operator_workflows",
+        "test_pipeline",
+        "test_replay",
+        "test_cli",
+        "test_alpha_walkthrough_cli",
+        "test_docker_bridge_artifacts",
+    )
+
+    # Search durable docs for monolith file paths without 'Former' context.
+    violations: list[str] = []
+    for md_file in sorted(_DOCS.rglob("*.md")):
+        text = md_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for monolith in _DELETED_MONOLITHS:
+                # Match the monolith as an explicit file reference (with .py)
+                monolith_file = f"{monolith}.py"
+                if monolith_file not in line:
+                    continue
+                # Allow if the line already says "Former" (case-insensitive)
+                if "former" in line.lower():
+                    continue
+                violations.append(
+                    f"  {md_file.relative_to(_ROOT)}:{lineno}: "
+                    f"'{monolith_file}' without 'Former'"
+                )
+    assert (
+        not violations
+    ), "References to deleted monolith files must include 'Former':\n" + "\n".join(
+        violations
+    )

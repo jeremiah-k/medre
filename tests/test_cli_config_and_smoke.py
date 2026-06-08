@@ -33,7 +33,7 @@ from tests.helpers.walkthrough import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaSmokeSeedsCLI:
+class TestSmokeSeedsCLI:
     """``medre smoke --config <sqlite-config> --json`` via main()."""
 
     def test_smoke_json_creates_persistent_db(self, tmp_path: Path) -> None:
@@ -86,7 +86,7 @@ class TestAlphaSmokeSeedsCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaE2EProductPathCLI:
+class TestE2EProductPathCLI:
     """One test proving the complete product surface via main([...]).
 
     Phases:
@@ -526,7 +526,7 @@ class TestConfigSampleToSmoke:
 class TestFirstRunSourceCheckout:
     """Full operator walkthrough following docs exactly.
 
-    Mirrors the documented alpha-walkthrough / alpha-installation runbook:
+    Mirrors the documented first-run walkthrough / installation runbook:
     version → paths → adapters → config sample → temp config → config check
     → smoke with ``examples/configs/fake-bridge-smoke.toml`` → inspect
     receipts → inspect event timeline/evidence → replay dry_run.

@@ -141,11 +141,11 @@ The runner:
 ### Expected Startup Output
 
 ```text
-INFO  medre  Matrix Operation Alpha: config loaded for @bot:localhost
+INFO  medre  Matrix runtime: config loaded for @bot:localhost
 INFO  medre  PipelineRunner started
 INFO  medre  MatrixAdapter matrix-alpha started
 INFO  medre  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True}}
-INFO  medre  Matrix Operation Alpha running — awaiting shutdown signal
+INFO  medre  Matrix runtime running — awaiting shutdown signal
 ```
 
 ### Expected Shutdown Output
@@ -154,7 +154,7 @@ INFO  medre  Matrix Operation Alpha running — awaiting shutdown signal
 INFO  medre  Shutdown requested — stopping
 INFO  medre  MatrixAdapter stopped
 INFO  medre  PipelineRunner stopped
-INFO  medre  Matrix Operation Alpha shut down cleanly
+INFO  medre  Matrix runtime shut down cleanly
 ```
 
 ## Health States
@@ -168,7 +168,7 @@ INFO  medre  Matrix Operation Alpha shut down cleanly
 
 When the adapter is in `degraded` state, it is actively attempting to restore the sync connection with exponential backoff. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
 
-## E2EE Text Alpha
+## E2EE text validation
 
 The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
 

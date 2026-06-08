@@ -56,7 +56,7 @@ def smoke_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 # ===========================================================================
 
 
-class TestAlphaConfigValidation:
+class TestConfigValidation:
     """Section 1.1: medre config check — config parses, adapters and routes
     validate."""
 
@@ -80,7 +80,7 @@ class TestAlphaConfigValidation:
 # ===========================================================================
 
 
-class TestAlphaSmokeInspectTrace:
+class TestSmokeInspectTrace:
     """Sections 1.2–1.4: smoke, inspect receipts, trace event, evidence."""
 
     def test_smoke_report_passed(self, smoke_report: dict[str, Any]) -> None:
@@ -166,7 +166,7 @@ class TestAlphaSmokeInspectTrace:
 # ===========================================================================
 
 
-class TestAlphaFinalSnapshot:
+class TestFinalSnapshot:
     """Build runtime snapshot and verify schema_version, accounting, lifecycle.
 
     The smoke report embeds a subset of the full runtime snapshot.  We verify

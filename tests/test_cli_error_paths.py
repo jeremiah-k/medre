@@ -21,7 +21,7 @@ from tests.helpers.walkthrough import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaNoTracebacks:
+class TestNoTracebacks:
     """Verify commands produce clean errors, not tracebacks."""
 
     def test_inspect_receipts_missing_storage_path(self) -> None:

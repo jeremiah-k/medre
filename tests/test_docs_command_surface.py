@@ -1,8 +1,7 @@
-"""CLI command surface, alpha freeze, and adapter auth command tests.
+"""CLI command surface and adapter auth command tests.
 
-Asserts that configuration.md documents all CLI commands, the alpha command
-surface freeze section is present, and the adapter auth command appears
-in the operator command surface.
+Asserts that configuration.md documents all CLI commands and the adapter
+auth command appears in the operator command surface.
 """
 
 from __future__ import annotations

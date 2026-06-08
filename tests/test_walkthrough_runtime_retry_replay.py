@@ -23,7 +23,7 @@ from medre.runtime.builder import RuntimeBuilder
 # ===========================================================================
 
 
-class TestAlphaRetryScenario:
+class TestRetryScenario:
     """Retry path: inject event to transient-failing adapter, retry via
     real RetryWorker._process_due(), verify both receipts."""
 
@@ -180,7 +180,7 @@ class TestAlphaRetryScenario:
 # ===========================================================================
 
 
-class TestAlphaReplayScenario:
+class TestReplayScenario:
     """Replay path: inject event, verify receipt, replay via ReplayEngine,
     verify replay receipt has source='replay'."""
 

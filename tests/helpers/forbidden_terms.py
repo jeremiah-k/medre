@@ -22,6 +22,14 @@ FORBIDDEN_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\bfinal report\b", re.IGNORECASE),
     re.compile(r"\bagent-as-process\b", re.IGNORECASE),
     re.compile(r"\bfuture tranche\b", re.IGNORECASE),
+    # Stale alpha/beta branding in durable docs
+    re.compile(r"\buntil beta\b", re.IGNORECASE),
+    re.compile(r"\bStatus:\s*Alpha\b"),
+    re.compile(r"\bE2EE Text Alpha\b", re.IGNORECASE),
+    re.compile(r"\bMatrix Operation Alpha\b"),
+    re.compile(r"\balpha-walkthrough\b"),
+    re.compile(r"\balpha-installation\b"),
+    re.compile(r"\bAlpha validates\b"),
 ]
 
 

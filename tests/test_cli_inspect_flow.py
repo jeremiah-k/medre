@@ -20,7 +20,7 @@ from tests.helpers.walkthrough import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectReceiptsCLI:
+class TestInspectReceiptsCLI:
     """``medre inspect receipts --event <id> --storage-path <db>`` via main()."""
 
     def test_inspect_receipts_lists_receipts(self, tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ class TestAlphaInspectReceiptsCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventTimelineCLI:
+class TestInspectEventTimelineCLI:
     """``medre inspect event <id> --timeline --storage-path <db>`` via main()."""
 
     def test_inspect_event_timeline_json(self, tmp_path: Path) -> None:
@@ -122,7 +122,7 @@ class TestAlphaInspectEventTimelineCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventEvidenceCLI:
+class TestInspectEventEvidenceCLI:
     """``medre inspect event <id> --evidence --storage-path <db>`` via main()."""
 
     def test_inspect_event_evidence_json_bundle(self, tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ class TestAlphaInspectEventEvidenceCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventRecoveryCLI:
+class TestInspectEventRecoveryCLI:
     """``medre inspect event <id> --recovery --storage-path <db>`` via main()."""
 
     def test_inspect_event_recovery_json(self, tmp_path: Path) -> None:
