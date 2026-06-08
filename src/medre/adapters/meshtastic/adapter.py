@@ -91,7 +91,11 @@ from medre.adapters.meshtastic.packet_classifier import (
     REASON_UNKNOWN_PORTNUM,
     MeshtasticPacketClassifier,
 )
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue, QueueDeliveryResult
+from medre.adapters.meshtastic.queue import (
+    MeshtasticOutboundQueue,
+    QueueDeliveryResult,
+    QueueTerminalResult,
+)
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -105,6 +109,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
     OutboundNativeRefRecord,
+    QueueTerminalRecord,
 )
 from medre.core.policies.startup_backlog_suppress import (
     should_suppress_startup_backlog,
@@ -392,6 +397,8 @@ class MeshtasticAdapter(AdapterContract):
                 channel_index,
                 event_id=result.event_id,
                 delivery_plan_id=result.delivery_plan_id,
+                outbox_id=result.outbox_id,
+                attempt_number=result.attempt_number,
             )
         except asyncio.CancelledError:
             raise
@@ -846,7 +853,7 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Queue / send helpers -----------------------------------------------
 
-    async def send_one(self) -> QueueDeliveryResult | None:
+    async def send_one(self) -> QueueDeliveryResult | QueueTerminalResult | None:
         """Send one queued payload via the session, if connected.
 
         Creates an async wrapper around the session's ``send`` method
@@ -857,9 +864,10 @@ class MeshtasticAdapter(AdapterContract):
 
         Returns
         -------
-        QueueDeliveryResult | None
-            Delivery result with both the queued item and adapter result,
-            or ``None``.
+        QueueDeliveryResult | QueueTerminalResult | None
+            Delivery result on success, terminal result on exhaustion or
+            permanent failure, or ``None`` when the queue is empty /
+            session is disconnected.
         """
         session = self._session
         if session is None or not session.connected:
@@ -897,6 +905,12 @@ class MeshtasticAdapter(AdapterContract):
         the ``record_outbound_native_ref`` callback on
         :class:`AdapterContext` (if wired).  Callback failures are
         caught and logged so they never crash the queue drain.
+
+        When :meth:`send_one` returns a :class:`QueueTerminalResult`
+        (exhausted or permanent failure), reports the terminal outcome
+        to core via the ``record_outbound_terminal`` callback.  On
+        cancellation or shutdown, any in-flight cancelled item and
+        remaining queued items are reported as cancelled / abandoned.
         """
         try:
             while self._started:
@@ -904,6 +918,10 @@ class MeshtasticAdapter(AdapterContract):
                     result = await self.send_one()
                     if result is None:
                         await asyncio.sleep(0.1)
+                        continue
+
+                    if isinstance(result, QueueTerminalResult):
+                        await self._report_queue_terminal(result)
                         continue
 
                     # Record delayed outbound native ref when both
@@ -938,7 +956,120 @@ class MeshtasticAdapter(AdapterContract):
                         )
                     await asyncio.sleep(1.0)
         except asyncio.CancelledError:
-            pass
+            # Report the in-flight cancelled item (if any) and drain
+            # remaining queued items as abandoned.
+            await self._report_cancelled_and_drain()
+
+    async def _report_queue_terminal(
+        self, result: QueueTerminalResult
+    ) -> None:
+        """Report a terminal queue outcome to core.
+
+        Constructs a :class:`QueueTerminalRecord` from the terminal
+        result and calls the ``record_outbound_terminal`` callback.
+        Failures are caught and logged so they never crash the queue
+        drain loop.
+
+        Parameters
+        ----------
+        result:
+            The terminal result from :meth:`send_one`.
+        """
+        record = QueueTerminalRecord(
+            event_id=result.item.get("event_id") or "",
+            adapter=self.adapter_id,
+            outbox_id=result.item.get("outbox_id"),
+            delivery_plan_id=result.item.get("delivery_plan_id"),
+            attempt_number=result.item.get("attempt_number"),
+            native_channel_id=str(result.item.get("channel_index", "")),
+            outcome=result.outcome,
+            error=result.error,
+        )
+        callback = (
+            self.ctx.record_outbound_terminal
+            if self.ctx is not None
+            else None
+        )
+        if callback is not None:
+            try:
+                await callback(record)
+            except Exception:
+                if self.ctx is not None:
+                    self.ctx.logger.exception(
+                        "MeshtasticAdapter %s: error reporting terminal "
+                        "queue outcome for event_id=%s outcome=%s",
+                        self.adapter_id,
+                        record.event_id,
+                        record.outcome,
+                    )
+
+    async def _report_cancelled_and_drain(self) -> None:
+        """Report the in-flight cancelled item and drain remaining items.
+
+        Called when the queue drain task catches CancelledError.  Retrieves
+        the in-flight item that was being processed when cancellation
+        occurred (via :meth:`pop_cancelled_item`) and reports it as
+        ``"cancelled"``.  Then drains all remaining queued items and
+        reports each as ``"abandoned"``.
+        """
+        callback = (
+            self.ctx.record_outbound_terminal
+            if self.ctx is not None
+            else None
+        )
+        if callback is None:
+            # No callback wired — just drain silently.
+            self._queue.drain_all()
+            self._queue.pop_cancelled_item()
+            return
+
+        # Report the in-flight cancelled item.
+        cancelled_item = self._queue.pop_cancelled_item()
+        if cancelled_item is not None:
+            record = QueueTerminalRecord(
+                event_id=cancelled_item.get("event_id") or "",
+                adapter=self.adapter_id,
+                outbox_id=cancelled_item.get("outbox_id"),
+                delivery_plan_id=cancelled_item.get("delivery_plan_id"),
+                attempt_number=cancelled_item.get("attempt_number"),
+                native_channel_id=str(cancelled_item.get("channel_index", "")),
+                outcome="cancelled",
+                error="queue drain task cancelled while item was in-flight",
+            )
+            try:
+                await callback(record)
+            except Exception:
+                if self.ctx is not None:
+                    self.ctx.logger.exception(
+                        "MeshtasticAdapter %s: error reporting cancelled "
+                        "item for event_id=%s",
+                        self.adapter_id,
+                        record.event_id,
+                    )
+
+        # Drain remaining items as abandoned.
+        remaining = self._queue.drain_all()
+        for item in remaining:
+            record = QueueTerminalRecord(
+                event_id=item.get("event_id") or "",
+                adapter=self.adapter_id,
+                outbox_id=item.get("outbox_id"),
+                delivery_plan_id=item.get("delivery_plan_id"),
+                attempt_number=item.get("attempt_number"),
+                native_channel_id=str(item.get("channel_index", "")),
+                outcome="abandoned",
+                error="adapter shutdown with unsent queued items",
+            )
+            try:
+                await callback(record)
+            except Exception:
+                if self.ctx is not None:
+                    self.ctx.logger.exception(
+                        "MeshtasticAdapter %s: error reporting abandoned "
+                        "item for event_id=%s",
+                        self.adapter_id,
+                        record.event_id,
+                    )
 
     async def _record_delayed_outbound_ref(
         self,
@@ -1028,6 +1159,8 @@ class MeshtasticAdapter(AdapterContract):
             native_thread_id=delivery.native_thread_id,
             native_relation_id=delivery.native_relation_id,
             delivery_plan_id=result.item.get("delivery_plan_id"),
+            outbox_id=result.item.get("outbox_id"),
+            attempt_number=result.item.get("attempt_number"),
             metadata=send_meta,
         )
         callback = self.ctx.record_outbound_native_ref if self.ctx else None

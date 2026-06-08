@@ -29,6 +29,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     OutboundNativeRefRecord,
+    QueueTerminalRecord,
 )
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
@@ -947,6 +948,120 @@ class PipelineRunner:
             self._config.storage, record=record, now=now
         )
 
+    async def _record_outbound_terminal(self, record: QueueTerminalRecord) -> None:
+        """Handle a terminal queue outcome reported by an adapter.
+
+        Called by queue-based adapters when a previously-enqueued item
+        reaches a terminal state without producing a native message ID.
+        This is the callback wired into
+        :class:`AdapterContext.record_outbound_terminal`.
+
+        Creates a durable receipt recording the terminal outcome and
+        transitions the matching outbox item to the appropriate terminal
+        status.  Adapters report facts; this method (core/pipeline)
+        decides the lifecycle authority mapping.
+
+        Parameters
+        ----------
+        record:
+            The terminal outcome record from the adapter.
+        """
+        try:
+            datetime.now(tz=timezone.utc)
+
+            # Map adapter-reported outcome to receipt status and outbox
+            # terminal status.
+            if record.outcome == "exhausted":
+                receipt_status = "failed"
+                failure_kind = "adapter_transient"
+                outbox_terminal = "dead_lettered"
+                error_msg = record.error or "local queue retry budget exhausted"
+            elif record.outcome == "permanent_failed":
+                receipt_status = "failed"
+                failure_kind = "adapter_permanent"
+                outbox_terminal = "dead_lettered"
+                error_msg = record.error or "permanent send failure"
+            elif record.outcome == "cancelled":
+                receipt_status = "failed"
+                failure_kind = "adapter_transient"
+                outbox_terminal = "cancelled"
+                error_msg = record.error or "queue item cancelled while in-flight"
+            elif record.outcome == "abandoned":
+                receipt_status = "failed"
+                failure_kind = "adapter_transient"
+                outbox_terminal = "abandoned"
+                error_msg = record.error or "adapter shutdown with unsent queued items"
+            else:
+                self._log.warning(
+                    "Unknown terminal outcome %r from adapter %s; ignoring",
+                    record.outcome,
+                    record.adapter,
+                )
+                return
+
+            # Create the terminal receipt.
+            receipt = build_delivery_receipt(
+                event_id=record.event_id,
+                delivery_plan_id=record.delivery_plan_id or "",
+                target_adapter=record.adapter,
+                target_channel=record.native_channel_id,
+                route_id="",
+                status=receipt_status,
+                error=error_msg,
+                failure_kind=failure_kind,
+                source="live",
+                outbox_id=record.outbox_id,
+            )
+            await self._config.storage.append_receipt(receipt)
+
+            # Transition the outbox item to terminal status.
+            if record.outbox_id is not None:
+                try:
+                    if outbox_terminal == "dead_lettered":
+                        await self._config.storage.mark_outbox_dead_lettered(
+                            record.outbox_id,
+                            receipt_id=receipt.receipt_id,
+                            failure_kind=failure_kind,
+                            error_summary=error_msg[:200] if error_msg else None,
+                        )
+                    elif outbox_terminal == "cancelled":
+                        await self._config.storage.mark_outbox_cancelled(
+                            record.outbox_id,
+                            error_summary=error_msg[:200] if error_msg else None,
+                        )
+                    elif outbox_terminal == "abandoned":
+                        await self._config.storage.mark_outbox_abandoned(
+                            record.outbox_id,
+                            error_summary=error_msg[:200] if error_msg else None,
+                        )
+                except Exception:
+                    self._log.exception(
+                        "Failed to transition outbox to %s: outbox_id=%s "
+                        "event_id=%s adapter=%s",
+                        outbox_terminal,
+                        record.outbox_id,
+                        record.event_id,
+                        record.adapter,
+                    )
+
+            self._log.info(
+                "Terminal queue outcome: event_id=%s adapter=%s "
+                "outbox_id=%s outcome=%s receipt=%s",
+                record.event_id,
+                record.adapter,
+                record.outbox_id,
+                record.outcome,
+                receipt.receipt_id,
+            )
+        except Exception:
+            self._log.exception(
+                "Failed to record terminal queue outcome: "
+                "event_id=%s adapter=%s outcome=%s",
+                record.event_id,
+                record.adapter,
+                record.outcome,
+            )
+
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
     async def route_event(
@@ -1609,6 +1724,7 @@ class PipelineRunner:
                         replay_run_id=replay_run_id,
                         cached_get_fn=cached_get_fn,
                         cached_list_fn=cached_list_fn,
+                        outbox_id=_outbox_id,
                     )
                     _outcome_receipt = receipt
                     elapsed = (time.monotonic() - t0) * 1000.0
@@ -1998,6 +2114,7 @@ class PipelineRunner:
         cached_list_fn: (
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
+        outbox_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -2030,6 +2147,7 @@ class PipelineRunner:
             previous_receipt=previous_receipt,
             source=source,
             replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
         )
 
     # -- Internal helpers --------------------------------------------------
