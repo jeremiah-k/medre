@@ -24,6 +24,7 @@ import shutil
 import sqlite3
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -529,6 +530,82 @@ def test_cli_storage_status_missing_db(tmp_path: Path) -> None:
     assert "not found" in stderr.lower() or "error" in stderr.lower()
 
 
+def test_cli_storage_status_connect_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`medre storage status` reports sqlite3 connection errors cleanly."""
+    db_path = tmp_path / "exists.db"
+    db_path.write_bytes(b"not important")
+
+    def _raise_connect(*_args: object, **_kwargs: object) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(sqlite3, "connect", _raise_connect)
+
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "status",
+        "--storage-path",
+        str(db_path),
+    )
+    assert code == EXIT_BUILD
+    assert stdout == ""
+    assert "Storage error:" in stderr
+
+
+def test_cli_storage_status_missing_schema_meta(tmp_path: Path) -> None:
+    """Status reports schema version None when schema metadata is absent."""
+    db_path = tmp_path / "no-meta.db"
+    conn = sqlite3.connect(db_path)
+    conn.close()
+
+    stdout, stderr = _run_cli(
+        "storage",
+        "status",
+        "--storage-path",
+        str(db_path),
+    )
+    assert "Schema version: None" in stdout
+    assert "Status: MISMATCH" in stdout
+    assert stderr == ""
+
+
+def test_cli_storage_status_table_info_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Status treats PRAGMA table_info failures as missing columns."""
+    db_path = tmp_path / "pragma-error.db"
+    db_path.write_bytes(b"placeholder")
+
+    class _SelectResult:
+        def fetchone(self) -> dict[str, str]:
+            return {"value": "1"}
+
+    class _Conn:
+        row_factory = None
+
+        def execute(self, sql: str) -> _SelectResult:
+            if sql.startswith("SELECT value FROM _medre_schema_meta"):
+                return _SelectResult()
+            raise sqlite3.OperationalError("malformed schema")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *_args, **_kwargs: _Conn())
+
+    stdout, stderr = _run_cli(
+        "storage",
+        "status",
+        "--storage-path",
+        str(db_path),
+    )
+    assert "Schema version: 1" in stdout
+    assert "MISSING" in stdout
+    assert "Status: MISMATCH" in stdout
+    assert stderr == ""
+
+
 # ---------------------------------------------------------------------------
 # Tests: CLI storage reset subcommand
 # ---------------------------------------------------------------------------
@@ -546,6 +623,45 @@ def test_cli_storage_reset_refuses_without_yes(tmp_path: Path) -> None:
     assert code == 2  # EXIT_CONFIG
     assert "--yes" in stderr
     assert db_path.exists()  # file not deleted
+
+
+def test_cli_storage_reset_missing_db_with_yes(tmp_path: Path) -> None:
+    """`medre storage reset --yes` reports missing database paths."""
+    missing = tmp_path / "missing.db"
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "reset",
+        "--storage-path",
+        str(missing),
+        "--yes",
+    )
+    assert code == EXIT_BUILD
+    assert stdout == ""
+    assert "file not found" in stderr.lower()
+
+
+def test_cli_storage_reset_cannot_read_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`medre storage reset` reports OSError while reading the header."""
+    db_path = _create_old_shape_db(tmp_path)
+
+    def _raise_open(*_args: object, **_kwargs: object) -> object:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("builtins.open", _raise_open)
+
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
+        "--yes",
+    )
+    assert code == EXIT_BUILD
+    assert stdout == ""
+    assert "cannot read" in stderr.lower()
+    assert db_path.exists()
 
 
 def test_cli_storage_reset_with_backup(tmp_path: Path) -> None:
@@ -597,6 +713,52 @@ def test_cli_storage_reset_backup_includes_wal_shm(tmp_path: Path) -> None:
     assert not shm_path.exists()
 
 
+def test_cli_storage_reset_permission_error_on_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`medre storage reset` reports permission errors during deletion."""
+    db_path = _create_old_shape_db(tmp_path)
+
+    def _raise_remove(_path: Path) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("medre.cli.storage_commands.os.remove", _raise_remove)
+
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
+        "--yes",
+    )
+    assert code == EXIT_BUILD
+    assert "permission denied" in stderr.lower()
+    assert db_path.exists()
+
+
+def test_cli_storage_reset_oserror_on_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`medre storage reset` reports generic OSError during deletion."""
+    db_path = _create_old_shape_db(tmp_path)
+
+    def _raise_remove(_path: Path) -> None:
+        raise OSError("disk is busy")
+
+    monkeypatch.setattr("medre.cli.storage_commands.os.remove", _raise_remove)
+
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
+        "--yes",
+    )
+    assert code == EXIT_BUILD
+    assert "disk is busy" in stderr
+    assert db_path.exists()
+
+
 def test_cli_storage_reset_warns_non_sqlite(tmp_path: Path) -> None:
     """`medre storage reset` warns but proceeds on non-SQLite files."""
     fake_file = tmp_path / "not-a-db.txt"
@@ -611,3 +773,16 @@ def test_cli_storage_reset_warns_non_sqlite(tmp_path: Path) -> None:
     assert code == 0
     assert "magic bytes" in stderr.lower() or "not appear to contain" in stderr.lower()
     assert not fake_file.exists()  # file deleted despite warning
+
+
+def test_main_adapter_command_dispatches() -> None:
+    """`medre adapter ...` dispatches through contributed command routing."""
+    with patch("medre.cli.contrib.dispatch_contribution") as dispatch:
+        _run_cli("adapter", "matrix", "auth", "status")
+
+    dispatch.assert_called_once()
+    args = dispatch.call_args.args[0]
+    assert args.command == "adapter"
+    assert args.adapter_command == "matrix"
+    assert args.adapter_matrix_command == "auth"
+    assert args.adapter_matrix_auth_command == "status"

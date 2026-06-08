@@ -488,6 +488,54 @@ class TestRunOutput:
         output = stdout.getvalue()
         assert "Final snapshot written to:" in output
 
+    @pytest.mark.asyncio
+    async def test_startup_output_shows_disabled_adapters_and_storage_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Startup output includes disabled adapter count and SQLite path."""
+        import medre.cli.run_commands as run_mod
+
+        db_path = tmp_path / "run-output.db"
+        config = f"""\
+[runtime]
+name = "run-output-storage"
+
+[storage]
+backend = "sqlite"
+path = "{db_path}"
+
+[adapters.matrix.solo]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "tok_single"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.disabled]
+enabled = false
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "DisabledMesh"
+"""
+        p = tmp_path / "config.toml"
+        p.write_text(config)
+
+        run_mod.shutdown_requested = False
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(run_mod._run(str(p)))
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
+            await asyncio.gather(task, trigger)
+
+        output = stdout.getvalue()
+        assert "Disabled adapters: 1" in output
+        assert f"Storage: sqlite ({db_path})" in output
+
 
 # ===================================================================
 # 17. Stale shutdown state — repeated _run() calls
