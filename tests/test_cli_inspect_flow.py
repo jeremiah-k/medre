@@ -1,6 +1,6 @@
-"""Alpha CLI tests: inspect flow (receipts, timeline, evidence, recovery).
+"""CLI inspect-flow tests: receipts, timeline, evidence, recovery.
 
-Split from the original test_alpha_walkthrough_cli.py monolith.
+Split from the original walkthrough CLI test monolith.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from medre.cli import main
-from tests.helpers.alpha_cli import (
+from tests.helpers.walkthrough import (
     seed_via_smoke_cli,
 )
 
@@ -20,7 +20,7 @@ from tests.helpers.alpha_cli import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectReceiptsCLI:
+class TestInspectReceiptsCLI:
     """``medre inspect receipts --event <id> --storage-path <db>`` via main()."""
 
     def test_inspect_receipts_lists_receipts(self, tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ class TestAlphaInspectReceiptsCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventTimelineCLI:
+class TestInspectEventTimelineCLI:
     """``medre inspect event <id> --timeline --storage-path <db>`` via main()."""
 
     def test_inspect_event_timeline_json(self, tmp_path: Path) -> None:
@@ -122,7 +122,7 @@ class TestAlphaInspectEventTimelineCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventEvidenceCLI:
+class TestInspectEventEvidenceCLI:
     """``medre inspect event <id> --evidence --storage-path <db>`` via main()."""
 
     def test_inspect_event_evidence_json_bundle(self, tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ class TestAlphaInspectEventEvidenceCLI:
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaInspectEventRecoveryCLI:
+class TestInspectEventRecoveryCLI:
     """``medre inspect event <id> --recovery --storage-path <db>`` via main()."""
 
     def test_inspect_event_recovery_json(self, tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
-"""Track 9 — Final scope/boundary audit for beta candidate closure.
+"""Scope/boundary audit for candidate closure.
 
-These tests enforce the **beta scope contract**: a closed, auditable boundary
-on what the beta candidate may and may not contain.  They use **source-level
+These tests enforce the **scope contract**: a closed, auditable boundary
+on what the candidate may and may not contain.  They use **source-level
 text inspection** (not runtime importing of optional SDKs) and cover:
 
 1. No transport SDK imports in runtime/core modules.

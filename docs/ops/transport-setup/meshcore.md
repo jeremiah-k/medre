@@ -1,6 +1,6 @@
 # MeshCore Transport Setup
 
-Setting up and running the MEDRE MeshCore adapter against a real radio node. Alpha status — not production.
+Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre-release — no stable public API.
 
 ## Prerequisites
 

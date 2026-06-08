@@ -51,7 +51,7 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 ### 2.1 Matrix
 
 - Multi-room concurrent inbound has not been tested against a real homeserver.
-- E2EE text alpha does not support reactions, edits, media, cross-signing, or
+- E2EE text messaging does not support reactions, edits, media, cross-signing, or
   key backup.
 - `mindroom-nio` is a fork of `matrix-nio`. Its maintenance cadence relative to
   upstream is unverified.

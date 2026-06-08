@@ -1,7 +1,7 @@
 # Live Test Harness Guide
 
 > Scope: Writing and maintaining opt-in live tests for MEDRE transport adapters
-> Status: **Alpha. Patterns are evolving.** This guide describes current conventions, not final API contracts.
+> Status: **Pre-release. Patterns are evolving.** This guide describes current conventions, not final API contracts.
 
 This guide covers how live tests work in MEDRE: how they are gated, how to write one for a new transport, and what rules they must follow. It is written for test developers contributing to the MEDRE test suite.
 

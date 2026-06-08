@@ -1,6 +1,6 @@
 # Meshtastic Transport Setup
 
-Setting up and running the MEDRE Meshtastic adapter against a real radio node. Alpha status — not production.
+Setting up and running the MEDRE Meshtastic adapter against a real radio node. Pre-release — no stable public API.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ sudo usermod -aG dialout $USER
 
 ### BLE Connectivity
 
-BLE is a supported connection type but has not been validated against real hardware in alpha.
+BLE is a supported connection type but has not been validated against real hardware.
 
 ```bash
 bluetoothctl scan on
@@ -116,7 +116,7 @@ config = MeshtasticConfig(
 
 ### BLE Mode
 
-Connects via Bluetooth Low Energy. Documented but not validated in alpha.
+Connects via Bluetooth Low Energy. Documented but not validated against real hardware.
 
 ```python
 config = MeshtasticConfig(
@@ -297,7 +297,7 @@ Only relay-action text messages produce canonical events. Everything else is cla
 3. **No auto-reconnect.** The session does not automatically reconnect on disconnect. Restart the runtime.
 4. **No ACK confirmation for broadcast sends.** Meshtastic CLI does not print ACK for broadcast messages on shared channels.
 5. **BLE not validated.** BLE connectivity is implemented but not exercised against real hardware.
-6. **Single-channel operation.** Alpha validates text on a single channel index only.
+6. **Single-channel operation.** Current prerelease validation covers text on a single channel index only.
 7. **No inbound pubsub delivery proven at Docker level.** meshtasticd simulation mode may not relay packets between TCP clients.
 
 ## See Also

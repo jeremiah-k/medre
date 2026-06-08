@@ -1000,7 +1000,7 @@ class TestInspectReplayEquivalence:
 # ===================================================================
 
 
-class TestAlphaWalkthroughUsesInspect:
+class TestWalkthroughUsesInspect:
     """The alpha walkthrough runbook should use inspect-based investigation
     commands (inspect receipts, inspect event) as the primary investigation
     surface, with trace/evidence/recover available as deeper commands.

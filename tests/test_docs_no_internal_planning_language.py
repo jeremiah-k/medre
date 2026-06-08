@@ -1,10 +1,10 @@
 """Internal planning-language guard tests.
 
 Asserts that normative and operational documentation does not contain
-internal planning-cycle vocabulary.  The term "tranche" (case-insensitive)
-is an internal planning artifact and MUST NOT appear in spec/, ops/,
-or dev/ documentation.  It is permitted only in docs/changes/ which
-tracks historical change fragments.
+internal planning-cycle vocabulary.  Terms like "tranche", "boulder",
+"sprint", and other internal process labels are planning artifacts and
+MUST NOT appear in spec/, ops/, or dev/ documentation.  They are
+permitted only in docs/changes/ which tracks historical change fragments.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.forbidden_terms import FORBIDDEN_TERMS, find_stale_terms
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -28,24 +30,17 @@ _SCANNED_DIRS: list[Path] = [
     _DOCS_DIR / "dev",
 ]
 
-#: Internal planning terms that must not appear.
-_FORBIDDEN_TERMS: list[re.Pattern[str]] = [
+#: Additional planning-cycle terms specific to this test (not shared with
+#: release-readiness convergence tests).  Combined with FORBIDDEN_TERMS
+#: from the shared helper.
+_PLANNING_CYCLE_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\btranche\b", re.IGNORECASE),
     re.compile(r"\bboulder\b", re.IGNORECASE),
     re.compile(r"\bsprint\b", re.IGNORECASE),
 ]
 
-
-def _read(path: Path) -> str:
-    """Read file contents as UTF-8 string."""
-    return path.read_text(encoding="utf-8")
-
-
-def _collect_md_files(directory: Path) -> list[Path]:
-    """Collect all .md files under a directory recursively, sorted."""
-    if not directory.is_dir():
-        return []
-    return sorted(directory.rglob("*.md"))
+#: Full set of patterns scanned by this test suite.
+_ALL_PATTERNS: list[re.Pattern[str]] = _PLANNING_CYCLE_TERMS + FORBIDDEN_TERMS
 
 
 # ===========================================================================
@@ -84,22 +79,12 @@ class TestNoInternalPlanningLanguage:
         if not scan_dir.is_dir():
             pytest.skip(f"Directory not found: {scan_dir.relative_to(_ROOT)}")
 
-        md_files = _collect_md_files(scan_dir)
-        if not md_files:
-            pytest.skip(f"No .md files found in {scan_dir.relative_to(_ROOT)}")
-
-        violations: list[str] = []
-        for md_file in md_files:
-            if _is_exempt(md_file):
-                continue
-            text = _read(md_file)
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                for pattern in _FORBIDDEN_TERMS:
-                    if pattern.search(line):
-                        violations.append(
-                            f"  {md_file.relative_to(_ROOT)}:{lineno}: "
-                            f"'{line.strip()}'"
-                        )
+        raw = find_stale_terms([scan_dir.name], _ALL_PATTERNS)
+        violations = [
+            f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
+            for md_file, lineno, content in raw
+            if not _is_exempt(md_file)
+        ]
 
         if violations:
             pytest.fail(

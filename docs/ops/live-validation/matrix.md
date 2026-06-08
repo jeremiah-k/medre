@@ -15,7 +15,7 @@ export MATRIX_ROOM_ID="!abc123:localhost"
 pytest tests/test_matrix_live.py -m live -v
 ```
 
-Expected: 13 passed / 0 failed / 0 skipped (plaintext alpha path).
+Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 
 ## Docker SDK-Boundary Tests
 

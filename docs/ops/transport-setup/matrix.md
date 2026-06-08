@@ -1,6 +1,6 @@
 # Matrix Transport Setup
 
-Setting up and running the MEDRE Matrix adapter against a real homeserver. Alpha status — not production.
+Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
 
 ## Prerequisites
 
@@ -81,13 +81,13 @@ Do not commit the token. Do not log the token. Set it as an environment variable
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
+6. Confirm the room is unencrypted for plaintext testing. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
 
 ## Allowlist Configuration
 
 The adapter accepts an optional `room_allowlist`: a set of room IDs. When set, the inbound callback ignores messages from any room not in the set. When unset (`None`), the adapter accepts messages from all rooms.
 
-In alpha mode, always set the allowlist to exactly the room(s) you intend to monitor. Running without an allowlist means the adapter processes every message from every room the bot has joined.
+Always set the allowlist to exactly the room(s) you intend to monitor. Running without an allowlist means the adapter processes every message from every room the bot has joined.
 
 Environment variable: `MATRIX_ROOM_ALLOWLIST` — a comma-separated list of room IDs.
 
@@ -141,11 +141,11 @@ The runner:
 ### Expected Startup Output
 
 ```text
-INFO  medre  Matrix Operation Alpha: config loaded for @bot:localhost
+INFO  medre  Matrix runtime: config loaded for @bot:localhost
 INFO  medre  PipelineRunner started
 INFO  medre  MatrixAdapter matrix-alpha started
 INFO  medre  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True}}
-INFO  medre  Matrix Operation Alpha running — awaiting shutdown signal
+INFO  medre  Matrix runtime running — awaiting shutdown signal
 ```
 
 ### Expected Shutdown Output
@@ -154,7 +154,7 @@ INFO  medre  Matrix Operation Alpha running — awaiting shutdown signal
 INFO  medre  Shutdown requested — stopping
 INFO  medre  MatrixAdapter stopped
 INFO  medre  PipelineRunner stopped
-INFO  medre  Matrix Operation Alpha shut down cleanly
+INFO  medre  Matrix runtime shut down cleanly
 ```
 
 ## Health States
@@ -168,7 +168,7 @@ INFO  medre  Matrix Operation Alpha shut down cleanly
 
 When the adapter is in `degraded` state, it is actively attempting to restore the sync connection with exponential backoff. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
 
-## E2EE Text Alpha
+## E2EE text validation
 
 The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
 

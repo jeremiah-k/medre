@@ -49,12 +49,12 @@ _INSPECT_FIRST_WORKFLOW_DOCS = [
 
 
 # ===========================================================================
-# 9. Alpha walkthrough uses inspect-based investigation
+# 9. Operator walkthrough uses inspect-based investigation
 # ===========================================================================
 
 
-class TestAlphaWalkthroughInspectSurface:
-    """The alpha walkthrough should use inspect commands as the primary
+class TestWalkthroughInspectSurface:
+    """The operator walkthrough should use inspect commands as the primary
     investigation surface, with trace/evidence available as deeper tools."""
 
     def test_walkthrough_mentions_inspect(self) -> None:

@@ -70,18 +70,18 @@ def _build_parser() -> argparse.ArgumentParser:
     # diagnostics
     diag_p = sub.add_parser(
         "diagnostics",
-        help="Print pre-flight runtime snapshot (read-only; requires --config)",
+        help="Print pre-flight diagnostics; default snapshot is read-only, --refresh-health starts live runtime (requires --config)",
     )
     diag_p.add_argument("--config", default=None, help="Path to config file")
     diag_p.add_argument(
         "--refresh-health",
         action="store_true",
         default=False,
-        help="Start runtime, refresh adapter health once, print live snapshot",
+        help="Start live runtime, refresh adapter health once, print snapshot (may send messages)",
     )
 
     # routes (with sub-subcommands)
-    routes_p = sub.add_parser("routes", help="Route management commands")
+    routes_p = sub.add_parser("routes", help="Route inspection commands")
     routes_sub = routes_p.add_subparsers(dest="routes_command", required=True)
     routes_validate_p = routes_sub.add_parser(
         "validate", help="Validate route configuration"
@@ -117,7 +117,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--run-session",
         action="store_true",
         default=False,
-        help="Run a complete bridge session: start→inject→poll→stop→snapshot→report",
+        help="Run a complete bridge session (starts runtime, may send messages): start→inject→poll→stop→snapshot→report",
     )
     smoke_p.add_argument(
         "--snapshot-dir",

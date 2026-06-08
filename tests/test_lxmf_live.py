@@ -72,7 +72,7 @@ registration, outbound send, reconnection, teardown).
 
 **Current status:**
 
-- **Reticulum alpha.**  When the ``lxmf``/``RNS`` packages are installed
+- **Reticulum live.**  When the ``lxmf``/``RNS`` packages are installed
   and a valid identity file is provided, ``LxmfAdapter.start()``
   connects to a real Reticulum instance via ``LxmfSession``.
   When the SDK is not installed, non-fake ``start()`` raises

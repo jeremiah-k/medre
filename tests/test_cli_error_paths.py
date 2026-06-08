@@ -1,6 +1,6 @@
-"""Alpha CLI tests: error paths and no-traceback assertions.
+"""CLI error-path tests: no-traceback assertions on invalid inputs.
 
-Split from the original test_alpha_walkthrough_cli.py monolith.
+Split from the original walkthrough CLI test monolith.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from medre.cli import main
-from tests.helpers.alpha_cli import (
+from tests.helpers.walkthrough import (
     smoke_config_path,
 )
 
@@ -21,7 +21,7 @@ from tests.helpers.alpha_cli import (
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaNoTracebacks:
+class TestNoTracebacks:
     """Verify commands produce clean errors, not tracebacks."""
 
     def test_inspect_receipts_missing_storage_path(self) -> None:
