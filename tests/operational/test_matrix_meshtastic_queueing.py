@@ -22,7 +22,10 @@ import pytest
 
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.queue import (
+    MeshtasticOutboundQueue,
+    QueueTerminalResult,
+)
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
@@ -529,7 +532,8 @@ class TestQueueBackpressure:
             raise MeshtasticSendError("transient", transient=True)
 
         result = await queue.process_one(send_fn=_failing_send)
-        assert result is None
+        assert isinstance(result, QueueTerminalResult)
+        assert result.outcome == "exhausted"
         assert queue.total_exhausted == 1
         assert queue.total_failed == 1
         assert queue.queue_depth == 0
