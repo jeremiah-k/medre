@@ -37,14 +37,10 @@ if TYPE_CHECKING:
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
 
-from medre.core.planning.delivery_plan import (
-    DeliveryPlan,
-    DeliveryStrategy,
-    RetryExecutor,
-    RetryPolicy,
-    delivery_target_identity,
+from medre.core.engine.pipeline.retry_plan import (
+    reconstruct_retry_delivery_plan,
 )
-from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
+from medre.core.planning.delivery_plan import RetryExecutor
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
@@ -608,17 +604,28 @@ class RetryWorker:
         receipts = [r for r in receipts if r.target_channel == item.target_channel]
         previous_receipt = receipts[-1] if receipts else None
 
-        # Initialise retry-policy defaults before the capacity check so
-        # the backoff is available for capacity-rejection scheduling.
-        _max_attempts = self._max_attempts
-        _backoff_base = 2.0
-        _max_delay = 60.0
-        _jitter = False
-        if previous_receipt is not None:
-            _max_attempts = previous_receipt.retry_max_attempts or self._max_attempts
-            _backoff_base = previous_receipt.retry_backoff_base or 2.0
-            _max_delay = previous_receipt.retry_max_delay or 60.0
-            _jitter = previous_receipt.retry_jitter or False
+        # Reconstruct the delivery context (route + plan + retry policy)
+        # from the persisted outbox item and previous receipt.  The helper
+        # centralises all reconstruction semantics so the worker does not
+        # duplicate planning logic.
+        try:
+            retry_context = reconstruct_retry_delivery_plan(
+                item=item,
+                previous_receipt=previous_receipt,
+                default_max_attempts=self._max_attempts,
+            )
+        except Exception:
+            _logger.exception(
+                "RetryWorker: failed to reconstruct delivery context for outbox %s",
+                item.outbox_id,
+            )
+            self.state.processed += 1
+            self.state.failed += 1
+            await self._storage.mark_outbox_abandoned(
+                item.outbox_id,
+                error_summary="Reconstruction failure",
+            )
+            return
 
         capacity_acquired = False
 
@@ -632,12 +639,7 @@ class RetryWorker:
                         item.outbox_id,
                     )
                     # Compute backoff so the item isn't immediately retried.
-                    _cap_policy = RetryPolicy(
-                        max_attempts=_max_attempts,
-                        backoff_base=_backoff_base,
-                        max_delay_seconds=_max_delay,
-                        jitter=_jitter,
-                    )
+                    _cap_policy = retry_context.retry_policy
                     _cap_backoff = RetryExecutor(_cap_policy).compute_backoff(
                         item.attempt_number,
                     )
@@ -681,12 +683,7 @@ class RetryWorker:
                     # release_outbox_claim would always restore to "pending"
                     # and cause immediate re-claim.  Use mark_outbox_retry_wait
                     # with a proper backoff instead.
-                    _err_policy = RetryPolicy(
-                        max_attempts=_max_attempts,
-                        backoff_base=_backoff_base,
-                        max_delay_seconds=_max_delay,
-                        jitter=_jitter,
-                    )
+                    _err_policy = retry_context.retry_policy
                     _err_backoff = RetryExecutor(_err_policy).compute_backoff(
                         item.attempt_number,
                     )
@@ -706,39 +703,8 @@ class RetryWorker:
             capacity_acquired = True
 
         try:
-            _dest: RouteDestination | None = None
-            if item.metadata and "destination_kind" in item.metadata:
-                _dest = RouteDestination(
-                    kind=item.metadata["destination_kind"],
-                    destination_hash=item.metadata.get("destination_hash"),
-                    destination_name=item.metadata.get("destination_name"),
-                    metadata=item.metadata.get("destination_metadata", {}),
-                )
-            target = RouteTarget(
-                adapter=item.target_adapter,
-                channel=item.target_channel,
-                destination=_dest,
-            )
-            route = Route(
-                id=item.route_id or "",
-                source=RouteSource(adapter=None, event_kinds=(), channel=None),
-                targets=[target],
-            )
-
-            plan = DeliveryPlan(
-                plan_id=item.delivery_plan_id or "",
-                event_id=item.event_id,
-                target=target,
-                primary_strategy=DeliveryStrategy(method="direct"),
-                retry_policy=RetryPolicy(
-                    max_attempts=_max_attempts,
-                    backoff_base=_backoff_base,
-                    max_delay_seconds=_max_delay,
-                    jitter=_jitter,
-                ),
-                route_id=item.route_id or None,
-                target_identity=delivery_target_identity(target),
-            )
+            route = retry_context.route
+            plan = retry_context.plan
 
             self._emit(
                 "retry_attempted",
@@ -853,25 +819,20 @@ class RetryWorker:
                     except Exception:
                         pass  # fall through to default
 
-                    policy = RetryPolicy(
-                        max_attempts=_max_attempts,
-                        backoff_base=_backoff_base,
-                        max_delay_seconds=_max_delay,
-                        jitter=_jitter,
-                    )
+                    policy = retry_context.retry_policy
                     next_attempt = item.attempt_number + 1
                     # Guard: if attempt count exceeds policy, mark
                     # dead-lettered instead of scheduling another retry.
                     # This prevents infinite retries when the pipeline
                     # creates a dead-lettered receipt but the parent chain
                     # doesn't align with _check_dead_lettered.
-                    if next_attempt > _max_attempts:
+                    if next_attempt > policy.max_attempts:
                         _logger.warning(
                             "RetryWorker: retries exhausted for outbox %s "
                             "(attempt %d > max %d)",
                             item.outbox_id,
                             next_attempt,
-                            _max_attempts,
+                            policy.max_attempts,
                         )
                         await self._storage.mark_outbox_dead_lettered(
                             item.outbox_id,

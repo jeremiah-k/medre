@@ -1,6 +1,6 @@
 """Pipeline integration tests for route-policy enforcement.
 
-Proves that policy suppression actually fires through PipelineRunner._deliver_one(),
+Proves that policy suppression actually fires through PipelineRunner._deliver_single_target(),
 not just the pure evaluator in medre.core.policies.route_policy.  These tests
 exercise the real pipeline with fake adapters and storage, verifying:
 

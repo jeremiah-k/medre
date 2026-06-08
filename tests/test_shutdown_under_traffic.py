@@ -463,7 +463,7 @@ class TestNoOrphanTasksAfterShutdown:
         adapter_patterns = (
             "simulate_inbound",
             "_ingress_loop",
-            "_deliver_one",
+            "_deliver_single_target",
             "_deliver_all",
         )
         orphans = [

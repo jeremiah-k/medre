@@ -678,7 +678,7 @@ class TestFailureKindIntegration:
             assert outcome.status == "transient_failure"
             assert outcome.target_adapter == "mesh_dst"
             # Receipt is persisted in storage even though outcome.receipt is None
-            # (pipeline design: _deliver_one does not propagate receipt on error).
+            # (pipeline design: _deliver_single_target does not propagate receipt on error).
             receipts = await app.storage.list_receipts_for_event(event.event_id)
             assert len(receipts) == 1
             assert receipts[0].status == "failed"

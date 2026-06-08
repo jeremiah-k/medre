@@ -522,10 +522,10 @@ class TestRetryRuntimeIntegration:
             await worker._process_due(datetime.now(timezone.utc))
 
             snap_after_retry = accounting.snapshot()
-            # Original failure counted (via handle_ingress → _deliver_one)
+            # Original failure counted (via handle_ingress → _deliver_single_target)
             assert snap_after_retry["outbound_failed"] == 1
             # deliver_to_target does not update accounting (that happens
-            # at the _deliver_to_targets_inner level).  The worker tracks
+            # at the _deliver_to_targets_fan_out level).  The worker tracks
             # its own success state separately.
             assert worker.state.succeeded == 1
             # Initial attempt was counted by the full pipeline path

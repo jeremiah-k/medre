@@ -28,7 +28,7 @@ PipelineRunner.handle_ingress()          ← entry point
   │   └─ FallbackResolver + CapabilityDecisionResolver
   └─ DELIVER: per-target execution (see sub-phases below)
       │
-      ├─ PipelineRunner._deliver_one()   ← orchestrates checks + outbox
+      ├─ PipelineRunner._deliver_single_target()   ← orchestrates checks + outbox
       │   ├─ loop / policy / capability / skip checks
       │   ├─ capacity acquisition
       │   ├─ outbox creation + lease renewal
@@ -54,7 +54,7 @@ PipelineRunner.handle_ingress()          ← entry point
 
 | Identity            | Created by                                                                                                                                   | Carried by                                                                         | Persisted in                           |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------- |
-| `event_id`          | Adapter at ingress                                                                                                                           | `CanonicalEvent`, all downstream structures                                        | `events` table                         |
+| `event_id`          | Adapter at ingress                                                                                                                           | `CanonicalEvent`, all downstream structures                                        | `canonical_events` table               |
 | `delivery_plan_id`  | `stable_delivery_plan_id()` (defined in `src/medre/core/planning/delivery_plan.py`, called by `FallbackResolver`)                            | `DeliveryPlan`, `DeliveryReceipt`, `DeliveryOutboxItem`, `OutboundNativeRefRecord` | `delivery_receipts`, `delivery_outbox` |
 | `receipt_id`        | Created at receipt construction site by `TargetDeliveryService`, `DeliveryLifecycleService`, or `RetryExecutor` via `f"rcpt-{uuid.uuid4()}"` | `DeliveryReceipt`, `DeliveryOutcome`                                               | `delivery_receipts`                    |
 | `outbox_id`         | `_create_outbox_for_delivery` (UUID)                                                                                                         | `DeliveryOutboxItem`                                                               | `delivery_outbox`                      |
@@ -120,9 +120,9 @@ Defined in `src/medre/core/engine/phases.py`:
 
 These phases are diagnostic instrumentation only — they do not drive pipeline behavior. `phase_snapshot()` returns the current phase and per-phase invocation counts for observability.
 
-### DELIVER sub-phases inside `_deliver_one`
+### DELIVER sub-phases inside `_deliver_single_target`
 
-The `DELIVER` phase contains the richest internal structure. The parent method `_deliver_to_targets_inner` (runner.py ~1145–1776) fans out to individual targets via the nested `_deliver_one` closure, which executes the following sub-phases sequentially per target:
+The `DELIVER` phase contains the richest internal structure. The parent method `_deliver_to_targets_fan_out` (runner.py ~1145–1776) fans out to individual targets via the nested `_deliver_single_target` closure, which executes the following sub-phases sequentially per target:
 
 | Sub-phase                                       | Lines      | State mutation? | Description                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------------- | ---------- | :-------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,7 +131,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 | **Phase 2.5: Capability check**                 | ~1307–1372 |       No        | Reads `plan.capability_level == "unsupported"` set during planning. Produces `CAPABILITY_SUPPRESSED` outcome. Only applied for registered adapters (missing adapters fall through to `ADAPTER_MISSING`).                                                                                                             |
 | **Phase 2.75: Plan-level skip**                 | ~1374–1441 |       No        | Checks `plan.primary_strategy.method == "skip"`. Canonical skip path; defense-in-depth skip also exists in `TargetDeliveryService`. Produces `CAPABILITY_SUPPRESSED` outcome.                                                                                                                                        |
 | **Phase 3: Capacity acquisition**               | ~1443–1488 |       Yes       | Acquires slot from `CapacityController`. Classifies as `CAPACITY_REJECTION` or `SHUTDOWN_REJECTION` on failure.                                                                                                                                                                                                      |
-| **Phase 3.5: Outbox creation** | ~1490–1525 | Yes | Creates `DeliveryOutboxItem` with status `"in_progress"`. Computes attempt number (replay: max(existing) + 1). Ownership check against terminal/active rows; failure produces `OUTBOX_NOT_OWNED` `DeliveryOutcome` with no receipt. |
+| **Phase 3.5: Outbox creation**                  | ~1490–1525 |       Yes       | Creates `DeliveryOutboxItem` with status `"in_progress"`. Computes attempt number (replay: max(existing) + 1). Ownership check against terminal/active rows; failure produces `OUTBOX_NOT_OWNED` `DeliveryOutcome` with no receipt.                                                                                  |
 | **Phase 3.75: Lease renewal**                   | ~1527–1535 |       Yes       | Starts background `asyncio.Task` that renews outbox lease every 30 seconds (TTL 60 seconds). Cancelled in finally block.                                                                                                                                                                                             |
 | **Phase 4: Inflight + delivery + finalization** | ~1537–1772 |       Yes       | Registers `InflightDelivery` for shutdown evidence. Calls `deliver_to_target()` → `TargetDeliveryService`. Handles `_AdapterDeliveryError`, `_RendererDeliveryError`, `CancelledError`, and unexpected exceptions. Finally block: cancel lease renewal, finalize outbox outcome, release capacity, untrack inflight. |
 
@@ -163,7 +163,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 | Responsibility                                          |        NOT owned (owner in parentheses)         |
 | ------------------------------------------------------- | :---------------------------------------------: |
 | Outbox creation                                         | PipelineRunner (`_create_outbox_for_delivery`)  |
-| Capacity acquisition / release                          |         PipelineRunner (`_deliver_one`)         |
+| Capacity acquisition / release                          |    PipelineRunner (`_deliver_single_target`)    |
 | Lease renewal                                           | PipelineRunner (`_start_outbox_lease_renewal`)  |
 | Retry scheduling                                        |            DeliveryLifecycleService             |
 | Route planning                                          |        PipelineRunner + FallbackResolver        |
@@ -174,7 +174,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 ### Collaboration pattern
 
 ```
-PipelineRunner._deliver_one()
+PipelineRunner._deliver_single_target()
   → PipelineRunner.deliver_to_target()          # enriches relations
     → TargetDeliveryService.deliver_to_target()  # renders + delivers
       → RenderingPipeline.render()               # produces RenderingResult
@@ -226,23 +226,23 @@ Every `DeliveryReceipt` construction requires these inputs, classified by role:
 
 `DeliveryReceipt` is constructed in these locations:
 
-| Location                            | File                  | Lines    | Context                                      |
-| ----------------------------------- | --------------------- | -------- | -------------------------------------------- |
-| Adapter-missing receipt             | target_delivery.py    | ~370–391 | Adapter not in registry                      |
-| Deadline-exceeded receipt           | target_delivery.py    | ~403–421 | Plan deadline passed                         |
-| Invalid capability level receipt    | target_delivery.py    | ~469–487 | Unexpected capability_level                  |
-| Strategy skip receipt               | target_delivery.py    | ~514–534 | Plan strategy is `"skip"` (defense-in-depth) |
-| Invalid strategy receipt            | target_delivery.py    | ~552–577 | Unknown delivery strategy method             |
-| Rendering failure receipt           | target_delivery.py    | ~596–621 | RenderingPipeline threw                      |
-| No deliver() method receipt         | target_delivery.py    | ~639–658 | Adapter has no deliver method                |
-| Primary delivery receipt            | target_delivery.py    | ~776–797 | Main success/failure receipt                 |
-| Dead-letter receipt                 | delivery_lifecycle.py | ~382–394 | Retry exhausted                              |
-| Suppression receipt                 | delivery_lifecycle.py | ~447–466 | Loop/policy/capability/capacity suppressed   |
-| Retry receipt                       | delivery_plan.py      | ~469–494 | RetryExecutor builds retry receipt           |
-| Dead-letter receipt (RetryExecutor) | delivery_plan.py      | ~540–559 | RetryExecutor builds dead-letter receipt     |
-| Supplemental sent receipt           | delivery_lifecycle.py | ~749–772 | Queue-based adapter callback                 |
+| Location                            | File                  | Lines    | Context                                      | Uses `build_delivery_receipt` |
+| ----------------------------------- | --------------------- | -------- | -------------------------------------------- | :---------------------------: |
+| Adapter-missing receipt             | target_delivery.py    | ~370–391 | Adapter not in registry                      |               ✓               |
+| Deadline-exceeded receipt           | target_delivery.py    | ~403–421 | Plan deadline passed                         |               ✓               |
+| Invalid capability level receipt    | target_delivery.py    | ~469–487 | Unexpected capability_level                  |               ✓               |
+| Strategy skip receipt               | target_delivery.py    | ~514–534 | Plan strategy is `"skip"` (defense-in-depth) |               ✓               |
+| Invalid strategy receipt            | target_delivery.py    | ~552–577 | Unknown delivery strategy method             |               ✓               |
+| Rendering failure receipt           | target_delivery.py    | ~596–621 | RenderingPipeline threw                      |               ✓               |
+| No deliver() method receipt         | target_delivery.py    | ~639–658 | Adapter has no deliver method                |               ✓               |
+| Primary delivery receipt            | target_delivery.py    | ~776–797 | Main success/failure receipt                 |               ✓               |
+| Dead-letter receipt                 | delivery_lifecycle.py | ~382–394 | Retry exhausted (delegates to RetryExecutor) |               —               |
+| Suppression receipt                 | delivery_lifecycle.py | ~447–466 | Loop/policy/capability/capacity suppressed   |               ✓               |
+| Retry receipt                       | delivery_plan.py      | ~469–494 | RetryExecutor builds retry receipt           |               —               |
+| Dead-letter receipt (RetryExecutor) | delivery_plan.py      | ~540–559 | RetryExecutor builds dead-letter receipt     |               —               |
+| Supplemental sent receipt           | delivery_lifecycle.py | ~749–772 | Queue-based adapter callback                 |               ✓               |
 
-**Observation:** Receipt construction follows a consistent pattern (identity fields + status + error + retry fields from lifecycle), but the pattern is repeated rather than extracted into a builder. A `ReceiptBuilder` helper could reduce the ~15 keyword arguments repeated at each construction site. However, extracting a builder would change code that is currently well-tested and each construction site has slightly different error/status semantics. **Recommendation: defer to future work.** The current explicit construction makes each receipt's provenance clear at its call site.
+**Observation:** Receipt construction previously followed a repeated pattern (identity fields + status + error + retry fields from lifecycle), with ~15 keyword arguments duplicated at each site. The implementation pass extracted a construction-only helper, `build_delivery_receipt` (in `receipt_factory.py`), which assembles a `DeliveryReceipt` from explicit caller-supplied fields without performing lifecycle decisions or persistence. All 8 construction sites in `TargetDeliveryService` and 2 in `DeliveryLifecycleService` (suppression + supplemental) now route through this helper. `RetryExecutor` receipts (retry + dead-letter in `delivery_plan.py`) and the `DeliveryLifecycleService` dead-letter receipt (which delegates to `RetryExecutor`) remain separate because their construction is owned by the retry executor's internal logic.
 
 ## 6. Evidence Derivation Audit
 
@@ -293,30 +293,35 @@ Every `DeliveryReceipt` construction requires these inputs, classified by role:
 
 ### Documented parity gap: retry plan reconstruction
 
-`RetryWorker._retry_outbox_item` (retry.py ~728–741) reconstructs a `DeliveryPlan` from outbox and receipt metadata:
+`RetryWorker._retry_outbox_item` (retry.py ~728–741) reconstructs a `DeliveryPlan` from outbox and receipt metadata via the `reconstruct_retry_delivery_plan` helper in `src/medre/core/engine/pipeline/retry_plan.py`. This helper centralises the reconstruction logic and returns a frozen `ReconstructedRetryPlan` bundle containing the minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`.
 
 ```python
-plan = DeliveryPlan(
-    plan_id=item.delivery_plan_id or "",
-    event_id=item.event_id,
-    target=target,
-    primary_strategy=DeliveryStrategy(method="direct"),
-    retry_policy=RetryPolicy(...),
-    route_id=item.route_id or None,
-    target_identity=delivery_target_identity(target),
+# retry_plan.py — reconstruct_retry_delivery_plan()
+ReconstructedRetryPlan(
+    route=Route(...),          # minimal route from item.route_id
+    plan=DeliveryPlan(
+        plan_id=item.delivery_plan_id or "",
+        event_id=item.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+        retry_policy=retry_policy,  # restored from previous receipt
+        route_id=item.route_id or None,
+        target_identity=delivery_target_identity(target),
+    ),
+    retry_policy=retry_policy,
 )
 ```
 
 **Fields not preserved from the original plan:**
 
-| Original field            | Retry reconstruction | Impact                                                                                                                                   |
-| ------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `capability_level` | `None` (default) | `DeliveryPlan.capability_level` defaults to `None`; `TargetDeliveryService` and the rendering pipeline normalize `None` to `"native"` before use, so the retry always attempts native rendering regardless of the original level. |
-| `capability_field`        | `None` (default)     | Lost provenance of which capability field determined suppression.                                                                        |
-| `capability_reason`       | `None` (default)     | Lost human-readable reason.                                                                                                              |
-| `fallback_chain`          | `[]` (default)       | No fallback chain — retry always uses `"direct"` strategy.                                                                               |
-| `deadline`                | `None` (default)     | Original deadline is not preserved.                                                                                                      |
-| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from outbox metadata.                                                      |
+| Original field            | Retry reconstruction | Impact                                                                                                                                                                                                                            |
+| ------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capability_level`        | `None` (default)     | `DeliveryPlan.capability_level` defaults to `None`; `TargetDeliveryService` and the rendering pipeline normalize `None` to `"native"` before use, so the retry always attempts native rendering regardless of the original level. |
+| `capability_field`        | `None` (default)     | Lost provenance of which capability field determined suppression.                                                                                                                                                                 |
+| `capability_reason`       | `None` (default)     | Lost human-readable reason.                                                                                                                                                                                                       |
+| `fallback_chain`          | `[]` (default)       | No fallback chain — retry always uses `"direct"` strategy.                                                                                                                                                                        |
+| `deadline`                | `None` (default)     | Original deadline is not preserved.                                                                                                                                                                                               |
+| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from outbox metadata.                                                                                                                                               |
 
 **This is a documented parity gap, not a bug.** Retry targets are expected to use the `"direct"` strategy because:
 
@@ -324,24 +329,24 @@ plan = DeliveryPlan(
 2. The original fallback strategy was chosen based on capability context that may have changed between delivery and retry.
 3. Preserving the original strategy could cause stale decisions to persist across adapter restarts.
 
-**No code change is proposed.** This gap should be documented as-is. If exact parity is required in the future, the retry path would need to persist `capability_level`, `capability_field`, and `capability_reason` either on the outbox row or on the receipt.
+The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves current reconstruction semantics exactly, centralises the logic for testability, and documents all omitted fields in its docstring. If exact parity is required in the future, the retry path would need to persist `capability_level`, `capability_field`, and `capability_reason` either on the outbox row or on the receipt.
 
 **Deferred improvement warning:** Persisting capability metadata on outbox rows or receipts (Recommendation 10) is a deferred future improvement. Any implementation must account for stale-decision risk — the capability context may have changed between the original delivery and a retry after adapter restart — and must resolve the direct-vs-fallback tradeoff: preserving the original `capability_level` preserves intent but may conflict with a re-evaluated capability decision at rendering time.
 
 ## 8. Complexity Hotspot Ranking
 
-| #   | File                                                         | Approx. lines          | Owner                    | Why complex                                                                                                                               | Candidate simplification                                                                                            | Risk                                                                      |
-| --- | ------------------------------------------------------------ | ---------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 1   | `runner.py` `_deliver_to_targets_inner` / `_deliver_one`     | ~1145–1776 (630 lines) | PipelineRunner           | 8 sequential sub-phases with early returns, nested try/except/finally, capacity acquire/release in finally block, asyncio.gather fan-out  | Extract each sub-phase check into named methods; extract outbox lifecycle into `OutboxManager` helper class         | High: deep nesting and finally-block invariants require careful testing   |
-| 2   | `retry.py` `_retry_outbox_item`                              | ~583–961 (380 lines)   | RetryWorker              | Long method with capacity handling, plan reconstruction, success/failure/exhaustion branching, dead-letter detection, backoff computation | Extract capacity handling and dead-letter detection into helper methods                                             | Medium: well-tested but branching density makes bugs hard to spot         |
-| 3   | `target_delivery.py` `deliver_to_target`                     | ~299–859 (560 lines)   | TargetDeliveryService    | ~8 distinct error paths each constructing a receipt with 15+ keyword arguments; rendering + adapter + receipt + native-ref in one method  | Extract receipt construction into a `ReceiptBuilder`; separate error-path methods from success path                 | Medium: each error path is individually simple but the aggregate is dense |
-| 4   | `delivery_lifecycle.py` `append_queued_to_sent_receipt`      | ~554–807 (250 lines)   | DeliveryLifecycleService | Complex correlation strategy (delivery_plan_id → channel → source-aware selection); handles ambiguous multi-candidate scenarios           | Simplify to require `delivery_plan_id` unconditionally once all adapters propagate it; remove legacy fallback paths | Low: correlation logic is defensive but well-structured                   |
-| 5   | `delivery_lifecycle.py` `finalize_outbox_outcome`            | ~811–938 (130 lines)   | DeliveryLifecycleService | 6-way branching on receipt status + failure kind + retry policy + retry exhaustion                                                        | Extract retry-exhaustion check and backoff computation into RetryExecutor methods                                   | Low: mechanical extraction                                                |
-| 6   | `runner.py` `handle_ingress`                                 | ~440–676 (240 lines)   | PipelineRunner           | Per-ingress cache setup (4 dicts), sequential phases with early returns, reaction-to-reaction check                                       | Extract cache setup into a context object; move reaction-to-reaction check into a guard method                      | Low-Medium: cache invariants are subtle                                   |
-| 7   | `runner.py` `_create_outbox_for_delivery`                    | ~1782–1918 (140 lines) | PipelineRunner           | Replay attempt-number computation, ownership check with 3 skip-reason categories                                                          | Extract ownership check into `OutboxOwnershipChecker`                                                               | Low: well-isolated already                                                |
-| 8   | `replay/delivery.py` `_filter_plans_by_capability`           | ~159–253 (95 lines)    | ReplayDeliveryMixin      | Dual-cache capability resolution + decision caching; tuple unwrapping                                                                     | Pre-resolve capabilities outside the loop; use typed plan list instead of `Any`                                     | Low: type safety improvement                                              |
-| 9   | `delivery_lifecycle.py` `_select_source_preferred_candidate` | ~470–550 (80 lines)    | DeliveryLifecycleService | Source-aware candidate selection with replay-safety guard                                                                                 | Already well-isolated; document replay-safety rationale                                                             | Low: documentation only                                                   |
-| 10  | `runner.py` `route_event`                                    | ~952–1041 (90 lines)   | PipelineRunner           | Route matching + target expansion + plan creation + route_trace update + retry policy attachment                                          | Extract route_trace update into `RoutingMetadata` method                                                            | Low: mechanical extraction                                                |
+| #   | File                                                                 | Approx. lines          | Owner                    | Why complex                                                                                                                               | Candidate simplification                                                                                            | Risk                                                                      |
+| --- | -------------------------------------------------------------------- | ---------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | `runner.py` `_deliver_to_targets_fan_out` / `_deliver_single_target` | ~1145–1776 (630 lines) | PipelineRunner           | 8 sequential sub-phases with early returns, nested try/except/finally, capacity acquire/release in finally block, asyncio.gather fan-out  | Extract each sub-phase check into named methods; extract outbox lifecycle into `OutboxManager` helper class         | High: deep nesting and finally-block invariants require careful testing   |
+| 2   | `retry.py` `_retry_outbox_item`                                      | ~583–961 (380 lines)   | RetryWorker              | Long method with capacity handling, plan reconstruction, success/failure/exhaustion branching, dead-letter detection, backoff computation | Extract capacity handling and dead-letter detection into helper methods                                             | Medium: well-tested but branching density makes bugs hard to spot         |
+| 3   | `target_delivery.py` `deliver_to_target`                             | ~299–859 (560 lines)   | TargetDeliveryService    | ~8 distinct error paths each constructing a receipt with 15+ keyword arguments; rendering + adapter + receipt + native-ref in one method  | Extract receipt construction into a `ReceiptBuilder`; separate error-path methods from success path                 | Medium: each error path is individually simple but the aggregate is dense |
+| 4   | `delivery_lifecycle.py` `append_queued_to_sent_receipt`              | ~554–807 (250 lines)   | DeliveryLifecycleService | Complex correlation strategy (delivery_plan_id → channel → source-aware selection); handles ambiguous multi-candidate scenarios           | Simplify to require `delivery_plan_id` unconditionally once all adapters propagate it; remove legacy fallback paths | Low: correlation logic is defensive but well-structured                   |
+| 5   | `delivery_lifecycle.py` `finalize_outbox_outcome`                    | ~811–938 (130 lines)   | DeliveryLifecycleService | 6-way branching on receipt status + failure kind + retry policy + retry exhaustion                                                        | Extract retry-exhaustion check and backoff computation into RetryExecutor methods                                   | Low: mechanical extraction                                                |
+| 6   | `runner.py` `handle_ingress`                                         | ~440–676 (240 lines)   | PipelineRunner           | Per-ingress cache setup (4 dicts), sequential phases with early returns, reaction-to-reaction check                                       | Extract cache setup into a context object; move reaction-to-reaction check into a guard method                      | Low-Medium: cache invariants are subtle                                   |
+| 7   | `runner.py` `_create_outbox_for_delivery`                            | ~1782–1918 (140 lines) | PipelineRunner           | Replay attempt-number computation, ownership check with 3 skip-reason categories                                                          | Extract ownership check into `OutboxOwnershipChecker`                                                               | Low: well-isolated already                                                |
+| 8   | `replay/delivery.py` `_filter_plans_by_capability`                   | ~159–253 (95 lines)    | ReplayDeliveryMixin      | Dual-cache capability resolution + decision caching; tuple unwrapping                                                                     | Pre-resolve capabilities outside the loop; use typed plan list instead of `Any`                                     | Low: type safety improvement                                              |
+| 9   | `delivery_lifecycle.py` `_select_source_preferred_candidate`         | ~470–550 (80 lines)    | DeliveryLifecycleService | Source-aware candidate selection with replay-safety guard                                                                                 | Already well-isolated; document replay-safety rationale                                                             | Low: documentation only                                                   |
+| 10  | `runner.py` `route_event`                                            | ~952–1041 (90 lines)   | PipelineRunner           | Route matching + target expansion + plan creation + route_trace update + retry policy attachment                                          | Extract route_trace update into `RoutingMetadata` method                                                            | Low: mechanical extraction                                                |
 
 ## 9. Simplification Recommendations
 
@@ -356,23 +361,63 @@ plan = DeliveryPlan(
 
 ### Recommendations
 
-| #   | Recommendation                                                                                                        | Classification                 | Rationale                                                                                                                                  |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Document retry plan reconstruction parity gap (Section 7 above)                                                       | Documentation-only             | Already documented in this audit. No code change.                                                                                          |
-| 2   | Document `sequence` field on `DeliveryReceipt` as unused diagnostic (always 0)                                        | Documentation-only             | Field exists but is never incremented. Document to prevent confusion.                                                                      |
-| 3   | Document why `_deliver_one` check ordering matters (loop → policy → capability → skip → capacity → outbox)            | Documentation-only             | Ordering is a critical invariant. Already documented in code comments; surface in audit.                                                   |
-| 4   | Rename `_deliver_to_targets_inner` to `_deliver_to_targets_fan_out` or similar to distinguish from the public wrapper | Naming cleanup                 | The `_inner` suffix is ambiguous — the method does the actual fan-out, not just an inner helper.                                           |
-| 5   | Rename `_deliver_one` to `_deliver_single_target` for self-documenting name                                           | Naming cleanup                 | `_deliver_one` is the most complex method in the codebase; a descriptive name aids navigation.                                             |
-| 6 | Extract outbox lifecycle into `OutboxManager` helper class (create + ownership + lease + finalize) | Behavior-preserving extraction | ~350 lines of outbox logic in runner.py could be isolated. Reduces `_deliver_one` scope. **Risk:** the extracted helper must preserve four finally-block invariants — lease renewal task cancellation, outbox finalization, capacity release, and inflight untracking — in the correct order across all exit paths. |
-| 7   | Extract receipt construction into `ReceiptBuilder` with fluent API                                                    | Behavior-preserving extraction | 13 construction sites with 15+ keyword arguments each. Reduces repetition and risk of missing fields.                                      |
-| 8   | Extract per-ingress cache setup into `IngressCache` context object                                                    | Behavior-preserving extraction | 4 cache dicts + 2 inflight dicts created per `handle_ingress` call. A context object would clarify ownership and lifecycle.                |
-| 9   | Extract `_retry_outbox_item` capacity handling into separate method                                                   | Behavior-preserving extraction | ~100 lines of capacity acquire/release/backoff could be isolated from the main retry flow.                                                 |
-| 10  | Consider persisting `capability_level`/`field`/`reason` on outbox rows for exact retry parity                         | Defer / future                 | Plausible improvement but requires schema change and near-cap test coverage. Low priority.                                                 |
-| 11  | Consider requiring `delivery_plan_id` on all `OutboundNativeRefRecord` instances                                      | Defer / future                 | Would simplify `append_queued_to_sent_receipt` correlation by removing legacy fallback paths. Requires all adapters to propagate plan IDs. |
-| 12  | Consider typed plan list for replay instead of `list[Any]`                                                            | Defer / future                 | `replay/delivery.py` uses `Any` for plan compatibility; typed plans would improve safety but require protocol changes.                     |
+| #   | Recommendation                                                                                                        | Classification                             | Rationale                                                                                                                                                                                                                                                                                                                     |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Document retry plan reconstruction parity gap (Section 7 above)                                                       | Documentation-only (completed)             | Documented in this audit and centralised in `retry_plan.py` with full docstring coverage of omitted fields.                                                                                                                                                                                                                   |
+| 2   | Document `sequence` field on `DeliveryReceipt` as unused diagnostic (always 0)                                        | Documentation-only                         | Field exists but is never incremented. Document to prevent confusion.                                                                                                                                                                                                                                                         |
+| 3   | Document why `_deliver_single_target` check ordering matters (loop → policy → capability → skip → capacity → outbox)  | Documentation-only                         | Ordering is a critical invariant. Already documented in code comments; surface in audit.                                                                                                                                                                                                                                      |
+| 4   | Rename `_deliver_to_targets_inner` to `_deliver_to_targets_fan_out` or similar to distinguish from the public wrapper | Naming cleanup (completed)                 | **Completed.** Renamed in implementation pass. `_deliver_to_targets_fan_out` now in `runner.py`.                                                                                                                                                                                                                              |
+| 5   | Rename `_deliver_one` to `_deliver_single_target` for self-documenting name                                           | Naming cleanup (completed)                 | **Completed.** Renamed in implementation pass. `_deliver_single_target` now in `runner.py`.                                                                                                                                                                                                                                   |
+| 6   | Extract outbox lifecycle into `OutboxManager` helper class (create + ownership + lease + finalize)                    | Behavior-preserving extraction (deferred)  | ~350 lines of outbox logic in runner.py could be isolated. Reduces `_deliver_single_target` scope. **Risk:** the extracted helper must preserve four finally-block invariants — lease renewal task cancellation, outbox finalization, capacity release, and inflight untracking — in the correct order across all exit paths. |
+| 7   | Extract receipt construction into `build_delivery_receipt` helper                                                     | Behavior-preserving extraction (completed) | **Completed.** `build_delivery_receipt` in `receipt_factory.py` is a pure construction helper. All 8 sites in `TargetDeliveryService` and 2 in `DeliveryLifecycleService` migrated. `RetryExecutor` receipts remain separate.                                                                                                 |
+| 8   | Extract per-ingress cache setup into `IngressCache` context object                                                    | Behavior-preserving extraction             | 4 cache dicts + 2 inflight dicts created per `handle_ingress` call. A context object would clarify ownership and lifecycle.                                                                                                                                                                                                   |
+| 9   | Extract `_retry_outbox_item` capacity handling into separate method                                                   | Behavior-preserving extraction             | ~100 lines of capacity acquire/release/backoff could be isolated from the main retry flow.                                                                                                                                                                                                                                    |
+| 10  | Consider persisting `capability_level`/`field`/`reason` on outbox rows for exact retry parity                         | Defer / future                             | Plausible improvement but requires schema change and near-cap test coverage. Low priority.                                                                                                                                                                                                                                    |
+| 11  | Consider requiring `delivery_plan_id` on all `OutboundNativeRefRecord` instances                                      | Defer / future                             | Would simplify `append_queued_to_sent_receipt` correlation by removing legacy fallback paths. Requires all adapters to propagate plan IDs.                                                                                                                                                                                    |
+| 12  | Consider typed plan list for replay instead of `list[Any]`                                                            | Defer / future                             | `replay/delivery.py` uses `Any` for plan compatibility; typed plans would improve safety but require protocol changes.                                                                                                                                                                                                        |
 
-## 10. Code Changes
+## 10. Implementation Pass
 
-**No code changes were made.** This audit is documentation-only. All source files, tests, and schemas remain unchanged.
+The following changes were made after the initial audit to address recommendations 1, 4, 5, and 7.
 
-The recommendations in Section 9 are classified for future consideration. Items 1–3 are documentation-only (addressed by this document). Items 4–5 are naming cleanups with minimal risk. Items 6–9 are behavior-preserving extractions that would require test updates. Items 10–12 are deferred due to schema impact and test coverage requirements.
+### Receipt construction helper (`receipt_factory.py`)
+
+`src/medre/core/engine/pipeline/receipt_factory.py` was added as a pure construction-only helper. It provides a single function, `build_delivery_receipt`, that assembles a `DeliveryReceipt` from explicit caller-supplied fields with defaults for `receipt_id` and `created_at`. It performs no lifecycle decisions, exception classification, retry scheduling, or persistence.
+
+**Migrated construction sites (10 of 13):**
+
+| Service                    | Sites migrated                                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TargetDeliveryService`    | All 8: adapter-missing, deadline-exceeded, invalid-capability, strategy-skip, invalid-strategy, rendering-failure, no-deliver-method, primary delivery |
+| `DeliveryLifecycleService` | 2: suppression receipt, supplemental sent receipt                                                                                                      |
+
+**Intentionally not migrated (3 of 13):**
+
+| Service                    | Sites kept separate                                      | Reason                                                                   |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `RetryExecutor`            | 2: retry receipt, dead-letter receipt (delivery_plan.py) | Construction is owned by the retry executor's internal logic             |
+| `DeliveryLifecycleService` | 1: dead-letter receipt (delegates to RetryExecutor)      | Delegates to `RetryExecutor.build_dead_letter_receipt`, not direct build |
+
+### Retry plan reconstruction helper (`retry_plan.py`)
+
+`src/medre/core/engine/pipeline/retry_plan.py` was added to reconstruct a minimal retry execution plan from persisted outbox and receipt data. It provides `reconstruct_retry_delivery_plan`, which returns a frozen `ReconstructedRetryPlan` containing a minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`. The helper preserves current reconstruction semantics exactly and documents all omitted fields (fallback chain, deadline, capability metadata) in its docstring.
+
+### Private naming cleanup
+
+Two method renames were applied in `runner.py`:
+
+| Old name                    | New name                      | Rationale                                                    |
+| --------------------------- | ----------------------------- | ------------------------------------------------------------ |
+| `_deliver_to_targets_inner` | `_deliver_to_targets_fan_out` | The method performs the actual fan-out, not an inner helper  |
+| `_deliver_one`              | `_deliver_single_target`      | Self-documenting name for the codebase's most complex method |
+
+All internal call sites and doc references were updated to match.
+
+### Deferred items
+
+The following recommendations from Section 9 remain deferred:
+
+- **6** (OutboxManager extraction): high-risk extraction from `_deliver_single_target` with four finally-block invariants.
+- **8** (IngressCache context object): behavior-preserving extraction, not yet prioritized.
+- **9** (Retry capacity extraction): behavior-preserving extraction, not yet prioritized.
+- **10–12** (Schema changes, typed plans): deferred due to schema impact and test coverage requirements.

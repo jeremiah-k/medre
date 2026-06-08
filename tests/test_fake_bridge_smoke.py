@@ -750,7 +750,7 @@ class TestLoopPrevention:
         The config-level RouteConfig rejects overlapping source/dest
         adapters, so this test manually registers a Route that would
         create a self-loop.  The pipeline's self-loop guard in
-        ``_deliver_to_targets_inner`` catches this at runtime.
+        ``_deliver_to_targets_fan_out`` catches this at runtime.
         """
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="loop-test"),

@@ -391,7 +391,7 @@ class PipelineRunner:
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
 
-        When set, each per-target delivery inside :meth:`_deliver_to_targets_inner`
+        When set, each per-target delivery inside :meth:`_deliver_to_targets_fan_out`
         acquires a delivery slot before processing and releases it on
         completion (success, failure, or skip).
         """
@@ -1085,8 +1085,8 @@ class PipelineRunner:
             One :class:`DeliveryOutcome` per target, preserving the
             order of *route_targets*.
         """
-        # Per-target capacity acquire/release happens inside _deliver_one().
-        return await self._deliver_to_targets_inner(
+        # Per-target capacity acquire/release happens inside _deliver_single_target().
+        return await self._deliver_to_targets_fan_out(
             event,
             route_targets,
             source=source,
@@ -1129,7 +1129,7 @@ class PipelineRunner:
             replay_run_id=replay_run_id,
         )
 
-    async def _deliver_to_targets_inner(
+    async def _deliver_to_targets_fan_out(
         self,
         event: CanonicalEvent,
         route_targets: list[tuple[Route, DeliveryPlan]],
@@ -1142,7 +1142,7 @@ class PipelineRunner:
         ) = None,
     ) -> list[DeliveryOutcome]:
 
-        async def _deliver_one(
+        async def _deliver_single_target(
             route: Route, route_plan: DeliveryPlan
         ) -> DeliveryOutcome:
             target = route_plan.target
@@ -1378,7 +1378,7 @@ class PipelineRunner:
             # BEFORE capacity acquisition, outbox creation, rendering,
             # and success accounting.  This is the canonical skip path;
             # the defense-in-depth skip inside deliver_to_target() exists
-            # only for direct calls that bypass _deliver_one().
+            # only for direct calls that bypass _deliver_single_target().
             #
             # IMPORTANT: Only apply plan-level skip for adapters that
             # are actually registered, mirroring the Phase 2.5 capability
@@ -1772,11 +1772,13 @@ class PipelineRunner:
                     await self._capacity_controller.release_delivery()
 
         return list(
-            await asyncio.gather(*[_deliver_one(r, p) for r, p in route_targets])
+            await asyncio.gather(
+                *[_deliver_single_target(r, p) for r, p in route_targets]
+            )
         )
 
     # ------------------------------------------------------------------
-    # Outbox helpers (extracted from _deliver_one for readability)
+    # Outbox helpers (extracted from _deliver_single_target for readability)
     # ------------------------------------------------------------------
 
     async def _create_outbox_for_delivery(

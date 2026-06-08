@@ -421,10 +421,10 @@ class TestRetryWorkerNameErrorRegression:
             max_attempts=3,
         )
 
-        # Monkeypatch RouteTarget to raise during construction so the failure
+        # Monkeypatch the reconstruction helper to raise so the failure
         # occurs in the reconstruction block, NOT in deliver_to_target.
         with patch(
-            "medre.runtime.retry.RouteTarget",
+            "medre.runtime.retry.reconstruct_retry_delivery_plan",
             side_effect=ValueError("Simulated reconstruction failure"),
         ):
             # _retry_outbox_item should NOT raise NameError
