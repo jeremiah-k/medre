@@ -285,15 +285,15 @@ Every `DeliveryReceipt` construction requires these inputs, classified by role:
 
 ### Entry points by source
 
-| Source     | Entry point                                                     | How plan is obtained                                                               | Attempt context                                       | Receipt provenance                          |
-| ---------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
-| `"live"`   | `PipelineRunner.handle_ingress` → `deliver_to_targets`          | `route_event()` → `FallbackResolver.resolve_fallback()` — full capability decision | `previous_receipt=None` → attempt 1                   | `source="live"`, `replay_run_id=None`       |
-| `"retry"`  | `RetryWorker._retry_outbox_item` → `pipeline.deliver_to_target` | Reconstructed from outbox metadata + receipt — **minimal plan**                    | `previous_receipt` from storage → attempt N           | `source="retry"`, `replay_run_id=None`      |
-| `"replay"` | `ReplayEngine._stage_deliver` → `pipeline.deliver_to_targets`   | `pipeline.route_event()` — full capability decision (re-planned)                   | `previous_receipt` looked up from storage → attempt N | `source="replay"`, `replay_run_id=<run_id>` |
+| Source     | Entry point                                                     | How plan is obtained                                                                   | Attempt context                                       | Receipt provenance                          |
+| ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| `"live"`   | `PipelineRunner.handle_ingress` → `deliver_to_targets`          | `route_event()` → `FallbackResolver.resolve_fallback()` — full capability decision     | `previous_receipt=None` → attempt 1                   | `source="live"`, `replay_run_id=None`       |
+| `"retry"`  | `RetryWorker._retry_outbox_item` → `pipeline.deliver_to_target` | Reconstructed from `delivery_outbox` metadata + `delivery_receipts` — **minimal plan** | `previous_receipt` from storage → attempt N           | `source="retry"`, `replay_run_id=None`      |
+| `"replay"` | `ReplayEngine._stage_deliver` → `pipeline.deliver_to_targets`   | `pipeline.route_event()` — full capability decision (re-planned)                       | `previous_receipt` looked up from storage → attempt N | `source="replay"`, `replay_run_id=<run_id>` |
 
 ### Documented parity gap: retry plan reconstruction
 
-`RetryWorker._retry_outbox_item` (retry.py ~728–741) reconstructs a `DeliveryPlan` from outbox and receipt metadata via the `reconstruct_retry_delivery_plan` helper in `src/medre/core/engine/pipeline/retry_plan.py`. This helper centralises the reconstruction logic and returns a frozen `ReconstructedRetryPlan` bundle containing the minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`.
+`RetryWorker._retry_outbox_item` (retry.py ~728–741) reconstructs a `DeliveryPlan` from `delivery_outbox` and `delivery_receipts` metadata via the `reconstruct_retry_delivery_plan` helper in `src/medre/core/engine/pipeline/retry_plan.py`. This helper centralises the reconstruction logic and returns a frozen `ReconstructedRetryPlan` bundle containing the minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`.
 
 ```python
 # retry_plan.py — reconstruct_retry_delivery_plan()
@@ -321,21 +321,9 @@ ReconstructedRetryPlan(
 | `capability_reason`       | `None` (default)     | Lost human-readable reason.                                                                                                                                                                                                       |
 | `fallback_chain`          | `[]` (default)       | No fallback chain — retry always uses `"direct"` strategy.                                                                                                                                                                        |
 | `deadline`                | `None` (default)     | Original deadline is not preserved.                                                                                                                                                                                               |
-| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from outbox metadata.                                                                                                                                               |
+| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from `delivery_outbox` metadata.                                                                                                                                    |
 
-**This is a documented parity gap, not a bug.** Retry targets are expected to use the `"direct"` strategy because:
-
-1. Capability decisions are re-evaluated at rendering time via `plan.capability_level` defaulting to `"native"`.
-2. The original fallback strategy was chosen based on capability context that may have changed between delivery and retry.
-3. Preserving the original strategy could cause stale decisions to persist across adapter restarts.
-
-**Retry reconstruction authority rule:**
-
-- RetryWorker reconstructs a minimal execution plan from persisted `delivery_outbox` and `delivery_receipts`.
-- Retry does not re-run route planning or capability planning.
-- Retry does not recover `capability_level`, `capability_field`, or `capability_reason` because they are not persisted.
-- `TargetDeliveryService` normalizes missing `capability_level` to native execution semantics.
-- This is intentional behavior.
+Retry reconstruction is intentionally minimal: it rebuilds a direct execution plan from `delivery_outbox` and `delivery_receipts` and does not re-run capability or fallback planning. Because `capability_level`/`capability_field`/`capability_reason` are not persisted, retry cannot preserve the original live planning decision. `TargetDeliveryService` therefore treats missing `capability_level` as native execution semantics. This is accepted current behavior, not an accidental hidden re-planning path, but it is a known parity limitation. Exact live/retry parity would require either persisted planning metadata or deliberate retry replanning.
 
 The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves reconstruction semantics exactly, centralises the logic for testability, and documents all omitted fields in its docstring. If exact parity is required in the future, the retry path would need to persist `capability_level`, `capability_field`, and `capability_reason` either on the `delivery_outbox` row or on the `delivery_receipts` row.
 
@@ -386,7 +374,14 @@ The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves recons
 
 ## 10. Implementation Pass
 
-The following changes were made after the initial audit to address recommendations 1, 4, 5, and 7.
+The following changes were made after the initial audit (addressing recommendations 1, 4, 5, and 7 from Section 9):
+
+- Receipt construction helper (`build_delivery_receipt`) added to `receipt_factory.py`.
+- `TargetDeliveryService` and `DeliveryLifecycleService` receipt construction sites migrated to use the helper (10 of 13 sites).
+- Retry plan reconstruction helper (`reconstruct_retry_delivery_plan`) added to `retry_plan.py`.
+- `RetryWorker` updated to use the reconstruction helper.
+- Private runner method names clarified: `_deliver_to_targets_fan_out` and `_deliver_single_target`.
+- This audit document updated with implementation-pass details.
 
 ### Receipt construction helper (`receipt_factory.py`)
 
@@ -408,7 +403,7 @@ The following changes were made after the initial audit to address recommendatio
 
 ### Retry plan reconstruction helper (`retry_plan.py`)
 
-`src/medre/core/engine/pipeline/retry_plan.py` was added to reconstruct a minimal retry execution plan from persisted outbox and receipt data. It provides `reconstruct_retry_delivery_plan`, which returns a frozen `ReconstructedRetryPlan` containing a minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`. The helper preserves reconstruction semantics exactly and documents all omitted fields (fallback chain, deadline, capability metadata) in its docstring.
+`src/medre/core/engine/pipeline/retry_plan.py` was added to reconstruct a minimal retry execution plan from persisted `delivery_outbox` and `delivery_receipts` data. It provides `reconstruct_retry_delivery_plan`, which returns a frozen `ReconstructedRetryPlan` containing a minimal `Route`, `DeliveryPlan`, and resolved `RetryPolicy`. The helper preserves reconstruction semantics exactly and documents all omitted fields (fallback chain, deadline, capability metadata) in its docstring.
 
 ### Private naming cleanup
 

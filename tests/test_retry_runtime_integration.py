@@ -1421,6 +1421,8 @@ class TestRetryRuntimeIntegration:
                     created_at=datetime.now(timezone.utc),
                 )
 
+            # Intercept the pipeline boundary to assert reconstructed Route/DeliveryPlan
+            # passed by RetryWorker without invoking adapter delivery/rendering.
             runner.deliver_to_target = capturing_deliver
 
             # -- 5. Instantiate real RetryWorker and process the item ------
