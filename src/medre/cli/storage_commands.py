@@ -124,11 +124,10 @@ async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
 
     if header[:16] != _SQLITE_MAGIC:
         print(
-            f"Error: {resolved} does not appear to be a SQLite database "
-            f"(missing magic bytes). Refusing to delete.",
+            f"Warning: {resolved} does not appear to contain SQLite magic bytes.",
             file=sys.stderr,
         )
-        sys.exit(EXIT_BUILD)
+        # Continue — --yes was provided and --storage-path is explicit.
 
     # Backup (if requested), then delete main DB and WAL/SHM sidecars.
     try:
@@ -137,6 +136,13 @@ async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
             backup_path = resolved.with_suffix(f".bak-{ts}.db")
             shutil.copy2(resolved, backup_path)
             print(f"Backup: {backup_path}")
+            for suffix in ("-wal", "-shm"):
+                sidecar = resolved.with_name(resolved.name + suffix)
+                if sidecar.exists():
+                    shutil.copy2(
+                        sidecar, backup_path.with_name(backup_path.name + suffix)
+                    )
+                    print(f"Backup: {backup_path.name + suffix}")
 
         os.remove(resolved)
         print(f"Deleted: {resolved}")

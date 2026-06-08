@@ -568,8 +568,37 @@ def test_cli_storage_reset_with_backup(tmp_path: Path) -> None:
     assert len(backups) == 1
 
 
-def test_cli_storage_reset_refuses_non_sqlite(tmp_path: Path) -> None:
-    """`medre storage reset` refuses to delete a non-SQLite file."""
+def test_cli_storage_reset_backup_includes_wal_shm(tmp_path: Path) -> None:
+    """`medre storage reset --backup --yes` copies WAL/SHM sidecars."""
+    db_path = _create_old_shape_db(tmp_path)
+    # Create fake WAL and SHM sidecar files.
+    wal_path = tmp_path / "old.db-wal"
+    shm_path = tmp_path / "old.db-shm"
+    wal_path.write_bytes(b"fake-wal-content")
+    shm_path.write_bytes(b"fake-shm-content")
+
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
+        "--backup",
+        "--yes",
+    )
+    assert code == 0
+    # Check all three backup files were created.
+    backups = list(tmp_path.glob("old.bak-*.db"))
+    assert len(backups) == 1
+    backup_name = backups[0].name
+    assert (tmp_path / f"{backup_name}-wal").exists()
+    assert (tmp_path / f"{backup_name}-shm").exists()
+    # Original sidecars should be deleted.
+    assert not wal_path.exists()
+    assert not shm_path.exists()
+
+
+def test_cli_storage_reset_warns_non_sqlite(tmp_path: Path) -> None:
+    """`medre storage reset` warns but proceeds on non-SQLite files."""
     fake_file = tmp_path / "not-a-db.txt"
     fake_file.write_text("hello world")
     code, stdout, stderr = _run_cli_exit(
@@ -579,6 +608,6 @@ def test_cli_storage_reset_refuses_non_sqlite(tmp_path: Path) -> None:
         str(fake_file),
         "--yes",
     )
-    assert code == EXIT_BUILD
-    assert "magic bytes" in stderr.lower() or "not appear to be" in stderr.lower()
-    assert fake_file.exists()  # file not deleted
+    assert code == 0
+    assert "magic bytes" in stderr.lower() or "not appear to contain" in stderr.lower()
+    assert not fake_file.exists()  # file deleted despite warning

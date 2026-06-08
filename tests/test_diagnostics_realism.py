@@ -599,6 +599,7 @@ class TestStartupSummaryUsefulness:
             "started_adapter_ids",
             "route_count",
             "storage_backend",
+            "storage_path",
             "replay_available",
             "persisted_events_count",
             "recovery_run_id",
