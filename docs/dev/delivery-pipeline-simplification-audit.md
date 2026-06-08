@@ -8,7 +8,7 @@
 
 A new contributor should be able to explain the full path from an inbound event to persisted evidence after reading this section alone.
 
-The pipeline has six logical stages: **event** (adapter publishes a `CanonicalEvent`), **planning** (route matching produces one `DeliveryPlan` per target), **execution** (`PipelineRunner` orchestrates checks, capacity, and outbox lifecycle), **adapter** (`TargetDeliveryService` renders content and calls the transport adapter), **receipt** (a `DeliveryReceipt` is constructed and persisted for every attempt), and **evidence** (rendering diagnostics, native refs, and outbox state are persisted for audit and retry recovery).
+The pipeline has six logical stages: **event** (adapter publishes a `CanonicalEvent`), **planning** (route matching produces one `DeliveryPlan` per target), **execution** (`PipelineRunner` orchestrates checks, capacity, and outbox lifecycle), **adapter** (`TargetDeliveryService` renders content and calls the transport adapter), **receipt** (a `DeliveryReceipt` is constructed and persisted for every attempt), and **evidence** (rendering diagnostics, `native_message_refs` and `delivery_outbox` state are persisted for audit and retry recovery).
 
 ### The path in one page
 
@@ -135,7 +135,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 | **Phase 3.75: Lease renewal**                   | ~1527–1535 |       Yes       | Starts background `asyncio.Task` that renews outbox lease every 30 seconds (TTL 60 seconds). Cancelled in finally block.                                                                                                                                                                                             |
 | **Phase 4: Inflight + delivery + finalization** | ~1537–1772 |       Yes       | Registers `InflightDelivery` for shutdown evidence. Calls `deliver_to_target()` → `TargetDeliveryService`. Handles `_AdapterDeliveryError`, `_RendererDeliveryError`, `CancelledError`, and unexpected exceptions. Finally block: cancel lease renewal, finalize outbox outcome, release capacity, untrack inflight. |
 
-**Key ordering constraint:** Loop checks → route policy → capability check → plan skip → capacity → outbox. This ensures policy-denied and capability-unsupported targets never consume capacity or create outbox rows.
+**Key ordering constraint:** Loop checks → route policy → capability check → plan skip → capacity → outbox. This ensures policy-denied and capability-unsupported targets never consume capacity or create `delivery_outbox` rows.
 
 **Sub-phase numbering convention:** The fractional labels (2.5, 2.75, 3.5, 3.75) are code-comment labels used for intra-phase reference. They are not `PipelinePhase` enum values — the `PipelinePhase` enum defines only the six top-level phases listed above.
 
@@ -314,16 +314,16 @@ ReconstructedRetryPlan(
 
 **Fields not preserved from the original plan:**
 
-| Original field            | Retry reconstruction | Impact                                                                                                                                                                                                                            |
-| ------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capability_level`        | `None` (default)     | `DeliveryPlan.capability_level` defaults to `None`; `TargetDeliveryService` and the rendering pipeline normalize `None` to `"native"` before use, so the retry always attempts native rendering regardless of the original level. |
-| `capability_field`        | `None` (default)     | Lost provenance of which capability field determined suppression.                                                                                                                                                                 |
-| `capability_reason`       | `None` (default)     | Lost human-readable reason.                                                                                                                                                                                                       |
-| `fallback_chain`          | `[]` (default)       | No fallback chain — retry always uses `"direct"` strategy.                                                                                                                                                                        |
-| `deadline`                | `None` (default)     | Original deadline is not preserved.                                                                                                                                                                                               |
-| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from `delivery_outbox` metadata.                                                                                                                                    |
+| Original field            | Retry reconstruction | Impact                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capability_level`        | `None` (default)     | `DeliveryPlan.capability_level` defaults to `None`; `TargetDeliveryService` and rendering currently normalize `None` to native execution semantics. Retry therefore does not preserve the original live capability/fallback decision. This is intentional current behavior for minimal retry reconstruction, but remains a known live/retry parity limitation. |
+| `capability_field`        | `None` (default)     | Lost provenance of which capability field determined suppression.                                                                                                                                                                                                                                                                                              |
+| `capability_reason`       | `None` (default)     | Lost human-readable reason.                                                                                                                                                                                                                                                                                                                                    |
+| `fallback_chain`          | `[]` (default)       | No fallback chain — retry always uses `"direct"` strategy.                                                                                                                                                                                                                                                                                                     |
+| `deadline`                | `None` (default)     | Original deadline is not preserved.                                                                                                                                                                                                                                                                                                                            |
+| `primary_strategy.method` | `"direct"` always    | Original strategy (e.g. `"fallback_text"`) is not recoverable from `delivery_outbox` metadata.                                                                                                                                                                                                                                                                 |
 
-Retry reconstruction is intentionally minimal: it rebuilds a direct execution plan from `delivery_outbox` and `delivery_receipts` and does not re-run capability or fallback planning. Because `capability_level`/`capability_field`/`capability_reason` are not persisted, retry cannot preserve the original live planning decision. `TargetDeliveryService` therefore treats missing `capability_level` as native execution semantics. This is accepted current behavior, not an accidental hidden re-planning path, but it is a known parity limitation. Exact live/retry parity would require either persisted planning metadata or deliberate retry replanning.
+Retry reconstruction is intentionally minimal: it rebuilds a direct execution plan from `delivery_outbox` and `delivery_receipts` and does not re-run capability or fallback planning. Because `capability_level`/`capability_field`/`capability_reason` are not persisted, retry cannot preserve the original live planning decision. `TargetDeliveryService` therefore treats missing `capability_level` as native execution semantics. This is intentional current behavior for minimal retry reconstruction, not an accidental hidden re-planning path, but it remains a known live/retry parity limitation. Exact parity would require either persisted planning metadata or deliberate retry replanning.
 
 The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves reconstruction semantics exactly, centralises the logic for testability, and documents all omitted fields in its docstring. If exact parity is required in the future, the retry path would need to persist `capability_level`, `capability_field`, and `capability_reason` either on the `delivery_outbox` row or on the `delivery_receipts` row.
 
@@ -374,9 +374,18 @@ The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves recons
 
 ## 10. Implementation Pass
 
-The following changes were made after the initial audit (addressing recommendations 1, 4, 5, and 7 from Section 9):
+This implementation pass made the branch more than an audit by completing these low-risk simplifications:
 
-- Receipt construction helper (`build_delivery_receipt`) added to `receipt_factory.py`.
+- Added `build_delivery_receipt()` construction helper in `receipt_factory.py`.
+- Migrated `TargetDeliveryService` receipt construction sites (8 of 8) to use the helper.
+- Migrated `DeliveryLifecycleService` suppression and queued→sent supplemental receipts to use the helper.
+- Added `reconstruct_retry_delivery_plan()` helper in `retry_plan.py`.
+- Updated `RetryWorker` to use the retry reconstruction helper.
+- Clarified private `PipelineRunner` method names (`_deliver_to_targets_fan_out`, `_deliver_single_target`).
+- Updated this audit to distinguish completed work from deferred larger refactors.
+
+The following items were completed in earlier passes:- Receipt construction helper (`build_delivery_receipt`) added to `receipt_factory.py`.
+
 - `TargetDeliveryService` and `DeliveryLifecycleService` receipt construction sites migrated to use the helper (10 of 13 sites).
 - Retry plan reconstruction helper (`reconstruct_retry_delivery_plan`) added to `retry_plan.py`.
 - `RetryWorker` updated to use the reconstruction helper.
