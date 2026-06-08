@@ -42,6 +42,7 @@ from typing import (
     Any,
     Callable,
     Literal,
+    cast,
     get_args,
 )
 
@@ -51,6 +52,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -366,9 +368,7 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
-            now = datetime.now(tz=timezone.utc)
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -380,8 +380,6 @@ class TargetDeliveryService:
                 f"- the adapter may have failed to build or was not configured. "
                 f"Check build logs for {adapter_id!r}",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -400,8 +398,7 @@ class TargetDeliveryService:
         # Check delivery plan deadline.
         now = datetime.now(tz=timezone.utc)
         if plan.deadline is not None and now > plan.deadline:
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -411,7 +408,6 @@ class TargetDeliveryService:
                 status="failed",
                 error="Delivery deadline exceeded",
                 failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED.value,
-                next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -465,9 +461,7 @@ class TargetDeliveryService:
             self._diagnostician.record_planner_failure(
                 event.event_id, _invalid_cap_error
             )
-            now = datetime.now(tz=timezone.utc)
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -477,8 +471,6 @@ class TargetDeliveryService:
                 status="failed",
                 error=_invalid_cap_error,
                 failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -492,7 +484,7 @@ class TargetDeliveryService:
                 receipt=receipt,
                 failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
             ) from None
-        _capability_level: _CapLevel = _plan_cap_level
+        _capability_level = cast(_CapLevel, _plan_cap_level)
 
         # Honor the delivery plan's strategy: validate and narrow the
         # method string to a typed DeliveryStrategyMethod before passing
@@ -501,7 +493,7 @@ class TargetDeliveryService:
 
         if _strategy_method == "skip":
             # Defense-in-depth only: the canonical skip path is in
-            # _deliver_one() Phase 2.75 which runs BEFORE outbox
+            # _deliver_single_target() Phase 2.75 which runs BEFORE outbox
             # creation, capacity acquisition, and rendering.  This block
             # handles edge cases where deliver_to_target() is called
             # directly (e.g. via _deliver_all).  A plan-level skip is
@@ -510,9 +502,7 @@ class TargetDeliveryService:
                 f"delivery_skipped: plan strategy is 'skip' "
                 f"(event_kind={event.event_kind})"
             )
-            now = datetime.now(tz=timezone.utc)
-            _skip_receipt = DeliveryReceipt(
-                sequence=0,
+            _skip_receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -522,8 +512,6 @@ class TargetDeliveryService:
                 status="suppressed",
                 error=_skip_error,
                 failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -548,9 +536,7 @@ class TargetDeliveryService:
                 f"{_strategy_method!r}: not a known strategy"
             )
             self._diagnostician.record_planner_failure(event.event_id, _invalid_error)
-            now = datetime.now(tz=timezone.utc)
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -560,8 +546,6 @@ class TargetDeliveryService:
                 status="failed",
                 error=_invalid_error,
                 failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -592,9 +576,7 @@ class TargetDeliveryService:
             self._diagnostician.record_renderer_failure(
                 event.event_id, adapter_id or "", rendering_error
             )
-            now = datetime.now(tz=timezone.utc)
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -604,8 +586,6 @@ class TargetDeliveryService:
                 status="failed",
                 error=rendering_error,
                 failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -635,9 +615,7 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
-            now = datetime.now(tz=timezone.utc)
-            receipt = DeliveryReceipt(
-                sequence=0,
+            receipt = build_delivery_receipt(
                 receipt_id=receipt_id,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -647,8 +625,6 @@ class TargetDeliveryService:
                 status="failed",
                 error=no_deliver_error,
                 failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT.value,
-                next_retry_at=None,
-                created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
@@ -773,8 +749,7 @@ class TargetDeliveryService:
                         type(_raw_evidence).__name__,
                     )
 
-        receipt = DeliveryReceipt(
-            sequence=0,
+        receipt = build_delivery_receipt(
             receipt_id=receipt_id,
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,

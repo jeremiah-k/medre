@@ -1,4 +1,4 @@
-"""Tests for plan-level skip (Phase 2.75) in _deliver_to_targets_inner().
+"""Tests for plan-level skip (Phase 2.75) in _deliver_to_targets_fan_out().
 
 Covers the guard at lines 1708-1741 of pipeline.py:
 
@@ -30,7 +30,7 @@ from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 
 class TestPlanLevelSkip:
-    """Verify plan-level skip (Phase 2.75) in _deliver_to_targets_inner."""
+    """Verify plan-level skip (Phase 2.75) in _deliver_to_targets_fan_out."""
 
     @pytest.mark.asyncio
     async def test_registered_adapter_skip_plan_returns_skipped(

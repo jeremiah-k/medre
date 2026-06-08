@@ -71,7 +71,6 @@ Observed transitions
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -82,6 +81,7 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.delivery_state import (
     is_valid_queued_to_sent_transition as _is_valid_queued_to_sent_transition,
 )
+from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -443,10 +443,7 @@ class DeliveryLifecycleService:
         DeliveryReceipt
             The persisted suppression receipt.
         """
-        now = datetime.now(tz=timezone.utc)
-        receipt = DeliveryReceipt(
-            sequence=0,
-            receipt_id=f"rcpt-{uuid.uuid4()}",
+        receipt = build_delivery_receipt(
             event_id=event_id,
             delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
@@ -455,10 +452,6 @@ class DeliveryLifecycleService:
             status="suppressed",
             error=error,
             failure_kind=failure_kind.value,
-            next_retry_at=None,
-            created_at=now,
-            attempt_number=1,
-            parent_receipt_id=None,
             source=source,
             replay_run_id=replay_run_id,
         )
@@ -746,19 +739,14 @@ class DeliveryLifecycleService:
             )
             return
 
-        supplemental = DeliveryReceipt(
-            sequence=0,
-            receipt_id=f"rcpt-{uuid.uuid4()}",
+        supplemental = build_delivery_receipt(
             event_id=record.event_id,
             delivery_plan_id=queued_receipt.delivery_plan_id,
             target_adapter=record.adapter,
             target_channel=record.native_channel_id or queued_receipt.target_channel,
             route_id=queued_receipt.route_id,
             status="sent",
-            error=None,
-            failure_kind=None,
             adapter_message_id=record.native_message_id,
-            next_retry_at=None,
             created_at=now,
             attempt_number=queued_receipt.attempt_number,
             parent_receipt_id=queued_receipt.receipt_id,
@@ -774,7 +762,7 @@ class DeliveryLifecycleService:
 
         # Transition the matching outbox item from queued -> sent.
         # The item may still be in_progress if the callback fires before
-        # _deliver_one() marks the outbox row as queued.  Prefer queued
+        # _deliver_single_target() marks the outbox row as queued.  Prefer queued
         # status over in_progress so that a fully-queued row is always
         # selected first.
         try:

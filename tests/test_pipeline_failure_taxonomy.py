@@ -668,7 +668,7 @@ class TestDeliveryFailureClassification:
         """Missing adapter produces permanent_failure with ADAPTER_MISSING.
 
         ``deliver_to_target`` persists a failed receipt and raises so that
-        ``_deliver_one`` classifies the outcome as ``permanent_failure``
+        ``_deliver_single_target`` classifies the outcome as ``permanent_failure``
         with ``failure_kind == ADAPTER_MISSING``.  No adapter delivery
         is attempted.
         """

@@ -1,4 +1,4 @@
-"""Focused tests that _deliver_one() trusts DeliveryPlan capability provenance.
+"""Focused tests that _deliver_single_target() trusts DeliveryPlan capability provenance.
 
 Verifies the runner reads ``route_plan.capability_level``,
 ``route_plan.capability_field``, and ``route_plan.capability_reason`` as the
@@ -209,7 +209,7 @@ class TestPhase25DoesNotCallResolver:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """CapabilityDecisionResolver.decide() is not called in _deliver_one.
+        """CapabilityDecisionResolver.decide() is not called in _deliver_single_target.
 
         We call route_event() first (which legitimately uses the resolver),
         then patch the resolver before calling deliver_to_targets() to prove
@@ -257,7 +257,7 @@ class TestPhase25DoesNotCallResolver:
             with patch(
                 "medre.core.planning.capability_decision.CapabilityDecisionResolver.decide",
                 side_effect=AssertionError(
-                    "resolver.decide() must not be called in _deliver_one"
+                    "resolver.decide() must not be called in _deliver_single_target"
                 ),
             ):
                 outcomes = await runner.deliver_to_targets(event, route_targets)

@@ -122,7 +122,7 @@ The pipeline is orchestrated by `PipelineRunner.handle_ingress()`. Stages execut
 - **Authority:** Owns one-target execution: rendering invocation, adapter delivery, receipt construction, rendering evidence attachment.
 - **Input:** `(CanonicalEvent, DeliveryPlan, RenderingPipeline, adapters, storage, ...)`
 - **Output:** `DeliveryOutcome` + persisted `DeliveryReceipt`
-- **Consumers:** `PipelineRunner._deliver_one`
+- **Consumers:** `PipelineRunner._deliver_to_targets_fan_out`
 - **Core rule:** Does NOT own outbox creation, capacity, retry scheduling, relation enrichment, or delivery lifecycle. Receives pre-enriched event.
 
 ### 2.8 RenderingPipeline (Rendering Planner)
@@ -138,18 +138,18 @@ The pipeline is orchestrated by `PipelineRunner.handle_ingress()`. Stages execut
 
 All paths that prevent delivery from reaching an adapter:
 
-| #   | Reason                        | Authority                                 | Stage | Receipt persisted?                | Adapter sees it? | Operator visibility               |
-| --- | ----------------------------- | ----------------------------------------- | ----- | --------------------------------- | ---------------- | --------------------------------- |
-| 1   | Native-ref dedup              | `StorageBackend.resolve_native_ref`       | 1.5   | No                                | No               | Log + `RuntimeAccounting` counter |
-| 2   | Reaction-to-reaction          | `PipelineRunner._is_reaction_to_reaction` | 4.5   | No                                | No               | Log only                          |
-| 3   | Route-trace loop              | `PipelineRunner._deliver_one` (Phase 1)   | 6a    | Yes (`LOOP_SUPPRESSED`)           | No               | Receipt + log + route stats       |
-| 4   | Self-loop                     | `PipelineRunner._deliver_one` (Phase 1)   | 6a    | Yes (`LOOP_SUPPRESSED`)           | No               | Receipt + log + route stats       |
-| 5   | Route-policy denial           | `evaluate_route_policy`                   | 6b    | Yes (`POLICY_SUPPRESSED`)         | No               | Receipt + log + route stats       |
-| 6   | Capability unsupported        | `CapabilityDecisionResolver`              | 6c    | Yes (`CAPABILITY_SUPPRESSED`)     | No               | Receipt + log + route stats       |
-| 7   | Capacity exhaustion           | `CapacityController`                      | 6d    | Yes (`CAPACITY_REJECTION`)        | No               | Receipt                           |
-| 8   | Shutdown rejection            | `CapacityController`                      | 6d    | Yes (`SHUTDOWN_REJECTION`)        | No               | Receipt                           |
-| 9   | Adapter missing               | `TargetDeliveryService`                   | 6g    | Yes (`ADAPTER_MISSING`)           | No               | Receipt                           |
-| 10  | Plan skip (strategy=`"skip"`) | `FallbackResolver` + Phase 2.5            | 6c    | Yes (via `CAPABILITY_SUPPRESSED`) | No               | Receipt + log                     |
+| #   | Reason                        | Authority                                              | Stage | Receipt persisted?                | Adapter sees it? | Operator visibility               |
+| --- | ----------------------------- | ------------------------------------------------------ | ----- | --------------------------------- | ---------------- | --------------------------------- |
+| 1   | Native-ref dedup              | `StorageBackend.resolve_native_ref`                    | 1.5   | No                                | No               | Log + `RuntimeAccounting` counter |
+| 2   | Reaction-to-reaction          | `PipelineRunner._is_reaction_to_reaction`              | 4.5   | No                                | No               | Log only                          |
+| 3   | Route-trace loop              | `PipelineRunner._deliver_to_targets_fan_out` (Phase 1) | 6a    | Yes (`LOOP_SUPPRESSED`)           | No               | Receipt + log + route stats       |
+| 4   | Self-loop                     | `PipelineRunner._deliver_to_targets_fan_out` (Phase 1) | 6a    | Yes (`LOOP_SUPPRESSED`)           | No               | Receipt + log + route stats       |
+| 5   | Route-policy denial           | `evaluate_route_policy`                                | 6b    | Yes (`POLICY_SUPPRESSED`)         | No               | Receipt + log + route stats       |
+| 6   | Capability unsupported        | `CapabilityDecisionResolver`                           | 6c    | Yes (`CAPABILITY_SUPPRESSED`)     | No               | Receipt + log + route stats       |
+| 7   | Capacity exhaustion           | `CapacityController`                                   | 6d    | Yes (`CAPACITY_REJECTION`)        | No               | Receipt                           |
+| 8   | Shutdown rejection            | `CapacityController`                                   | 6d    | Yes (`SHUTDOWN_REJECTION`)        | No               | Receipt                           |
+| 9   | Adapter missing               | `TargetDeliveryService`                                | 6g    | Yes (`ADAPTER_MISSING`)           | No               | Receipt                           |
+| 10  | Plan skip (strategy=`"skip"`) | `FallbackResolver` + Phase 2.5                         | 6c    | Yes (via `CAPABILITY_SUPPRESSED`) | No               | Receipt + log                     |
 
 ### 3.1 Early-return paths (no receipt)
 

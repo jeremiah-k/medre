@@ -307,7 +307,7 @@ class TestSkipStrategyDefenseInDepth:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """Skip in _deliver_one does not create outbox items or call
+        """Skip in _deliver_single_target does not create outbox items or call
         the adapter."""
         adapter = FakePresentationAdapter(adapter_id="dest")
         adapter._capabilities = AdapterCapabilities(

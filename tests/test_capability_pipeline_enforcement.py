@@ -1,7 +1,7 @@
 """Integration tests that verify the full pipeline enforces capability
 decisions end-to-end.
 
-Proves that capability suppression fires through PipelineRunner._deliver_one()
+Proves that capability suppression fires through PipelineRunner._deliver_single_target()
 and ReplayEngine._stage_deliver(), not just the pure capability-check helpers
 in ``medre.core.planning.capabilities.capability_unsupported``.  These tests
 exercise the real pipeline with fake adapters and storage, verifying:

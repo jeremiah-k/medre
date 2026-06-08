@@ -1,8 +1,8 @@
-"""Tests for PipelineRunner._deliver_one exception handlers.
+"""Tests for PipelineRunner._deliver_single_target exception handlers.
 
 Exercises the ``_AdapterDeliveryError``, ``_RendererDeliveryError``,
 ``CancelledError``, and generic ``Exception`` paths in the inner
-``_deliver_one`` closure, verifying that each produces a correct
+``_deliver_single_target`` closure, verifying that each produces a correct
 :class:`DeliveryOutcome` with the expected failure kind and status.
 """
 
@@ -62,7 +62,7 @@ def _make_runner(
 class _BrokenAdapter:
     """A minimal adapter stub that always raises on every call.
 
-    Used to satisfy the adapter-registry check in ``_deliver_one``
+    Used to satisfy the adapter-registry check in ``_deliver_single_target``
     Phase 2.5 so the delivery attempt reaches Phase 4.
     """
 
@@ -80,7 +80,7 @@ class _BrokenAdapter:
 
 
 class TestDeliverOneAdapterDeliveryError:
-    """_deliver_one handles _AdapterDeliveryError with correct failure_kind."""
+    """_deliver_single_target handles _AdapterDeliveryError with correct failure_kind."""
 
     async def test_failure_kind_from_exception(
         self,
@@ -174,7 +174,7 @@ class TestDeliverOneAdapterDeliveryError:
 
 
 class TestDeliverOneRendererDeliveryError:
-    """_deliver_one handles _RendererDeliveryError → permanent_failure."""
+    """_deliver_single_target handles _RendererDeliveryError → permanent_failure."""
 
     async def test_renderer_delivery_error_handler(
         self,
@@ -235,7 +235,7 @@ class TestDeliverOneRendererDeliveryError:
 
 
 class TestDeliverOneCancelledError:
-    """CancelledError propagates through _deliver_one."""
+    """CancelledError propagates through _deliver_single_target."""
 
     async def test_cancelled_error_propagates(
         self,
