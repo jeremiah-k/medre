@@ -89,6 +89,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-live",
             delivery_plan_id="plan-src",
             outbox_id="obox-live-vs-replay",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -158,6 +159,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-order",
             delivery_plan_id="plan-order",
             outbox_id="obox-order",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -260,6 +262,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-plain",
             delivery_plan_id="plan-live",
             outbox_id="obox-live-single",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -324,6 +327,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-dup-1",
             delivery_plan_id="plan-dup",
             outbox_id="obox-dup-1",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -366,6 +370,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-dup-2",
             delivery_plan_id="plan-dup",
             outbox_id="obox-dup-2",
+            attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -433,6 +438,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-nc",
             delivery_plan_id="plan-nc",
             outbox_id="obox-nc",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -544,6 +550,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-single",
             delivery_plan_id="plan-single",
             outbox_id="obox-single",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -606,6 +613,7 @@ class TestSourceAwareCandidateSelection:
             native_message_id="pkt-retry",
             delivery_plan_id="plan-001",
             outbox_id="obox-retry",
+            attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,

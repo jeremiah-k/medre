@@ -632,6 +632,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_message_id="packet-0",
             delivery_plan_id="plan-ch0",
             outbox_id="obox-ch0",
+            attempt_number=1,
         )
         await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
 
@@ -643,6 +644,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_message_id="packet-1",
             delivery_plan_id="plan-ch1",
             outbox_id="obox-ch1",
+            attempt_number=1,
         )
         await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
 
@@ -796,6 +798,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_message_id="packet-single",
             delivery_plan_id="plan-only",
             outbox_id="obox-single",
+            attempt_number=1,
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
@@ -886,6 +889,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_message_id="packet-retry",
             delivery_plan_id="plan-retry",
             outbox_id="obox-retry",
+            attempt_number=2,
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

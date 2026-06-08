@@ -103,6 +103,7 @@ class TestDelegationIntegration:
             native_message_id="pkt-42",
             delivery_plan_id="plan-001",
             outbox_id="obox-delegate-qs",
+            attempt_number=1,
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

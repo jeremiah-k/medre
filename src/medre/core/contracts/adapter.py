@@ -308,9 +308,11 @@ class OutboundNativeRefRecord:
 
     .. note::
 
-       When the adapter is shut down before the queue drain records the native
-       ref, the mapping is permanently lost.  The queue does not flush or retry
-       on shutdown.
+        When the adapter is shut down, items in the local queue survive across
+        stop/start boundaries.  The durable outbox row remains in ``queued``
+        status for stale-recovery.  Terminal outcomes (cancelled/abandoned) are
+        reported only when there is evidence the drain task was actively
+        processing work.
 
     Attributes
     ----------
@@ -419,11 +421,19 @@ class QueueTerminalRecord:
     adapter:
         The adapter ID reporting this outcome.
     outbox_id:
-        The internal outbox item correlation key, if available.
+        **Required** internal correlation key linking this callback to
+        the exact durable outbox item.  Queue adapters MUST populate
+        this field; callbacks without ``outbox_id`` are hard-rejected
+        by core and produce no durable terminal receipt or outbox
+        mutation.
+        **Not wire metadata, not public API.**
     delivery_plan_id:
         The delivery plan correlation key.
     attempt_number:
-        1-indexed delivery attempt number from pipeline retry lineage.
+        **Required** 1-indexed delivery attempt number from pipeline
+        retry lineage.  Queue adapters MUST populate this field;
+        callbacks without ``attempt_number`` are hard-rejected by core
+        and produce no durable terminal receipt or outbox mutation.
     native_channel_id:
         Channel / conversation ID in the adapter's native format.
     outcome:
@@ -434,7 +444,7 @@ class QueueTerminalRecord:
         * ``"cancelled"`` — item cancelled while in-flight.
         * ``"abandoned"`` — adapter shutdown with unsent queued items.
     error:
-        Human-readable error context, if available.
+        Human-readable error context.
     """
 
     event_id: str

@@ -193,6 +193,7 @@ class TestRetryWaitStatusRejected:
             adapter="mesh-1",
             outbox_id="obox-rw",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
@@ -229,6 +230,7 @@ class TestPendingStatusRejected:
             adapter="mesh-1",
             outbox_id="obox-pending",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
@@ -461,6 +463,7 @@ class TestValidExhausted:
             delivery_plan_id="plan-ex",
             outcome="exhausted",
             error="budget exhausted",
+            attempt_number=1,
         )
         await manager.record_terminal(record)
 
@@ -505,6 +508,7 @@ class TestValidPermanentFailed:
             delivery_plan_id="plan-perm",
             outcome="permanent_failed",
             error="permanent failure",
+            attempt_number=1,
         )
         await manager.record_terminal(record)
 
@@ -548,6 +552,7 @@ class TestValidCancelled:
             delivery_plan_id="plan-cancel",
             outcome="cancelled",
             error="cancelled in-flight",
+            attempt_number=1,
         )
         await manager.record_terminal(record)
 
@@ -591,6 +596,7 @@ class TestValidAbandoned:
             delivery_plan_id="plan-abandon",
             outcome="abandoned",
             error="shutdown drain",
+            attempt_number=1,
         )
         await manager.record_terminal(record)
 
@@ -635,6 +641,7 @@ class TestValidPreservesRouteId:
             delivery_plan_id="plan-route",
             outcome="exhausted",
             error="budget exhausted",
+            attempt_number=1,
         )
         await manager.record_terminal(record)
 
@@ -643,3 +650,79 @@ class TestValidPreservesRouteId:
         assert (
             receipts[0].route_id == "route-special-42"
         ), f"Expected route_id='route-special-42', got '{receipts[0].route_id}'"
+
+
+class TestMissingAttemptNumberRejected:
+    """Terminal callbacks missing attempt_number are hard-rejected."""
+
+    async def test_missing_attempt_number_no_receipt(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Terminal callback with outbox_id but attempt_number=None → no receipt."""
+        await _create_outbox_item(
+            temp_storage,
+            outbox_id="obox-no-attempt",
+            event_id="evt-no-attempt",
+        )
+        manager = _make_manager(temp_storage)
+        record = QueueTerminalRecord(
+            event_id="evt-no-attempt",
+            adapter="mesh-1",
+            outbox_id="obox-no-attempt",
+            attempt_number=None,
+            outcome="exhausted",
+        )
+        await manager.record_terminal(record)
+
+        receipts = await temp_storage.list_receipts_for_event("evt-no-attempt")
+        assert len(receipts) == 0
+
+    async def test_missing_attempt_number_no_outbox_mutation(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Terminal callback with attempt_number=None → outbox stays queued."""
+        await _create_outbox_item(
+            temp_storage,
+            outbox_id="obox-no-attempt-mut",
+            event_id="evt-no-attempt-mut",
+        )
+        await temp_storage.mark_outbox_queued("obox-no-attempt-mut")
+        manager = _make_manager(temp_storage)
+        record = QueueTerminalRecord(
+            event_id="evt-no-attempt-mut",
+            adapter="mesh-1",
+            outbox_id="obox-no-attempt-mut",
+            attempt_number=None,
+            outcome="exhausted",
+        )
+        await manager.record_terminal(record)
+
+        outbox = await temp_storage.get_outbox_item("obox-no-attempt-mut")
+        assert outbox is not None
+        assert outbox.status == "queued"
+
+    async def test_missing_attempt_number_logs_warning(
+        self,
+        temp_storage: SQLiteStorage,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Terminal callback with missing attempt_number produces warning."""
+        await _create_outbox_item(
+            temp_storage,
+            outbox_id="obox-no-attempt-log",
+            event_id="evt-no-attempt-log",
+        )
+        manager = _make_manager(temp_storage)
+        record = QueueTerminalRecord(
+            event_id="evt-no-attempt-log",
+            adapter="mesh-1",
+            outbox_id="obox-no-attempt-log",
+            attempt_number=None,
+            outcome="exhausted",
+        )
+        with caplog.at_level(logging.WARNING):
+            await manager.record_terminal(record)
+
+        assert "missing attempt_number" in caplog.text

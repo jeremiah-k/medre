@@ -471,6 +471,7 @@ class TestStaleCallbackAfterRetryReclaim:
             native_message_id="pkt-fresh-b",
             delivery_plan_id="plan-retry-b",
             outbox_id="obox-b",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -675,6 +676,7 @@ class TestExactOutboxIdCorrelation:
             native_message_id="pkt-exact-42",
             delivery_plan_id="plan-exact",
             outbox_id="obox-exact",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -746,6 +748,7 @@ class TestExactOutboxIdCorrelation:
             native_message_id="pkt-plan-a-only",
             delivery_plan_id="plan-a",
             outbox_id="obox-plan-a",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -857,6 +860,7 @@ class TestDuplicateCallbackIdempotent:
             native_message_id="pkt-dup-1",
             delivery_plan_id="plan-dup",
             outbox_id="obox-dup",
+            attempt_number=1,
         )
 
         # First call: should succeed.
@@ -929,6 +933,7 @@ class TestDuplicateCallbackIdempotent:
             native_message_id="pkt-first",
             delivery_plan_id="plan-dup2",
             outbox_id="obox-dup2",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -944,6 +949,7 @@ class TestDuplicateCallbackIdempotent:
             native_message_id="pkt-second",
             delivery_plan_id="plan-dup2",
             outbox_id="obox-dup2",
+            attempt_number=1,
         )
         # Must not raise.
         await lifecycle.append_queued_to_sent_receipt(

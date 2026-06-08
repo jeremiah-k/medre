@@ -454,11 +454,18 @@ class OutboxManager:
                         record.outcome,
                     )
                     return
-                # Validate attempt_number matches the outbox row.
-                if (
-                    record.attempt_number is not None
-                    and record.attempt_number != existing_item.attempt_number
-                ):
+                # Validate attempt_number — required for queue callbacks.
+                if record.attempt_number is None:
+                    self._log.warning(
+                        "Terminal outcome rejected: missing attempt_number "
+                        "for outbox_id=%s adapter=%s outcome=%s; "
+                        "queue terminal callbacks must carry attempt_number",
+                        record.outbox_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                if record.attempt_number != existing_item.attempt_number:
                     self._log.warning(
                         "Terminal outcome rejected: outbox_id=%s has "
                         "attempt_number=%d but record has %d; "

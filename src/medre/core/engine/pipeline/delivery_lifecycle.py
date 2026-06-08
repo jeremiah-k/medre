@@ -617,16 +617,6 @@ class DeliveryLifecycleService:
             )
             return
 
-        # Find queued receipts targeting this adapter.
-        candidates: list[DeliveryReceipt] = [
-            r
-            for r in existing
-            if r.status == "queued" and r.target_adapter == record.adapter
-        ]
-
-        if not candidates:
-            return
-
         queued_receipt: DeliveryReceipt | None = None
         # Track the validated outbox item for exact transition below.
         validated_outbox: DeliveryOutboxItem | None = None
@@ -717,11 +707,18 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Validate attempt_number matches (when present on record).
-            if (
-                record.attempt_number is not None
-                and record.attempt_number != outbox_item.attempt_number
-            ):
+            # Validate attempt_number — required for queue callbacks.
+            if record.attempt_number is None:
+                self._log.warning(
+                    "Missing attempt_number: outbox_id=%s callback has "
+                    "attempt_number=None for event_id=%s adapter=%s; "
+                    "queue callbacks must carry attempt_number — rejecting",
+                    record.outbox_id,
+                    record.event_id,
+                    record.adapter,
+                )
+                return
+            if record.attempt_number != outbox_item.attempt_number:
                 self._log.warning(
                     "attempt_number mismatch: outbox_id=%s callback "
                     "attempt=%d but outbox attempt=%d for event_id=%s; "
@@ -734,6 +731,13 @@ class DeliveryLifecycleService:
                 return
 
             # Find the queued receipt matching by outbox_id (exact).
+            # Candidate filtering happens after outbox validation so that
+            # malformed callbacks always produce deterministic rejection logs.
+            candidates = [
+                r
+                for r in existing
+                if r.status == "queued" and r.target_adapter == record.adapter
+            ]
             outbox_matches = [r for r in candidates if r.outbox_id == record.outbox_id]
 
             if not outbox_matches:

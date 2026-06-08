@@ -245,6 +245,7 @@ class TestDeliveryLifecycleConformance:
             native_message_id="pkt-999",
             delivery_plan_id=plan_id,
             outbox_id=outbox_id,
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(storage, record, now)
 
@@ -303,6 +304,7 @@ class TestDeliveryLifecycleConformance:
             native_message_id="pkt-888",
             delivery_plan_id=plan_id,
             outbox_id=outbox_id,
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(storage, record, now)
 

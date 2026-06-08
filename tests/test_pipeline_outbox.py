@@ -917,6 +917,7 @@ class TestTargetedOutboxLookupRegression:
             native_message_id="native-msg-target-regression",
             delivery_plan_id=TARGET_PLAN_ID,
             outbox_id="obox-target-regression",
+            attempt_number=1,
         )
         await runner._record_outbound_native_ref(record)
 
@@ -1221,6 +1222,7 @@ class TestRecordTerminalAttemptNumber:
             error="retry budget exhausted",
             outbox_id="obox-attempt-3",
             delivery_plan_id="plan-terminal",
+            attempt_number=3,
         )
         await manager.record_terminal(record)
 

@@ -909,8 +909,12 @@ class MeshtasticAdapter(AdapterContract):
         When :meth:`send_one` returns a :class:`QueueTerminalResult`
         (exhausted or permanent failure), reports the terminal outcome
         to core via the ``record_outbound_terminal`` callback.  On
-        cancellation or shutdown, any in-flight cancelled item and
-        remaining queued items are reported as cancelled / abandoned.
+        cancellation or shutdown, the in-flight cancelled item is reported.
+        Remaining queued items are drained and reported as abandoned only
+        when there is evidence the drain task was actively processing work.
+        If no in-flight item existed when stop cancelled the drain task,
+        local queued items remain in memory for next start and the durable
+        outbox remains queued/stale-recoverable.
         """
         try:
             while self._started:

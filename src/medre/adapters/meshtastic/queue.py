@@ -60,8 +60,10 @@ rejected due to a full queue.
 
 .. note::
 
-   Shutdown cancels the drain task without flushing.  In-flight items that have
-   not yet been processed lose their native-ref mapping permanently.
+   Shutdown cancels the drain task.  Local queued items survive across
+   stop/start boundaries; the durable outbox row remains in ``queued``
+   status for stale-recovery.  If a cancelled in-flight item exists,
+   remaining queued items are drained and reported as abandoned.
 """
 
 from __future__ import annotations

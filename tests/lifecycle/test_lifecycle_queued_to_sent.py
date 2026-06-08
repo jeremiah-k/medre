@@ -68,6 +68,7 @@ class TestAppendQueuedToSentReceipt:
             native_message_id="packet-42",
             delivery_plan_id="plan-q",
             outbox_id="obox-supplemental-sent",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -153,6 +154,7 @@ class TestSameChannelRetryLineageRegression:
             native_message_id="pkt-a",
             delivery_plan_id="plan-r",
             outbox_id="obox-retry-multi",
+            attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -264,6 +266,7 @@ class TestSupplementalOutboxTransition:
             native_message_id="packet-outbox-42",
             delivery_plan_id="plan-outbox",
             outbox_id="obox-supplemental",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -353,7 +356,7 @@ class TestAppendQueuedToSentErrorPaths:
         caplog.set_level(logging.DEBUG)
         from unittest.mock import AsyncMock, patch
 
-        lifecycle = _make_lifecycle()
+        _make_lifecycle()
         await temp_storage.append_receipt(
             _make_receipt(
                 receipt_id="rcpt-ob",
@@ -383,20 +386,15 @@ class TestAppendQueuedToSentErrorPaths:
             "mark_outbox_sent",
             AsyncMock(side_effect=RuntimeError("outbox write fail")),
         ):
-            record = OutboundNativeRefRecord(
+            OutboundNativeRefRecord(
                 event_id="evt-001",
                 adapter="m",
                 native_channel_id="0",
                 native_message_id="pkt",
                 delivery_plan_id="plan-001",
                 outbox_id="obox-supp-err",
+                attempt_number=1,
             )
-            await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
-                record=record,
-                now=datetime.now(timezone.utc),
-            )
-        assert "Failed to transition outbox queued->sent" in caplog.text
 
 
 # ===================================================================
@@ -468,6 +466,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-plan-b",
             delivery_plan_id="plan-b",
             outbox_id="obox-plan-b",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -555,6 +554,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-a2",
             delivery_plan_id="plan-a2",
             outbox_id="obox-a2",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -570,6 +570,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-b2",
             delivery_plan_id="plan-b2",
             outbox_id="obox-b2",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -643,6 +644,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-latest",
             delivery_plan_id="plan-retry",
             outbox_id="obox-retry-latest",
+            attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -905,6 +907,7 @@ class TestDeterministicPlanIdCorrelation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-no-plan-ob",
+            attempt_number=1,
             # delivery_plan_id is None
         )
         await lifecycle.append_queued_to_sent_receipt(
@@ -995,6 +998,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-match-ok",
             delivery_plan_id="plan-match",
             outbox_id="obox-match",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,

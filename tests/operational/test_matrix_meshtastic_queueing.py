@@ -247,6 +247,7 @@ class TestQueuedSentCorrelation:
             delivery_plan_id=plan_id,
             metadata={},
             outbox_id=outbox_id,
+            attempt_number=1,
         )
 
         await lifecycle.append_queued_to_sent_receipt(
@@ -313,6 +314,7 @@ class TestQueuedSentCorrelation:
             delivery_plan_id=plan_id,
             metadata={},
             outbox_id=outbox_id,
+            attempt_number=1,
         )
 
         await lifecycle.append_queued_to_sent_receipt(
@@ -382,6 +384,7 @@ class TestQueuedSentCorrelation:
             delivery_plan_id=plan_id,
             metadata={},
             outbox_id=outbox_id,
+            attempt_number=2,
         )
 
         await lifecycle.append_queued_to_sent_receipt(

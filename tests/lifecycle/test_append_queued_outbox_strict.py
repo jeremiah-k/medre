@@ -8,8 +8,10 @@ exact outbox_id-based receipt selection and idempotency.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
+import pytest
 from msgspec.structs import replace
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
@@ -301,6 +303,7 @@ class TestExactOutboxSelection:
             native_message_id="pkt-second",
             delivery_plan_id="plan-shared",
             outbox_id="obox-second",
+            attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -427,3 +430,91 @@ class TestExactCallbackHappyPath:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-dup-q"
+
+
+class TestMissingAttemptNumberRejected:
+    """Queued-to-sent callbacks missing attempt_number are hard-rejected."""
+
+    async def test_missing_attempt_number_no_sent_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Callback with outbox_id but attempt_number=None → no sent receipt."""
+        await _setup_outbox_and_receipt(temp_storage)
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-no-attempt",
+            delivery_plan_id="plan-q",
+            outbox_id="obox-001",
+            attempt_number=None,
+        )
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+
+    async def test_missing_attempt_number_no_outbox_mutation(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Callback with outbox_id but attempt_number=None → outbox stays queued."""
+        await _setup_outbox_and_receipt(temp_storage, outbox_id="obox-no-attempt")
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-no-attempt",
+            delivery_plan_id="plan-q",
+            outbox_id="obox-no-attempt",
+            attempt_number=None,
+        )
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        outbox = await temp_storage.get_outbox_item("obox-no-attempt")
+        assert outbox is not None
+        assert outbox.status == "queued"
+
+    async def test_missing_attempt_number_logs_warning(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Callback with missing attempt_number produces a warning log."""
+        await _setup_outbox_and_receipt(temp_storage, outbox_id="obox-warn-attempt")
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-warn",
+            delivery_plan_id="plan-q",
+            outbox_id="obox-warn-attempt",
+            attempt_number=None,
+        )
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        assert "Missing attempt_number" in caplog.text
