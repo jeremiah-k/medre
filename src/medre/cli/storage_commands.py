@@ -124,10 +124,11 @@ async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
 
     if header[:16] != _SQLITE_MAGIC:
         print(
-            f"Warning: {resolved} does not appear to contain SQLite magic bytes.",
+            f"Error: {resolved} does not appear to contain SQLite magic bytes. "
+            f"Refusing to delete a non-database file.",
             file=sys.stderr,
         )
-        # Continue — --yes was provided and --storage-path is explicit.
+        sys.exit(EXIT_BUILD)
 
     # Backup (if requested), then delete main DB and WAL/SHM sidecars.
     try:

@@ -146,6 +146,8 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
             detail = _redact_token(password, raw)
         except Exception:
             pass
+        finally:
+            exc.close()
         raise MatrixConnectionError(
             f"Login failed (HTTP {exc.code}): {detail}"
         ) from exc
@@ -219,6 +221,8 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
             detail = _redact_token(access_token, raw)
         except Exception:
             pass
+        finally:
+            exc.close()
         raise MatrixConnectionError(
             f"Whoami failed (HTTP {exc.code}): {detail}"
         ) from exc

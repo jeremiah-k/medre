@@ -323,10 +323,11 @@ def test_storage_status_is_read_only(fresh_db: Path) -> None:
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
     ]
-    counts_before = {
-        t: conn_before.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
-        for t in tables
-    }
+    counts_before = {}
+    for t in tables:
+        counts_before[t] = conn_before.execute(
+            f"SELECT COUNT(*) FROM [{t}]"  # nosec B608 - table names from sqlite_master
+        ).fetchone()[0]
     conn_before.close()
 
     _run_cli(
@@ -339,10 +340,10 @@ def test_storage_status_is_read_only(fresh_db: Path) -> None:
     # Verify no rows were added, removed, or modified.
     conn_after = sqlite3.connect(str(fresh_db))
     for t in tables:
-        assert (
-            conn_after.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
-            == counts_before[t]
-        )
+        count = conn_after.execute(
+            f"SELECT COUNT(*) FROM [{t}]"  # nosec B608 - table names from sqlite_master
+        ).fetchone()[0]
+        assert count == counts_before[t]
     conn_after.close()
 
 
@@ -774,8 +775,8 @@ def test_cli_storage_reset_oserror_on_delete(
     assert db_path.exists()
 
 
-def test_cli_storage_reset_warns_non_sqlite(tmp_path: Path) -> None:
-    """`medre storage reset` warns but proceeds on non-SQLite files."""
+def test_cli_storage_reset_refuses_non_sqlite(tmp_path: Path) -> None:
+    """`medre storage reset` refuses to delete files that are not SQLite databases."""
     fake_file = tmp_path / "not-a-db.txt"
     fake_file.write_text("hello world")
     code, stdout, stderr = _run_cli_exit(
@@ -785,9 +786,9 @@ def test_cli_storage_reset_warns_non_sqlite(tmp_path: Path) -> None:
         str(fake_file),
         "--yes",
     )
-    assert code == 0
+    assert code == EXIT_BUILD
     assert "magic bytes" in stderr.lower() or "not appear to contain" in stderr.lower()
-    assert not fake_file.exists()  # file deleted despite warning
+    assert fake_file.exists()  # file must NOT be deleted
 
 
 def test_main_adapter_command_dispatches() -> None:
