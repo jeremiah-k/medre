@@ -264,9 +264,8 @@ The schema version (`_EXPECTED_SCHEMA_VERSION`) stays at 1 during the entire pre
 Because the version is frozen, column-shape validation is the primary guard against stale prerelease databases. Tests verify that:
 
 - A fresh database starts with `schema_version == 1` in `_medre_schema_meta`.
-- A database whose `schema_version` differs from `_EXPECTED_SCHEMA_VERSION` raises `StorageInitializationError`.
-- A database that reports the correct version but is missing required columns (stale prerelease shape) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError`.
-- Column-shape validation checks every table in `_REQUIRED_COLUMNS` and reports all missing columns, not just the first.
+- A database that reports the correct version but is missing required columns (stale prerelease shape) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError` (tested in `test_prerelease_storage_reset.py`).
+- Column-shape validation reports the affected table and all missing columns in the error (tested in `test_prerelease_storage_reset.py`).
 
 Do not add schema version bump tests or migration tests during prerelease. The version stays at 1 and there is no migration code path to test.
 

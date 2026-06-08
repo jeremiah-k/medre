@@ -690,8 +690,13 @@ class MedreApp:
                 _logger.info("Storage initialised")
             except Exception as exc:
                 self._set_state(RuntimeState.FAILED)
-                db_path = getattr(self.storage, "_db_path", None)
-                path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
+                from medre.core.storage.backend import PreReleaseSchemaMismatchError
+
+                if isinstance(exc, PreReleaseSchemaMismatchError):
+                    path_hint = ""
+                else:
+                    db_path = getattr(self.storage, "_db_path", None)
+                    path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
                 raise RuntimeStartupError(
                     f"Failed to initialise storage: {exc}{path_hint}"
                 ) from exc

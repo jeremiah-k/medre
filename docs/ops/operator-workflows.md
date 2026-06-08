@@ -43,13 +43,16 @@ MEDRE is prerelease software. The schema version is frozen at 1, but the column 
 
 ### How to tell if your database is stale
 
-Run `medre storage status` to check the database path and schema state. If the database was created by an older prerelease build, the command reports which tables have missing columns.
+Run `medre storage status --storage-path <path>` to check the database path and schema state. Use `medre paths` to discover the resolved state directory, then pass `{state}/medre.sqlite` as the storage path. If the database was created by an older prerelease build, the command reports which tables have missing columns.
 
 Alternatively, if MEDRE fails to start with an error like:
 
 ```text
-PreReleaseSchemaMismatchError: Pre-release schema shape mismatch:
-table 'delivery_outbox' is missing required columns ['failure_kind_detail'].
+PreReleaseSchemaMismatchError: Pre-release schema shape mismatch: table
+'delivery_outbox' is missing required columns ['failure_kind_detail'].
+(database: /home/user/.local/state/medre/medre.sqlite) The database was
+likely created by an older pre-release build.  Please recreate the database
+— no automatic migration is provided.
 ```
 
 then the database is stale and needs a reset.
@@ -59,10 +62,10 @@ then the database is stale and needs a reset.
 1. **Find the database path.**
 
    ```bash
-   medre storage status
+   medre storage status --storage-path ~/.local/state/medre/medre.sqlite
    ```
 
-   Or use `medre paths` to see the resolved state directory. The database file is `{state}/medre.sqlite`.
+   The `--storage-path` flag is required. Use `medre paths` to see the resolved state directory if you don't know the database path.
 
 2. **Back up the old database.**
 
@@ -80,13 +83,13 @@ then the database is stale and needs a reset.
    rm ~/.local/state/medre/medre.sqlite-shm 2>/dev/null
    ```
 
-   Or use `medre storage reset`, which handles the backup and deletion:
+   Or use `medre storage reset --storage-path <path> --backup --yes`, which handles the backup and deletion:
 
    ```bash
-   medre storage reset
+   medre storage reset --storage-path ~/.local/state/medre/medre.sqlite --backup --yes
    ```
 
-   This creates a `.bak` copy and removes the original. It does not start the runtime or create a new database.
+   This creates a timestamped `.bak-<timestamp>.db` copy and removes the original along with any WAL/SHM sidecar files. It does not start the runtime or create a new database.
 
 4. **Rerun MEDRE.**
 

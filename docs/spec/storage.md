@@ -807,14 +807,14 @@ This validation catches old prerelease databases whose `schema_version` still re
 
 When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
 
-1. **Identify the database path.** `medre storage status` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
+1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
 2. **Back up the old database.** Copy `medre.sqlite` to a safe location if the data has any investigative value.
 3. **Delete the database file.** Remove `{state}/medre.sqlite` (and its WAL/SHM companions if present).
 4. **Rerun MEDRE.** The next startup creates a fresh database with the current schema shape.
 
 No data from the old database is carried forward. The reset is total.
 
-`medre storage reset` automates steps 2 and 3: it backs up the existing database file, deletes it, and reports success. It does not start the runtime or create a new database (that happens on the next `medre run` or `medre smoke`).
+`medre storage reset --storage-path <path> --backup --yes` automates steps 2 and 3: it backs up the existing database file (with a `.bak-<timestamp>.db` suffix), deletes the database and any WAL/SHM sidecar files, and reports success. It does not start the runtime or create a new database (that happens on the next `medre run` or `medre smoke`).
 
 ## 11. Durability Guarantees
 
