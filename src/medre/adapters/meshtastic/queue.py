@@ -202,6 +202,8 @@ class MeshtasticOutboundQueue:
         *,
         event_id: str | None = None,
         delivery_plan_id: str | None = None,
+        outbox_id: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Enqueue a payload for delivery.
 
@@ -228,6 +230,14 @@ class MeshtasticOutboundQueue:
             Optional delivery plan ID for deterministic queued→sent
             receipt correlation.  Propagated through the queue item into
             :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+        outbox_id:
+            Internal outbox item correlation key.  Propagated through
+            the queue item into delayed callback records for exact
+            outbox-level correlation.  **Not wire metadata.**
+        attempt_number:
+            Delivery attempt number from pipeline retry lineage.
+            Propagated for stale-callback protection.  **Not wire
+            metadata.**
 
         Raises
         ------
@@ -255,6 +265,8 @@ class MeshtasticOutboundQueue:
                 "channel_index": channel_index,
                 "event_id": event_id,
                 "delivery_plan_id": delivery_plan_id,
+                "outbox_id": outbox_id,
+                "attempt_number": attempt_number,
                 "_attempt": 1,  # internal retry counter; not sent to radio
             }
         )

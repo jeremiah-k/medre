@@ -308,6 +308,7 @@ class TargetDeliveryService:
         previous_receipt: DeliveryReceipt | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
+        outbox_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -345,6 +346,13 @@ class TargetDeliveryService:
         previous_receipt:
             The receipt from the previous delivery attempt, if this is a
             retry.  ``None`` for the first attempt.
+        outbox_id:
+            Internal correlation key from the durable outbox item tracking
+            this delivery attempt.  Stamped onto the
+            :class:`~medre.core.rendering.renderer.RenderingResult` so
+            queue-based adapters can propagate it through their queue for
+            exact callback correlation.  ``None`` when no outbox item was
+            created.
 
         Returns
         -------
@@ -603,8 +611,15 @@ class TargetDeliveryService:
         # Stamp the delivery_plan_id onto the rendering result so that
         # queue-based adapters can propagate it through their queue into
         # OutboundNativeRefRecord for deterministic queued→sent receipt
-        # correlation.  RenderingResult is frozen; use dataclass replace().
-        rendering_result = replace(rendering_result, delivery_plan_id=plan.plan_id)
+        # correlation.  Also stamp outbox_id and attempt_number for exact
+        # outbox-level correlation and stale-callback protection.
+        # RenderingResult is frozen; use dataclass replace().
+        rendering_result = replace(
+            rendering_result,
+            delivery_plan_id=plan.plan_id,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+        )
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
