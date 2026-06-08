@@ -13,7 +13,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Awaitable,
@@ -29,17 +29,13 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     OutboundNativeRefRecord,
-    QueueTerminalRecord,
 )
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
-    TERMINAL_OUTBOX_STATUSES as _TERMINAL_OUTBOX_STATUSES,
-)
-from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
-from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -72,18 +68,11 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
     from medre.core.supervision.capacity import CapacityController
-
-# ---------------------------------------------------------------------------
-# Outbox lease-renewal tuning constants
-# ---------------------------------------------------------------------------
-
-_OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
-_OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -291,6 +280,10 @@ class PipelineRunner:
             logger=self._log,
         )
         self._lifecycle = DeliveryLifecycleService(logger=self._log)
+        self._outbox_manager = OutboxManager(
+            storage=config.storage,
+            lifecycle=self._lifecycle,
+        )
         self._target_delivery = TargetDeliveryService(
             adapters=config.adapters,
             rendering_pipeline=self._rendering_pipeline,
@@ -949,120 +942,6 @@ class PipelineRunner:
             self._config.storage, record=record, now=now
         )
 
-    async def _record_outbound_terminal(self, record: QueueTerminalRecord) -> None:
-        """Handle a terminal queue outcome reported by an adapter.
-
-        Called by queue-based adapters when a previously-enqueued item
-        reaches a terminal state without producing a native message ID.
-        This is the callback wired into
-        :class:`AdapterContext.record_outbound_terminal`.
-
-        Creates a durable receipt recording the terminal outcome and
-        transitions the matching outbox item to the appropriate terminal
-        status.  Adapters report facts; this method (core/pipeline)
-        decides the lifecycle authority mapping.
-
-        Parameters
-        ----------
-        record:
-            The terminal outcome record from the adapter.
-        """
-        try:
-            datetime.now(tz=timezone.utc)
-
-            # Map adapter-reported outcome to receipt status and outbox
-            # terminal status.
-            if record.outcome == "exhausted":
-                receipt_status = "failed"
-                failure_kind = "adapter_transient"
-                outbox_terminal = "dead_lettered"
-                error_msg = record.error or "local queue retry budget exhausted"
-            elif record.outcome == "permanent_failed":
-                receipt_status = "failed"
-                failure_kind = "adapter_permanent"
-                outbox_terminal = "dead_lettered"
-                error_msg = record.error or "permanent send failure"
-            elif record.outcome == "cancelled":
-                receipt_status = "failed"
-                failure_kind = "adapter_transient"
-                outbox_terminal = "cancelled"
-                error_msg = record.error or "queue item cancelled while in-flight"
-            elif record.outcome == "abandoned":
-                receipt_status = "failed"
-                failure_kind = "adapter_transient"
-                outbox_terminal = "abandoned"
-                error_msg = record.error or "adapter shutdown with unsent queued items"
-            else:
-                self._log.warning(
-                    "Unknown terminal outcome %r from adapter %s; ignoring",
-                    record.outcome,
-                    record.adapter,
-                )
-                return
-
-            # Create the terminal receipt.
-            receipt = build_delivery_receipt(
-                event_id=record.event_id,
-                delivery_plan_id=record.delivery_plan_id or "",
-                target_adapter=record.adapter,
-                target_channel=record.native_channel_id,
-                route_id="",
-                status=receipt_status,
-                error=error_msg,
-                failure_kind=failure_kind,
-                source="live",
-                outbox_id=record.outbox_id,
-            )
-            await self._config.storage.append_receipt(receipt)
-
-            # Transition the outbox item to terminal status.
-            if record.outbox_id is not None:
-                try:
-                    if outbox_terminal == "dead_lettered":
-                        await self._config.storage.mark_outbox_dead_lettered(
-                            record.outbox_id,
-                            receipt_id=receipt.receipt_id,
-                            failure_kind=failure_kind,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                    elif outbox_terminal == "cancelled":
-                        await self._config.storage.mark_outbox_cancelled(
-                            record.outbox_id,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                    elif outbox_terminal == "abandoned":
-                        await self._config.storage.mark_outbox_abandoned(
-                            record.outbox_id,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                except Exception:
-                    self._log.exception(
-                        "Failed to transition outbox to %s: outbox_id=%s "
-                        "event_id=%s adapter=%s",
-                        outbox_terminal,
-                        record.outbox_id,
-                        record.event_id,
-                        record.adapter,
-                    )
-
-            self._log.info(
-                "Terminal queue outcome: event_id=%s adapter=%s "
-                "outbox_id=%s outcome=%s receipt=%s",
-                record.event_id,
-                record.adapter,
-                record.outbox_id,
-                record.outcome,
-                receipt.receipt_id,
-            )
-        except Exception:
-            self._log.exception(
-                "Failed to record terminal queue outcome: "
-                "event_id=%s adapter=%s outcome=%s",
-                record.event_id,
-                record.adapter,
-                record.outcome,
-            )
-
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
     async def route_event(
@@ -1609,20 +1488,18 @@ class PipelineRunner:
             # The outbox is created AFTER route/policy/loop/capacity acceptance
             # and BEFORE the adapter delivery attempt, so that pending work
             # survives a crash between this point and the receipt commit.
-            _outbox_id, _outbox_created, _pipeline_worker, _skip_reason = (
-                await self._create_outbox_for_delivery(
-                    event,
-                    route,
-                    route_plan,
-                    target,
-                    adapter_id,
-                    source=source,
-                )
+            _outbox_ctx = await self._outbox_manager.create_for_delivery(
+                event,
+                route,
+                route_plan,
+                target,
+                adapter_id,
+                source=source,
             )
 
             # If the pipeline does not own the outbox row (terminal / active
             # / queued / other worker), skip delivery entirely.
-            if _skip_reason is not None:
+            if _outbox_ctx.skip_reason is not None:
                 # Release the capacity slot acquired earlier, if any.
                 if self._capacity_controller is not None:
                     await self._capacity_controller.release_delivery()
@@ -1636,7 +1513,7 @@ class PipelineRunner:
                     status="skipped",
                     failure_kind=DeliveryFailureKind.OUTBOX_NOT_OWNED,
                     receipt=None,
-                    error=f"outbox row not owned: {_skip_reason}",
+                    error=f"outbox row not owned: {_outbox_ctx.skip_reason}",
                     duration_ms=elapsed,
                 )
 
@@ -1646,8 +1523,8 @@ class PipelineRunner:
             # lease during long adapter deliveries (e.g. radio-based
             # transports).  The renewal task is cancelled in the finally
             # block after the delivery attempt completes.
-            _renewal_task: asyncio.Task | None = self._start_outbox_lease_renewal(
-                _outbox_id, _outbox_created, _pipeline_worker
+            _renewal_task: asyncio.Task | None = (
+                self._outbox_manager.start_lease_renewal(_outbox_ctx)
             )
 
             # ── Phase 4: Inflight tracking + delivery ────────────────
@@ -1673,11 +1550,10 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                         acquired_at=t0,
-                        outbox_id=_outbox_id,
+                        outbox_id=_outbox_ctx.outbox_id,
                     )
 
                 try:
-                    # Accounting: outbound delivery attempt.
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_attempt()
 
@@ -1725,7 +1601,7 @@ class PipelineRunner:
                         replay_run_id=replay_run_id,
                         cached_get_fn=cached_get_fn,
                         cached_list_fn=cached_list_fn,
-                        outbox_id=_outbox_id,
+                        outbox_id=_outbox_ctx.outbox_id,
                     )
                     _outcome_receipt = receipt
                     elapsed = (time.monotonic() - t0) * 1000.0
@@ -1861,22 +1737,11 @@ class PipelineRunner:
                     )
             finally:
                 # Stop lease renewal.
-                if _renewal_task is not None:
-                    _renewal_task.cancel()
-                    try:
-                        await _renewal_task
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception:
-                        self._log.debug(
-                            "Outbox lease renewal task ended with error",
-                            exc_info=True,
-                        )
+                await OutboxManager.cancel_renewal(_renewal_task)
 
                 # Update outbox based on delivery outcome.
-                await self._finalize_outbox_outcome(
-                    _outbox_id,
-                    _outbox_created,
+                await self._outbox_manager.finalize_outcome(
+                    _outbox_ctx,
                     _outcome_receipt,
                     _outcome_failure_kind_val,
                     _outcome_error,
@@ -1892,233 +1757,6 @@ class PipelineRunner:
             await asyncio.gather(
                 *[_deliver_single_target(r, p) for r, p in route_targets]
             )
-        )
-
-    # ------------------------------------------------------------------
-    # Outbox helpers (extracted from _deliver_single_target for readability)
-    # ------------------------------------------------------------------
-
-    async def _create_outbox_for_delivery(
-        self,
-        event: CanonicalEvent,
-        route: Route,
-        route_plan: DeliveryPlan,
-        target: RouteTarget,
-        adapter_name: str,
-        *,
-        source: str = "live",
-    ) -> tuple[str | None, bool, str, str | None]:
-        """Create a durable outbox item tracking a delivery attempt.
-
-        Returns ``(outbox_id, outbox_created, pipeline_worker, skip_reason)``.
-        On failure the outbox_id is ``None`` and ``outbox_created`` is
-        ``False`` — the pipeline continues without outbox tracking.
-
-        *skip_reason* is ``None`` when the pipeline owns the row (status
-        ``"in_progress"`` with matching worker_id).  Otherwise it is set to
-        a descriptive string:
-
-        * ``"terminal:<status>"`` — row is in a terminal state.
-        * ``"active:queued"`` — row is queued (owned by another worker).
-        * ``"active:other_worker:<id>"`` — row is in_progress but owned by
-          another worker.
-
-        **Replay attempt identity rule.**  When *source* is ``"replay"``,
-        the method queries existing outbox rows for the same event and
-        computes ``max(attempt_number) + 1`` across rows sharing the same
-        delivery identity (delivery_plan_id, target_adapter, target_channel).
-        This guarantees replay never reclaims or mutates live rows (which
-        have lower attempt numbers).  The same ownership check applies to
-        ALL sources — if the freshly-created replay row comes back terminal,
-        active, or owned by another worker, delivery is skipped.
-        """
-        outbox_id: str | None = None
-        outbox_created: bool = False
-        pipeline_worker: str = ""
-        try:
-            _now = datetime.now(timezone.utc)
-            pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
-            _lease_until = (
-                _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
-            ).isoformat()
-            _dest_meta: dict | None = None
-            if target.destination is not None:
-                _dest_meta = {
-                    "destination_kind": target.destination.kind,
-                    "destination_hash": target.destination.destination_hash,
-                    "destination_name": target.destination.destination_name,
-                    "destination_metadata": target.destination.metadata,
-                }
-
-            # Persist route-decision metadata so retry reconstruction
-            # recovers the original capability and strategy decisions
-            # instead of defaulting to capability_level=None / strategy="direct".
-            _route_decision_meta: dict[str, object] = {
-                "capability_level": route_plan.capability_level,
-                "delivery_strategy": route_plan.primary_strategy.method,
-                "capability_field": route_plan.capability_field,
-                "capability_reason": route_plan.capability_reason,
-                "deadline": (
-                    route_plan.deadline.isoformat()
-                    if route_plan.deadline is not None
-                    else None
-                ),
-            }
-            if _dest_meta is not None:
-                _dest_meta.update(_route_decision_meta)
-            else:
-                _dest_meta = _route_decision_meta
-
-            attempt_number = 1
-
-            # For replay: compute attempt_number = max(existing) + 1 so
-            # the new row cannot conflict with any live or prior replay row.
-            if source == "replay":
-                existing = await self._config.storage.list_outbox_items_for_event(
-                    event.event_id,
-                )
-                for row in existing:
-                    if (
-                        row.delivery_plan_id == route_plan.plan_id
-                        and row.target_adapter == adapter_name
-                        and (row.target_channel or None) == (target.channel or None)
-                    ):
-                        attempt_number = max(attempt_number, row.attempt_number + 1)
-
-            outbox_item = DeliveryOutboxItem(
-                outbox_id=f"obox-{uuid.uuid4()}",
-                event_id=event.event_id,
-                route_id=route.id,
-                delivery_plan_id=route_plan.plan_id,
-                target_adapter=adapter_name,
-                target_channel=target.channel,
-                target_address=(
-                    target.destination.destination_hash if target.destination else None
-                ),
-                attempt_number=attempt_number,
-                status="in_progress",
-                locked_at=_now.isoformat(),
-                lease_until=_lease_until,
-                worker_id=pipeline_worker,
-                metadata=_dest_meta,
-            )
-            created = await self._config.storage.create_outbox_item(outbox_item)
-            outbox_id = created.outbox_id
-            outbox_created = True
-
-            # Ownership check — must run BEFORE we update pipeline_worker
-            # so that we compare the persisted worker_id against the
-            # pipeline's own worker_id (not the overridden value).
-            # Applies to ALL sources including replay.
-            skip_reason: str | None = None
-            if created.status in _TERMINAL_OUTBOX_STATUSES:
-                skip_reason = f"terminal:{created.status}"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                    created.status,
-                )
-            elif created.status == "queued":
-                skip_reason = "active:queued"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=queued (active, not stealing)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                )
-            elif (
-                created.status == "in_progress" and created.worker_id != pipeline_worker
-            ):
-                owner_id = created.worker_id or "unknown"
-                skip_reason = f"active:other_worker:{owner_id}"
-                self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s owner=%s (active, not stealing)",
-                    event.event_id,
-                    adapter_name,
-                    created.outbox_id,
-                    created.worker_id,
-                )
-
-            # create_outbox_item may return an existing non-terminal row;
-            # always use the persisted owner for lease renewals.
-            pipeline_worker = created.worker_id or pipeline_worker
-
-            return outbox_id, outbox_created, pipeline_worker, skip_reason
-        except Exception:
-            self._log.exception(
-                "Failed to create outbox item for event_id=%s adapter=%s",
-                event.event_id,
-                adapter_name,
-            )
-            # Non-fatal: pipeline continues without outbox tracking.
-        return outbox_id, outbox_created, pipeline_worker, None
-
-    def _start_outbox_lease_renewal(
-        self,
-        outbox_id: str | None,
-        outbox_created: bool,
-        pipeline_worker: str,
-    ) -> asyncio.Task | None:
-        """Start a background task that periodically renews the outbox lease.
-
-        Returns the :class:`asyncio.Task` managing the renewal loop, or
-        ``None`` if no outbox item was created.
-        """
-
-        async def _renew_lease() -> None:
-            while True:
-                await asyncio.sleep(_OUTBOX_RENEWAL_INTERVAL_SECONDS)
-                if outbox_id is not None:
-                    try:
-                        _new_lease = (
-                            datetime.now(timezone.utc)
-                            + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
-                        ).isoformat()
-                        renewed = await self._config.storage.renew_outbox_lease(
-                            outbox_id, pipeline_worker, _new_lease
-                        )
-                    except Exception:
-                        self._log.exception(
-                            "Transient error renewing outbox lease for %s; "
-                            "will retry on next cycle",
-                            outbox_id,
-                        )
-                        continue
-                    if not renewed:
-                        # Item is no longer ours — stop renewing.
-                        break
-
-        if outbox_id is not None and outbox_created:
-            return asyncio.create_task(_renew_lease())
-        return None
-
-    async def _finalize_outbox_outcome(
-        self,
-        outbox_id: str | None,
-        outbox_created: bool,
-        receipt: DeliveryReceipt | None,
-        failure_kind_val: DeliveryFailureKind | None,
-        error: str | None,
-        retry_policy: RetryPolicy | None,
-    ) -> None:
-        """Update the outbox item status based on the delivery outcome.
-
-        Thin wrapper that delegates to
-        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
-
-        See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
-        for full documentation.
-        """
-        await self._lifecycle.finalize_outbox_outcome(
-            self._config.storage,
-            outbox_id=outbox_id,
-            outbox_created=outbox_created,
-            receipt=receipt,
-            failure_kind_val=failure_kind_val,
-            error=error,
-            retry_policy=retry_policy,
         )
 
     async def deliver_to_target(
