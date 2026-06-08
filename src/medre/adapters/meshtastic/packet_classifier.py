@@ -553,11 +553,12 @@ class MeshtasticPacketClassifier:
             else:
                 action = "deferred"
                 reason = REASON_DETECTION_SENSOR
-        # 3.5. Chat portnums (promoted to relay)
+        # 3.5. Chat portnums (promoted to relay, but not for direct messages)
         elif (
             self._chat_portnums
             and portnum is not None
             and portnum in self._chat_portnums
+            and not is_direct
         ):
             action = "relay"
             reason = REASON_CHAT_PORTNUM_PROMOTED

@@ -145,6 +145,35 @@ class TestOutboundFormattedBody:
         # Raw newline should not be present inside <p>
         assert "\n" not in fb.replace("<br/>", "")
 
+    async def test_formatted_body_converts_crlf_newlines(self) -> None:
+        """Windows-style CRLF line endings are normalized to <br/>."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "line1\r\nline2"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
+        fb = result.payload["formatted_body"]
+        assert "line1<br/>line2" in fb
+        # No stray \r should remain
+        assert "\r" not in fb
+
+    async def test_formatted_body_converts_cr_newlines(self) -> None:
+        """Legacy Mac-style CR line endings are normalized to <br/>."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "line1\rline2"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
+        fb = result.payload["formatted_body"]
+        assert "line1<br/>line2" in fb
+        assert "\r" not in fb
+
     async def test_fallback_text_has_formatted_body(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event(payload={"body": "fallback msg"})

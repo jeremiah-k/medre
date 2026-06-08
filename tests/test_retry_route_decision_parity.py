@@ -16,6 +16,7 @@ import datetime
 import pytest
 
 from medre.core.engine.pipeline.retry_plan import (
+    ReconstructedRetryPlan,
     reconstruct_retry_delivery_plan,
 )
 from medre.core.events.canonical import DeliveryReceipt
@@ -77,7 +78,7 @@ def _reconstruct(
     *,
     previous_receipt: DeliveryReceipt | None = None,
     default_max_attempts: int = 3,
-):
+) -> ReconstructedRetryPlan:
     """Shorthand: make outbox + reconstruct in one call."""
     item = _make_outbox(metadata=metadata)
     return reconstruct_retry_delivery_plan(

@@ -334,8 +334,6 @@ class OutboxManager:
             The terminal outcome record from the adapter.
         """
         try:
-            datetime.now(tz=timezone.utc)
-
             # Map adapter-reported outcome to receipt status and outbox
             # terminal status.
             if record.outcome == "exhausted":

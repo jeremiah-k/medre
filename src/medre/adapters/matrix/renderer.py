@@ -591,7 +591,10 @@ class MatrixRenderer:
         """
         import html as _html
 
-        escaped = _html.escape(text, quote=False)
+        # Normalize line endings before escaping so that Windows-style
+        # \r\n and legacy Mac \r are both converted to \n first.
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        escaped = _html.escape(normalized, quote=False)
         # Convert line breaks to <br/>
         br = escaped.replace("\n", "<br/>")
         # Wrap in <p> tags
