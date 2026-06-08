@@ -122,10 +122,26 @@ def reconstruct_retry_delivery_plan(
     jitter = False
 
     if previous_receipt is not None:
-        max_attempts = previous_receipt.retry_max_attempts or default_max_attempts
-        backoff_base = previous_receipt.retry_backoff_base or 2.0
-        max_delay = previous_receipt.retry_max_delay or 60.0
-        jitter = previous_receipt.retry_jitter or False
+        max_attempts = (
+            previous_receipt.retry_max_attempts
+            if previous_receipt.retry_max_attempts is not None
+            else default_max_attempts
+        )
+        backoff_base = (
+            previous_receipt.retry_backoff_base
+            if previous_receipt.retry_backoff_base is not None
+            else 2.0
+        )
+        max_delay = (
+            previous_receipt.retry_max_delay
+            if previous_receipt.retry_max_delay is not None
+            else 60.0
+        )
+        jitter = (
+            previous_receipt.retry_jitter
+            if previous_receipt.retry_jitter is not None
+            else False
+        )
 
     retry_policy = RetryPolicy(
         max_attempts=max_attempts,

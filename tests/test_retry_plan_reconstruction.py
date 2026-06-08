@@ -8,7 +8,7 @@ intentionally absent (not guessed).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import datetime
 
 import pytest
 
@@ -66,7 +66,7 @@ def _make_receipt(
         delivery_plan_id="plan-abc",
         target_adapter="matrix",
         status="failed",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.datetime.now(datetime.UTC),
         attempt_number=1,
         retry_max_attempts=retry_max_attempts,
         retry_backoff_base=retry_backoff_base,

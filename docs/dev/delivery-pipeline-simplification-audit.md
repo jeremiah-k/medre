@@ -12,7 +12,7 @@ The pipeline has six logical stages: **event** (adapter publishes a `CanonicalEv
 
 ### The path in one page
 
-```
+```text
 Adapter publishes CanonicalEvent
   │
   ▼
@@ -173,7 +173,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 
 ### Collaboration pattern
 
-```
+```text
 PipelineRunner._deliver_single_target()
   → PipelineRunner.deliver_to_target()          # enriches relations
     → TargetDeliveryService.deliver_to_target()  # renders + delivers
