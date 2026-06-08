@@ -47,8 +47,8 @@ INSERT INTO delivery_receipts
      target_channel, route_id, status, error, failure_kind, adapter_message_id,
      next_retry_at, attempt_number, parent_receipt_id, source,
      replay_run_id, retry_max_attempts, retry_backoff_base,
-     retry_max_delay, retry_jitter, rendering_evidence, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     retry_max_delay, retry_jitter, rendering_evidence, outbox_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # ---------------------------------------------------------------------------

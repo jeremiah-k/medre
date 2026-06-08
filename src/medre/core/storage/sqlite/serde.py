@@ -135,6 +135,7 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         retry_max_delay=row.get("retry_max_delay"),
         retry_jitter=jitter_val,
         rendering_evidence=row.get("rendering_evidence"),
+        outbox_id=row.get("outbox_id"),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
