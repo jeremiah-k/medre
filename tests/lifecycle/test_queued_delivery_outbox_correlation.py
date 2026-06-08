@@ -361,6 +361,137 @@ class TestStaleCallbackRejection:
         assert "Stale callback rejected" in caplog.text
 
 
+class TestStaleCallbackAfterRetryReclaim:
+    """Verify that a stale callback from an old retry attempt is rejected
+    while a newly retried attempt (different outbox_id) succeeds.
+
+    Scenario:
+    1. Attempt A (outbox_id=obox-A) is queued, then expires/reclaimed by retry.
+    2. Retry reissues attempt B (outbox_id=obox-B) which is now queued.
+    3. Old callback A arrives late → rejected because obox-A is no longer
+       queued/in_progress.
+    4. Callback B arrives → succeeds, transitions obox-B to sent.
+    """
+
+    @pytest.mark.asyncio
+    async def test_old_callback_rejected_new_callback_succeeds(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # --- Attempt A: original delivery ---
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-attempt-a",
+                status="queued",
+                adapter="mesh-1",
+                channel="0",
+                plan_id="plan-retry-a",
+                event_id="evt-retry",
+            )
+        )
+        outbox_a = DeliveryOutboxItem(
+            outbox_id="obox-a",
+            event_id="evt-retry",
+            route_id="route-001",
+            delivery_plan_id="plan-retry-a",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(outbox_a)
+        # Simulate retry reclaim: obox-a transitions from in_progress to
+        # retry_wait.  In production the retry worker claims the stale
+        # queued item; here we go directly from creation status.
+        await temp_storage.mark_outbox_retry_wait(
+            "obox-a",
+            next_attempt_at="2099-01-01T00:00:00+00:00",
+            failure_kind="adapter_transient",
+            error_summary="stale queued reclaim",
+        )
+
+        # --- Attempt B: retry delivery (new outbox item, different plan_id
+        # to avoid the UNIQUE constraint on
+        # (delivery_plan_id, target_adapter, target_channel, attempt_number)) ---
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-attempt-b",
+                status="queued",
+                adapter="mesh-1",
+                channel="0",
+                plan_id="plan-retry-b",
+                event_id="evt-retry",
+            )
+        )
+        outbox_b = DeliveryOutboxItem(
+            outbox_id="obox-b",
+            event_id="evt-retry",
+            route_id="route-001",
+            delivery_plan_id="plan-retry-b",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(outbox_b)
+        await temp_storage.mark_outbox_queued("obox-b")
+
+        # --- Stale callback A arrives late ---
+        stale_record = OutboundNativeRefRecord(
+            event_id="evt-retry",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-stale-a",
+            delivery_plan_id="plan-retry-a",
+            outbox_id="obox-a",
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=stale_record,
+                now=now,
+            )
+
+        # Stale callback rejected: obox-a is retry_wait, not queued/in_progress.
+        stale_receipts = await temp_storage.list_receipts_for_event("evt-retry")
+        stale_sent = [r for r in stale_receipts if r.status == "sent"]
+        assert len(stale_sent) == 0
+        assert "Stale callback rejected" in caplog.text
+
+        # --- Fresh callback B arrives ---
+        fresh_record = OutboundNativeRefRecord(
+            event_id="evt-retry",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-fresh-b",
+            delivery_plan_id="plan-retry-b",
+            outbox_id="obox-b",
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=fresh_record,
+            now=now,
+        )
+
+        # Fresh callback succeeds: obox-b was queued.
+        final_receipts = await temp_storage.list_receipts_for_event("evt-retry")
+        final_sent = [r for r in final_receipts if r.status == "sent"]
+        assert len(final_sent) == 1
+        assert final_sent[0].adapter_message_id == "pkt-fresh-b"
+
+        # Verify obox-b transitioned to sent.
+        obox_b = await temp_storage.get_outbox_item("obox-b")
+        assert obox_b is not None
+        assert obox_b.status == "sent"
+
+        # Verify obox-a remains in retry_wait (not corrupted by stale callback).
+        obox_a = await temp_storage.get_outbox_item("obox-a")
+        assert obox_a is not None
+        assert obox_a.status == "retry_wait"
+
+
 # ===================================================================
 # 2. Terminal outcome reporting (exhausted)
 # ===================================================================
