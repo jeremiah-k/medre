@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,6 +26,27 @@ from medre.core.supervision.supervision import (
     classify_startup_outcome,
 )
 from medre.runtime.boot_summary import build_boot_summary
+
+
+def _fake_runtime_config(*, storage_block: str) -> str:
+    """Return minimal fake-adapter runtime config with caller-selected storage."""
+    return f"""\
+[runtime]
+name = "storage-error-test"
+shutdown_timeout_seconds = 1
+
+{storage_block}
+
+[adapters.matrix.solo]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "tok"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+"""
+
 
 # ---------------------------------------------------------------------------
 # Storage schema version tests
@@ -338,3 +360,107 @@ class TestAppStartupFields:
         assert app._startup_monotonic is None
         assert app._health_state is None
         assert app._failed_adapter_ids == []
+
+
+# ---------------------------------------------------------------------------
+# App startup storage error paths
+# ---------------------------------------------------------------------------
+
+
+class TestAppStartupStorageErrors:
+    """Storage initialization failures include useful path context."""
+
+    @pytest.mark.asyncio
+    async def test_storage_init_non_prerelease_error_includes_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Generic storage init errors include the SQLite database path hint."""
+        from medre.config.loader import load_config
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.errors import RuntimeStartupError
+
+        db_path = tmp_path / "storage-error.db"
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            _fake_runtime_config(
+                storage_block=f'[storage]\nbackend = "sqlite"\npath = "{db_path}"'
+            )
+        )
+        config, _source, paths = load_config(str(config_path))
+        app = RuntimeBuilder(config, paths).build()
+        assert app.storage is not None
+        monkeypatch.setattr(
+            app.storage,
+            "initialize",
+            AsyncMock(side_effect=sqlite3.OperationalError("disk I/O")),
+        )
+
+        with pytest.raises(RuntimeStartupError) as exc_info:
+            await app.start()
+
+        message = str(exc_info.value)
+        assert "Failed to initialise storage: disk I/O" in message
+        assert f"SQLite database: {db_path}" in message
+
+    @pytest.mark.asyncio
+    async def test_storage_init_prerelease_error_does_not_duplicate_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PreReleaseSchemaMismatchError already carries the database path."""
+        from medre.config.loader import load_config
+        from medre.core.storage.backend import PreReleaseSchemaMismatchError
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.errors import RuntimeStartupError
+
+        db_path = tmp_path / "storage-error.db"
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            _fake_runtime_config(
+                storage_block=f'[storage]\nbackend = "sqlite"\npath = "{db_path}"'
+            )
+        )
+        config, _source, paths = load_config(str(config_path))
+        app = RuntimeBuilder(config, paths).build()
+        assert app.storage is not None
+        monkeypatch.setattr(
+            app.storage,
+            "initialize",
+            AsyncMock(
+                side_effect=PreReleaseSchemaMismatchError(
+                    path=str(db_path),
+                    table="event_relations",
+                    missing_columns=["target_native_thread_id"],
+                )
+            ),
+        )
+
+        with pytest.raises(RuntimeStartupError) as exc_info:
+            await app.start()
+
+        message = str(exc_info.value)
+        assert message.count(str(db_path)) == 1
+        assert "SQLite database:" not in message
+
+    @pytest.mark.asyncio
+    async def test_boot_summary_no_storage_backend_is_none(
+        self, tmp_path: Path
+    ) -> None:
+        """When app.storage is None, boot summary keeps storage backend as none."""
+        from medre.config.loader import load_config
+        from medre.runtime.builder import RuntimeBuilder
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            _fake_runtime_config(storage_block='[storage]\nbackend = "memory"')
+        )
+        config, _source, paths = load_config(str(config_path))
+        app = RuntimeBuilder(config, paths).build()
+        app.storage = None
+
+        await app.start()
+        try:
+            assert app.boot_summary is not None
+            assert app.boot_summary.storage_backend == "none"
+            assert app.boot_summary.storage_path is None
+        finally:
+            await app.stop()

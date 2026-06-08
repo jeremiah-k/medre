@@ -375,6 +375,44 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", default=False, help="Output JSON runbook"
     )
 
+    # storage (with sub-subcommands)
+    storage_p = sub.add_parser("storage", help="Storage management commands")
+    storage_sub = storage_p.add_subparsers(dest="storage_command", required=True)
+
+    storage_status_p = storage_sub.add_parser(
+        "status", help="Report storage schema health (read-only)"
+    )
+    storage_status_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+
+    storage_reset_p = storage_sub.add_parser(
+        "reset", help="Delete storage database (destructive)"
+    )
+    storage_reset_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database to delete (default: standard database path)",
+    )
+    storage_reset_p.add_argument(
+        "--backup",
+        action="store_true",
+        default=False,
+        help="Copy database to .bak-<timestamp> before deleting",
+    )
+    storage_reset_p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Confirm destructive reset",
+    )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     from .contrib import register_builtin_contributors
 
@@ -558,6 +596,23 @@ def main(argv: list[str] | None = None) -> None:
                 storage_path=args.storage_path,
             )
         )
+    elif args.command == "storage":
+        from medre.config.paths import resolve as resolve_paths
+
+        from .storage_commands import _storage_reset, _storage_status
+
+        if args.storage_command == "status":
+            path = args.storage_path or str(resolve_paths().database_path)
+            asyncio.run(_storage_status(path))
+        elif args.storage_command == "reset":
+            path = args.storage_path or str(resolve_paths().database_path)
+            asyncio.run(
+                _storage_reset(
+                    path,
+                    backup=args.backup,
+                    yes=args.yes,
+                )
+            )
     elif args.command == "adapter":
         from .contrib import dispatch_contribution
 

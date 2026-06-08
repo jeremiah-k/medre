@@ -63,6 +63,8 @@ class BootSummary:
         time.  Excludes disabled, skipped, and unavailable routes.
     storage_backend:
         Storage backend name (e.g. ``"sqlite"``, ``"memory"``), or ``"none"``.
+    storage_path:
+        Concrete storage path (e.g. SQLite database file path), or ``None``.
     replay_available:
         Whether the replay engine was wired.
     persisted_events_count:
@@ -85,6 +87,7 @@ class BootSummary:
     started_adapter_ids: tuple[str, ...] = ()
     route_count: int = 0
     storage_backend: str = "none"
+    storage_path: str | None = None
     replay_available: bool = False
     persisted_events_count: int | None = None
     recovery_run_id: str = ""
@@ -138,6 +141,7 @@ def build_boot_summary(
     started_adapter_ids: list[str] | tuple[str, ...],
     route_count: int,
     storage_backend: str,
+    storage_path: str | None = None,
     replay_available: bool,
     persisted_events_count: int | None,
     recovery_run_id: str = "",
@@ -161,6 +165,7 @@ def build_boot_summary(
         started_adapter_ids=tuple(sorted(started_adapter_ids)),
         route_count=route_count,
         storage_backend=storage_backend,
+        storage_path=storage_path,
         replay_available=replay_available,
         persisted_events_count=persisted_events_count,
         recovery_run_id=recovery_run_id,

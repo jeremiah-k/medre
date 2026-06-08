@@ -787,15 +787,34 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 ## 10. Pre-Release Database Policy
 
-MEDRE has not yet made its first release. There is no automatic migration support. The `initialize()` method **MUST** perform two validation checks:
+MEDRE has not yet made its first release. The schema version is frozen at `1` and will not be bumped until storage compatibility becomes release-tracked. However, the column shape (which tables exist, which columns each table has) may still change between prerelease builds.
+
+There is no automatic migration support. No code path migrates old data to a new schema shape. The `initialize()` method **MUST** perform two validation checks that reject stale prerelease databases:
 
 ### 10.1 Schema Version Check
 
 On a fresh database, the version row is inserted automatically into `_medre_schema_meta`. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` **MUST** be raised with guidance to resolve the mismatch manually (export data, delete the database file, and restart; or downgrade to match the database version).
 
+Because `_EXPECTED_SCHEMA_VERSION` remains `1` during the entire prerelease period, this check catches databases created by a significantly different version of MEDRE. It does not catch databases that report version `1` but were created by an older prerelease build with a different column shape (that is the job of Section 10.2).
+
 ### 10.2 Column-Shape Validation
 
-After DDL execution, `initialize()` **MUST** inspect `PRAGMA table_info` for each required table and compare column names against `_REQUIRED_COLUMNS`. If any required column is missing, `StorageInitializationError` **MUST** be raised with a message identifying the affected table and missing columns. This catches old pre-release databases whose `schema_version` still reads `1` but whose column shape predates the current DDL.
+After DDL execution, `initialize()` **MUST** inspect `PRAGMA table_info` for each required table and compare column names against `_REQUIRED_COLUMNS`. If any required column is missing, `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`) **MUST** be raised. The error message **MUST** identify the affected table, the missing columns, and the database file path. It **MUST NOT** suggest that automatic migration is available.
+
+This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape validation is the primary guard against stale prerelease databases.
+
+### 10.3 Pre-Release Stale Database Reset
+
+When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
+
+1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
+2. **Back up the old database.** Copy `medre.sqlite` to a safe location if the data has any investigative value.
+3. **Delete the database file.** Remove `{state}/medre.sqlite` (and its WAL/SHM companions if present).
+4. **Rerun MEDRE.** The next startup creates a fresh database with the current schema shape.
+
+No data from the old database is carried forward. The reset is total.
+
+`medre storage reset --storage-path <path> --backup --yes` automates steps 2 and 3: it backs up the existing database file (with a `.bak-<timestamp>.db` suffix), deletes the database and any WAL/SHM sidecar files, and reports success. It does not start the runtime or create a new database (that happens on the next `medre run` or `medre smoke`).
 
 ## 11. Durability Guarantees
 

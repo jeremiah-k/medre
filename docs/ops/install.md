@@ -290,6 +290,7 @@ PYTHONPATH=src pytest -m live -v
 | `vodozemac` build failure                           | No Rust toolchain                    | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted | Check path, verify file is 64 bytes, check permissions                          |
 | `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra       | `pip install -e ".[matrix-e2e]"`                                                |
+| `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease | Back up and remove the database: `medre storage reset`, then rerun              |
 
 ## Quick Reference
 

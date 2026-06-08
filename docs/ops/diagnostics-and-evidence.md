@@ -415,6 +415,23 @@ PYTHONPATH=src medre diagnostics --config examples/configs/fake-bridge-smoke.tom
 PYTHONPATH=src medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.toml
 ```
 
+### Storage Path in Diagnostics
+
+The diagnostics snapshot includes the resolved storage path. Use `medre storage status` to check the database path and schema compatibility directly, or check `storage_path` in any evidence bundle:
+
+```bash
+# Quick path check
+medre paths
+
+# Storage state check
+medre storage status
+
+# In an evidence bundle
+medre evidence --storage-path /path/to/medre.db --json | jq '.sections.config_summary.storage_path'
+```
+
+The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing prerelease schema mismatches, the path reported here is the file to back up and remove.
+
 ## Evidence Assertion Criteria
 
 ### Unidirectional Bridge (A -> B)

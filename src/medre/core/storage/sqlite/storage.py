@@ -32,6 +32,7 @@ from typing import Any
 
 from medre.core.storage.backend import (
     DuplicateEventError,
+    PreReleaseSchemaMismatchError,
     StorageError,
     StorageInitializationError,
 )
@@ -234,12 +235,10 @@ class _SQLiteStorageBase:
             existing = {row["name"] for row in rows}
             missing = required - existing
             if missing:
-                raise StorageInitializationError(
-                    f"Pre-release schema shape mismatch: table '{table}' is "
-                    f"missing required columns {sorted(missing)}. "
-                    f"The database was likely created by an older pre-release "
-                    f"build.  Please recreate the database — no automatic "
-                    f"migration is provided."
+                raise PreReleaseSchemaMismatchError(
+                    path=self._db_path,
+                    table=table,
+                    missing_columns=sorted(missing),
                 )
 
     async def _create_indexes(self) -> None:
@@ -397,6 +396,13 @@ class _SQLiteStorageBase:
                     close_task = asyncio.create_task(db.close())
                     try:
                         await asyncio.shield(close_task)
+                        # Yield once so aiosqlite's worker thread can deliver
+                        # any pending call_soon_threadsafe callbacks while
+                        # the event loop is still alive.  Without this,
+                        # SystemExit-triggered loop teardown can close the
+                        # loop before the thread finishes, causing
+                        # PytestUnhandledThreadExceptionWarning.
+                        await asyncio.sleep(0)
                     except asyncio.CancelledError as orig_cancelled:
                         # Outer cancellation arrived after the close had
                         # already started; let the close finish so aiosqlite

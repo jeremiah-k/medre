@@ -86,6 +86,10 @@ class TestPipelineRunnerCancelledError:
 
         # Restore so teardown doesn't break.
         app.pipeline_runner.stop = original_pipeline_stop  # type: ignore[assignment]
+        # Ensure aiosqlite connection is fully cleaned up.
+        if app.storage is not None and not app.storage._closed:
+            await app.storage.close()
+        await asyncio.sleep(0)
 
 
 # ===================================================================
@@ -126,8 +130,11 @@ class TestStorageCloseCancelledError:
         ], "pipeline_runner.stop() was skipped despite storage CE"
         assert app.state == RuntimeState.FAILED
 
-        # Restore.
+        # Restore and clean up the unclosed storage connection.
         app.storage.close = original_storage_close  # type: ignore[assignment]
+        if not app.storage._closed:
+            await app.storage.close()
+        await asyncio.sleep(0)
 
 
 # ===================================================================
@@ -266,3 +273,6 @@ class TestPersistDrainAbandonedCancelledError:
             )
             if app.storage is not None and not app.storage._closed:
                 await app.storage.close()
+            # Give the event loop a chance to process aiosqlite's internal
+            # cleanup callbacks so ResourceWarning is not emitted.
+            await asyncio.sleep(0)

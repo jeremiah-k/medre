@@ -690,8 +690,15 @@ class MedreApp:
                 _logger.info("Storage initialised")
             except Exception as exc:
                 self._set_state(RuntimeState.FAILED)
+                from medre.core.storage.backend import PreReleaseSchemaMismatchError
+
+                if isinstance(exc, PreReleaseSchemaMismatchError):
+                    path_hint = ""
+                else:
+                    db_path = getattr(self.storage, "_db_path", None)
+                    path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
                 raise RuntimeStartupError(
-                    f"Failed to initialise storage: {exc}"
+                    f"Failed to initialise storage: {exc}{path_hint}"
                 ) from exc
 
         # 1.5 Seed outbox counts from storage so snapshot has data before
@@ -937,8 +944,10 @@ class MedreApp:
 
         # -- Storage backend name ---------------------------------------------
         storage_backend = "none"
+        storage_path: str | None = None
         if self.storage is not None:
             storage_backend = getattr(self.config.storage, "backend", "unknown")
+            storage_path = getattr(self.storage, "_db_path", None)
 
         # -- Build boot summary -----------------------------------------------
         self._boot_summary = build_boot_summary(
@@ -955,6 +964,7 @@ class MedreApp:
             started_adapter_ids=list(self.started_adapter_ids),
             route_count=route_count,
             storage_backend=storage_backend,
+            storage_path=storage_path,
             replay_available=self._replay_engine is not None,
             persisted_events_count=persisted_count,
             recovery_run_id=self._recovery_run_id or "",
