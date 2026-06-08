@@ -246,7 +246,11 @@ class TestQueueProcessingCounters:
         result = await q.process_one(send_fn=failing_send)
 
         # Item exhausted and dropped (max_attempts=1 → no retries).
-        assert result is None
+        # Returns a QueueTerminalResult so the caller can report to core.
+        from medre.adapters.meshtastic.queue import QueueTerminalResult
+
+        assert isinstance(result, QueueTerminalResult)
+        assert result.outcome == "exhausted"
         assert q.total_failed == 1
         assert q.total_exhausted == 1
         assert q.total_sent == 0

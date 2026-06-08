@@ -961,10 +961,10 @@ class TestLeaseRenewalResilience:
         import asyncio
 
         from medre.core.contracts.adapter import AdapterDeliveryResult
-        from medre.core.engine.pipeline import runner as runner_mod
+        from medre.core.engine.pipeline import outbox_manager as outbox_mod
 
         # Short-circuit the renewal interval for a fast test.
-        monkeypatch.setattr(runner_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+        monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
 
         call_count = 0
 
@@ -1044,10 +1044,10 @@ class TestLeaseRenewalResilience:
         by the transient-error handler)."""
         import asyncio
 
-        from medre.core.engine.pipeline import runner as runner_mod
+        from medre.core.engine.pipeline import outbox_manager as outbox_mod
         from medre.core.storage.backend import DeliveryOutboxItem
 
-        monkeypatch.setattr(runner_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+        monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
 
         from datetime import datetime, timedelta, timezone
 
@@ -1107,9 +1107,9 @@ class TestLeaseRenewalResilience:
         import asyncio
 
         from medre.core.contracts.adapter import AdapterDeliveryResult
-        from medre.core.engine.pipeline import runner as runner_mod
+        from medre.core.engine.pipeline import outbox_manager as outbox_mod
 
-        monkeypatch.setattr(runner_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+        monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
 
         renew_call_count = 0
 

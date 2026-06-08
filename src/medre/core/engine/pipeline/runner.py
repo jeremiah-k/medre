@@ -35,7 +35,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
-from medre.core.engine.pipeline.outbox_manager import OutboxManager
+from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -940,6 +940,58 @@ class PipelineRunner:
         """
         await self._lifecycle.append_queued_to_sent_receipt(
             self._config.storage, record=record, now=now
+        )
+
+    # -- Outbox lease renewal (delegates to OutboxManager) ----------------
+
+    def _start_outbox_lease_renewal(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        pipeline_worker: str,
+    ) -> asyncio.Task | None:
+        """Start a background task that periodically renews the outbox lease.
+
+        Thin wrapper that delegates to
+        :class:`~medre.core.engine.pipeline.outbox_manager.OutboxManager`.
+
+        See :meth:`OutboxManager.start_lease_renewal` for full documentation.
+        """
+        ctx = OutboxContext(
+            outbox_id=outbox_id,
+            created=outbox_created,
+            pipeline_worker=pipeline_worker,
+            skip_reason=None,
+        )
+        return self._outbox_manager.start_lease_renewal(ctx)
+
+    # -- Outbox finalization (delegates to DeliveryLifecycleService) ------
+
+    async def _finalize_outbox_outcome(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        receipt: DeliveryReceipt | None,
+        failure_kind_val: DeliveryFailureKind | None,
+        error: str | None,
+        retry_policy: RetryPolicy | None,
+    ) -> None:
+        """Update the outbox item status based on the delivery outcome.
+
+        Thin wrapper that delegates to
+        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
+
+        See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
+        for full documentation.
+        """
+        await self._lifecycle.finalize_outbox_outcome(
+            self._config.storage,
+            outbox_id=outbox_id,
+            outbox_created=outbox_created,
+            receipt=receipt,
+            failure_kind_val=failure_kind_val,
+            error=error,
+            retry_policy=retry_policy,
         )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------

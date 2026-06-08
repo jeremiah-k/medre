@@ -112,6 +112,11 @@
       "default": null,
       "description": "Serialized rendering evidence (JSON string) attached only on sent or queued deliveries. None for suppressed, rendering-failure, and adapter-failure receipts. Pre-outbox skip paths produce no receipt."
     },
+    "outbox_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Internal correlation key linking this receipt to the durable outbox item tracking this delivery attempt."
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

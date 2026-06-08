@@ -1,13 +1,14 @@
-"""Test covering runner.py lines 1366-1367: capacity release on outbox skip.
+"""Test covering runner.py: capacity release on outbox skip.
 
-When _create_outbox_for_delivery returns a skip_reason (outbox row not owned
-by this pipeline), the runner must release the previously-acquired capacity
-slot before returning the skipped outcome.
+When _outbox_manager.create_for_delivery returns an OutboxContext with a
+skip_reason (outbox row not owned by this pipeline), the runner must release
+the previously-acquired capacity slot before returning the skipped outcome.
 """
 
 from __future__ import annotations
 
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.outbox_manager import OutboxContext
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -81,11 +82,16 @@ class TestCapacityReleaseOnOutboxSkip:
         # Capacity starts at the limit.
         assert cc.delivery_current == 0
 
-        # Mock _create_outbox_for_delivery to return a skip_reason.
+        # Mock _outbox_manager.create_for_delivery to return a skip_reason.
         async def _mock_create_outbox(*args, **kwargs):
-            return (None, False, "", "terminal:sent")
+            return OutboxContext(
+                outbox_id=None,
+                created=False,
+                pipeline_worker="",
+                skip_reason="terminal:sent",
+            )
 
-        runner._create_outbox_for_delivery = _mock_create_outbox  # type: ignore[assignment]
+        runner._outbox_manager.create_for_delivery = _mock_create_outbox  # type: ignore[assignment]
 
         event = make_event(event_id="evt-cap-skip", source_adapter="src")
         route = _make_route()
