@@ -364,18 +364,113 @@ class OutboxManager:
                 )
                 return
 
+            # Pre-validate outbox item state before creating the receipt.
+            # Reject terminal reports for outbox items that are already in
+            # a terminal state or that do not exist, to prevent duplicate
+            # terminal receipts and outbox-transition errors.
+            # Track the validated item for attempt_number and field enrichment.
+            existing_item: DeliveryOutboxItem | None = None
+            if record.outbox_id is not None:
+                existing_item = await self._storage.get_outbox_item(
+                    record.outbox_id,
+                )
+                if existing_item is None:
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s not found "
+                        "for event_id=%s adapter=%s outcome=%s; "
+                        "outbox item may have been garbage-collected",
+                        record.outbox_id,
+                        record.event_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                if existing_item.status in TERMINAL_OUTBOX_STATUSES:
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s already "
+                        "terminal (status=%s) for event_id=%s adapter=%s "
+                        "outcome=%s; duplicate terminal report",
+                        record.outbox_id,
+                        existing_item.status,
+                        record.event_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+                # Validate event_id matches to prevent cross-event corruption.
+                if existing_item.event_id != record.event_id:
+                    self._log.warning(
+                        "Terminal outcome rejected: outbox_id=%s has "
+                        "event_id=%s but record has event_id=%s; "
+                        "adapter=%s outcome=%s",
+                        record.outbox_id,
+                        existing_item.event_id,
+                        record.event_id,
+                        record.adapter,
+                        record.outcome,
+                    )
+                    return
+            else:
+                # No outbox_id — validate that the event has receipts before
+                # creating an orphaned terminal receipt.
+                try:
+                    existing_receipts = await self._storage.list_receipts_for_event(
+                        record.event_id,
+                    )
+                    if not existing_receipts:
+                        self._log.warning(
+                            "Terminal outcome rejected: no receipts found "
+                            "for event_id=%s adapter=%s outcome=%s; "
+                            "cannot validate orphan terminal record",
+                            record.event_id,
+                            record.adapter,
+                            record.outcome,
+                        )
+                        return
+                except Exception:
+                    self._log.exception(
+                        "Failed to validate event existence for terminal "
+                        "record: event_id=%s adapter=%s",
+                        record.event_id,
+                        record.adapter,
+                    )
+                    return
+
+            # Derive attempt_number: prefer the validated outbox item's value
+            # (authoritative), then the record's, then default to 1.
+            _attempt_number: int = 1
+            if existing_item is not None:
+                _attempt_number = existing_item.attempt_number
+            elif record.attempt_number is not None:
+                _attempt_number = record.attempt_number
+
+            # Enrich receipt fields from the validated outbox item when
+            # available — the outbox row is the authoritative source for
+            # delivery_plan_id, target_channel, and route_id.
+            _enriched_plan_id = (
+                existing_item.delivery_plan_id
+                if existing_item is not None
+                else (record.delivery_plan_id or "")
+            )
+            _enriched_channel = (
+                existing_item.target_channel
+                if existing_item is not None
+                else record.native_channel_id
+            )
+
             # Create the terminal receipt.
             receipt = build_delivery_receipt(
                 event_id=record.event_id,
-                delivery_plan_id=record.delivery_plan_id or "",
+                delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
-                target_channel=record.native_channel_id,
+                target_channel=_enriched_channel,
                 route_id="",
                 status=receipt_status,
                 error=error_msg,
                 failure_kind=failure_kind,
                 source="live",
                 outbox_id=record.outbox_id,
+                attempt_number=_attempt_number,
             )
             await self._storage.append_receipt(receipt)
 

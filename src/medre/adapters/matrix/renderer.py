@@ -479,15 +479,21 @@ class MatrixRenderer:
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
+        _longname = str(native_data.get("longname") or "")
+        _shortname = str(native_data.get("shortname") or "")
+        _from_id = str(native_data.get("from_id") or "")
+        _meshnet_name = self._get_meshnet_name(event)
+        _shortname5 = (_shortname or _from_id)[:5]
         try:
             return prefix.format(
-                longname=native_data.get("longname", ""),
-                shortname=native_data.get("shortname", ""),
-                meshnet_name=self._get_meshnet_name(event),
-                from_id=native_data.get("from_id", ""),
+                longname=_longname,
+                shortname=_shortname,
+                shortname5=_shortname5,
+                meshnet_name=_meshnet_name,
+                from_id=_from_id,
             )
         except (KeyError, IndexError, ValueError):
-            return prefix
+            return ""
 
     # ------------------------------------------------------------------
     # Reaction rendering
@@ -612,10 +618,15 @@ class MatrixRenderer:
 
         * ``{longname}`` — sender long name.
         * ``{shortname}`` — sender short name.
+        * ``{shortname5}`` — first 5 characters of shortname or from_id.
         * ``{meshnet_name}`` — mesh network name from config.
         * ``{from_id}`` — sender node ID.
 
-        If the prefix is empty, *body* is returned unchanged.
+        ``None`` values in native metadata are coalesced to empty strings
+        to avoid producing the literal text ``"None"`` in the prefix.
+
+        If the prefix is empty or formatting fails (unknown template
+        variable, malformed template), *body* is returned unchanged.
         """
         prefix = self._get_matrix_relay_prefix(event)
         if not prefix:
@@ -625,12 +636,30 @@ class MatrixRenderer:
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        formatted_prefix = prefix.format(
-            longname=native_data.get("longname", ""),
-            shortname=native_data.get("shortname", ""),
-            meshnet_name=self._get_meshnet_name(event),
-            from_id=native_data.get("from_id", ""),
-        )
+        # Coalesce None values to empty strings — native metadata keys may
+        # exist with None values, which str.format() would render as the
+        # literal string "None".
+        _longname = str(native_data.get("longname") or "")
+        _shortname = str(native_data.get("shortname") or "")
+        _from_id = str(native_data.get("from_id") or "")
+        _meshnet_name = self._get_meshnet_name(event)
+
+        # shortname5: first 5 chars of shortname, falling back to from_id
+        # when shortname is empty.  Matches Meshtastic renderer convention.
+        _shortname5 = (_shortname or _from_id)[:5]
+
+        try:
+            formatted_prefix = prefix.format(
+                longname=_longname,
+                shortname=_shortname,
+                shortname5=_shortname5,
+                meshnet_name=_meshnet_name,
+                from_id=_from_id,
+            )
+        except (KeyError, IndexError, ValueError):
+            # Unknown template variable or malformed template — return
+            # body unchanged rather than crashing the render pipeline.
+            return body
         return f"{formatted_prefix}{body}"
 
     # ------------------------------------------------------------------

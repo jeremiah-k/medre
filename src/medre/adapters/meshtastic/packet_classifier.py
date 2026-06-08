@@ -540,6 +540,17 @@ class MeshtasticPacketClassifier:
             action = "drop"
             reason = f"{REASON_DISABLED_PORTNUM}: {portnum}"
         # 3. Detection sensor (configurable)
+        # Detection sensor packets are machine-generated alerts (e.g. PIR
+        # motion, environmental threshold triggers) on PortNum 10.  They
+        # are always either "deferred" (default) or "relay" (opt-in).
+        # The two-key opt-in requires both detection_sensor_relay=True
+        # (master switch) AND the portnum listed in chat_portnums (promoter).
+        #
+        # Design decision: detection sensor packets promoted to relay bypass
+        # the direct-message guard (step 3.5).  This is intentional — sensor
+        # alerts are operational data that should be relayed regardless of
+        # addressing mode.  Non-sensor chat_portnum promotions remain subject
+        # to the DM guard.
         elif is_detection_sensor:
             if self._config is not None and getattr(
                 self._config, "detection_sensor_relay", False

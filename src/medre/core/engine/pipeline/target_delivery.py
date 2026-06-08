@@ -783,6 +783,7 @@ class TargetDeliveryService:
             replay_run_id=replay_run_id,
             **self._lifecycle.extract_retry_fields(plan),
             rendering_evidence=_rendering_evidence,
+            outbox_id=outbox_id,
         )
         await self._storage.append_receipt(receipt)
 

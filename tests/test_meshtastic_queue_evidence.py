@@ -558,6 +558,7 @@ class TestSupplementalReceiptChannelCorrelation:
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.routing import Router
+        from medre.core.storage.backend import DeliveryOutboxItem
 
         event_id = "evt-two-ch"
 
@@ -586,6 +587,30 @@ class TestSupplementalReceiptChannelCorrelation:
         await temp_storage.append_receipt(rcpt_ch0)
         await temp_storage.append_receipt(rcpt_ch1)
 
+        # Create matching outbox items for exact correlation.
+        obox_ch0 = DeliveryOutboxItem(
+            outbox_id="obox-ch0",
+            event_id=event_id,
+            route_id="route-a",
+            delivery_plan_id="plan-ch0",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+        )
+        obox_ch1 = DeliveryOutboxItem(
+            outbox_id="obox-ch1",
+            event_id=event_id,
+            route_id="route-b",
+            delivery_plan_id="plan-ch1",
+            target_adapter="mesh-1",
+            target_channel="1",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(obox_ch0)
+        await temp_storage.create_outbox_item(obox_ch1)
+        await temp_storage.mark_outbox_queued("obox-ch0")
+        await temp_storage.mark_outbox_queued("obox-ch1")
+
         runner = PipelineRunner(
             PipelineConfig(
                 storage=temp_storage,
@@ -604,6 +629,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_channel_id="0",
             native_message_id="packet-0",
             delivery_plan_id="plan-ch0",
+            outbox_id="obox-ch0",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
 
@@ -614,6 +640,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_channel_id="1",
             native_message_id="packet-1",
             delivery_plan_id="plan-ch1",
+            outbox_id="obox-ch1",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
 
@@ -715,6 +742,7 @@ class TestSupplementalReceiptChannelCorrelation:
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.routing import Router
+        from medre.core.storage.backend import DeliveryOutboxItem
 
         event_id = "evt-single-cand"
         now = datetime.now(tz=timezone.utc)
@@ -731,6 +759,14 @@ class TestSupplementalReceiptChannelCorrelation:
                 created_at=now,
             )
         )
+
+        # Create matching outbox item for exact correlation.
+        await temp_storage.create_outbox_item(DeliveryOutboxItem(
+            outbox_id="obox-single", event_id=event_id, route_id="route-z",
+            delivery_plan_id="plan-only", target_adapter="mesh-1",
+            target_channel="0", status="in_progress",
+        ))
+        await temp_storage.mark_outbox_queued("obox-single")
 
         runner = PipelineRunner(
             PipelineConfig(
@@ -750,6 +786,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_channel_id=None,
             native_message_id="packet-single",
             delivery_plan_id="plan-only",
+            outbox_id="obox-single",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 
@@ -771,6 +808,7 @@ class TestSupplementalReceiptChannelCorrelation:
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.routing import Router
+        from medre.core.storage.backend import DeliveryOutboxItem
 
         event_id = "evt-retry"
         now = datetime.now(tz=timezone.utc)
@@ -804,6 +842,20 @@ class TestSupplementalReceiptChannelCorrelation:
             )
         )
 
+        # Create matching outbox item for exact correlation (attempt 2 = most recent).
+        obox = DeliveryOutboxItem(
+            outbox_id="obox-retry",
+            event_id=event_id,
+            route_id="route-r",
+            delivery_plan_id="plan-retry",
+            target_adapter="mesh-1",
+            target_channel="0",
+            attempt_number=2,
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(obox)
+        await temp_storage.mark_outbox_queued("obox-retry")
+
         runner = PipelineRunner(
             PipelineConfig(
                 storage=temp_storage,
@@ -821,6 +873,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_channel_id="0",
             native_message_id="packet-retry",
             delivery_plan_id="plan-retry",
+            outbox_id="obox-retry",
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

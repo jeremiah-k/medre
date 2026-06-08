@@ -89,7 +89,7 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -553,29 +553,28 @@ class DeliveryLifecycleService:
         """Append a supplemental ``status="sent"`` receipt for a
         queue-based delivery that transitioned from enqueued to sent.
 
-        **Correlation strategy** (priority order):
+        **Correlation strategy**:
 
-        1. **Exact ``outbox_id`` correlation** (strongest, preferred).
-           When *record.outbox_id* is present, the method looks up the
-           outbox item directly and validates it:
+        **Exact ``outbox_id`` correlation** (required).
+        The callback MUST carry ``outbox_id``.  When present, the method
+        looks up the outbox item directly and validates it:
 
-           - The outbox item must exist and its ``status`` must be
-             ``"queued"`` or ``"in_progress"``.  If the status is anything
-             else (terminal, stale-reclaimed), the callback is rejected as
-             stale and the method logs a warning and returns.
-           - The outbox item's ``event_id`` must match *record.event_id*.
-           - The queued receipt is found by matching the outbox item's
-             ``delivery_plan_id``, ``target_adapter``, and ``target_channel``
-             among queued receipts.
+        - The outbox item must exist and its ``status`` must be
+          ``"queued"`` or ``"in_progress"``.  If the status is anything
+          else (terminal, stale-reclaimed), the callback is rejected as
+          stale and the method logs a warning and returns.
+        - The outbox item's ``event_id`` must match *record.event_id*.
+        - The outbox item's ``attempt_number`` must match the queued
+          receipt's ``attempt_number``.  A mismatch indicates a stale
+          callback from a prior attempt.
+        - The queued receipt is found by matching the outbox item's
+          ``delivery_plan_id``, ``target_adapter``, and ``target_channel``
+          among queued receipts.
 
-        2. **Exact ``delivery_plan_id`` match** (fallback, deterministic).
-           When *record.outbox_id* is ``None`` but *record.delivery_plan_id*
-           is present, only queued receipts with the same
-           ``delivery_plan_id`` are considered.
-
-        3. **No correlation keys**.  When both ``outbox_id`` and
-           ``delivery_plan_id`` are ``None``, the method logs a warning
-           and returns — no supplemental receipt is created.
+        Callbacks without ``outbox_id`` are hard-rejected — there is no
+        ``delivery_plan_id``-only fallback.  All queue-based adapters
+        must propagate ``outbox_id`` through their queues for exact
+        correlation.
 
         **Stale-callback protection**: when the outbox item has been
         reclaimed by a retry (status is no longer ``queued`` or
@@ -589,8 +588,10 @@ class DeliveryLifecycleService:
         and returns.
 
         Finally, the method appends a new immutable receipt with
-        ``status="sent"`` and the real ``adapter_message_id``, and
-        transitions the matching outbox item from ``queued`` -> ``sent``.
+        ``status="sent"``, the real ``adapter_message_id``, and the
+        correlated ``outbox_id``, then transitions the outbox item from
+        ``queued`` -> ``sent`` using the already-validated outbox item
+        (no heuristic re-lookup).
 
         If no matching ``"queued"`` receipt is found (e.g. non-queued
         adapter or replay context), the method returns silently.
@@ -627,9 +628,11 @@ class DeliveryLifecycleService:
             return
 
         queued_receipt: DeliveryReceipt | None = None
+        # Track the validated outbox item for exact transition below.
+        validated_outbox: DeliveryOutboxItem | None = None
 
         if record.outbox_id is not None:
-            # --- Exact outbox_id correlation (preferred) ---
+            # --- Exact outbox_id correlation (required) ---
             # Look up the outbox item directly for exact, stale-safe matching.
             outbox_item = await storage.get_outbox_item(record.outbox_id)
             if outbox_item is None:
@@ -699,112 +702,44 @@ class DeliveryLifecycleService:
             if queued_receipt is None:
                 return
 
-        elif record.delivery_plan_id is not None:
-            # --- Deterministic correlation by delivery_plan_id ---
-            plan_matches = [
-                r for r in candidates if r.delivery_plan_id == record.delivery_plan_id
-            ]
-
-            if not plan_matches:
-                self._log.debug(
-                    "No queued receipt matched delivery_plan_id=%s for "
-                    "event_id=%s adapter=%s; skipping supplemental receipt "
-                    "(deterministic correlation — no heuristic fallback)",
-                    record.delivery_plan_id,
+            # Enforce attempt_number correlation: the outbox item and the
+            # selected queued receipt must agree on the attempt number.
+            # A mismatch indicates a stale callback from a prior attempt.
+            if outbox_item.attempt_number != queued_receipt.attempt_number:
+                self._log.warning(
+                    "Attempt number mismatch: outbox_id=%s has "
+                    "attempt_number=%d but queued receipt %s has "
+                    "attempt_number=%d for event_id=%s adapter=%s; "
+                    "stale callback from a prior attempt — rejecting",
+                    record.outbox_id,
+                    outbox_item.attempt_number,
+                    queued_receipt.receipt_id,
+                    queued_receipt.attempt_number,
                     record.event_id,
                     record.adapter,
                 )
                 return
 
-            # Narrow by channel if the record carries one.
-            if record.native_channel_id is not None:
-                channel_matches = [
-                    r
-                    for r in plan_matches
-                    if r.target_channel == record.native_channel_id
-                ]
-                if not channel_matches:
-                    self._log.debug(
-                        "No queued receipt matched delivery_plan_id=%s + "
-                        "channel=%s for event_id=%s adapter=%s; "
-                        "skipping supplemental receipt",
-                        record.delivery_plan_id,
-                        record.native_channel_id,
-                        record.event_id,
-                        record.adapter,
-                    )
-                    return
-                # Most recent (last in append-order) wins for retries
-                # under the same plan, with source-aware preference.
-                queued_receipt = self._select_source_preferred_candidate(
-                    channel_matches,
-                    record,
-                )
-                if queued_receipt is None:
-                    return
-            elif len(plan_matches) == 1:
-                # Route single-candidate path through source-aware selector
-                # so replay-only candidates are skipped with warning rather
-                # than selected silently.
-                queued_receipt = self._select_source_preferred_candidate(
-                    plan_matches,
-                    record,
-                )
-                if queued_receipt is None:
-                    return
-            else:
-                # Multiple candidates under same plan_id, no channel.
-                # Check target_channel uniformity for retry lineage.
-                channels = {r.target_channel for r in plan_matches}
-                if len(channels) == 1:
-                    # Same plan, same channel → retry lineage →
-                    # source-aware latest wins.
-                    queued_receipt = self._select_source_preferred_candidate(
-                        plan_matches,
-                        record,
-                    )
-                    if queued_receipt is None:
-                        return
-                else:
-                    self._log.warning(
-                        "Ambiguous queued receipt correlation: %d "
-                        "plan_id=%s candidates span %d target_channel "
-                        "values for event_id=%s adapter=%s with no "
-                        "native_channel_id; skipping supplemental receipt",
-                        len(plan_matches),
-                        record.delivery_plan_id,
-                        len(channels),
-                        record.event_id,
-                        record.adapter,
-                    )
-                    return
+            validated_outbox = outbox_item
+
         else:
-            # Neither outbox_id nor delivery_plan_id — cannot correlate.
+            # No outbox_id on callback — hard reject.  All queued
+            # callbacks MUST carry outbox_id for exact correlation.
+            # Plan-id-only and no-key callbacks are no longer accepted.
             self._log.warning(
-                "Cannot create supplemental sent receipt: neither "
-                "outbox_id nor delivery_plan_id available on callback/"
-                "native ref record for event_id=%s adapter=%s "
-                "native_channel_id=%s — queued outbox item remains "
-                "uncorrelated until stale-grace reclaim or adapter "
-                "callback supplies linkage",
+                "Hard reject: supplemental queued→sent callback lacks "
+                "outbox_id for event_id=%s adapter=%s "
+                "delivery_plan_id=%s native_channel_id=%s; exact "
+                "outbox_id correlation is required — no fallback",
                 record.event_id,
                 record.adapter,
+                record.delivery_plan_id,
                 record.native_channel_id,
             )
             return
 
-        # Defensive guard: every branch above should either set queued_receipt
-        # or return early.  This catch-all prevents an unguarded None from
-        # reaching the transition-validation logic below if a new branch is
-        # added without updating the exit paths.
-        if queued_receipt is None:
-            self._log.warning(
-                "Logic error: queued_receipt is None after correlation "
-                "for event_id=%s adapter=%s; skipping supplemental receipt",
-                record.event_id,
-                record.adapter,
-            )
-            return
+        # queued_receipt is guaranteed non-None here (every branch above
+        # either sets it and continues or returns early).
 
         # Validate that the selected queued receipt can transition to sent.
         if not _is_valid_queued_to_sent_transition(queued_receipt.status):
@@ -837,42 +772,28 @@ class DeliveryLifecycleService:
             retry_max_delay=queued_receipt.retry_max_delay,
             retry_jitter=queued_receipt.retry_jitter,
             rendering_evidence=queued_receipt.rendering_evidence,
+            outbox_id=record.outbox_id,
         )
         await storage.append_receipt(supplemental)
 
         # Transition the matching outbox item from queued -> sent.
-        # The item may still be in_progress if the callback fires before
-        # _deliver_single_target() marks the outbox row as queued.  Prefer queued
-        # status over in_progress so that a fully-queued row is always
-        # selected first.
-        try:
-            outbox_item = await storage.get_outbox_item_for_delivery(
-                event_id=record.event_id,
-                delivery_plan_id=queued_receipt.delivery_plan_id,
-                target_adapter=record.adapter,
-                target_channel=queued_receipt.target_channel,
-                status="queued",
-            )
-            if outbox_item is None:
-                outbox_item = await storage.get_outbox_item_for_delivery(
-                    event_id=record.event_id,
-                    delivery_plan_id=queued_receipt.delivery_plan_id,
-                    target_adapter=record.adapter,
-                    target_channel=queued_receipt.target_channel,
-                    status="in_progress",
-                )
-            if outbox_item is not None:
+        # Use the already-validated outbox item from exact correlation
+        # instead of re-querying via heuristic delivery-key lookup.
+        if validated_outbox is not None:
+            try:
                 await storage.mark_outbox_sent(
-                    outbox_item.outbox_id,
+                    validated_outbox.outbox_id,
                     receipt_id=supplemental.receipt_id,
                     attempt_number=supplemental.attempt_number,
                 )
-        except Exception:
-            self._log.exception(
-                "Failed to transition outbox queued->sent: event_id=%s adapter=%s",
-                record.event_id,
-                record.adapter,
-            )
+            except Exception:
+                self._log.exception(
+                    "Failed to transition outbox queued->sent: "
+                    "outbox_id=%s event_id=%s adapter=%s",
+                    validated_outbox.outbox_id,
+                    record.event_id,
+                    record.adapter,
+                )
 
     # -- Outbox finalization ------------------------------------------------
 

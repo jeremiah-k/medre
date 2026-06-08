@@ -915,6 +915,7 @@ class TestTargetedOutboxLookupRegression:
             native_channel_id=TARGET_CHANNEL,
             native_message_id="native-msg-target-regression",
             delivery_plan_id=TARGET_PLAN_ID,
+            outbox_id="obox-target-regression",
         )
         await runner._record_outbound_native_ref(record)
 
