@@ -337,20 +337,19 @@ class OutboundNativeRefRecord:
         :meth:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService.append_queued_to_sent_receipt`
         uses it for deterministic queued→sent receipt correlation,
         avoiding the older event_id+adapter+channel+latest heuristic.
-        ``None`` when the adapter did not propagate a plan ID (legacy
-        path or non-queue adapters).
+        ``None`` when the adapter did not propagate a plan ID.
     outbox_id:
-        Internal correlation key linking this callback to the exact
-        durable outbox item for this delivery attempt.  When present,
-        the lifecycle service uses it for **exact** outbox-level
-        correlation, which is stricter than ``delivery_plan_id``-only
-        matching and provides stale-callback protection.  ``None``
-        for synchronous adapters or legacy callbacks.
+        **Required** internal correlation key linking this callback to
+        the exact durable outbox item for this delivery attempt.
+        The lifecycle service uses it for **exact** outbox-level
+        correlation, which provides stale-callback protection.
+        Queue adapters MUST populate this field; callbacks without
+        ``outbox_id`` are hard-rejected.
         **Not wire metadata, not public API.**
     attempt_number:
-        1-indexed delivery attempt number from pipeline retry lineage.
-        Used alongside ``outbox_id`` for stale-callback protection.
-        ``None`` for synchronous adapters or legacy callbacks.
+        **Required** 1-indexed delivery attempt number from pipeline
+        retry lineage.  Used alongside ``outbox_id`` for stale-callback
+        protection.  Queue adapters MUST populate this field.
     metadata:
         Adapter-specific metadata about this mapping.  Must contain only
         JSON-safe, simple values.

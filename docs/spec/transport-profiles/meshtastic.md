@@ -116,7 +116,7 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 - Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then reported as terminal (`exhausted`) via `record_outbound_terminal`.
 - Permanent failures: reported as terminal (`permanent_failed`) immediately via `record_outbound_terminal`.
 - `asyncio.CancelledError` during send: in-flight item stored for cancellation reporting; remaining queue items reported as `abandoned`.
-- Adapter stop with unsent items: all remaining items reported as `abandoned` via `record_outbound_terminal`.
+- Adapter stop: when an in-flight cancelled item exists (evidence the drain task was actively processing), remaining queued items are drained and reported as `abandoned`. When no in-flight item exists, remaining items are left in the in-memory queue to survive across the stop boundary for the next `start()` cycle.
 - Terminal outcomes produce durable receipts and outbox transitions; there is no silent drop.
 - `listen_only` mode: `deliver()` raises `AdapterPermanentError` before enqueue.
 

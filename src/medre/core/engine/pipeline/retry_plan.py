@@ -207,7 +207,11 @@ def reconstruct_retry_delivery_plan(
     _deadline: datetime | None = None
     if _deadline_raw is not None:
         try:
-            _deadline = datetime.fromisoformat(_deadline_raw)
+            _parsed = datetime.fromisoformat(_deadline_raw)
+            # Reject timezone-naive datetimes — comparison with
+            # datetime.now(tz=timezone.utc) would raise TypeError.
+            if _parsed.tzinfo is not None:
+                _deadline = _parsed
         except (ValueError, TypeError):
             pass  # Graceful degradation: deadline stays None.
 

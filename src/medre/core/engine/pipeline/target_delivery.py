@@ -392,6 +392,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -421,6 +422,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -483,6 +485,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -524,6 +527,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(_skip_receipt)
@@ -558,6 +562,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -598,6 +603,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -644,6 +650,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)

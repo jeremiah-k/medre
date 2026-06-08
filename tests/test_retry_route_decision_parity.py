@@ -255,9 +255,7 @@ class TestRetryFullRouteDecisionRoundtrip:
                 "capability_level": "fallback",
                 "delivery_strategy": "fallback_text",
                 "capability_field": "reactions",
-                "capability_reason": (
-                    "reactions unsupported by adapter" " (event_kind=message.reacted)"
-                ),
+                "capability_reason": "reactions unsupported by adapter (event_kind=message.reacted)",
                 "deadline": "2026-06-01T00:00:00+00:00",
             },
             previous_receipt=receipt,

@@ -374,6 +374,11 @@ class MeshtasticOutboundQueue:
             # Fake mode: no send, no pacing sleep.
             return None
 
+        # Capture the dequeued item as the potential cancelled item
+        # immediately so that cancellation during the pacing sleep
+        # does not silently lose the item.  Cleared on successful send.
+        self._last_cancelled_item = item
+
         # Apply pacing delay based on time since last send attempt.
         # Pacing is per-send-ATTEMPT, not per-dequeue: the timestamp is
         # recorded before send_fn so that transient retries also respect
@@ -394,9 +399,8 @@ class MeshtasticOutboundQueue:
         try:
             send_result = await send_fn(item)
         except asyncio.CancelledError:
-            # Store the in-flight item so the caller can report the
-            # cancellation, then re-raise so task cancellation propagates.
-            self._last_cancelled_item = item
+            # _last_cancelled_item already set above — keep it so the
+            # caller can report the cancellation, then re-raise.
             raise
         except MeshtasticSendError as exc:
             if not exc.transient:
@@ -437,6 +441,8 @@ class MeshtasticOutboundQueue:
             return terminal
 
         self._total_sent += 1
+        # Send succeeded — clear the pre-emptive cancelled-item capture.
+        self._last_cancelled_item = None
 
         # Extract native packet ID from the send result.
         native_id = _extract_packet_id(send_result)

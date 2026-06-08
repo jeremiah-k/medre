@@ -149,17 +149,14 @@ This key is:
 - Returned in delayed callbacks (`OutboundNativeRefRecord`,
   `QueueTerminalRecord`).
 
-The correlation strategy for `append_queued_to_sent_receipt` is strict
-priority-order:
+The correlation strategy for `append_queued_to_sent_receipt` is exact only:
 
-1. **Exact `outbox_id` correlation** (preferred). Looks up the outbox item
+1. **Exact `outbox_id` correlation** (required). Looks up the outbox item
    directly and validates its status is still `queued` or `in_progress`.
    Rejects callbacks for outbox items in any other status (stale-callback
-   protection).
-2. **Exact `delivery_plan_id` match** (fallback). When `outbox_id` is absent
-   but `delivery_plan_id` is present, matches queued receipts by plan ID.
-3. **No correlation keys**. When both are absent, logs a warning and returns
-   without creating a supplemental receipt.
+   protection). The callback **MUST** carry `outbox_id`; callbacks without
+   it are hard-rejected with a warning log and produce no supplemental receipt.
+   No plan-id-only or no-key fallback path exists.
 
 `outbox_id` and `attempt_number` are internal implementation details. They
 MUST NOT appear in rendered payloads sent to external platforms (Matrix,
