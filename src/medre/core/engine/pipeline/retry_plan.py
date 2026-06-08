@@ -25,6 +25,7 @@ documented in one place.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import get_args
@@ -39,6 +40,14 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
+
+logger = logging.getLogger(__name__)
+
+#: Valid capability-level values matching
+#: :data:`~medre.core.rendering.renderer.CapabilityLevel`.
+_VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(
+    {"native", "fallback", "unsupported"}
+)
 
 
 @dataclass(frozen=True)
@@ -192,6 +201,20 @@ def reconstruct_retry_delivery_plan(
     # have these keys; graceful degradation uses DeliveryPlan defaults.
     _meta = item.metadata or {}
     _capability_level: str | None = _meta.get("capability_level")
+
+    # Validate _capability_level against the closed vocabulary.
+    if (
+        _capability_level is not None
+        and _capability_level not in _VALID_CAPABILITY_LEVELS
+    ):
+        logger.warning(
+            "Invalid capability_level %r in outbox metadata for item %s; "
+            "falling back to None",
+            _capability_level,
+            item.outbox_id,
+        )
+        _capability_level = None
+
     _delivery_strategy_raw: str | None = _meta.get("delivery_strategy")
     _capability_field: str | None = _meta.get("capability_field")
     _capability_reason: str | None = _meta.get("capability_reason")

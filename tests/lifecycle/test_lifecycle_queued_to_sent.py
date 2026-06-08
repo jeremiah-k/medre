@@ -1,7 +1,7 @@
 """Tests for supplemental queued→sent receipt generation.
 
 Exercises ``append_queued_to_sent_receipt`` including happy paths,
-outbox transitions, error handling, deterministic plan_id correlation,
+outbox transitions, error handling, outbox_id-based correlation,
 retry lineage, and delivery state guards.
 
 Source-aware candidate selection tests live in
@@ -356,7 +356,7 @@ class TestAppendQueuedToSentErrorPaths:
         caplog.set_level(logging.DEBUG)
         from unittest.mock import AsyncMock, patch
 
-        _make_lifecycle()
+        lifecycle = _make_lifecycle()
         await temp_storage.append_receipt(
             _make_receipt(
                 receipt_id="rcpt-ob",
@@ -381,34 +381,39 @@ class TestAppendQueuedToSentErrorPaths:
         await temp_storage.create_outbox_item(outbox_item)
         await temp_storage.mark_outbox_queued("obox-supp-err")
 
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt",
+            delivery_plan_id="plan-001",
+            outbox_id="obox-supp-err",
+            attempt_number=1,
+        )
         with patch.object(
             temp_storage,
             "mark_outbox_sent",
             AsyncMock(side_effect=RuntimeError("outbox write fail")),
         ):
-            OutboundNativeRefRecord(
-                event_id="evt-001",
-                adapter="m",
-                native_channel_id="0",
-                native_message_id="pkt",
-                delivery_plan_id="plan-001",
-                outbox_id="obox-supp-err",
-                attempt_number=1,
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=datetime.now(timezone.utc),
             )
 
 
 # ===================================================================
-# Deterministic delivery_plan_id correlation regression
+# outbox_id-based correlation regression
 # ===================================================================
 
 
 class TestDeterministicPlanIdCorrelation:
-    """Regression tests for delivery_plan_id-based queued→sent correlation.
+    """Regression tests for outbox_id-based queued→sent correlation.
 
-    These tests verify that ``append_queued_to_sent_receipt`` uses the
-    ``delivery_plan_id`` on ``OutboundNativeRefRecord`` for deterministic
-    correlation.  When ``delivery_plan_id`` is absent, no supplemental
-    receipt is created.
+    These tests verify that ``append_queued_to_sent_receipt`` uses
+    ``outbox_id`` for exact receipt selection, with ``delivery_plan_id``
+    serving as a validation field.  When ``outbox_id`` is absent, the
+    callback is hard-rejected and no supplemental receipt is created.
     """
 
     async def test_overlapping_plans_same_channel_correct_receipt(

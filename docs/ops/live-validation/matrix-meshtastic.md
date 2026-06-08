@@ -221,7 +221,7 @@ The suite is organized into four files:
   native-ref deduplication via the full pipeline, plus byte-budget
   truncation.
 - `test_matrix_meshtastic_queueing.py` -- Queued receipt creation,
-  delivery_plan_id correlation (queued-to-sent), ambiguity handling,
+  outbox_id-based correlation (queued-to-sent), ambiguity handling,
   queue backpressure, and delivery state validation.
 - `test_matrix_meshtastic_relations.py` -- Reply/reaction rendering,
   fallback text, capability decisions, failure classification, adapter

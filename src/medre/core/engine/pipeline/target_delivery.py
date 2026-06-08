@@ -614,12 +614,10 @@ class TargetDeliveryService:
                 failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
             ) from None
 
-        # Stamp the delivery_plan_id onto the rendering result so that
-        # queue-based adapters can propagate it through their queue into
-        # OutboundNativeRefRecord for deterministic queued→sent receipt
-        # correlation.  Also stamp outbox_id and attempt_number for exact
-        # outbox-level correlation and stale-callback protection.
-        # RenderingResult is frozen; use dataclass replace().
+        # Stamp delivery_plan_id for validation in queue callbacks;
+        # outbox_id provides exact correlation.  Also stamp attempt_number
+        # for stale-callback protection.  RenderingResult is frozen; use
+        # dataclass replace().
         rendering_result = replace(
             rendering_result,
             delivery_plan_id=plan.plan_id,

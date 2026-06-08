@@ -334,11 +334,10 @@ class OutboundNativeRefRecord:
         **Reserved** — no adapter currently populates this field; it
         is always ``None`` at runtime.
     delivery_plan_id:
-        Stable correlation key that identifies which delivery plan
-        produced this outbound send.  When present,
-        :meth:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService.append_queued_to_sent_receipt`
-        uses it for deterministic queued→sent receipt correlation,
-        avoiding the older event_id+adapter+channel+latest heuristic.
+        Stable delivery-plan identity carried through the callback for
+        validation.  The lifecycle service validates it against the
+        outbox item's ``delivery_plan_id`` but does NOT use it for
+        receipt selection — ``outbox_id`` provides exact correlation.
         ``None`` when the adapter did not propagate a plan ID.
     outbox_id:
         **Required** internal correlation key linking this callback to
@@ -420,6 +419,13 @@ class QueueTerminalRecord:
         The canonical event ID that originated the outbound send.
     adapter:
         The adapter ID reporting this outcome.
+    outcome:
+        Terminal outcome classification:
+
+        * ``"exhausted"`` — local retry budget exhausted.
+        * ``"permanent_failed"`` — permanent send failure, no retry.
+        * ``"cancelled"`` — item cancelled while in-flight.
+        * ``"abandoned"`` — adapter shutdown with unsent queued items.
     outbox_id:
         **Required** internal correlation key linking this callback to
         the exact durable outbox item.  Queue adapters MUST populate
@@ -436,26 +442,17 @@ class QueueTerminalRecord:
         and produce no durable terminal receipt or outbox mutation.
     native_channel_id:
         Channel / conversation ID in the adapter's native format.
-    outcome:
-        Terminal outcome classification:
-
-        * ``"exhausted"`` — local retry budget exhausted.
-        * ``"permanent_failed"`` — permanent send failure, no retry.
-        * ``"cancelled"`` — item cancelled while in-flight.
-        * ``"abandoned"`` — adapter shutdown with unsent queued items.
     error:
         Human-readable error context.
     """
 
     event_id: str
     adapter: str
+    outcome: Literal["exhausted", "permanent_failed", "cancelled", "abandoned"]
     outbox_id: str | None = None
     delivery_plan_id: str | None = None
     attempt_number: int | None = None
     native_channel_id: str | None = None
-    outcome: Literal["exhausted", "permanent_failed", "cancelled", "abandoned"] = (
-        "abandoned"
-    )
     error: str | None = None
 
 

@@ -1540,6 +1540,13 @@ class PipelineRunner:
             # The outbox is created AFTER route/policy/loop/capacity acceptance
             # and BEFORE the adapter delivery attempt, so that pending work
             # survives a crash between this point and the receipt commit.
+            #
+            # Capacity-safety note: create_for_delivery catches all exceptions
+            # internally and returns OutboxContext(skip_reason="outbox_creation_failed")
+            # on failure — it never propagates.  The skip_reason check below
+            # releases the acquired capacity slot in that case, so there is no
+            # capacity leak between acquisition (Phase 3) and the try/finally
+            # block (Phase 4).
             _outbox_ctx = await self._outbox_manager.create_for_delivery(
                 event,
                 route,

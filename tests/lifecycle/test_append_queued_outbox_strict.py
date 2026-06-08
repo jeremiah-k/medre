@@ -132,6 +132,7 @@ class TestFieldMismatchRejected:
             native_message_id="pkt-plan-bad",
             delivery_plan_id="plan-wrong",
             outbox_id="obox-plan-mismatch",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -168,6 +169,7 @@ class TestFieldMismatchRejected:
             native_message_id="pkt-ch-bad",
             delivery_plan_id="plan-ch",
             outbox_id="obox-ch-mismatch",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,
@@ -204,6 +206,7 @@ class TestFieldMismatchRejected:
             native_message_id="pkt-adapter-bad",
             delivery_plan_id="plan-adapt",
             outbox_id="obox-adapter-mismatch",
+            attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
             temp_storage,

@@ -213,12 +213,15 @@ class RenderingResult:
         renderer returns.  ``None`` when the result was not produced
         by :meth:`RenderingPipeline.render` (e.g. manually constructed).
     delivery_plan_id:
-        Stable correlation key from the delivery plan.  Set by
+        Stable delivery-plan identity propagated to adapter callbacks
+        for validation.  Set by
         :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
         after rendering, before adapter delivery.  Queue-based adapters
         propagate this through their queue into
-        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
-        deterministic queued→sent receipt correlation.
+        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+        The lifecycle service validates it against the outbox item but
+        does NOT use it for receipt selection — ``outbox_id`` provides
+        exact correlation.
     outbox_id:
         Internal correlation key linking this render result to the durable
         outbox item tracking this delivery attempt.  Set by

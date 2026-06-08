@@ -51,12 +51,13 @@ Retry representation
     failure kind + ``next_retry_at`` on the receipt - **not** as a distinct
     receipt status.
 
-``delivery_plan_id`` correlation key
-    ``delivery_plan_id`` is an internal lifecycle correlation key: it is
-    not sent over transports, not persisted in ``native_message_refs``,
-    and adapters propagate it only through internal local queues and
-    callback records.  It provides deterministic correlation for
-    queued→sent receipt pairing.
+``outbox_id`` + ``attempt_number`` correlation
+    ``outbox_id`` and ``attempt_number`` are the primary internal
+    correlation keys for exact queued→sent receipt matching and
+    stale-callback protection.  ``delivery_plan_id`` is a validation
+    field checked against the outbox item, but is NOT the correlation
+    selector.  Callbacks missing ``outbox_id`` or ``attempt_number``
+    are hard-rejected.
 
 Observed transitions
     - Receipt: ``queued`` -> ``sent`` (supplemental, via callback)

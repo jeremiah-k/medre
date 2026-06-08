@@ -9,6 +9,7 @@ intentionally absent (not guessed).
 from __future__ import annotations
 
 import datetime
+import logging
 
 import pytest
 
@@ -292,6 +293,46 @@ class TestCapabilityFieldsRoundtrip:
             default_max_attempts=3,
         )
         assert ctx.plan.capability_level == "fallback"
+
+    def test_invalid_capability_level_falls_back_to_none(self) -> None:
+        """Invalid capability_level in metadata degrades to None."""
+        item = _make_outbox(metadata={"capability_level": "bogus"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_level is None
+
+    def test_invalid_capability_level_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Invalid capability_level produces a warning log with context."""
+        item = _make_outbox(
+            metadata={"capability_level": "partial"},
+        )
+        with caplog.at_level(logging.WARNING):
+            ctx = reconstruct_retry_delivery_plan(
+                item=item,
+                previous_receipt=None,
+                default_max_attempts=3,
+            )
+        assert ctx.plan.capability_level is None
+        assert "Invalid capability_level" in caplog.text
+        assert "partial" in caplog.text
+        assert "ob-1" in caplog.text
+
+    def test_valid_capability_levels_pass_through(self) -> None:
+        """Each valid capability_level value passes validation unchanged."""
+        for level in ("native", "fallback", "unsupported"):
+            item = _make_outbox(metadata={"capability_level": level})
+            ctx = reconstruct_retry_delivery_plan(
+                item=item,
+                previous_receipt=None,
+                default_max_attempts=3,
+            )
+            assert ctx.plan.capability_level == level
 
     def test_capability_field_recovered(self) -> None:
         """capability_field persisted in metadata is recovered on reconstruction."""

@@ -571,35 +571,35 @@ class TestTerminalOutcomeExhausted:
             record_outbound_terminal=_on_terminal,
         )
         await adapter.start(ctx)
+        try:
+            # Build a terminal result with all fields populated.
+            terminal = QueueTerminalResult(
+                item={
+                    "payload": {"text": "test"},
+                    "channel_index": 3,
+                    "event_id": "evt-term",
+                    "delivery_plan_id": "plan-term",
+                    "outbox_id": "obox-term",
+                    "attempt_number": 2,
+                    "_attempt": 3,
+                },
+                outcome="exhausted",
+                error="radio timeout after 3 attempts",
+            )
+            await adapter._report_queue_terminal(terminal)
 
-        # Build a terminal result with all fields populated.
-        terminal = QueueTerminalResult(
-            item={
-                "payload": {"text": "test"},
-                "channel_index": 3,
-                "event_id": "evt-term",
-                "delivery_plan_id": "plan-term",
-                "outbox_id": "obox-term",
-                "attempt_number": 2,
-                "_attempt": 3,
-            },
-            outcome="exhausted",
-            error="radio timeout after 3 attempts",
-        )
-        await adapter._report_queue_terminal(terminal)
-
-        assert len(captured_records) == 1
-        rec = captured_records[0]
-        assert rec.event_id == "evt-term"
-        assert rec.adapter == "mesh-test"
-        assert rec.outbox_id == "obox-term"
-        assert rec.delivery_plan_id == "plan-term"
-        assert rec.attempt_number == 2
-        assert rec.native_channel_id == "3"
-        assert rec.outcome == "exhausted"
-        assert rec.error == "radio timeout after 3 attempts"
-
-        await adapter.stop(timeout=1.0)
+            assert len(captured_records) == 1
+            rec = captured_records[0]
+            assert rec.event_id == "evt-term"
+            assert rec.adapter == "mesh-test"
+            assert rec.outbox_id == "obox-term"
+            assert rec.delivery_plan_id == "plan-term"
+            assert rec.attempt_number == 2
+            assert rec.native_channel_id == "3"
+            assert rec.outcome == "exhausted"
+            assert rec.error == "radio timeout after 3 attempts"
+        finally:
+            await adapter.stop(timeout=1.0)
 
     @pytest.mark.asyncio
     async def test_permanent_failure_terminal_record(self) -> None:
@@ -1055,51 +1055,51 @@ class TestCancellationReporting:
             record_outbound_terminal=_on_terminal,
         )
         await adapter.start(ctx)
+        try:
+            # Enqueue two items into the adapter's queue.
+            await adapter._queue.enqueue(
+                payload={"text": "remaining-1"},
+                channel_index=0,
+                event_id="evt-rem1",
+                outbox_id="obox-rem1",
+                attempt_number=1,
+            )
+            await adapter._queue.enqueue(
+                payload={"text": "remaining-2"},
+                channel_index=0,
+                event_id="evt-rem2",
+                outbox_id="obox-rem2",
+                attempt_number=1,
+            )
 
-        # Enqueue two items into the adapter's queue.
-        await adapter._queue.enqueue(
-            payload={"text": "remaining-1"},
-            channel_index=0,
-            event_id="evt-rem1",
-            outbox_id="obox-rem1",
-            attempt_number=1,
-        )
-        await adapter._queue.enqueue(
-            payload={"text": "remaining-2"},
-            channel_index=0,
-            event_id="evt-rem2",
-            outbox_id="obox-rem2",
-            attempt_number=1,
-        )
+            # Simulate a cancelled in-flight item by directly setting
+            # the internal _last_cancelled_item.
+            adapter._queue._last_cancelled_item = {
+                "payload": {"text": "inflight"},
+                "channel_index": 0,
+                "event_id": "evt-inflight",
+                "outbox_id": "obox-inflight",
+                "attempt_number": 2,
+            }
 
-        # Simulate a cancelled in-flight item by directly setting
-        # the internal _last_cancelled_item.
-        adapter._queue._last_cancelled_item = {
-            "payload": {"text": "inflight"},
-            "channel_index": 0,
-            "event_id": "evt-inflight",
-            "outbox_id": "obox-inflight",
-            "attempt_number": 2,
-        }
+            await adapter._report_cancelled_and_drain()
 
-        await adapter._report_cancelled_and_drain()
+            # Should have 3 records: 1 cancelled + 2 abandoned.
+            assert len(captured) == 3
 
-        # Should have 3 records: 1 cancelled + 2 abandoned.
-        assert len(captured) == 3
+            cancelled_recs = [r for r in captured if r.outcome == "cancelled"]
+            abandoned_recs = [r for r in captured if r.outcome == "abandoned"]
 
-        cancelled_recs = [r for r in captured if r.outcome == "cancelled"]
-        abandoned_recs = [r for r in captured if r.outcome == "abandoned"]
+            assert len(cancelled_recs) == 1
+            assert cancelled_recs[0].event_id == "evt-inflight"
+            assert cancelled_recs[0].outbox_id == "obox-inflight"
+            assert cancelled_recs[0].adapter == "mesh-cancel"
 
-        assert len(cancelled_recs) == 1
-        assert cancelled_recs[0].event_id == "evt-inflight"
-        assert cancelled_recs[0].outbox_id == "obox-inflight"
-        assert cancelled_recs[0].adapter == "mesh-cancel"
-
-        assert len(abandoned_recs) == 2
-        abandoned_ids = {r.event_id for r in abandoned_recs}
-        assert abandoned_ids == {"evt-rem1", "evt-rem2"}
-
-        await adapter.stop(timeout=1.0)
+            assert len(abandoned_recs) == 2
+            abandoned_ids = {r.event_id for r in abandoned_recs}
+            assert abandoned_ids == {"evt-rem1", "evt-rem2"}
+        finally:
+            await adapter.stop(timeout=1.0)
 
 
 # ===================================================================

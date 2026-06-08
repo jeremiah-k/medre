@@ -347,6 +347,14 @@ class MeshtasticAdapter(AdapterContract):
         For fake mode, the payload is enqueued and ``None`` is returned.
         For real modes, the payload is enqueued for queue-based delivery.
 
+        .. note::
+
+           Direct ``deliver()`` calls (outside the queue path) produce
+           results without outbox correlation.  This is acceptable for
+           adapter-boundary tests and manual probes but not for normal
+           queue-based delivery, which requires ``outbox_id`` +
+           ``attempt_number`` for exact lifecycle correlation.
+
         Parameters
         ----------
         result:
