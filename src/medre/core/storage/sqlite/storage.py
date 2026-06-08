@@ -396,6 +396,13 @@ class _SQLiteStorageBase:
                     close_task = asyncio.create_task(db.close())
                     try:
                         await asyncio.shield(close_task)
+                        # Yield once so aiosqlite's worker thread can deliver
+                        # any pending call_soon_threadsafe callbacks while
+                        # the event loop is still alive.  Without this,
+                        # SystemExit-triggered loop teardown can close the
+                        # loop before the thread finishes, causing
+                        # PytestUnhandledThreadExceptionWarning.
+                        await asyncio.sleep(0)
                     except asyncio.CancelledError as orig_cancelled:
                         # Outer cancellation arrived after the close had
                         # already started; let the close finish so aiosqlite
