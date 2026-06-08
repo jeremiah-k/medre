@@ -423,7 +423,9 @@ def test_storage_reset_refuses_directories(tmp_path: Path) -> None:
                 pass
 
     # Initializing with a directory path should raise an error.
-    with pytest.raises((PreReleaseSchemaMismatchError, sqlite3.OperationalError, OSError)):
+    with pytest.raises(
+        (PreReleaseSchemaMismatchError, sqlite3.OperationalError, OSError)
+    ):
         asyncio.run(_attempt_init())
 
     # Directory must still exist and be unchanged.
@@ -493,7 +495,10 @@ def test_evidence_missing_db_does_not_create_file(tmp_path: Path) -> None:
 def test_cli_storage_status_fresh_db(fresh_db: Path) -> None:
     """`medre storage status --storage-path` reports HEALTHY for a fresh DB."""
     stdout, stderr = _run_cli(
-        "storage", "status", "--storage-path", str(fresh_db),
+        "storage",
+        "status",
+        "--storage-path",
+        str(fresh_db),
     )
     assert "HEALTHY" in stdout
     assert "Schema version: 1" in stdout
@@ -503,7 +508,10 @@ def test_cli_storage_status_fresh_db(fresh_db: Path) -> None:
 def test_cli_storage_status_old_db(old_db: Path) -> None:
     """`medre storage status --storage-path` reports MISMATCH for an old-shape DB."""
     stdout, stderr = _run_cli(
-        "storage", "status", "--storage-path", str(old_db),
+        "storage",
+        "status",
+        "--storage-path",
+        str(old_db),
     )
     assert "MISMATCH" in stdout
     assert "event_relations" in stdout
@@ -512,7 +520,10 @@ def test_cli_storage_status_old_db(old_db: Path) -> None:
 def test_cli_storage_status_missing_db(tmp_path: Path) -> None:
     """`medre storage status` with missing file exits with error."""
     code, stdout, stderr = _run_cli_exit(
-        "storage", "status", "--storage-path", str(tmp_path / "nope.db"),
+        "storage",
+        "status",
+        "--storage-path",
+        str(tmp_path / "nope.db"),
     )
     assert code == EXIT_BUILD
     assert "not found" in stderr.lower() or "error" in stderr.lower()
@@ -527,7 +538,10 @@ def test_cli_storage_reset_refuses_without_yes(tmp_path: Path) -> None:
     """`medre storage reset` without --yes exits with config error."""
     db_path = _create_old_shape_db(tmp_path)
     code, stdout, stderr = _run_cli_exit(
-        "storage", "reset", "--storage-path", str(db_path),
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
     )
     assert code == 2  # EXIT_CONFIG
     assert "--yes" in stderr
@@ -538,8 +552,12 @@ def test_cli_storage_reset_with_backup(tmp_path: Path) -> None:
     """`medre storage reset --backup --yes` creates backup and deletes DB."""
     db_path = _create_old_shape_db(tmp_path)
     code, stdout, stderr = _run_cli_exit(
-        "storage", "reset", "--storage-path", str(db_path),
-        "--backup", "--yes",
+        "storage",
+        "reset",
+        "--storage-path",
+        str(db_path),
+        "--backup",
+        "--yes",
     )
     assert code == 0
     assert "Backup:" in stdout
@@ -555,7 +573,10 @@ def test_cli_storage_reset_refuses_non_sqlite(tmp_path: Path) -> None:
     fake_file = tmp_path / "not-a-db.txt"
     fake_file.write_text("hello world")
     code, stdout, stderr = _run_cli_exit(
-        "storage", "reset", "--storage-path", str(fake_file),
+        "storage",
+        "reset",
+        "--storage-path",
+        str(fake_file),
         "--yes",
     )
     assert code == EXIT_BUILD
