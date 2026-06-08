@@ -81,6 +81,40 @@ class StorageInitializationError(StorageError):
     before ``initialize()`` has been called."""
 
 
+class PreReleaseSchemaMismatchError(StorageInitializationError):
+    """Raised when a pre-release database has the correct schema version
+    but is missing required columns — indicating it was created by an
+    older pre-release build.
+
+    Attributes
+    ----------
+    path:
+        Path to the SQLite database file.
+    table:
+        Name of the table with missing columns.
+    missing_columns:
+        Sorted list of column names that are absent.
+    """
+
+    def __init__(
+        self,
+        path: str | None,
+        table: str,
+        missing_columns: list[str],
+    ) -> None:
+        self.path = path
+        self.table = table
+        self.missing_columns = missing_columns
+        path_hint = f" (database: {path})" if path else ""
+        super().__init__(
+            f"Pre-release schema shape mismatch: table '{table}' is "
+            f"missing required columns {sorted(missing_columns)}.{path_hint} "
+            f"The database was likely created by an older pre-release "
+            f"build.  Please recreate the database — no automatic "
+            f"migration is provided."
+        )
+
+
 class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 

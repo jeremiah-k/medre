@@ -375,6 +375,42 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", default=False, help="Output JSON runbook"
     )
 
+    # storage (with sub-subcommands)
+    storage_p = sub.add_parser("storage", help="Storage management commands")
+    storage_sub = storage_p.add_subparsers(dest="storage_command", required=True)
+
+    storage_status_p = storage_sub.add_parser(
+        "status", help="Report storage schema health (read-only)"
+    )
+    storage_status_p.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
+
+    storage_reset_p = storage_sub.add_parser(
+        "reset", help="Delete storage database (destructive)"
+    )
+    storage_reset_p.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database to delete",
+    )
+    storage_reset_p.add_argument(
+        "--backup",
+        action="store_true",
+        default=False,
+        help="Copy database to .bak-<timestamp> before deleting",
+    )
+    storage_reset_p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Confirm destructive reset",
+    )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     from .contrib import register_builtin_contributors
 
@@ -558,6 +594,19 @@ def main(argv: list[str] | None = None) -> None:
                 storage_path=args.storage_path,
             )
         )
+    elif args.command == "storage":
+        from .storage_commands import _storage_reset, _storage_status
+
+        if args.storage_command == "status":
+            asyncio.run(_storage_status(args.storage_path))
+        elif args.storage_command == "reset":
+            asyncio.run(
+                _storage_reset(
+                    args.storage_path,
+                    backup=args.backup,
+                    yes=args.yes,
+                )
+            )
     elif args.command == "adapter":
         from .contrib import dispatch_contribution
 

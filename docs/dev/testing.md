@@ -259,7 +259,16 @@ command runs.
 
 ### Schema version
 
-Schema version stays at 1 during prerelease. No schema bumps until storage compatibility becomes release-tracked. Tests assert schema_version == 1 and that stale prerelease column shapes are rejected by shape validation rather than migration.
+The schema version (`_EXPECTED_SCHEMA_VERSION`) stays at 1 during the entire prerelease period. It will not be bumped until storage compatibility becomes release-tracked. Tests assert `schema_version == 1` to guard against accidental bumps.
+
+Because the version is frozen, column-shape validation is the primary guard against stale prerelease databases. Tests verify that:
+
+- A fresh database starts with `schema_version == 1` in `_medre_schema_meta`.
+- A database whose `schema_version` differs from `_EXPECTED_SCHEMA_VERSION` raises `StorageInitializationError`.
+- A database that reports the correct version but is missing required columns (stale prerelease shape) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError`.
+- Column-shape validation checks every table in `_REQUIRED_COLUMNS` and reports all missing columns, not just the first.
+
+Do not add schema version bump tests or migration tests during prerelease. The version stays at 1 and there is no migration code path to test.
 
 ## Operator/CLI Tests
 

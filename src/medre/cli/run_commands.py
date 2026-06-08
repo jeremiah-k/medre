@@ -294,6 +294,8 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 _print(f"  Persisted events: {bs.persisted_events_count}")
             if bs.adapters_disabled > 0:
                 _print(f"  Disabled adapters: {bs.adapters_disabled}")
+            if bs.storage_path is not None:
+                _print(f"  Storage: {bs.storage_backend} ({bs.storage_path})")
 
         # Log structured startup (stdout summary already printed above)
         logger.debug(

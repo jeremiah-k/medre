@@ -37,6 +37,75 @@ All stored rows are either immutable facts (events, receipts, native refs, termi
 
 For the detailed per-table ownership audit, see [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
 
+## Pre-Release Storage Reset
+
+MEDRE is prerelease software. The schema version is frozen at 1, but the column shape (which tables and columns exist) can change between builds. When you upgrade to a newer prerelease build that adds or renames columns, the existing database will be rejected at startup with a `PreReleaseSchemaMismatchError`. No automatic migration runs. You need to reset the database manually.
+
+### How to tell if your database is stale
+
+Run `medre storage status` to check the database path and schema state. If the database was created by an older prerelease build, the command reports which tables have missing columns.
+
+Alternatively, if MEDRE fails to start with an error like:
+
+```text
+PreReleaseSchemaMismatchError: Pre-release schema shape mismatch:
+table 'delivery_outbox' is missing required columns ['failure_kind_detail'].
+```
+
+then the database is stale and needs a reset.
+
+### Step-by-step reset procedure
+
+1. **Find the database path.**
+
+   ```bash
+   medre storage status
+   ```
+
+   Or use `medre paths` to see the resolved state directory. The database file is `{state}/medre.sqlite`.
+
+2. **Back up the old database.**
+
+   ```bash
+   cp ~/.local/state/medre/medre.sqlite ~/.local/state/medre/medre.sqlite.bak
+   ```
+
+   Keep the backup if the old data has investigative value. The backup is a plain SQLite file you can query with `sqlite3`.
+
+3. **Delete the database file.**
+
+   ```bash
+   rm ~/.local/state/medre/medre.sqlite
+   rm ~/.local/state/medre/medre.sqlite-wal 2>/dev/null
+   rm ~/.local/state/medre/medre.sqlite-shm 2>/dev/null
+   ```
+
+   Or use `medre storage reset`, which handles the backup and deletion:
+
+   ```bash
+   medre storage reset
+   ```
+
+   This creates a `.bak` copy and removes the original. It does not start the runtime or create a new database.
+
+4. **Rerun MEDRE.**
+
+   ```bash
+   medre run --config your-config.toml
+   ```
+
+   The next startup creates a fresh database with the current schema shape.
+
+### What happens to the old data
+
+Nothing from the old database is carried forward. The reset is total. Events, receipts, native refs, and outbox state from the old database are gone. The new database starts empty.
+
+If you need data from the old database, query the backup file with `sqlite3` or `medre inspect --storage-path /path/to/backup.sqlite`.
+
+### When this does not apply
+
+This workflow only applies to prerelease builds where the column shape changed. After MEDRE makes its first release, schema migrations will be provided and this manual reset workflow will not be needed for compatible upgrades.
+
 ## Preferred Product Path
 
 The recommended operator loop:
