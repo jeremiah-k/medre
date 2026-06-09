@@ -270,7 +270,7 @@ In fake mode, `deliver()` returns `None` — no real send occurs.
 1. **No Docker setup for MeshCore.** No containerized MeshCore node for Docker SDK-boundary tests.
 2. **BLE hardware validation pending.** BLE is implemented at session layer but not validated against real hardware.
 3. **Fire-and-forget delivery.** `sent` means local node acceptance. No remote receipt confirmation.
-4. **Auto-reconnect.** On unexpected disconnect, the session attempts bounded exponential backoff reconnection (1 s → 2 s → 4 s, capped at 30 s, max 10 attempts).
+4. **Auto-reconnect.** On unexpected disconnect, the session attempts bounded exponential backoff reconnection (1 s → 2 s → 4 s, capped at 30 s, ±25 % jitter, max 10 attempts).
 5. **Contact-based sender resolution is scaffold.** `source_transport_id` carries the raw pubkey prefix.
 6. **message_delay_seconds is enforced.** Outbound sends are serialized with a lock and spaced by the configured delay.
 

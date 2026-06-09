@@ -19,7 +19,7 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 | `adapter_id`            | `str`                                  | _(required)_ | Unique adapter instance identifier                            |
 | `connection_type`       | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                               |
 | `host`                  | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)   |
-| `port`                  | `int \| None`                          | `None`       | Port for TCP (default 4000)                                   |
+| `port`                  | `int \| None`                          | `4000`       | Port for TCP (defaults to 4000 when `connection_type="tcp"`)  |
 | `serial_port`           | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`) |
 | `serial_baudrate`       | `int`                                  | `115200`     | Baud rate for serial                                          |
 | `ble_address`           | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)       |

@@ -458,10 +458,6 @@ class LxmfSession:
         self._reconnect_task: asyncio.Task | None = None
         self._announce_task: asyncio.Task | None = None
 
-        # Send serialization: ensures pacing sleeps are not bypassed when
-        # multiple send_text() calls overlap via pipeline fan-out.
-        self._send_lock = asyncio.Lock()
-
         # Diagnostics.
         self._diag = _SessionDiagnostics()
 
@@ -607,6 +603,11 @@ class LxmfSession:
         # on Reticulum threads) can bridge safely via
         # call_soon_threadsafe().
         self._loop = asyncio.get_running_loop()
+
+        # Send serialization: ensures pacing sleeps are not bypassed when
+        # multiple send_text() calls overlap via pipeline fan-out.
+        # Created here to bind to the running loop (lazy binding in 3.10+).
+        self._send_lock = asyncio.Lock()
 
         self._message_callback = message_callback
         self._stop_requested = False

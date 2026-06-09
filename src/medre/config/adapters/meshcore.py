@@ -146,7 +146,7 @@ class MeshCoreConfig:
             raise MeshCoreConfigError(
                 "serial_port is required when connection_type is 'serial'"
             )
-        if self.connection_type == "serial" and self.serial_baudrate is not None:
+        if self.connection_type == "serial":
             if not isinstance(self.serial_baudrate, int) or isinstance(
                 self.serial_baudrate, bool
             ):
