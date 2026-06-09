@@ -16,7 +16,7 @@ environment variables.
 
        export MESHCORE_CONNECTION_TYPE="tcp"
        export MESHCORE_HOST="meshcore.local"
-       # export MESHCORE_PORT="4403"       # optional
+       # export MESHCORE_PORT="4000"       # optional
        # export MESHCORE_SERIAL_PORT="/dev/ttyUSB0"  # for serial
        # export MESHCORE_BLE_ADDRESS="AA:BB:CC:DD:EE:FF"  # for BLE
        export MESHCORE_CHANNEL_INDEX="0"
@@ -41,7 +41,7 @@ Variable                    Description
 =========================== =====================================================
 ``MESHCORE_CONNECTION_TYPE`` Connection mode: ``tcp``, ``serial``, or ``ble``
 ``MESHCORE_HOST``           Hostname or IP for TCP connections
-``MESHCORE_PORT``           Port for TCP (default ``4403``)
+``MESHCORE_PORT``           Port for TCP (default ``4000``)
 ``MESHCORE_SERIAL_PORT``    Serial device path for serial connections
 ``MESHCORE_BLE_ADDRESS``    BLE MAC address for BLE connections
 ``MESHCORE_CHANNEL_INDEX``  Channel index for outbound test messages (default ``0``)
@@ -107,7 +107,7 @@ _DELIVER_TIMEOUT: float = 15.0
 # ---------------------------------------------------------------------------
 MESHCORE_CONNECTION_TYPE = os.environ.get("MESHCORE_CONNECTION_TYPE", "").lower()
 MESHCORE_HOST = os.environ.get("MESHCORE_HOST")
-MESHCORE_PORT = os.environ.get("MESHCORE_PORT", "4403")
+MESHCORE_PORT = os.environ.get("MESHCORE_PORT", "4000")
 MESHCORE_SERIAL_PORT = os.environ.get("MESHCORE_SERIAL_PORT")
 MESHCORE_BLE_ADDRESS = os.environ.get("MESHCORE_BLE_ADDRESS")
 MESHCORE_CHANNEL_INDEX = os.environ.get("MESHCORE_CHANNEL_INDEX", "0")
@@ -186,7 +186,7 @@ def _make_config():
             adapter_id="meshcore-live-smoke",
             connection_type="tcp",
             host=MESHCORE_HOST or "localhost",
-            port=int(MESHCORE_PORT) if MESHCORE_PORT else 4403,
+            port=int(MESHCORE_PORT) if MESHCORE_PORT else 4000,
         )
     elif ct == "serial":
         return MeshCoreConfig(

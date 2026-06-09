@@ -538,7 +538,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `display_name`    | `MEDRE_ADAPTER__LOCAL__DISPLAY_NAME=MEDRE`                  |
 | `identity_path`   | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
 
-Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via env vars — use TOML instead.
+Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use TOML instead.
 
 ### Unsupported Legacy Prefixes
 

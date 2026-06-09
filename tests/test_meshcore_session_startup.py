@@ -105,7 +105,7 @@ class TestMockedSDKTCPStartup:
         config = _make_config(
             connection_type="tcp",
             host="meshcore.local",
-            port=4403,
+            port=4000,
         )
         session = MeshCoreSession(config, "tcp-test")
 
@@ -115,7 +115,51 @@ class TestMockedSDKTCPStartup:
         ):
             await session.start(lambda _pkt: None)
 
-        mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4403)
+        mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4000)
+        assert session.connected is True
+
+        await session.stop()
+
+    async def test_tcp_default_port_when_none(self) -> None:
+        """When port is None, TCP falls back to 4000 (MeshCore SDK default)."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="tcp",
+            host="meshcore.local",
+            port=None,
+        )
+        session = MeshCoreSession(config, "tcp-default-port")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4000)
+        assert session.connected is True
+
+        await session.stop()
+
+    async def test_tcp_explicit_port_overrides_default(self) -> None:
+        """When port is explicitly set, that value is used instead of 4000."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="tcp",
+            host="meshcore.local",
+            port=12345,
+        )
+        session = MeshCoreSession(config, "tcp-explicit-port")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 12345)
         assert session.connected is True
 
         await session.stop()
