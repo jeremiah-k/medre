@@ -2,7 +2,7 @@
 
 Tests covering:
 - Queued delivery receipt creation through TargetDeliveryService
-- delivery_plan_id correlation for queued-to-sent receipt pairing
+- outbox_id correlation for queued-to-sent receipt pairing
 - Ambiguity handling when correlation is under-specified
 - Queue backpressure and capacity rejection
 - Queue health diagnostics
@@ -201,12 +201,12 @@ class TestQueuedReceiptCreation:
 
 
 class TestQueuedSentCorrelation:
-    """delivery_plan_id correlates queued receipts to supplemental sent
+    """outbox_id correlates queued receipts to supplemental sent
     receipts via DeliveryLifecycleService.append_queued_to_sent_receipt."""
 
     @pytest.mark.asyncio
     async def test_exact_plan_id_and_channel_finds_queued_receipt(self) -> None:
-        """Exact delivery_plan_id + channel finds the correct queued receipt
+        """Exact outbox_id finds the correct queued receipt
         and appends a supplemental sent receipt."""
         storage = _FakeStorage()
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))

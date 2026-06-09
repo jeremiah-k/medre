@@ -778,14 +778,14 @@ When only replay-sourced queued receipts are available, the pipeline skips corre
 
 ### Uncorrelated Queued Outbox Items
 
-When a queued outbox item has no `delivery_plan_id` and no receipt linkage, the reason-pending derivation flags it as uncorrelated. The evidence output includes:
+When a queued outbox item has no `outbox_id` correlation and no receipt linkage, the reason-pending derivation flags it as awaiting adapter callback. The evidence output includes:
 
 ```text
-Queued, uncorrelated (no delivery_plan_id, no receipt linkage)
+Queued, awaiting adapter callback (no outbox_id, no receipt linkage)
 -- awaiting stale-grace reclaim or adapter callback correlation
 ```
 
-Operators seeing this message should check whether the adapter callback is expected to provide `delivery_plan_id` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
+Operators seeing this message should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
 
 ### Replay Does Not Mutate Live Recovery State
 

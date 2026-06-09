@@ -890,12 +890,12 @@ class TestUncorrelatedQueuedItems:
 
     Uncorrelated queued item visibility: operator visibility for queued outbox
     items that cannot be correlated because callback/native ref lacked
-    delivery_plan_id or receipt linkage.
+    outbox_id or receipt linkage.
     """
 
     def test_queued_no_plan_id_no_receipt(self) -> None:
         """Queued item with no delivery_plan_id and no receipt_id gets
-        uncorrelated reason mentioning both missing fields."""
+        awaiting-callback reason mentioning both missing fields."""
         summary = build_retry_outbox_summary(
             outbox_items=[
                 _outbox(
@@ -914,14 +914,14 @@ class TestUncorrelatedQueuedItems:
         item = summary.items[0]
         assert item.status == "queued"
         assert item.reason_pending is not None
-        assert "uncorrelated" in item.reason_pending
-        assert "no delivery_plan_id" in item.reason_pending
+        assert "awaiting adapter callback" in item.reason_pending
+        assert "no outbox_id" in item.reason_pending
         assert "no receipt linkage" in item.reason_pending
         assert "stale-grace reclaim" in item.reason_pending
 
     def test_queued_no_plan_id_with_receipt(self) -> None:
         """Queued item with receipt_id but no delivery_plan_id gets
-        plan-specific uncorrelated reason."""
+        degraded-plan-metadata reason."""
         summary = build_retry_outbox_summary(
             outbox_items=[
                 _outbox(
@@ -938,14 +938,14 @@ class TestUncorrelatedQueuedItems:
         )
         item = summary.items[0]
         assert item.reason_pending is not None
-        assert "uncorrelated" in item.reason_pending
-        assert "no delivery_plan_id" in item.reason_pending
+        assert "degraded plan metadata" in item.reason_pending
+        assert "missing delivery_plan_id" in item.reason_pending
         # Should NOT mention receipt linkage since receipt exists.
         assert "no receipt linkage" not in item.reason_pending
 
     def test_queued_with_plan_id_no_receipt(self) -> None:
         """Queued item with delivery_plan_id but no receipt_id gets
-        receipt-specific uncorrelated reason."""
+        receipt-specific reason without degraded-metadata language."""
         summary = build_retry_outbox_summary(
             outbox_items=[
                 _outbox(
@@ -962,8 +962,7 @@ class TestUncorrelatedQueuedItems:
         )
         item = summary.items[0]
         assert item.reason_pending is not None
-        assert "uncorrelated" in item.reason_pending
-        assert "no receipt linkage" in item.reason_pending
+        assert "without receipt linkage" in item.reason_pending
         # Should NOT mention delivery_plan_id since it exists.
         assert "no delivery_plan_id" not in item.reason_pending
 
@@ -1004,7 +1003,7 @@ class TestUncorrelatedQueuedItems:
         assert summary.counts["shutdown_pending"] >= 1
 
     def test_uncorrelated_queued_is_json_safe(self) -> None:
-        """Uncorrelated queued item evidence is JSON-safe."""
+        """Queued item with degraded metadata evidence is JSON-safe."""
         summary = build_retry_outbox_summary(
             outbox_items=[
                 _outbox(
@@ -1019,4 +1018,4 @@ class TestUncorrelatedQueuedItems:
         serialized = json.dumps(asdict(summary))
         parsed = json.loads(serialized)
         assert parsed["items"][0]["reason_pending"] is not None
-        assert "uncorrelated" in parsed["items"][0]["reason_pending"]
+        assert "awaiting adapter callback" in parsed["items"][0]["reason_pending"]

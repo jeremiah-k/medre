@@ -114,10 +114,11 @@ def reconstruct_retry_delivery_plan(
     * **Plan ID**: ``item.delivery_plan_id or ""``.
     * **Event ID**: ``item.event_id``.
     * **Primary strategy**: recovered from ``item.metadata["delivery_strategy"]``
-      when present; falls back to ``"direct"`` for legacy outbox rows that
-      predate route-decision persistence.
+      when present; falls back to ``"direct"`` for outbox rows with missing
+      or corrupt prerelease metadata that predate route-decision persistence.
     * **Capability level**: recovered from ``item.metadata["capability_level"]``
-      when present; falls back to ``None`` for legacy rows.
+      when present; falls back to ``None`` for rows with missing or corrupt
+      prerelease metadata.
     * **Capability field/reason**: recovered from ``item.metadata`` keys
       ``capability_field`` and ``capability_reason`` when present.
     * **Deadline**: recovered from ``item.metadata["deadline"]`` (ISO 8601
@@ -197,8 +198,9 @@ def reconstruct_retry_delivery_plan(
 
     # -- Route-decision metadata recovery ----------------------------------
     # Recover capability/strategy/deadline from the outbox metadata dict.
-    # Legacy outbox rows that predate route-decision persistence will not
-    # have these keys; graceful degradation uses DeliveryPlan defaults.
+    # Outbox rows with missing or corrupt prerelease metadata that predate
+    # route-decision persistence will not have these keys; graceful
+    # degradation uses DeliveryPlan defaults.
     _meta = item.metadata or {}
     _capability_level: str | None = _meta.get("capability_level")
 

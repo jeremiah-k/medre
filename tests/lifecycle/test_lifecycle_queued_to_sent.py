@@ -601,7 +601,7 @@ class TestDeterministicPlanIdCorrelation:
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """Same plan, multiple queued attempts → latest wins."""
+        """Same outbox, multiple queued attempts → exact outbox_id match."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 

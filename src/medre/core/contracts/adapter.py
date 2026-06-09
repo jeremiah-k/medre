@@ -434,7 +434,9 @@ class QueueTerminalRecord:
         mutation.
         **Not wire metadata, not public API.**
     delivery_plan_id:
-        The delivery plan correlation key.
+        Delivery-plan identity / validation metadata.  Core validates
+        it against the authoritative outbox row when present, but it
+        is not a queue callback correlation key.
     attempt_number:
         **Required** 1-indexed delivery attempt number from pipeline
         retry lineage.  Queue adapters MUST populate this field;

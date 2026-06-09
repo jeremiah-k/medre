@@ -618,11 +618,11 @@ WHERE delivery_plan_id = '<plan_id>';
 
 ### "Uncorrelated queued outbox items"
 
-**Symptom:** The retry/outbox summary shows queued items with reason `"Queued, uncorrelated (no delivery_plan_id, no receipt linkage)"`.
+**Symptom:** The retry/outbox summary shows queued items with reason `"Queued, awaiting adapter callback (no outbox_id, no receipt linkage)"`.
 
-**Cause:** The adapter callback has not yet supplied `delivery_plan_id` linkage for the queued item.
+**Cause:** The adapter callback has not yet supplied `outbox_id + attempt_number` linkage for the queued item.
 
-**Fix:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, check that the adapter is properly propagating `delivery_plan_id` through its queue processing.
+**Fix:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, check that the adapter is properly propagating `outbox_id` and `attempt_number` through its queue processing.
 
 ### "Replay-only callback warning"
 
