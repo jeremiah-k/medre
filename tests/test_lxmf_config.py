@@ -179,6 +179,20 @@ class TestLxmfConfigInvalid:
         with pytest.raises(LxmfConfigError, match="message_delay_seconds"):
             config.validate()
 
+    def test_nan_message_delay_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=float("nan"))
+        with pytest.raises(
+            LxmfConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
+    def test_inf_message_delay_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=float("inf"))
+        with pytest.raises(
+            LxmfConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
     def test_zero_message_delay_is_valid(self) -> None:
         config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=0.0)
         assert config.validate() is config

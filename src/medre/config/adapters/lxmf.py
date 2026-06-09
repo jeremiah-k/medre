@@ -25,6 +25,7 @@ SDK is unavailable or production connectivity is not yet implemented.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Self
 
@@ -144,6 +145,8 @@ class LxmfConfig:
             )
 
         # --- numeric fields ---
+        if not math.isfinite(self.message_delay_seconds):
+            raise LxmfConfigError("message_delay_seconds must be finite")
         if self.message_delay_seconds < 0:
             raise LxmfConfigError(
                 f"message_delay_seconds must be >= 0, "
