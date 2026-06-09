@@ -874,7 +874,7 @@ class LxmfSession:
             )
 
             # 4. Propagate configured stamp cost to the local router.
-            if self._config.stamp_cost and self._config.stamp_cost > 0:
+            if self._config.stamp_cost > 0:
                 try:
                     self._router.set_inbound_stamp_cost(None, self._config.stamp_cost)
                 except (AttributeError, TypeError):
