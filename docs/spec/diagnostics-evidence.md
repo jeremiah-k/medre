@@ -605,15 +605,15 @@ When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt(
 
 ### 15.3 Evidence Signals
 
-| Signal                               | Source                          | Meaning                                                                                                                 |
-| ------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Supplemental `sent` receipt          | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                |
-| No supplemental receipt created      | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                  |
-| Replay-only skip warning             | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                           |
-| Ambiguity warning                    | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt                           |
-| Missing outbox_id on callback        | `append_queued_to_sent_receipt` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                      |
-| Missing attempt_number on callback   | `append_queued_to_sent_receipt` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                 |
-| Missing delivery_plan_id on callback | `append_queued_to_sent_receipt` | `delivery_plan_id` validation field absent on outbound ref; correlation proceeds via `outbox_id` but validation skipped |
+| Signal                               | Source                          | Meaning                                                                                                                                             |
+| ------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt          | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                            |
+| No supplemental receipt created      | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                              |
+| Replay-only skip warning             | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                       |
+| Ambiguity warning                    | `append_queued_to_sent_receipt` | Multiple queued items match the outbox_id but cross-plan or cross-channel ambiguity prevents deterministic selection; logged as warning, no receipt |
+| Missing outbox_id on callback        | `append_queued_to_sent_receipt` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                  |
+| Missing attempt_number on callback   | `append_queued_to_sent_receipt` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                             |
+| Missing delivery_plan_id on callback | `append_queued_to_sent_receipt` | `delivery_plan_id` validation field absent on outbound ref; correlation proceeds via `outbox_id` but validation skipped                             |
 
 ### 15.4 Normative Requirements
 
@@ -1368,4 +1368,4 @@ When a native ref is absent from persisted evidence, operators should:
 - Inspect persisted receipts and outbox items for the delivery target. A `queued` receipt without a subsequent `sent` receipt indicates the native ref was never produced by the transport, not that delivery failed.
 - Inspect `native_message_refs` storage directly if available, as native refs may have been persisted independently of the receipt chain.
 - Treat missing native refs as **correlation gaps**, not as evidence of delivery success or failure. Absence of a native ref means the delivery outcome cannot be correlated to the transport's own records; it does not mean the message was or was not delivered.
-- Use `delivery_plan_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable.
+- Use `outbox_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable. `delivery_plan_id` is a validation field only (see § 15.2).

@@ -1236,3 +1236,10 @@ class TestRecordTerminalAttemptNumber:
         ), f"Expected attempt_number=3, got {receipts[0].attempt_number}"
         assert receipts[0].status == "failed"
         assert receipts[0].outbox_id == "obox-attempt-3"
+
+        # Verify the outbox item transitioned to a terminal status.
+        outbox = await temp_storage.get_outbox_item("obox-attempt-3")
+        assert outbox is not None, "outbox item should still exist"
+        assert (
+            outbox.status == "dead_lettered"
+        ), f"Expected dead_lettered, got {outbox.status}"

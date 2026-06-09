@@ -425,9 +425,9 @@ class MeshtasticOutboundQueue:
                 )
             # Transient: front-requeue if attempts remain.
             self._last_cancelled_item = None
-            terminal = self._handle_transient_failure(item)
+            terminal = self._handle_transient_failure(item, error=str(exc))
             return terminal
-        except Exception:
+        except Exception as exc:
             # Unknown exception: treat conservatively as transient for
             # bounded retry.  send_fn wraps the SDK send boundary, so
             # unexpected errors here are treated as adapter-local
@@ -442,7 +442,7 @@ class MeshtasticOutboundQueue:
                 exc_info=True,
             )
             self._last_cancelled_item = None
-            terminal = self._handle_transient_failure(item)
+            terminal = self._handle_transient_failure(item, error=str(exc))
             return terminal
 
         self._total_sent += 1
@@ -471,7 +471,7 @@ class MeshtasticOutboundQueue:
         return QueueDeliveryResult(item=item, delivery_result=delivery_result)
 
     def _handle_transient_failure(
-        self, item: dict[str, Any]
+        self, item: dict[str, Any], *, error: str | None = None
     ) -> QueueTerminalResult | None:
         """Handle a transient failure: front-requeue or exhaust.
 
@@ -485,6 +485,9 @@ class MeshtasticOutboundQueue:
         ----------
         item:
             The dequeued item dict carrying ``_attempt`` metadata.
+        error:
+            Optional error text from the triggering exception, preserved
+            on the exhausted terminal result for diagnostics.
 
         Returns
         -------
@@ -517,7 +520,7 @@ class MeshtasticOutboundQueue:
                 item.get("event_id"),
                 self._max_attempts,
             )
-            return QueueTerminalResult(item=item, outcome="exhausted")
+            return QueueTerminalResult(item=item, outcome="exhausted", error=error)
 
     def pop_cancelled_item(self) -> dict[str, Any] | None:
         """Return and clear the last in-flight item lost to CancelledError.

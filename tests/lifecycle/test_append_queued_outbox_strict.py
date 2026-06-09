@@ -29,7 +29,7 @@ def _make_queued_receipt_with_outbox(
     plan_id: str = "plan-q",
     attempt_number: int = 1,
     event_id: str = "evt-001",
-) -> "DeliveryReceipt":
+) -> DeliveryReceipt:
     """Create a queued receipt with outbox_id set."""
     base = _make_receipt(
         receipt_id=receipt_id,

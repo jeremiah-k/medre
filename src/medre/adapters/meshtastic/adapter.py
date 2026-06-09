@@ -933,7 +933,13 @@ class MeshtasticAdapter(AdapterContract):
                         continue
 
                     if isinstance(result, QueueTerminalResult):
-                        await self._report_queue_terminal(result)
+                        # Shield the terminal callback so stop() cancelling
+                        # _drain_task cannot abort the report for an item
+                        # already dequeued from the queue.
+                        try:
+                            await asyncio.shield(self._report_queue_terminal(result))
+                        except asyncio.CancelledError:
+                            raise
                         continue
 
                     # Record delayed outbound native ref when both
@@ -947,9 +953,16 @@ class MeshtasticAdapter(AdapterContract):
                         and self.ctx.record_outbound_native_ref is not None
                     ):
                         try:
-                            await self._record_delayed_outbound_ref(
-                                result, event_id, delivery
-                            )
+                            # Shield the native-ref callback for the same
+                            # reason as _report_queue_terminal above.
+                            try:
+                                await asyncio.shield(
+                                    self._record_delayed_outbound_ref(
+                                        result, event_id, delivery
+                                    )
+                                )
+                            except asyncio.CancelledError:
+                                raise
                         except Exception:
                             if self.ctx is not None:
                                 self.ctx.logger.exception(
