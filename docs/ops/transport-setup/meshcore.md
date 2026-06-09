@@ -156,7 +156,7 @@ Additional rules:
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
-- `message_delay_seconds >= 0`, `default_channel >= 0`, `sync_timeout_ms > 0`.
+- `message_delay_seconds >= 0`, `default_channel >= 0`.
 
 ## Environment Variables
 

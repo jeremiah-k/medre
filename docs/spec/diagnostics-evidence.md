@@ -99,15 +99,17 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (5 keys)
+### 3.3 MeshCore (7 keys)
 
-| Key                 | Type          | Semantics                                 |
-| ------------------- | ------------- | ----------------------------------------- |
-| `adapter_id`        | `str`         | Adapter identifier                        |
-| `platform`          | `str`         | Always `"meshcore"`                       |
-| `mode`              | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
-| `last_message_time` | `str or None` | ISO 8601 timestamp                        |
-| `peer_count`        | `int or None` | Known mesh peers                          |
+| Key                 | Type            | Semantics                                  |
+| ------------------- | --------------- | ------------------------------------------ |
+| `adapter_id`        | `str`           | Adapter identifier                         |
+| `platform`          | `str`           | Always `"meshcore"`                        |
+| `mode`              | `str`           | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`  |
+| `last_message_time` | `str or None`   | ISO 8601 timestamp                         |
+| `device_name`       | `str or None`   | Device name from appstart (default `None`) |
+| `public_key_prefix` | `str or None`   | Public key hex prefix (default `None`)     |
+| `radio_freq`        | `float or None` | Radio frequency in MHz (default `None`)    |
 
 ### 3.4 LXMF (6 keys)
 

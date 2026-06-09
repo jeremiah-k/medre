@@ -10,6 +10,7 @@ without a real LXMF dependency.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -53,6 +54,7 @@ class LxmfCodec(AdapterCodec):
         self._adapter_id = adapter_id
         self._config = config
         self._classifier = LxmfPacketClassifier(config)
+        self._logger = logging.getLogger(f"medre.adapters.lxmf.codec.{adapter_id}")
         self._clock: Callable[[], datetime] = (
             clock if clock is not None else (lambda: datetime.now(timezone.utc))
         )
@@ -69,29 +71,35 @@ class LxmfCodec(AdapterCodec):
         relations: list[EventRelation] = []
         for raw in raw_relations:
             if not isinstance(raw, dict):
+                self._logger.debug("Skipping non-dict relation entry")
                 continue
 
             relation_type = raw.get("relation_type")
             if relation_type not in VALID_RELATION_TYPES:
+                self._logger.debug(
+                    "Skipping relation with invalid type: %r", relation_type
+                )
                 continue
 
-            # Deserialize target_native_ref if present
-            target_native_ref: NativeRef | None = None
-            raw_ref = raw.get("target_native_ref")
-            if isinstance(raw_ref, dict):
-                adapter = raw_ref.get("adapter")
-                msg_id = raw_ref.get("native_message_id")
-                if adapter and msg_id:
-                    raw_channel_id = raw_ref.get("native_channel_id")
-                    target_native_ref = NativeRef(
-                        adapter=str(adapter),
-                        native_channel_id=(
-                            str(raw_channel_id) if raw_channel_id is not None else None
-                        ),
-                        native_message_id=str(msg_id),
-                    )
-
             try:
+                # Deserialize target_native_ref if present
+                target_native_ref: NativeRef | None = None
+                raw_ref = raw.get("target_native_ref")
+                if isinstance(raw_ref, dict):
+                    adapter = raw_ref.get("adapter")
+                    msg_id = raw_ref.get("native_message_id")
+                    if adapter and msg_id:
+                        raw_channel_id = raw_ref.get("native_channel_id")
+                        target_native_ref = NativeRef(
+                            adapter=str(adapter),
+                            native_channel_id=(
+                                str(raw_channel_id)
+                                if raw_channel_id is not None
+                                else None
+                            ),
+                            native_message_id=str(msg_id),
+                        )
+
                 target_event_id = raw.get("target_event_id")
                 key = raw.get("key")
                 fallback_text = raw.get("fallback_text")
@@ -110,7 +118,8 @@ class LxmfCodec(AdapterCodec):
                         ),
                     )
                 )
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError) as exc:
+                self._logger.debug("Skipping relation construction error: %s", exc)
                 continue
 
         return relations

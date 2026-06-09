@@ -82,6 +82,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import math
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -663,8 +664,13 @@ class MeshCoreSession:
 
         # Radio frequency (if present).
         freq = payload.get("freq") if "freq" in payload else payload.get("radio_freq")
-        if isinstance(freq, (int, float)):
-            self._diag.radio_freq = float(freq)
+        if isinstance(freq, (int, float)) and not isinstance(freq, bool):
+            try:
+                f = float(freq)
+                if math.isfinite(f) and f > 0.0:
+                    self._diag.radio_freq = f
+            except (ValueError, OverflowError):
+                pass
 
     async def _unsubscribe_all(self) -> None:
         """Unsubscribe all registered callbacks."""

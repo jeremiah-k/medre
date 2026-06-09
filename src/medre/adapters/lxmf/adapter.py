@@ -77,7 +77,7 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=True,
-    delivery_receipts=True,
+    delivery_receipts=False,
     store_and_forward=True,
     direct_messages=True,
     channels=False,
@@ -447,8 +447,9 @@ class LxmfAdapter(AdapterContract):
 
         Invoked on the asyncio loop when an outbound delivery reaches a
         terminal state (``delivered``, ``failed``, ``rejected``, or
-        ``cancelled``).  Logs the confirmation for observability and
-        cross-transport receipt awareness.
+        ``cancelled``).  Session-local observability only — logs the
+        state transition for diagnostics.  Does not append durable MEDRE
+        delivery receipts or update outbox lifecycle state.
 
         Parameters
         ----------

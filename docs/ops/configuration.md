@@ -182,36 +182,33 @@ adapter_kind = "real"
 adapter_id = "radio"
 connection_type = "serial"
 serial_port = "/dev/ttyUSB0"
+serial_baudrate = 115200
 host = "meshcore.local"
 port = 4403
 ble_address = ""
 meshnet_name = ""
 default_channel = 0
-channel_mapping = {}
 message_delay_seconds = 0.5
-startup_backlog_suppress_seconds = 5.0
-sync_timeout_ms = 30000
 identity = "my-node"
 pubkey = "abcdef0123456789"
 node_config = {}
 ```
 
-| Field                                           | Type       | Default       | Description                                    |
-| ----------------------------------------------- | ---------- | ------------- | ---------------------------------------------- |
-| `enabled`                                       | bool       | `true`        | Active status.                                 |
-| `adapter_kind`                                  | string     | `"real"`      | `"real"` or `"fake"`.                          |
-| `adapter_id`                                    | string     | instance name | Unique identifier.                             |
-| `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.             |
-| `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters.                         |
-| `meshnet_name`                                  | string     | `""`          | Informational.                                 |
-| `default_channel`                               | int        | `0`           | Default outbound channel.                      |
-| `channel_mapping`                               | dict       | `{}`          | Channel index → name mapping.                  |
-| `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                        |
-| `startup_backlog_suppress_seconds`              | float      | `5.0`         | Backlog suppression window.                    |
-| `sync_timeout_ms`                               | int        | `30000`       | Sync timeout.                                  |
-| `identity`                                      | string     | `None`        | MeshCore node identity string.                 |
-| `pubkey`                                        | string     | `None`        | Public key as hex string.                      |
-| `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys. |
+| Field                                           | Type       | Default       | Description                                        |
+| ----------------------------------------------- | ---------- | ------------- | -------------------------------------------------- |
+| `enabled`                                       | bool       | `true`        | Active status.                                     |
+| `adapter_kind`                                  | string     | `"real"`      | `"real"` or `"fake"`.                              |
+| `adapter_id`                                    | string     | instance name | Unique identifier.                                 |
+| `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.                 |
+| `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters.                             |
+| `meshnet_name`                                  | string     | `""`          | Informational.                                     |
+| `default_channel`                               | int        | `0`           | Default outbound channel.                          |
+| `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                            |
+| `identity`                                      | string     | `None`        | MeshCore node identity string.                     |
+| `pubkey`                                        | string     | `None`        | Public key as hex string.                          |
+| `max_text_bytes`                                | int        | `512`         | Maximum UTF-8 byte budget for rendered radio text. |
+| `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                   |
+| `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.     |
 
 ### `[adapters.lxmf.INSTANCE_NAME]`
 
