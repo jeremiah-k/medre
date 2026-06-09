@@ -449,6 +449,7 @@ class TestStaleCallbackAfterRetryReclaim:
             native_message_id="pkt-stale-a",
             delivery_plan_id="plan-retry-a",
             outbox_id="obox-a",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.append_queued_to_sent_receipt(

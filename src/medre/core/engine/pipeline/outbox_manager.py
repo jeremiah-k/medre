@@ -513,6 +513,35 @@ class OutboxManager:
             elif record.attempt_number is not None:
                 _attempt_number = record.attempt_number
 
+            # Recover queued-receipt lineage: look up the queued receipt
+            # for the same (outbox_id, attempt_number) to inherit its
+            # source, replay_run_id, and parent_receipt_id so terminal
+            # outcomes preserve retry/replay lineage.
+            _queued_source: str = "live"
+            _queued_replay_run_id: str | None = None
+            _queued_parent_receipt_id: str | None = None
+            if record.outbox_id is not None:
+                try:
+                    _all_receipts = await self._storage.list_receipts_for_event(
+                        record.event_id,
+                    )
+                    for _r in _all_receipts:
+                        if (
+                            _r.outbox_id == record.outbox_id
+                            and _r.attempt_number == _attempt_number
+                            and _r.status == "queued"
+                        ):
+                            _queued_source = _r.source
+                            _queued_replay_run_id = _r.replay_run_id
+                            _queued_parent_receipt_id = _r.parent_receipt_id
+                            break
+                except Exception:
+                    self._log.debug(
+                        "Could not recover queued-receipt lineage for "
+                        "outbox_id=%s; defaulting to source=live",
+                        record.outbox_id,
+                    )
+
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
             # delivery_plan_id, target_channel, and route_id.
@@ -537,7 +566,9 @@ class OutboxManager:
                 status=receipt_status,
                 error=error_msg,
                 failure_kind=failure_kind,
-                source="live",
+                source=_queued_source,
+                replay_run_id=_queued_replay_run_id,
+                parent_receipt_id=_queued_parent_receipt_id,
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
             )

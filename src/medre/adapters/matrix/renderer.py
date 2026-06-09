@@ -492,7 +492,7 @@ class MatrixRenderer:
                 meshnet_name=_meshnet_name,
                 from_id=_from_id,
             )
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
             return ""
 
     # ------------------------------------------------------------------
@@ -656,7 +656,7 @@ class MatrixRenderer:
                 meshnet_name=_meshnet_name,
                 from_id=_from_id,
             )
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
             # Unknown template variable or malformed template — return
             # body unchanged rather than crashing the render pipeline.
             return body

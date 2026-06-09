@@ -202,7 +202,18 @@ def reconstruct_retry_delivery_plan(
     # route-decision persistence will not have these keys; graceful
     # degradation uses DeliveryPlan defaults.
     _meta = item.metadata or {}
-    _capability_level: str | None = _meta.get("capability_level")
+    _capability_level_raw = _meta.get("capability_level")
+    _capability_level: str | None = (
+        _capability_level_raw if isinstance(_capability_level_raw, str) else None
+    )
+
+    if _capability_level_raw is not None and not isinstance(_capability_level_raw, str):
+        logger.warning(
+            "Non-string capability_level %r in outbox metadata for item %s; "
+            "falling back to None",
+            _capability_level_raw,
+            item.outbox_id,
+        )
 
     # Validate _capability_level against the closed vocabulary.
     if (

@@ -283,6 +283,7 @@ class TestDeliveryLifecycleConformance:
             route_id="route-1",
             status="queued",
             source="live",
+            attempt_number=1,
             rendering_evidence=evidence_json,
             outbox_id=outbox_id,
         )

@@ -151,11 +151,12 @@ This key is:
 
 The correlation strategy for `append_queued_to_sent_receipt` is exact only:
 
-1. **Exact `outbox_id` correlation** (required). Looks up the outbox item
+1. **Exact `outbox_id` + `attempt_number` correlation** (required). Looks up the outbox item
    directly and validates its status is still `queued` or `in_progress`.
    Rejects callbacks for outbox items in any other status (stale-callback
-   protection). The callback **MUST** carry `outbox_id`; callbacks without
-   it are hard-rejected with a warning log and produce no supplemental receipt.
+   protection). The callback **MUST** carry both `outbox_id` and
+   `attempt_number`; callbacks missing either key are hard-rejected with a
+   warning log and produce no supplemental receipt.
    No plan-id-only or no-key fallback path exists.
 
 `outbox_id` and `attempt_number` are internal implementation details. They

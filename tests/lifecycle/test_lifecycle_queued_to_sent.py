@@ -1154,6 +1154,9 @@ class TestAppendQueuedToSentEdgeCases:
         all_receipts = await temp_storage.list_receipts_for_event("evt-wrong")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
+        # Also verify no receipts for the correct event (evt-real) were created
+        real_receipts = await temp_storage.list_receipts_for_event("evt-real")
+        assert len(real_receipts) == 0
         assert "Outbox event_id mismatch" in caplog.text
 
     async def test_no_queued_receipt_matched_outbox_id(

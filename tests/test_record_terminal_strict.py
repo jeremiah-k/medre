@@ -268,6 +268,7 @@ class TestWrongEventIdRejected:
             adapter="mesh-1",
             outbox_id="obox-evt-mismatch",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
@@ -307,6 +308,7 @@ class TestWrongAdapterRejected:
             adapter="mesh-wrong",
             outbox_id="obox-adapter-mismatch",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
@@ -346,6 +348,7 @@ class TestWrongChannelRejected:
             native_channel_id="99",
             outbox_id="obox-ch-mismatch",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
@@ -385,6 +388,7 @@ class TestWrongPlanRejected:
             outbox_id="obox-plan-mismatch",
             delivery_plan_id="plan-wrong",
             outcome="exhausted",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)

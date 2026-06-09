@@ -617,7 +617,7 @@ When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt(
 
 ### 15.4 Normative Requirements
 
-1. Queue callbacks MUST carry `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` are hard-rejected (no receipt created, no heuristic fallback).
+1. Queue callbacks MUST carry `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no receipt created, no heuristic fallback).
 2. `outbox_id` is used for exact receipt selection — the lifecycle service matches the outbox item's `queued` receipt directly. `delivery_plan_id` is NOT the correlation selector.
 3. `delivery_plan_id` is validated against the outbox item's `delivery_plan_id` when present. A mismatch causes the callback to be rejected. When absent, correlation proceeds via `outbox_id` but validation is skipped. Missing `delivery_plan_id` on an otherwise valid callback (outbox_id + attempt_number present and matching) is NOT a correlation failure — it is degraded validation metadata only.
 4. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.

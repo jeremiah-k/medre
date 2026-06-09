@@ -1189,6 +1189,7 @@ class TestRecordTerminalAttemptNumber:
     async def test_terminal_receipt_uses_outbox_attempt_number(
         self,
         temp_storage: SQLiteStorage,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Outbox item at attempt_number=3 → terminal receipt has attempt_number=3."""
         from medre.core.contracts.adapter import QueueTerminalRecord
@@ -1222,24 +1223,24 @@ class TestRecordTerminalAttemptNumber:
             error="retry budget exhausted",
             outbox_id="obox-attempt-3",
             delivery_plan_id="plan-terminal",
-            attempt_number=3,
+            attempt_number=2,  # deliberately wrong — must be rejected
         )
-        await manager.record_terminal(record)
 
-        # Verify receipt has attempt_number=3, NOT the default 1.
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            await manager.record_terminal(record)
+
+        # Mismatched attempt_number → terminal outcome rejected, no receipt.
         receipts = await temp_storage.list_receipts_for_event(
             "evt-terminal-attempt",
         )
-        assert len(receipts) == 1
-        assert (
-            receipts[0].attempt_number == 3
-        ), f"Expected attempt_number=3, got {receipts[0].attempt_number}"
-        assert receipts[0].status == "failed"
-        assert receipts[0].outbox_id == "obox-attempt-3"
+        assert len(receipts) == 0, (
+            "Mismatched attempt_number must be rejected, not silently corrected"
+        )
+        assert "attempt_number" in caplog.text
 
-        # Verify the outbox item transitioned to a terminal status.
+        # Outbox must remain in_progress (not mutated by rejected callback).
         outbox = await temp_storage.get_outbox_item("obox-attempt-3")
-        assert outbox is not None, "outbox item should still exist"
-        assert (
-            outbox.status == "dead_lettered"
-        ), f"Expected dead_lettered, got {outbox.status}"
+        assert outbox is not None
+        assert outbox.status == "in_progress"
