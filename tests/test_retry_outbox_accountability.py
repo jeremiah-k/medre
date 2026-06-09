@@ -890,7 +890,9 @@ class TestUncorrelatedQueuedItems:
 
     Uncorrelated queued item visibility: operator visibility for queued outbox
     items that cannot be correlated because callback/native ref lacked
-    outbox_id or receipt linkage.
+    outbox_id or receipt linkage.  Missing delivery_plan_id is degraded
+    plan metadata only — outbox_id + attempt_number are the correlation
+    authority.
     """
 
     def test_queued_no_plan_id_no_receipt(self) -> None:
@@ -901,7 +903,7 @@ class TestUncorrelatedQueuedItems:
                 _outbox(
                     outbox_id="obx-uncorr-1",
                     status="queued",
-                    delivery_plan_id="",  # empty → no plan correlation
+                    delivery_plan_id="",  # degraded plan metadata only
                     receipt_id=None,
                     event_id="evt-uncorr",
                     target_adapter="meshtastic",

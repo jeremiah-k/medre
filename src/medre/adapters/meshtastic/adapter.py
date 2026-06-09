@@ -872,6 +872,26 @@ class MeshtasticAdapter(AdapterContract):
         self._background_tasks.add(task)
         task.add_done_callback(_on_done)
 
+    def _observe_detached_task(self, task: asyncio.Task) -> None:
+        """Done callback for tasks detached after shutdown timeout.
+
+        When a critical callback suppresses CancelledError and remains
+        pending past the drain timeout, it is detached from
+        ``_background_tasks`` with this callback.  When the task finally
+        completes, this callback retrieves and logs any exception so
+        nothing becomes "Task exception was never retrieved."
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None and self.ctx is not None:
+            self.ctx.logger.warning(
+                "MeshtasticAdapter %s: detached background callback "
+                "exception after shutdown timeout: %r",
+                self.adapter_id,
+                exc,
+            )
+
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
         """Drain inbound futures and await tracked background tasks.
 
@@ -929,16 +949,36 @@ class MeshtasticAdapter(AdapterContract):
                 for task in _pending:
                     task.cancel()
                 # Await cancelled tasks to collect CancelledError.
-                await asyncio.wait(_pending, timeout=timeout)
-                for task in _pending:
-                    if not task.cancelled() and task.exception() is not None:
-                        if self.ctx is not None:
-                            self.ctx.logger.warning(
-                                "MeshtasticAdapter %s: background callback "
-                                "exception after timeout cancel: %r",
-                                self.adapter_id,
-                                task.exception(),
-                            )
+                done_after_cancel, still_pending = await asyncio.wait(
+                    _pending,
+                    timeout=timeout,
+                )
+                for task in done_after_cancel:
+                    if task.cancelled():
+                        continue
+                    exc = task.exception()
+                    if exc is not None and self.ctx is not None:
+                        self.ctx.logger.warning(
+                            "MeshtasticAdapter %s: background callback "
+                            "exception after timeout cancel: %r",
+                            self.adapter_id,
+                            exc,
+                        )
+                # Tasks that suppress CancelledError and remain pending
+                # after the second timeout are detached with a done
+                # callback that observes their result.  They are NOT
+                # left in _background_tasks (shutdown must progress) but
+                # their exceptions will be observed if/when they finish.
+                for task in still_pending:
+                    if self.ctx is not None:
+                        self.ctx.logger.warning(
+                            "MeshtasticAdapter %s: background callback "
+                            "task still pending after shutdown timeout; "
+                            "detaching with observer",
+                            self.adapter_id,
+                        )
+                    self._background_tasks.discard(task)
+                    task.add_done_callback(self._observe_detached_task)
 
         self._background_tasks.clear()
 

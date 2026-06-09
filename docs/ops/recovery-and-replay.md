@@ -783,7 +783,7 @@ When a queued outbox item has no receipt linkage, the reason-pending derivation 
 - No `outbox_id` and no receipt linkage:
 
 ```text
-Queued without queued receipt linkage — awaiting stale-grace reclaim or legacy degraded-metadata handling
+Queued without queued receipt linkage — awaiting stale-grace reclaim or exact outbox_id + attempt_number callback correlation
 ```
 
 - `outbox_id` present but missing `delivery_plan_id`:

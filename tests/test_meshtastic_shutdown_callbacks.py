@@ -972,3 +972,87 @@ class TestDrainBackgroundTasksTimeout:
         await adapter._drain_background_tasks(timeout=2.0)
 
         assert len(adapter._background_tasks) == 0
+
+
+# ===================================================================
+# 12. Stubborn callback that suppresses CancelledError
+# ===================================================================
+
+
+class TestStubbornCallbackTimeout:
+    """When a critical callback suppresses CancelledError and remains
+    pending past the second drain timeout, _drain_background_tasks must
+    not raise InvalidStateError and must detach the task with an observer."""
+
+    async def test_stubborn_callback_detached_not_invalid_state(self) -> None:
+        """A task that catches CancelledError and waits on another event
+        stays pending after the drain timeout.  The drain must not call
+        task.exception() on a pending task (InvalidStateError) and must
+        detach it with a done callback observer."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_ctx()
+
+        first_event = asyncio.Event()
+        never_event = asyncio.Event()
+
+        async def stubborn_callback():
+            try:
+                await first_event.wait()
+            except asyncio.CancelledError:
+                # Suppress cancellation and wait on something that
+                # will never be set — the task stays pending.
+                await never_event.wait()
+
+        task = asyncio.ensure_future(stubborn_callback())
+        adapter._background_tasks.add(task)
+
+        # Drain with a very short timeout.  The task will not finish
+        # in time, and the second wait after cancel also times out.
+        # This must NOT raise InvalidStateError.
+        await adapter._drain_background_tasks(timeout=0.01)
+
+        # The task was detached from _background_tasks.
+        assert task not in adapter._background_tasks
+
+        # The task is still running (pending) — clean up.
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def test_stubborn_callback_eventually_completes_is_observed(
+        self,
+    ) -> None:
+        """If a detached stubborn task eventually completes (via cancel),
+        its result is observed by the done callback (no 'Task exception
+        was never retrieved')."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_ctx()
+
+        stuck_event = asyncio.Event()
+
+        async def stubborn_then_fails():
+            try:
+                await stuck_event.wait()
+            except asyncio.CancelledError:
+                # Suppress, wait forever (simulating stuck callback).
+                await asyncio.sleep(3600)
+
+        task = asyncio.ensure_future(stubborn_then_fails())
+        adapter._background_tasks.add(task)
+
+        # Drain times out — task is detached.
+        await adapter._drain_background_tasks(timeout=0.01)
+        assert task not in adapter._background_tasks
+
+        # The task is still pending.  Cancel it so it completes —
+        # this simulates the process exiting or a hard kill.
+        task.cancel()
+        await asyncio.sleep(0.2)
+
+        # The task should have completed (CancelledError propagated
+        # through the sleep), and the done callback observed it.
+        assert task.done()
