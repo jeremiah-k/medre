@@ -102,7 +102,7 @@ class TestMeshCoreConfigInvalid:
             config.validate()
 
     def test_invalid_connection_type_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", connection_type="wifi")
+        config = MeshCoreConfig(adapter_id="meshcore-1", connection_type="wifi")  # type: ignore[arg-type]
         with pytest.raises(MeshCoreConfigError, match="connection_type"):
             config.validate()
 
@@ -324,3 +324,78 @@ class TestMeshCoreConfigNonFakeRequiresField:
         )
         with pytest.raises(MeshCoreConfigError, match="ble_address.*ble"):
             config.validate()
+
+
+class TestMeshCoreConfigSerialBaudrate:
+    """serial_baudrate validation for serial connection type."""
+
+    def test_valid_baudrate(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=9600,
+        )
+        assert config.validate().serial_baudrate == 9600
+
+    def test_default_baudrate_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+        )
+        assert config.validate().serial_baudrate == 115200
+
+    def test_zero_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=0,
+        )
+        with pytest.raises(MeshCoreConfigError, match="serial_baudrate must be > 0"):
+            config.validate()
+
+    def test_negative_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=-1,
+        )
+        with pytest.raises(MeshCoreConfigError, match="serial_baudrate must be > 0"):
+            config.validate()
+
+    def test_bool_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="serial_baudrate must be an integer"
+        ):
+            config.validate()
+
+    def test_float_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=9600.0,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="serial_baudrate must be an integer"
+        ):
+            config.validate()
+
+    def test_baudrate_not_validated_for_non_serial(self) -> None:
+        """baudrate validation only applies when connection_type='serial'."""
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            serial_baudrate=0,  # Invalid but not validated for tcp
+        )
+        assert config.validate().serial_baudrate == 0

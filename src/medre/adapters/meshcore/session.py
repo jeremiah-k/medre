@@ -218,6 +218,9 @@ class MeshCoreSession:
 
         # Send serialization: ensures pacing sleeps are not bypassed when
         # multiple send_text() calls overlap via pipeline fan-out.
+        # Created in __init__ (not start()) because MeshCoreSession does not
+        # capture a running loop reference — asyncio.Lock() lazy-binds on
+        # first use in Python 3.10+.
         self._send_lock = asyncio.Lock()
 
         # Diagnostics.
