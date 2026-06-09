@@ -417,6 +417,8 @@ class LxmfSession:
         "_delivery_insert_order",
         # Announce timer
         "_announce_task",
+        # Send serialization
+        "_send_lock",
     )
 
     def __init__(
@@ -455,6 +457,10 @@ class LxmfSession:
         self._stop_requested: bool = False
         self._reconnect_task: asyncio.Task | None = None
         self._announce_task: asyncio.Task | None = None
+
+        # Send serialization: ensures pacing sleeps are not bypassed when
+        # multiple send_text() calls overlap via pipeline fan-out.
+        self._send_lock = asyncio.Lock()
 
         # Diagnostics.
         self._diag = _SessionDiagnostics()
@@ -1281,131 +1287,134 @@ class LxmfSession:
                 transient=False,
             ) from exc
 
-        # Pacing: sleep before the real send so consecutive sends are
-        # spaced by message_delay_seconds.  The delay applies once per
-        # send_text() call, not per retry attempt.
-        if self._config.message_delay_seconds > 0:
-            await asyncio.sleep(self._config.message_delay_seconds)
+        # Pacing + send are serialized so concurrent calls honour the
+        # configured delay between transmissions.
+        async with self._send_lock:
+            # Pacing: sleep before the real send so consecutive sends are
+            # spaced by message_delay_seconds.  The delay applies once per
+            # send_text() call, not per retry attempt.
+            if self._config.message_delay_seconds > 0:
+                await asyncio.sleep(self._config.message_delay_seconds)
 
-        last_exc: Exception | None = None
-        for attempt in range(1, _SEND_MAX_RETRIES + 1):
-            try:
-                # Recall identity inside the retry loop so recall failures
-                # are classified as non-transient errors and downstream
-                # construction failures can be retried.  (RNS caches recall
-                # results, so repeated calls are cheap.)
-                dest_identity = RNS.Identity.recall(dest_bytes)
-                if dest_identity is None:
-                    raise LxmfSendError(
-                        f"Cannot recall identity for destination hash "
-                        f"{destination_hash!r}",
-                        transient=False,
+            last_exc: Exception | None = None
+            for attempt in range(1, _SEND_MAX_RETRIES + 1):
+                try:
+                    # Recall identity inside the retry loop so recall failures
+                    # are classified as non-transient errors and downstream
+                    # construction failures can be retried.  (RNS caches recall
+                    # results, so repeated calls are cheap.)
+                    dest_identity = RNS.Identity.recall(dest_bytes)
+                    if dest_identity is None:
+                        raise LxmfSendError(
+                            f"Cannot recall identity for destination hash "
+                            f"{destination_hash!r}",
+                            transient=False,
+                        )
+
+                    # Construct destination inside the retry block so that
+                    # construction errors are caught and classified.
+                    dest = RNS.Destination(
+                        dest_identity,
+                        RNS.Destination.OUT,
+                        RNS.Destination.SINGLE,
+                        "lxmf",
+                        "delivery",
                     )
 
-                # Construct destination inside the retry block so that
-                # construction errors are caught and classified.
-                dest = RNS.Destination(
-                    dest_identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "lxmf",
-                    "delivery",
-                )
+                    # Build the LXMessage — include fields so rendered
+                    # metadata (MEDRE envelope, provenance hints, etc.)
+                    # is preserved through serialisation (pack()).
+                    lxm = lxmf.LXMessage(
+                        dest,
+                        self._router,
+                        content,
+                        title=title,
+                        fields=fields,
+                        desired_method=method_const,
+                    )
 
-                # Build the LXMessage — include fields so rendered
-                # metadata (MEDRE envelope, provenance hints, etc.)
-                # is preserved through serialisation (pack()).
-                lxm = lxmf.LXMessage(
-                    dest,
-                    self._router,
-                    content,
-                    title=title,
-                    fields=fields,
-                    desired_method=method_const,
-                )
+                    # Attach delivery state callback if supported.
+                    lxm.register_delivery_callback(self._on_delivery_state_update)
 
-                # Attach delivery state callback if supported.
-                lxm.register_delivery_callback(self._on_delivery_state_update)
-
-                # Extract message hash BEFORE sending (if available).
-                native_id = self._extract_message_hash(lxm)
-
-                # Send via the router.
-                self._router.handle_outbound(lxm)
-
-                # Try to get message hash after sending.
-                if native_id is None:
+                    # Extract message hash BEFORE sending (if available).
                     native_id = self._extract_message_hash(lxm)
 
-                initial_state = _map_delivery_state(getattr(lxm, "state", None))
+                    # Send via the router.
+                    self._router.handle_outbound(lxm)
 
-                # Track the delivery.
-                if native_id is not None:
-                    self._track_delivery(
-                        native_id,
-                        _OutboundDelivery(
-                            native_message_id=native_id,
-                            state=initial_state,
-                            destination_hash=destination_hash,
-                        ),
-                    )
+                    # Try to get message hash after sending.
+                    if native_id is None:
+                        native_id = self._extract_message_hash(lxm)
 
-                return native_id, initial_state
+                    initial_state = _map_delivery_state(getattr(lxm, "state", None))
 
-            except asyncio.CancelledError:
-                raise
-            except (ValueError, TypeError) as exc:
-                self._diag.permanent_delivery_failures += 1
-                self._diag.last_error = f"Permanent send failure: {exc}"
-                raise LxmfSendError(
-                    f"Permanent send failure: {exc}",
-                    transient=False,
-                ) from exc
-            except LxmfSendError as exc:
-                if not exc.transient:
+                    # Track the delivery.
+                    if native_id is not None:
+                        self._track_delivery(
+                            native_id,
+                            _OutboundDelivery(
+                                native_message_id=native_id,
+                                state=initial_state,
+                                destination_hash=destination_hash,
+                            ),
+                        )
+
+                    return native_id, initial_state
+
+                except asyncio.CancelledError:
+                    raise
+                except (ValueError, TypeError) as exc:
                     self._diag.permanent_delivery_failures += 1
                     self._diag.last_error = f"Permanent send failure: {exc}"
-                    raise
-                last_exc = exc
-                self._diag.transient_delivery_failures += 1
-                self._diag.last_error = (
-                    f"Transient send failure (attempt {attempt}): {exc}"
-                )
-                self._logger.warning(
-                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
-                    self._adapter_id,
-                    attempt,
-                    _SEND_MAX_RETRIES,
-                    exc,
-                )
-                if attempt < _SEND_MAX_RETRIES:
-                    await asyncio.sleep(0.1 * attempt)
-            except Exception as exc:
-                last_exc = exc
-                self._diag.transient_delivery_failures += 1
-                self._diag.last_error = (
-                    f"Transient send failure (attempt {attempt}): {exc}"
-                )
-                self._logger.warning(
-                    "LxmfSession %s transient send failure (attempt %d/%d): %s",
-                    self._adapter_id,
-                    attempt,
-                    _SEND_MAX_RETRIES,
-                    exc,
-                )
-                if attempt < _SEND_MAX_RETRIES:
-                    await asyncio.sleep(0.1 * attempt)
+                    raise LxmfSendError(
+                        f"Permanent send failure: {exc}",
+                        transient=False,
+                    ) from exc
+                except LxmfSendError as exc:
+                    if not exc.transient:
+                        self._diag.permanent_delivery_failures += 1
+                        self._diag.last_error = f"Permanent send failure: {exc}"
+                        raise
+                    last_exc = exc
+                    self._diag.transient_delivery_failures += 1
+                    self._diag.last_error = (
+                        f"Transient send failure (attempt {attempt}): {exc}"
+                    )
+                    self._logger.warning(
+                        "LxmfSession %s transient send failure (attempt %d/%d): %s",
+                        self._adapter_id,
+                        attempt,
+                        _SEND_MAX_RETRIES,
+                        exc,
+                    )
+                    if attempt < _SEND_MAX_RETRIES:
+                        await asyncio.sleep(0.1 * attempt)
+                except Exception as exc:
+                    last_exc = exc
+                    self._diag.transient_delivery_failures += 1
+                    self._diag.last_error = (
+                        f"Transient send failure (attempt {attempt}): {exc}"
+                    )
+                    self._logger.warning(
+                        "LxmfSession %s transient send failure (attempt %d/%d): %s",
+                        self._adapter_id,
+                        attempt,
+                        _SEND_MAX_RETRIES,
+                        exc,
+                    )
+                    if attempt < _SEND_MAX_RETRIES:
+                        await asyncio.sleep(0.1 * attempt)
 
-        # All retries exhausted.
-        # Diagnostics already count per-attempt failures above; exhaustion
-        # itself is a summary event, not an additional transient failure.
-        self._diag.last_error = (
-            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
-        )
-        raise LxmfSendError(
-            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}",
-            transient=True,
-        ) from last_exc
+            # All retries exhausted.
+            # Diagnostics already count per-attempt failures above; exhaustion
+            # itself is a summary event, not an additional transient failure.
+            self._diag.last_error = (
+                f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
+            )
+            raise LxmfSendError(
+                f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}",
+                transient=True,
+            ) from last_exc
 
     @staticmethod
     def _resolve_method_constant(lxmf: Any, method_str: str) -> Any:
