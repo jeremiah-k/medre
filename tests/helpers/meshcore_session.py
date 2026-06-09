@@ -62,6 +62,10 @@ def build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
         return_value=MockEvent(event_type=MockEventType.OK, payload={})
     )
 
+    # Auto message fetching methods.
+    instance.start_auto_message_fetching = AsyncMock()
+    instance.stop_auto_message_fetching = AsyncMock()
+
     # Factory methods: MeshCore.create_tcp/create_serial/create_ble
     # These are async class methods that return the instance.
     mock_mc.MeshCore = MagicMock()

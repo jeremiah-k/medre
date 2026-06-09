@@ -124,7 +124,9 @@ class _SessionDiagnostics:
     last_error: str | None = None
     transient_delivery_failures: int = 0
     permanent_delivery_failures: int = 0
-    peer_count: int | None = None
+    device_name: str | None = None
+    public_key_prefix: str | None = None
+    radio_freq: float | None = None
 
 
 class _MeshCoreModule(Protocol):
@@ -325,6 +327,16 @@ class MeshCoreSession:
 
         # Disconnect SDK client.
         if self._meshcore is not None:
+            # Stop auto message fetching if available.
+            if hasattr(self._meshcore, "stop_auto_message_fetching"):
+                try:
+                    await self._meshcore.stop_auto_message_fetching()
+                except Exception as exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error stopping auto_message_fetching: %s",
+                        self._adapter_id,
+                        exc,
+                    )
             try:
                 await self._meshcore.disconnect()
             except Exception as exc:
@@ -405,7 +417,9 @@ class MeshCoreSession:
             "last_error": self._diag.last_error,
             "transient_delivery_failures": self._diag.transient_delivery_failures,
             "permanent_delivery_failures": self._diag.permanent_delivery_failures,
-            "peer_count": self._diag.peer_count,
+            "device_name": self._diag.device_name,
+            "public_key_prefix": self._diag.public_key_prefix,
+            "radio_freq": self._diag.radio_freq,
             "mode": self._config.connection_type,
         }
 
@@ -540,6 +554,8 @@ class MeshCoreSession:
                 raise RuntimeError(
                     f"send_appstart rejected: {appstart_result.payload!r}"
                 )
+            # Capture self_info payload into diagnostics.
+            self._capture_self_info(appstart_result)
         except Exception as exc:
             self._diag.last_error = str(exc)
             if self._meshcore is not None:
@@ -554,6 +570,18 @@ class MeshCoreSession:
                 self._meshcore = None
             self._subscriptions.clear()
             raise MeshCoreConnectionError(f"send_appstart failed: {exc}") from exc
+
+        # Start auto message fetching to drain buffered messages from the device.
+        # Best-effort: failure is logged but does not prevent connection.
+        try:
+            if hasattr(self._meshcore, "start_auto_message_fetching"):
+                await self._meshcore.start_auto_message_fetching()
+        except Exception as exc:
+            self._logger.debug(
+                "MeshCoreSession %s: auto_message_fetching failed (non-fatal): %s",
+                self._adapter_id,
+                exc,
+            )
 
         # Only mark connected AFTER subscriptions + appstart succeed.
         self._diag.connected = True
@@ -583,6 +611,41 @@ class MeshCoreSession:
             self._on_disconnect_event,
         )
         self._subscriptions.append(sub_disc)
+
+    def _capture_self_info(self, appstart_result: Any) -> None:
+        """Extract device self_info from the send_appstart result payload.
+
+        Per meshcore_py, send_appstart returns a result whose ``payload``
+        dict contains fields like ``public_key``, ``name``, and radio
+        parameters.  We extract safe diagnostic fields from it.
+        """
+        payload: dict[str, Any] | None = None
+        if hasattr(appstart_result, "payload") and isinstance(
+            appstart_result.payload, dict
+        ):
+            payload = appstart_result.payload
+        elif isinstance(appstart_result, dict):
+            payload = appstart_result
+
+        if payload is None:
+            return
+
+        # Device name.
+        name = payload.get("name")
+        if isinstance(name, str):
+            self._diag.device_name = name
+
+        # Public key prefix (first 6 hex bytes / 12 hex chars).
+        pubkey = payload.get("public_key")
+        if isinstance(pubkey, str) and len(pubkey) >= 12:
+            self._diag.public_key_prefix = pubkey[:12]
+        elif isinstance(pubkey, bytes) and len(pubkey) >= 6:
+            self._diag.public_key_prefix = pubkey[:6].hex()
+
+        # Radio frequency (if present).
+        freq = payload.get("freq") or payload.get("radio_freq")
+        if isinstance(freq, (int, float)):
+            self._diag.radio_freq = float(freq)
 
     async def _unsubscribe_all(self) -> None:
         """Unsubscribe all registered callbacks."""
@@ -751,6 +814,10 @@ class MeshCoreSession:
         """
         if self._meshcore is None:
             raise MeshCoreSendError("SDK client not initialised", transient=False)
+
+        # Pacing: sleep before each real send to avoid flooding the radio.
+        if self._config.message_delay_seconds > 0:
+            await asyncio.sleep(self._config.message_delay_seconds)
 
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):

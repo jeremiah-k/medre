@@ -77,7 +77,7 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=True,
-    delivery_receipts=False,
+    delivery_receipts=True,
     store_and_forward=True,
     direct_messages=True,
     channels=False,
@@ -165,6 +165,9 @@ class LxmfAdapter(AdapterContract):
             raise
         except Exception as exc:
             raise LxmfConnectionError(f"LXMF session failed to start: {exc}") from exc
+
+        # Wire delivery state callback for terminal state notifications.
+        self._session.set_delivery_state_callback(self._on_delivery_state)
 
         self._started = True
         ctx.logger.info(
@@ -438,6 +441,29 @@ class LxmfAdapter(AdapterContract):
                     "LxmfAdapter %s: error in background publish",
                     self.adapter_id,
                 )
+
+    def _on_delivery_state(self, message_hash: str, state: str) -> None:
+        """Handle terminal delivery state notifications from the session.
+
+        Invoked on the asyncio loop when an outbound delivery reaches a
+        terminal state (``delivered``, ``failed``, ``rejected``, or
+        ``cancelled``).  Logs the confirmation for observability and
+        cross-transport receipt awareness.
+
+        Parameters
+        ----------
+        message_hash:
+            Hex-encoded LXMF message hash.
+        state:
+            Lowercase terminal state string.
+        """
+        if self.ctx is not None:
+            self.ctx.logger.info(
+                "LxmfAdapter %s: delivery %s → %s",
+                self.adapter_id,
+                message_hash[:16],
+                state,
+            )
 
     async def simulate_inbound(self, packet: dict[str, Any]) -> None:
         """Simulate an inbound LXMF message payload for testing.

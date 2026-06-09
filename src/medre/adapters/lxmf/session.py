@@ -161,6 +161,11 @@ _MAX_OUTBOUND_DELIVERIES: int = 1000
 # Both sync and async callables are accepted.
 MessageCallback = Callable[[dict[str, Any]], Any]
 
+# Callback invoked when a delivery reaches a terminal state
+# (DELIVERED, FAILED, REJECTED, CANCELLED).  Receives the
+# message hash (hex string) and the terminal state value string.
+DeliveryStateCallback = Callable[[str, str], None]
+
 
 # ---------------------------------------------------------------------------
 # Delivery states
@@ -394,6 +399,8 @@ class LxmfSession:
         "_router",
         # Inbound callback
         "_message_callback",
+        # Delivery state callback
+        "_delivery_state_callback",
         # Event loop — captured at start() so that SDK callbacks
         # (which fire on Reticulum threads) can safely bridge onto
         # the asyncio loop via call_soon_threadsafe().
@@ -434,6 +441,9 @@ class LxmfSession:
 
         # Inbound callback set via start().
         self._message_callback: MessageCallback | None = None
+
+        # Delivery state callback — invoked on terminal delivery states.
+        self._delivery_state_callback: DeliveryStateCallback | None = None
 
         # Event loop captured during start().  SDK callbacks run on
         # Reticulum threads and must bridge back via
@@ -492,6 +502,27 @@ class LxmfSession:
         # on every terminal state — defer full compaction to eviction path).
         # The stale entry will be skipped during eviction since the dict
         # pop already removed the key.
+
+    def set_delivery_state_callback(
+        self, callback: DeliveryStateCallback | None
+    ) -> None:
+        """Register a callback for terminal delivery state transitions.
+
+        The callback is invoked **on the asyncio loop** (inside
+        ``_apply_delivery_state_update`` which is already bridged via
+        ``call_soon_threadsafe``) whenever an outbound delivery
+        reaches a terminal state: ``DELIVERED``, ``FAILED``,
+        ``REJECTED``, or ``CANCELLED``.
+
+        Parameters
+        ----------
+        callback:
+            ``callback(message_hash: str, state: str)`` where
+            *message_hash* is the hex-encoded LXMF message hash and
+            *state* is the lowercase state value string (e.g.
+            ``"delivered"``, ``"failed"``).  Pass ``None`` to clear.
+        """
+        self._delivery_state_callback = callback
 
     # ------------------------------------------------------------------
     # Public properties
@@ -840,7 +871,16 @@ class LxmfSession:
                 storagepath=storagepath,
             )
 
-            # 4. Register delivery callback.
+            # 4. Propagate configured stamp cost to the local router.
+            if self._config.stamp_cost and self._config.stamp_cost > 0:
+                try:
+                    self._router.set_inbound_stamp_cost(None, self._config.stamp_cost)
+                except (AttributeError, TypeError):
+                    self._logger.debug(
+                        "LXMF router does not support stamp_cost configuration"
+                    )
+
+            # 5. Register delivery callback.
             try:
                 self._router.register_delivery_callback(self._on_lxmf_delivery)
             except (AttributeError, TypeError) as exc:
@@ -1072,6 +1112,22 @@ class LxmfSession:
                         LxmfDeliveryState.CANCELLED,
                     ):
                         self._diag.permanent_delivery_failures += 1
+
+                    # Notify the adapter layer of the terminal state
+                    # transition before removing from tracking.
+                    cb = self._delivery_state_callback
+                    if cb is not None:
+                        try:
+                            cb(msg_hash, new_state.value)
+                        except Exception:
+                            self._logger.debug(
+                                "LxmfSession %s: error in delivery state "
+                                "callback for %s",
+                                self._adapter_id,
+                                msg_hash[:16],
+                                exc_info=True,
+                            )
+
                     # Remove from tracking dict to prevent unbounded growth.
                     self._untrack_delivery(msg_hash)
         except Exception as exc:
@@ -1222,6 +1278,12 @@ class LxmfSession:
                 f"Invalid destination hash: {destination_hash!r}",
                 transient=False,
             ) from exc
+
+        # Pacing: sleep before the real send so consecutive sends are
+        # spaced by message_delay_seconds.  The delay applies once per
+        # send_text() call, not per retry attempt.
+        if self._config.message_delay_seconds > 0:
+            await asyncio.sleep(self._config.message_delay_seconds)
 
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):

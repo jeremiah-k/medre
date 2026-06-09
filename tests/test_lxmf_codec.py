@@ -11,8 +11,9 @@ import pytest
 
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.errors import LxmfCodecError
+from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.config.adapters.lxmf import LxmfConfig
-from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 
 
@@ -197,12 +198,12 @@ class TestLxmfCodecFieldsEnvelope:
 
 
 class TestLxmfCodecDeferredRelations:
-    """Inbound relation reconstruction from fields envelope is deferred
-    to a future tranche.  The codec stores the raw envelope but does NOT
-    create EventRelation objects from it."""
+    """Inbound relation reconstruction from fields envelope is now
+    implemented.  The codec creates EventRelation objects from envelope
+    relations data."""
 
-    def test_decode_does_not_create_event_relations_from_envelope(self) -> None:
-        """Envelope with relations does NOT produce EventRelation objects."""
+    def test_decode_creates_event_relations_from_envelope(self) -> None:
+        """Envelope with relations produces EventRelation objects."""
         codec = LxmfCodec("lxmf-1", _make_config())
         envelope = {
             "schema_version": 1,
@@ -220,8 +221,13 @@ class TestLxmfCodecDeferredRelations:
         fields = {0xFD: {"medre": envelope}}
         packet = _make_text_packet(fields=fields)
         event = codec.decode(packet)
-        # The envelope is stored but no EventRelation objects are created
-        assert len(event.relations) == 0
+        # EventRelation objects ARE now created from envelope
+        assert len(event.relations) == 1
+        assert isinstance(event.relations[0], EventRelation)
+        assert event.relations[0].relation_type == "reply"
+        assert event.relations[0].target_event_id == "evt-target"
+        assert event.relations[0].target_native_ref is None
+        assert event.relations[0].fallback_text == "a reply"
         # The envelope data is still accessible via custom metadata
         assert event.metadata.custom["medre_envelope"]["relations"] is not None
 
@@ -413,3 +419,289 @@ class TestTranche5DeliveryMethodMetadata:
         event = codec.decode(packet)
         assert event.metadata.native is not None
         assert event.metadata.native.data["has_fields"] is False
+
+
+# ===================================================================
+# EventRelation reconstruction from 0xFD MEDRE envelope
+# ===================================================================
+
+
+class TestEventRelationReconstruction:
+    """Reconstruct EventRelation objects from MEDRE envelope relations."""
+
+    def test_single_reply_relation(self) -> None:
+        """Decode packet with one reply relation in the envelope."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-reply",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-target-1",
+                    "target_native_ref": {
+                        "adapter": "matrix",
+                        "native_channel_id": "!room:server",
+                        "native_message_id": "$event-id-1",
+                    },
+                    "fallback_text": "replying to you",
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert isinstance(rel, EventRelation)
+        assert rel.relation_type == "reply"
+        assert rel.target_event_id == "evt-target-1"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.adapter == "matrix"
+        assert rel.target_native_ref.native_channel_id == "!room:server"
+        assert rel.target_native_ref.native_message_id == "$event-id-1"
+        assert rel.fallback_text == "replying to you"
+
+    def test_reaction_with_key(self) -> None:
+        """Decode packet with reaction relation that includes a key."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-react",
+            "relations": [
+                {
+                    "relation_type": "reaction",
+                    "target_event_id": "evt-target-2",
+                    "target_native_ref": None,
+                    "key": "👍",
+                    "fallback_text": None,
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "👍"
+        assert rel.target_native_ref is None
+
+    def test_multiple_relations(self) -> None:
+        """Decode packet with reply + reaction relations."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-multi",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-parent",
+                    "target_native_ref": {
+                        "adapter": "lxmf",
+                        "native_channel_id": "",
+                        "native_message_id": "aa" * 32,
+                    },
+                    "fallback_text": "reply",
+                },
+                {
+                    "relation_type": "reaction",
+                    "target_event_id": "evt-other",
+                    "target_native_ref": None,
+                    "key": "❤️",
+                    "fallback_text": None,
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+
+        assert len(event.relations) == 2
+        assert event.relations[0].relation_type == "reply"
+        assert event.relations[0].target_event_id == "evt-parent"
+        assert event.relations[0].target_native_ref is not None
+        assert event.relations[0].target_native_ref.adapter == "lxmf"
+        assert event.relations[1].relation_type == "reaction"
+        assert event.relations[1].key == "❤️"
+
+    def test_round_trip(self) -> None:
+        """Embed relations via LxmfFieldsHelper, decode via codec — relations match."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+
+        original_relations = (
+            EventRelation(
+                relation_type="reply",
+                target_event_id="evt-rt-1",
+                target_native_ref=NativeRef(
+                    adapter="matrix",
+                    native_channel_id="!room:example.com",
+                    native_message_id="$orig-msg",
+                ),
+                key=None,
+                fallback_text="original reply",
+            ),
+            EventRelation(
+                relation_type="reaction",
+                target_event_id="evt-rt-2",
+                target_native_ref=None,
+                key="🔥",
+                fallback_text=None,
+            ),
+        )
+
+        # Embed via LxmfFieldsHelper
+        fields = LxmfFieldsHelper.embed_envelope(
+            fields={},
+            event_id="evt-round-trip",
+            relations=original_relations,
+            metadata={},
+            source_adapter="lxmf-1",
+        )
+
+        # Build packet with embedded fields
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+
+        # Verify reconstructed relations match originals
+        assert len(event.relations) == 2
+
+        r0 = event.relations[0]
+        assert r0.relation_type == "reply"
+        assert r0.target_event_id == "evt-rt-1"
+        assert r0.target_native_ref is not None
+        assert r0.target_native_ref.adapter == "matrix"
+        assert r0.target_native_ref.native_channel_id == "!room:example.com"
+        assert r0.target_native_ref.native_message_id == "$orig-msg"
+        assert r0.fallback_text == "original reply"
+
+        r1 = event.relations[1]
+        assert r1.relation_type == "reaction"
+        assert r1.target_event_id == "evt-rt-2"
+        assert r1.target_native_ref is None
+        # Note: embed_envelope does not serialize the 'key' field, so it
+        # does not survive the round trip.  This is a known limitation of
+        # the current serialization; when embed_envelope is updated to
+        # include 'key', this assertion should be updated to match.
+
+
+class TestEventRelationReconstructionEdgeCases:
+    """Edge cases for EventRelation reconstruction from envelope."""
+
+    def test_invalid_relation_type_skipped(self) -> None:
+        """Envelope with relation_type='bogus' is skipped."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-bogus",
+            "relations": [
+                {
+                    "relation_type": "bogus",
+                    "target_event_id": "evt-x",
+                    "target_native_ref": None,
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        assert len(event.relations) == 0
+
+    def test_missing_target_native_ref(self) -> None:
+        """Relation without target_native_ref has target_native_ref=None."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-no-ref",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-t",
+                    "target_native_ref": None,
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        assert len(event.relations) == 1
+        assert event.relations[0].target_native_ref is None
+
+    def test_missing_native_message_id_in_ref(self) -> None:
+        """Ref dict without native_message_id is skipped (target_native_ref=None)."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-no-msgid",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-t",
+                    "target_native_ref": {
+                        "adapter": "matrix",
+                        "native_channel_id": "!room:server",
+                        # native_message_id missing
+                    },
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        assert len(event.relations) == 1
+        assert event.relations[0].target_native_ref is None
+
+    def test_corrupt_relation_not_dict(self) -> None:
+        """Non-dict entries in relations list are skipped."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-corrupt",
+            "relations": [
+                "not a dict",
+                42,
+                None,
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-valid",
+                    "target_native_ref": None,
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        # Only the valid dict entry is reconstructed
+        assert len(event.relations) == 1
+        assert event.relations[0].relation_type == "reply"
+        assert event.relations[0].target_event_id == "evt-valid"
+
+    def test_empty_relations_list(self) -> None:
+        """Envelope with empty relations list produces empty tuple."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-empty",
+            "relations": [],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        assert event.relations == ()
+
+    def test_no_envelope(self) -> None:
+        """Packet without 0xFD field produces empty relations tuple."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet(fields={})
+        event = codec.decode(packet)
+        assert event.relations == ()

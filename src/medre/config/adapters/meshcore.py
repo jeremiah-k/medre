@@ -19,8 +19,7 @@ Validation rules
   It must not contain keys named ``"private_key"``, ``"secret"``, or
   ``"password"`` — secrets must be provisioned through a secure channel,
   never embedded in configuration metadata.
-- ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0,
-  ``sync_timeout_ms`` > 0.
+- ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0.
 - ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
 """
 
@@ -69,12 +68,8 @@ class MeshCoreConfig:
         Human-readable meshnet name (informational).
     default_channel:
         Default radio channel index for outbound messages.
-    channel_mapping:
-        Mapping of channel index to human-readable channel name.
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
-    sync_timeout_ms:
-        Timeout in milliseconds for sync operations.
     identity:
         Optional MeshCore node identity string (e.g. a node name).
         If provided, must be non-empty.
@@ -100,9 +95,7 @@ class MeshCoreConfig:
     ble_address: str | None = None
     meshnet_name: str = ""
     default_channel: int = 0
-    channel_mapping: dict[int, str] = field(default_factory=dict)
     message_delay_seconds: float = 0.5
-    sync_timeout_ms: int = 30000
     identity: str | None = None
     pubkey: str | None = None
     node_config: dict[str, object] = field(default_factory=dict)
@@ -131,10 +124,6 @@ class MeshCoreConfig:
         if self.default_channel < 0:
             raise MeshCoreConfigError(
                 f"default_channel must be >= 0, got {self.default_channel}"
-            )
-        if self.sync_timeout_ms <= 0:
-            raise MeshCoreConfigError(
-                f"sync_timeout_ms must be > 0, got {self.sync_timeout_ms}"
             )
         if isinstance(self.max_text_bytes, bool):
             raise MeshCoreConfigError("max_text_bytes must be an int, got bool")

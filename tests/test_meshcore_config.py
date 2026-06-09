@@ -64,8 +64,6 @@ class TestMeshCoreConfigValid:
         assert config.connection_type == "fake"
         assert config.default_channel == 0
         assert config.message_delay_seconds == 0.5
-        assert config.sync_timeout_ms == 30000
-        assert config.channel_mapping == {}
         assert config.identity is None
         assert config.pubkey is None
         assert config.node_config == {}
@@ -162,16 +160,6 @@ class TestMeshCoreConfigInvalid:
     def test_config_error_is_value_error(self) -> None:
         config = MeshCoreConfig(adapter_id="")
         with pytest.raises(ValueError):
-            config.validate()
-
-    def test_zero_sync_timeout_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", sync_timeout_ms=0)
-        with pytest.raises(MeshCoreConfigError, match="sync_timeout_ms"):
-            config.validate()
-
-    def test_negative_sync_timeout_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", sync_timeout_ms=-1)
-        with pytest.raises(MeshCoreConfigError, match="sync_timeout_ms"):
             config.validate()
 
 

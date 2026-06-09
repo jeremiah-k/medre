@@ -9,7 +9,7 @@
     "deletes": "unsupported",
     "attachments": false,
     "metadata_fields": true,
-    "delivery_receipts": false,
+    "delivery_receipts": true,
     "store_and_forward": true,
     "direct_messages": true,
     "channels": false,

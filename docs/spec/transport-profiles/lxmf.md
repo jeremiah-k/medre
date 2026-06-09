@@ -44,7 +44,7 @@ Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabil
 | deletes             | `"unsupported"`                     |
 | attachments         | `False`                             |
 | metadata_fields     | `True`                              |
-| delivery_receipts   | `False`                             |
+| delivery_receipts   | `True`                              |
 | store_and_forward   | `True`                              |
 | direct_messages     | `True`                              |
 | channels            | `False`                             |
