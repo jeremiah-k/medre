@@ -24,7 +24,7 @@ class TestMeshCoreConfigValid:
             adapter_id="meshcore-2",
             connection_type="tcp",
             host="192.168.1.100",
-            port=4403,
+            port=4000,
             default_channel=1,
             message_delay_seconds=1.0,
             meshnet_name="testnet",

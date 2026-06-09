@@ -476,7 +476,7 @@ class MeshCoreSession:
             if self._config.connection_type == "tcp":
                 self._meshcore = await mc.MeshCore.create_tcp(
                     self._config.host or "localhost",
-                    self._config.port or 4403,
+                    self._config.port or 4000,
                 )
                 if self._meshcore is None:
                     raise MeshCoreConnectionError(
