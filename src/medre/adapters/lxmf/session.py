@@ -609,6 +609,7 @@ class LxmfSession:
                 # late SDK callbacks don't reference stale SDK objects.
                 self._teardown_sdk()
                 self._message_callback = None
+                self._delivery_state_callback = None
                 self._loop = None
                 self._diag.reconnecting = False
                 raise
@@ -673,6 +674,7 @@ class LxmfSession:
         # Clear callback and loop references so late SDK callbacks
         # (fired on Reticulum threads after teardown) are dropped.
         self._message_callback = None
+        self._delivery_state_callback = None
         self._loop = None
 
         self._started = False

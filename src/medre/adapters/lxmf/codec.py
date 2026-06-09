@@ -21,6 +21,7 @@ from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
+from medre.core.events.schema import VALID_RELATION_TYPES
 
 
 class LxmfCodec(AdapterCodec):
@@ -71,7 +72,7 @@ class LxmfCodec(AdapterCodec):
                 continue
 
             relation_type = raw.get("relation_type")
-            if relation_type not in ("reply", "reaction", "edit", "delete", "thread"):
+            if relation_type not in VALID_RELATION_TYPES:
                 continue
 
             # Deserialize target_native_ref if present
@@ -81,21 +82,36 @@ class LxmfCodec(AdapterCodec):
                 adapter = raw_ref.get("adapter")
                 msg_id = raw_ref.get("native_message_id")
                 if adapter and msg_id:
+                    raw_channel_id = raw_ref.get("native_channel_id")
                     target_native_ref = NativeRef(
                         adapter=str(adapter),
-                        native_channel_id=str(raw_ref.get("native_channel_id") or ""),
+                        native_channel_id=(
+                            str(raw_channel_id) if raw_channel_id is not None else None
+                        ),
                         native_message_id=str(msg_id),
                     )
 
-            relations.append(
-                EventRelation(
-                    relation_type=relation_type,
-                    target_event_id=raw.get("target_event_id"),
-                    target_native_ref=target_native_ref,
-                    key=raw.get("key"),
-                    fallback_text=raw.get("fallback_text"),
+            try:
+                target_event_id = raw.get("target_event_id")
+                key = raw.get("key")
+                fallback_text = raw.get("fallback_text")
+                relations.append(
+                    EventRelation(
+                        relation_type=relation_type,
+                        target_event_id=(
+                            target_event_id
+                            if isinstance(target_event_id, str)
+                            else None
+                        ),
+                        target_native_ref=target_native_ref,
+                        key=key if isinstance(key, str) else None,
+                        fallback_text=(
+                            fallback_text if isinstance(fallback_text, str) else None
+                        ),
+                    )
                 )
-            )
+            except (TypeError, ValueError):
+                continue
 
         return relations
 

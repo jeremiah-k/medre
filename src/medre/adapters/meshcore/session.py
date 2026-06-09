@@ -107,6 +107,9 @@ _RECONNECT_JITTER_FRACTION: float = 0.25  # ±25 %
 # Outbound delivery retry.
 _SEND_MAX_RETRIES: int = 3
 
+# Timeout for external SDK lifecycle calls (auto-fetch start/stop).
+_SDK_LIFECYCLE_TIMEOUT: float = 5.0  # seconds
+
 # Type alias for the inbound message callback.
 # The callback receives a plain dict (native payload), NOT an SDK Event object.
 # Both sync and async callables are accepted.
@@ -330,7 +333,15 @@ class MeshCoreSession:
             # Stop auto message fetching if available.
             if hasattr(self._meshcore, "stop_auto_message_fetching"):
                 try:
-                    await self._meshcore.stop_auto_message_fetching()
+                    await asyncio.wait_for(
+                        self._meshcore.stop_auto_message_fetching(),
+                        timeout=_SDK_LIFECYCLE_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    self._logger.warning(
+                        "MeshCoreSession %s: timed out stopping auto_message_fetching",
+                        self._adapter_id,
+                    )
                 except Exception as exc:
                     self._logger.debug(
                         "MeshCoreSession %s: error stopping auto_message_fetching: %s",
@@ -575,7 +586,15 @@ class MeshCoreSession:
         # Best-effort: failure is logged but does not prevent connection.
         try:
             if hasattr(self._meshcore, "start_auto_message_fetching"):
-                await self._meshcore.start_auto_message_fetching()
+                await asyncio.wait_for(
+                    self._meshcore.start_auto_message_fetching(),
+                    timeout=_SDK_LIFECYCLE_TIMEOUT,
+                )
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                "MeshCoreSession %s: timed out starting auto_message_fetching",
+                self._adapter_id,
+            )
         except Exception as exc:
             self._logger.debug(
                 "MeshCoreSession %s: auto_message_fetching failed (non-fatal): %s",
@@ -643,7 +662,7 @@ class MeshCoreSession:
             self._diag.public_key_prefix = pubkey[:6].hex()
 
         # Radio frequency (if present).
-        freq = payload.get("freq") or payload.get("radio_freq")
+        freq = payload.get("freq") if "freq" in payload else payload.get("radio_freq")
         if isinstance(freq, (int, float)):
             self._diag.radio_freq = float(freq)
 

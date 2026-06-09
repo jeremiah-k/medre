@@ -584,10 +584,7 @@ class TestEventRelationReconstruction:
         assert r1.relation_type == "reaction"
         assert r1.target_event_id == "evt-rt-2"
         assert r1.target_native_ref is None
-        # Note: embed_envelope does not serialize the 'key' field, so it
-        # does not survive the round trip.  This is a known limitation of
-        # the current serialization; when embed_envelope is updated to
-        # include 'key', this assertion should be updated to match.
+        assert r1.key == "🔥"
 
 
 class TestEventRelationReconstructionEdgeCases:
@@ -705,3 +702,30 @@ class TestEventRelationReconstructionEdgeCases:
         packet = _make_text_packet(fields={})
         event = codec.decode(packet)
         assert event.relations == ()
+
+    def test_valid_relation_type_with_invalid_field_types(self) -> None:
+        """Valid relation_type but non-string target_event_id is coerced safely."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-invalid-fields",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": [],
+                    "key": 42,
+                    "fallback_text": {"bad": True},
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        # Relation is still created but non-string fields are coerced to None.
+        assert len(event.relations) == 1
+        r = event.relations[0]
+        assert r.relation_type == "reply"
+        assert r.target_event_id is None
+        assert r.key is None
+        assert r.fallback_text is None

@@ -126,6 +126,7 @@ class LxmfFieldsHelper:
                         "target_native_ref": _serialise_native_ref(
                             getattr(r, "target_native_ref", None)
                         ),
+                        "key": getattr(r, "key", None),
                         "fallback_text": getattr(r, "fallback_text", None),
                     }
                     for r in relations
