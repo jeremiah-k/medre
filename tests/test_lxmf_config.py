@@ -160,6 +160,11 @@ class TestLxmfConfigStampCost:
         ):
             config.validate()
 
+    def test_string_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost="8")  # type: ignore[arg-type]
+        with pytest.raises(LxmfConfigError, match="stamp_cost must be an integer"):
+            config.validate()
+
 
 class TestLxmfConfigInvalid:
     """Other invalid LxmfConfig cases."""

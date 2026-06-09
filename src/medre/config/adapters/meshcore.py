@@ -146,6 +146,17 @@ class MeshCoreConfig:
             raise MeshCoreConfigError(
                 "serial_port is required when connection_type is 'serial'"
             )
+        if self.connection_type == "serial" and self.serial_baudrate is not None:
+            if not isinstance(self.serial_baudrate, int) or isinstance(
+                self.serial_baudrate, bool
+            ):
+                raise MeshCoreConfigError(
+                    f"serial_baudrate must be an integer, got {type(self.serial_baudrate).__name__}"
+                )
+            if self.serial_baudrate <= 0:
+                raise MeshCoreConfigError(
+                    f"serial_baudrate must be > 0, got {self.serial_baudrate}"
+                )
         if self.connection_type == "ble" and not self.ble_address:
             raise MeshCoreConfigError(
                 "ble_address is required when connection_type is 'ble'"

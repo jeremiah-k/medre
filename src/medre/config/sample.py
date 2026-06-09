@@ -107,6 +107,7 @@ enabled = false
 adapter_kind = "fake"
 connection_type = "fake"
 display_name = "MEDRE"
+# storage_path = "{state}/lxmf/router"  # required for reticulum mode
 
 # ---------------------------------------------------------------------------
 # Routes — named bridge routes between adapters

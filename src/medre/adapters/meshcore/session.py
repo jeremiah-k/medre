@@ -668,7 +668,9 @@ class MeshCoreSession:
             self._diag.public_key_prefix = pubkey[:6].hex()
 
         # Radio frequency (if present).
-        freq = payload.get("freq") if "freq" in payload else payload.get("radio_freq")
+        freq = payload.get("freq")
+        if freq is None:
+            freq = payload.get("radio_freq")
         if isinstance(freq, (int, float)) and not isinstance(freq, bool):
             f = float(freq)
             if math.isfinite(f) and f > 0.0:

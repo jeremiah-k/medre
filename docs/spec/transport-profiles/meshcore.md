@@ -42,6 +42,7 @@ Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore
 | Capability        | Value                                    |
 | ----------------- | ---------------------------------------- |
 | text              | `True`                                   |
+| title             | `False`                                  |
 | replies           | `"unsupported"`                          |
 | reactions         | `"unsupported"`                          |
 | edits             | `"unsupported"`                          |
@@ -119,7 +120,7 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 1. **Disconnected** — Initial state; `_meshcore=None`.
 2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types. After subscriptions, the session issues `commands.send_appstart()` (CMD_APP_START) so the firmware accepts further commands. This MUST be called on every connect and reconnect. The appstart payload (`self_info`) is captured into session diagnostics: `device_name`, `public_key_prefix`, `radio_freq`. After appstart, the session calls `start_auto_message_fetching()` best-effort (subscribes to `MESSAGES_WAITING` and drains buffered messages from the device queue).
-3. **Connected** — Client created, subscribed, appstart succeeded, auto-fetch started; `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
+3. **Connected** — Client created, subscribed, appstart succeeded, auto-fetch attempted (best-effort); `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
 4. **Reconnecting** — SDK `DISCONNECTED` event triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success, re-subscribes.
 5. **Stopped** — `stop()` sets `_stop_requested`, stops auto-message-fetching (with bounded timeout), unsubscribes, disconnects SDK client, nulls references. Idempotent.
 
@@ -131,31 +132,33 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 `adapter.diagnostics()` returns (no secrets, no raw SDK objects):
 
-| Key                                     | Type            | Description                                |
-| --------------------------------------- | --------------- | ------------------------------------------ |
-| `adapter_id`                            | `str`           | Adapter identifier                         |
-| `started`                               | `bool`          | Adapter started flag                       |
-| `mode`                                  | `str`           | Config connection type                     |
-| `classifier_packets_seen`               | `int`           | Total classified                           |
-| `classifier_packets_relayed`            | `int`           | Relay action count                         |
-| `classifier_packets_ignored`            | `int`           | Ignore action count                        |
-| `classifier_packets_dropped`            | `int`           | Drop action count                          |
-| `classifier_packets_deferred`           | `int`           | Deferred action count                      |
-| `classifier_packets_ack_ignored`        | `int`           | ACK sub-counter                            |
-| `classifier_packets_empty_text_ignored` | `int`           | Empty text sub-counter                     |
-| `classifier_packets_unknown_deferred`   | `int`           | Unknown packet sub-counter                 |
-| `classifier_packets_dm_relayed`         | `int`           | DM relay sub-counter                       |
-| `classifier_packets_malformed`          | `int`           | Malformed sub-counter                      |
-| `inbound_published`                     | `int`           | Events published inbound                   |
-| `session.connected`                     | `bool`          | Session connected                          |
-| `session.reconnecting`                  | `bool`          | Reconnect in progress                      |
-| `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts             |
-| `session.last_error`                    | `str \| None`   | Last error description                     |
-| `session.transient_delivery_failures`   | `int`           | Transient send errors                      |
-| `session.permanent_delivery_failures`   | `int`           | Permanent send errors                      |
-| `session.device_name`                   | `str \| None`   | Device name from appstart (default `None`) |
-| `session.public_key_prefix`             | `str \| None`   | Public key hex prefix (default `None`)     |
-| `session.radio_freq`                    | `float \| None` | Radio frequency in MHz (default `None`)    |
+| Key                                     | Type            | Description                                                        |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `adapter_id`                            | `str`           | Adapter identifier                                                 |
+| `started`                               | `bool`          | Adapter started flag                                               |
+| `mode`                                  | `str`           | Config connection type                                             |
+| `classifier_packets_seen`               | `int`           | Total classified                                                   |
+| `classifier_packets_relayed`            | `int`           | Relay action count                                                 |
+| `classifier_packets_ignored`            | `int`           | Ignore action count                                                |
+| `classifier_packets_dropped`            | `int`           | Drop action count                                                  |
+| `classifier_packets_deferred`           | `int`           | Deferred action count                                              |
+| `classifier_packets_ack_ignored`        | `int`           | ACK sub-counter                                                    |
+| `classifier_packets_empty_text_ignored` | `int`           | Empty text sub-counter                                             |
+| `classifier_packets_unknown_deferred`   | `int`           | Unknown packet sub-counter                                         |
+| `classifier_packets_dm_relayed`         | `int`           | DM relay sub-counter                                               |
+| `classifier_packets_malformed`          | `int`           | Malformed sub-counter                                              |
+| `inbound_published`                     | `int`           | Events published inbound                                           |
+| `session.connected`                     | `bool`          | Session connected                                                  |
+| `session.reconnecting`                  | `bool`          | Reconnect in progress                                              |
+| `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts                                     |
+| `session.last_error`                    | `str \| None`   | Last error description                                             |
+| `session.last_message_time`             | `str \| None`   | ISO 8601 UTC timestamp of last inbound message (default `None`)    |
+| `session.mode`                          | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`) |
+| `session.transient_delivery_failures`   | `int`           | Transient send errors                                              |
+| `session.permanent_delivery_failures`   | `int`           | Permanent send errors                                              |
+| `session.device_name`                   | `str \| None`   | Device name from appstart (default `None`)                         |
+| `session.public_key_prefix`             | `str \| None`   | Public key hex prefix (default `None`)                             |
+| `session.radio_freq`                    | `float \| None` | Radio frequency in MHz (default `None`)                            |
 
 ---
 

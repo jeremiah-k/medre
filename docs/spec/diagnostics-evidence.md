@@ -99,17 +99,24 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (7 keys)
+### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 4 keys)
 
-| Key                 | Type            | Semantics                                  |
-| ------------------- | --------------- | ------------------------------------------ |
-| `adapter_id`        | `str`           | Adapter identifier                         |
-| `platform`          | `str`           | Always `"meshcore"`                        |
-| `mode`              | `str`           | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`  |
-| `last_message_time` | `str or None`   | ISO 8601 timestamp                         |
-| `device_name`       | `str or None`   | Device name from appstart (default `None`) |
-| `public_key_prefix` | `str or None`   | Public key hex prefix (default `None`)     |
-| `radio_freq`        | `float or None` | Radio frequency in MHz (default `None`)    |
+Adapter-level keys:
+
+| Key          | Type  | Semantics                                 |
+| ------------ | ----- | ----------------------------------------- |
+| `adapter_id` | `str` | Adapter identifier                        |
+| `platform`   | `str` | Always `"meshcore"`                       |
+| `mode`       | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+
+Session sub-dict keys (`session.*`):
+
+| Key                         | Type            | Semantics                                  |
+| --------------------------- | --------------- | ------------------------------------------ |
+| `session.last_message_time` | `str or None`   | ISO 8601 timestamp                         |
+| `session.device_name`       | `str or None`   | Device name from appstart (default `None`) |
+| `session.public_key_prefix` | `str or None`   | Public key hex prefix (default `None`)     |
+| `session.radio_freq`        | `float or None` | Radio frequency in MHz (default `None`)    |
 
 ### 3.4 LXMF (6 keys)
 
@@ -332,7 +339,7 @@ No adapter, snapshot, or evidence path SHALL expose access tokens, private keys,
 | ---------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Matrix     | No secrets, access tokens, keys, or private device material                  | Frozen dataclass; token/key fields never included; room names/IDs excluded |
 | Meshtastic | No secrets, private keys, raw protobuf dumps, or sensitive radio identifiers | Frozen dataclass; node_id is public info; no packet payloads               |
-| MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no pubkey material                                        |
+| MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no full pubkey material (non-sensitive prefix only)       |
 | LXMF       | No secrets, private keys, identity material, or unsafe peer dumps            | Frozen dataclass; identity hashes not included; mode is string             |
 
 ### 9.2 No SDK Object Leakage
