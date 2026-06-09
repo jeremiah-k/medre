@@ -399,3 +399,114 @@ class TestMeshCoreConfigSerialBaudrate:
             serial_baudrate=0,  # Invalid but not validated for tcp
         )
         assert config.validate().serial_baudrate == 0
+
+
+class TestMeshCoreConfigPort:
+    """port validation for TCP connection type."""
+
+    def test_port_none_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", port=None)
+        assert config.validate().port is None
+
+    def test_port_4000_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=4000,
+        )
+        assert config.validate().port == 4000
+
+    def test_port_1_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=1,
+        )
+        assert config.validate().port == 1
+
+    def test_port_65535_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=65535,
+        )
+        assert config.validate().port == 65535
+
+    def test_port_0_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=0,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_negative_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=-1,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_65536_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=65536,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_bool_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got bool"):
+            config.validate()
+
+    def test_port_false_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got bool"):
+            config.validate()
+
+    def test_port_string_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port="4000",  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got str"):
+            config.validate()
+
+    def test_port_float_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=4000.0,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got float"):
+            config.validate()

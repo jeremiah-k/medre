@@ -194,21 +194,21 @@ pubkey = "abcdef0123456789"
 node_config = {}
 ```
 
-| Field                                           | Type       | Default       | Description                                        |
-| ----------------------------------------------- | ---------- | ------------- | -------------------------------------------------- |
-| `enabled`                                       | bool       | `true`        | Active status.                                     |
-| `adapter_kind`                                  | string     | `"real"`      | `"real"` or `"fake"`.                              |
-| `adapter_id`                                    | string     | instance name | Unique identifier.                                 |
-| `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.                 |
-| `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters.                             |
-| `meshnet_name`                                  | string     | `""`          | Informational.                                     |
-| `default_channel`                               | int        | `0`           | Default outbound channel.                          |
-| `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                            |
-| `identity`                                      | string     | `None`        | MeshCore node identity string.                     |
-| `pubkey`                                        | string     | `None`        | Public key as hex string.                          |
-| `max_text_bytes`                                | int        | `512`         | Maximum UTF-8 byte budget for rendered radio text. |
-| `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                   |
-| `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.     |
+| Field                                           | Type       | Default       | Description                                                        |
+| ----------------------------------------------- | ---------- | ------------- | ------------------------------------------------------------------ |
+| `enabled`                                       | bool       | `true`        | Active status.                                                     |
+| `adapter_kind`                                  | string     | `"real"`      | `"real"` or `"fake"`.                                              |
+| `adapter_id`                                    | string     | instance name | Unique identifier.                                                 |
+| `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.                                 |
+| `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters. TCP port defaults to 4000 when `port=None`. |
+| `meshnet_name`                                  | string     | `""`          | Informational.                                                     |
+| `default_channel`                               | int        | `0`           | Default outbound channel.                                          |
+| `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                                            |
+| `identity`                                      | string     | `None`        | MeshCore node identity string.                                     |
+| `pubkey`                                        | string     | `None`        | Public key as hex string.                                          |
+| `max_text_bytes`                                | int        | `512`         | Maximum UTF-8 byte budget for rendered radio text.                 |
+| `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                                   |
+| `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.                     |
 
 ### `[adapters.lxmf.INSTANCE_NAME]`
 
@@ -528,6 +528,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `enabled`         | `MEDRE_ADAPTER__RADIO__ENABLED=true`            |
 | `connection_type` | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp`     |
 | `host`            | `MEDRE_ADAPTER__RADIO__HOST=meshcore.local`     |
+| `port`            | `MEDRE_ADAPTER__RADIO__PORT=4000`               |
 | `identity`        | `MEDRE_ADAPTER__RADIO__IDENTITY=my-node`        |
 | `pubkey`          | `MEDRE_ADAPTER__RADIO__PUBKEY=abcdef0123456789` |
 

@@ -13,6 +13,8 @@ Validation rules
 - Non-fake connection types require their associated field:
   ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``, ``"ble"``
   (future: will require ``ble_address``).
+- ``port`` is optional; if provided must be ``int`` (not ``bool``)
+  between 1 and 65535.
 - ``identity`` and ``pubkey`` are optional; if provided they must be
   non-empty strings.
 - ``node_config`` is an opaque dict for future node-specific settings.
@@ -57,7 +59,9 @@ class MeshCoreConfig:
     host:
         Hostname or IP for TCP connections.
     port:
-        Port number for TCP connections.
+        Port number for TCP connections.  Optional; when ``None`` and
+        ``connection_type="tcp"``, the session uses TCP port 4000.
+        Must be between 1 and 65535 when provided.
     serial_port:
         Serial device path for serial connections.
     serial_baudrate:
@@ -142,6 +146,17 @@ class MeshCoreConfig:
         # Non-fake connection type validation
         if self.connection_type == "tcp" and not self.host:
             raise MeshCoreConfigError("host is required when connection_type is 'tcp'")
+        if self.port is not None:
+            if isinstance(self.port, bool):
+                raise MeshCoreConfigError("port must be an int, got bool")
+            if not isinstance(self.port, int):
+                raise MeshCoreConfigError(
+                    f"port must be an int, got {type(self.port).__name__}"
+                )
+            if self.port < 1 or self.port > 65535:
+                raise MeshCoreConfigError(
+                    f"port must be between 1 and 65535, got {self.port}"
+                )
         if self.connection_type == "serial" and not self.serial_port:
             raise MeshCoreConfigError(
                 "serial_port is required when connection_type is 'serial'"
