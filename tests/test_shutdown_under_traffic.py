@@ -835,9 +835,7 @@ class TestPersistDrainAbandonedAttemptNumber:
 
         # Mock storage that raises on get_outbox_item but records receipts.
         mock_storage = AsyncMock()
-        mock_storage.get_outbox_item = AsyncMock(
-            side_effect=RuntimeError("db error")
-        )
+        mock_storage.get_outbox_item = AsyncMock(side_effect=RuntimeError("db error"))
         mock_storage.append_receipt = temp_db.append_receipt
 
         app = MagicMock(spec=[])

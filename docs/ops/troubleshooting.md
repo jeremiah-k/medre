@@ -620,9 +620,15 @@ WHERE delivery_plan_id = '<plan_id>';
 
 **Symptom:** The retry/outbox summary shows queued items with reason `"Queued without queued receipt linkage"` (outbox row has no `outbox_id` and no receipt) or `"Queued with degraded plan metadata (missing delivery_plan_id)"` (outbox row has an `outbox_id` but no delivery plan metadata).
 
-**Cause:** The adapter callback has not yet supplied `outbox_id + attempt_number` linkage for the queued item, or the queued row lacks delivery plan metadata.
+**Cause:** Two distinct cases:
 
-**Fix:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, check that the adapter is properly propagating `outbox_id` and `attempt_number` through its queue processing.
+1. **Missing outbox_id:** The queued row has no `outbox_id` — callback correlation by outbox_id + attempt_number is impossible for this row. These items can only be recovered via stale-grace reclaim or manual investigation of the upstream producer.
+2. **outbox_id present but uncorrelated:** The queued row has an `outbox_id` but the adapter callback has not yet supplied the matching `outbox_id + attempt_number` linkage.
+
+**Fix:**
+
+- **Missing outbox_id:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains queued after the grace period, investigate the upstream producer that wrote the row without an outbox_id.
+- **outbox_id present but uncorrelated:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, verify that the adapter callback is propagating `outbox_id` and `attempt_number` through its queue processing.
 
 ### "Replay-only callback warning"
 

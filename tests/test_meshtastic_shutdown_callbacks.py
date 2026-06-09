@@ -363,7 +363,7 @@ class TestNoUntrackedTasksAfterStop:
             for t in all_tasks
             if t is not current_task
             and t.get_coro() is not None
-            and "meshtastic" in (t.get_coro().__qualname__ or "")
+            and "meshtastic" in ((t.get_coro().__qualname__ or "").lower())
         ]
         assert len(stray) == 0
 
@@ -799,3 +799,176 @@ class TestReportCancelledAndDrainPaths:
         # No records produced, items remain in queue.
         assert len(records) == 0
         assert adapter._queue.pending_count == 1
+
+
+# ===================================================================
+# 10. Native-ref callback exception after cancellation is observed
+# ===================================================================
+
+
+class TestNativeRefExceptionAfterCancel:
+    """When a native-ref callback raises after _process_queue is
+    cancelled but before _drain_background_tasks runs, the exception
+    is observed via _observe_callback_task (not "Task exception was
+    never retrieved")."""
+
+    async def test_native_ref_exception_observed_after_cancel(self) -> None:
+        """A native-ref callback that raises after drain-task
+        cancellation is observed and logged, not silently lost."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        callback_started = asyncio.Event()
+        callback_should_raise = asyncio.Event()
+
+        async def slow_failing_native_ref(record):
+            callback_started.set()
+            await callback_should_raise.wait()
+            raise RuntimeError("native-ref delayed failure")
+
+        adapter.ctx = _make_ctx(record_outbound_native_ref=slow_failing_native_ref)
+        adapter._started = True
+
+        call_count = 0
+
+        async def mock_send_one():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _delivery_result()
+            # Second call blocks until we cancel.
+            await asyncio.sleep(60)
+
+        adapter.send_one = mock_send_one
+
+        drain_task = asyncio.ensure_future(adapter._process_queue())
+        adapter._drain_task = drain_task
+
+        # Wait for the callback to start.
+        await asyncio.wait_for(callback_started.wait(), timeout=2.0)
+
+        # Cancel the drain task — this triggers CancelledError which
+        # adds the callback task to _background_tasks via
+        # _observe_callback_task.
+        drain_task.cancel()
+        try:
+            await asyncio.wait_for(drain_task, timeout=2.0)
+        except asyncio.CancelledError:
+            pass
+
+        # The callback task should be tracked in _background_tasks.
+        assert len(adapter._background_tasks) == 1
+        cb_task = next(iter(adapter._background_tasks))
+
+        # Now let the callback raise its exception.
+        callback_should_raise.set()
+
+        # Give the event loop a moment to process the callback exception.
+        await asyncio.sleep(0.2)
+
+        # _background_tasks should now be empty because the done callback
+        # in _observe_callback_task observes the exception and removes it.
+        assert len(adapter._background_tasks) == 0
+
+        # The task itself should have completed with the exception.
+        assert cb_task.done()
+        assert not cb_task.cancelled()
+        assert isinstance(cb_task.exception(), RuntimeError)
+
+    async def test_terminal_exception_observed_after_cancel(self) -> None:
+        """Terminal callback exception is caught internally by
+        _report_queue_terminal, so the shielded task completes normally
+        even when the callback raises."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        callback_started = asyncio.Event()
+
+        async def failing_terminal(record):
+            callback_started.set()
+            raise RuntimeError("terminal delayed failure")
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=failing_terminal)
+        adapter._started = True
+
+        call_count = 0
+
+        async def mock_send_one():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return QueueTerminalResult(
+                    item={"event_id": "evt-term", "channel_index": 0},
+                    outcome="exhausted",
+                )
+            await asyncio.sleep(60)
+
+        adapter.send_one = mock_send_one
+
+        drain_task = asyncio.ensure_future(adapter._process_queue())
+        adapter._drain_task = drain_task
+
+        await asyncio.wait_for(callback_started.wait(), timeout=2.0)
+
+        drain_task.cancel()
+        try:
+            await asyncio.wait_for(drain_task, timeout=2.0)
+        except asyncio.CancelledError:
+            pass
+
+        # Terminal callback exceptions are caught inside
+        # _report_queue_terminal, so _background_tasks should be empty
+        # (the task completed normally after catching the exception).
+        await adapter._drain_background_tasks(timeout=2.0)
+        assert len(adapter._background_tasks) == 0
+
+
+# ===================================================================
+# 11. _drain_background_tasks timeout does not cancel tasks silently
+# ===================================================================
+
+
+class TestDrainBackgroundTasksTimeout:
+    """_drain_background_tasks uses asyncio.wait() with timeout, not
+    wait_for(gather()) which would cancel child tasks."""
+
+    async def test_pending_tasks_cancelled_explicitly_on_timeout(self) -> None:
+        """When background tasks exceed the drain timeout, they are
+        explicitly cancelled and awaited — not silently lost."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_ctx()
+
+        async def slow_callback():
+            await asyncio.sleep(60)
+
+        # Manually add a slow background task.
+        task = asyncio.ensure_future(slow_callback())
+        adapter._background_tasks.add(task)
+
+        # Drain with a short timeout.
+        await adapter._drain_background_tasks(timeout=0.1)
+
+        # All tasks should be cleared after drain.
+        assert len(adapter._background_tasks) == 0
+
+    async def test_completed_tasks_exceptions_observed_on_drain(self) -> None:
+        """Exceptions from background tasks completed during drain are
+        observed and not silently discarded."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_ctx()
+
+        async def failing_callback():
+            raise ValueError("drain failure")
+
+        task = asyncio.ensure_future(failing_callback())
+        adapter._background_tasks.add(task)
+
+        # Let the task fail.
+        await asyncio.sleep(0.1)
+
+        # Drain observes the exception.
+        await adapter._drain_background_tasks(timeout=2.0)
+
+        assert len(adapter._background_tasks) == 0

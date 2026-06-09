@@ -826,6 +826,52 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Background task management -----------------------------------------
 
+    def _observe_callback_task(
+        self,
+        task: asyncio.Task,
+        label: str,
+        event_id: str = "",
+    ) -> None:
+        """Observe a callback task's result after cancellation.
+
+        When ``_process_queue`` is cancelled, shielded callback tasks are
+        added to ``_background_tasks`` for later draining.  This helper
+        registers a done-callback that retrieves and logs any exception
+        before the task is removed from ``_background_tasks``, preventing
+        ``"Task exception was never retrieved"`` warnings from the event
+        loop.
+
+        Parameters
+        ----------
+        task:
+            The background callback task to observe.
+        label:
+            Human-readable label for log messages (e.g. ``"terminal"``,
+            ``"native-ref"``).
+        event_id:
+            Optional event ID for log context.
+        """
+        adapter_id = self.adapter_id
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._background_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                if self.ctx is not None:
+                    self.ctx.logger.warning(
+                        "MeshtasticAdapter %s: %s callback "
+                        "exception observed for event_id=%s: %r",
+                        adapter_id,
+                        label,
+                        event_id,
+                        exc,
+                    )
+
+        self._background_tasks.add(task)
+        task.add_done_callback(_on_done)
+
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
         """Drain inbound futures and await tracked background tasks.
 
@@ -835,6 +881,11 @@ class MeshtasticAdapter(AdapterContract):
         still in flight.  Then awaits tracked :class:`asyncio.Task`
         instances without cancelling them so that critical callbacks
         (terminal / native-ref) can complete before shutdown.
+
+        Uses ``asyncio.wait`` instead of ``asyncio.wait_for(gather())``
+        so that timeout does not cancel the child tasks.  When timeout
+        fires, pending tasks are explicitly cancelled and awaited with
+        ``return_exceptions=True`` to prevent unobserved exceptions.
 
         Parameters
         ----------
@@ -849,15 +900,46 @@ class MeshtasticAdapter(AdapterContract):
 
         # --- Drain asyncio background tasks ---
         # These are critical callback tasks (terminal / native-ref) that
-        # must complete before shutdown.  Do NOT cancel them — just await.
+        # must complete before shutdown.  We do NOT cancel them on timeout
+        # unless they are still pending — only pending tasks are cancelled
+        # so that the shutdown can progress.
         if self._background_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*self._background_tasks, return_exceptions=True),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                pass
+            _done, _pending = await asyncio.wait(
+                self._background_tasks,
+                timeout=timeout,
+            )
+
+            # Retrieve and log exceptions from completed tasks.
+            for task in _done:
+                if task.cancelled():
+                    continue
+                exc = task.exception()
+                if exc is not None and self.ctx is not None:
+                    self.ctx.logger.warning(
+                        "MeshtasticAdapter %s: background callback "
+                        "exception during drain: %r",
+                        self.adapter_id,
+                        exc,
+                    )
+
+            # If any tasks are still pending after timeout, cancel them
+            # explicitly and await so no task remains untracked or raises
+            # an unobserved exception.
+            if _pending:
+                for task in _pending:
+                    task.cancel()
+                # Await cancelled tasks to collect CancelledError.
+                await asyncio.wait(_pending, timeout=timeout)
+                for task in _pending:
+                    if not task.cancelled() and task.exception() is not None:
+                        if self.ctx is not None:
+                            self.ctx.logger.warning(
+                                "MeshtasticAdapter %s: background callback "
+                                "exception after timeout cancel: %r",
+                                self.adapter_id,
+                                task.exception(),
+                            )
+
         self._background_tasks.clear()
 
     # -- Queue / send helpers -----------------------------------------------
@@ -945,8 +1027,12 @@ class MeshtasticAdapter(AdapterContract):
                         try:
                             await asyncio.shield(cb_task)
                         except asyncio.CancelledError:
-                            self._background_tasks.add(cb_task)
-                            cb_task.add_done_callback(self._background_tasks.discard)
+                            _evt = result.item.get("event_id") or ""
+                            self._observe_callback_task(
+                                cb_task,
+                                "terminal",
+                                _evt,
+                            )
                             raise
                         continue
 
@@ -973,9 +1059,10 @@ class MeshtasticAdapter(AdapterContract):
                             try:
                                 await asyncio.shield(cb_task)
                             except asyncio.CancelledError:
-                                self._background_tasks.add(cb_task)
-                                cb_task.add_done_callback(
-                                    self._background_tasks.discard
+                                self._observe_callback_task(
+                                    cb_task,
+                                    "native-ref",
+                                    event_id or "",
                                 )
                                 raise
                         except Exception:

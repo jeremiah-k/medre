@@ -259,9 +259,12 @@ class MeshtasticOutboundQueue:
             Optional canonical event ID that originated this send.
             Stored outside the payload so it is never sent to the radio.
         delivery_plan_id:
-            Optional delivery plan ID for deterministic queued→sent
-            receipt correlation.  Propagated through the queue item into
-            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+            Optional delivery-plan identity and validation metadata.
+            Propagated through the queue item into
+            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`
+            and validated against the authoritative outbox row when
+            present.  Not sufficient for queued callback correlation —
+            exact correlation uses outbox_id + attempt_number.
         outbox_id:
             Internal outbox item correlation key.  Propagated through
             the queue item into delayed callback records for exact

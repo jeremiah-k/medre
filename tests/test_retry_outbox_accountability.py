@@ -964,7 +964,7 @@ class TestUncorrelatedQueuedItems:
         assert "Queued in adapter-local queue" in item.reason_pending
         assert "callback correlation" in item.reason_pending
         # Should NOT mention delivery_plan_id since it exists.
-        assert "no delivery_plan_id" not in item.reason_pending
+        assert "missing delivery_plan_id" not in item.reason_pending
 
     def test_queued_with_plan_id_and_receipt_is_normal(self) -> None:
         """Queued item with both delivery_plan_id and receipt_id gets the
