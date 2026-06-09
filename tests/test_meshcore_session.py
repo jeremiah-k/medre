@@ -715,11 +715,9 @@ class TestMessageDelayPacing:
 
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await session.send_text("contact1", "test")
-            # Only possible sleep calls are retry backoffs (0.1, 0.2, …),
-            # none should be 0.0 from pacing (we skip the call entirely).
             for call in mock_sleep.call_args_list:
-                # Pacing with 0.0 should never happen — only backoff values.
-                assert call.args[0] != 0.0 or len(mock_sleep.call_args_list) == 0
+                # Pacing sleep(0.0) should never happen — only backoff values.
+                assert call.args[0] != 0.0
 
     async def test_sleep_duration_matches_config(self) -> None:
         """The exact configured delay value is passed to asyncio.sleep."""
