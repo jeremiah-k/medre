@@ -669,12 +669,9 @@ class MeshCoreSession:
         # Radio frequency (if present).
         freq = payload.get("freq") if "freq" in payload else payload.get("radio_freq")
         if isinstance(freq, (int, float)) and not isinstance(freq, bool):
-            try:
-                f = float(freq)
-                if math.isfinite(f) and f > 0.0:
-                    self._diag.radio_freq = f
-            except (ValueError, OverflowError):
-                pass
+            f = float(freq)
+            if math.isfinite(f) and f > 0.0:
+                self._diag.radio_freq = f
 
     async def _unsubscribe_all(self) -> None:
         """Unsubscribe all registered callbacks."""
@@ -861,7 +858,9 @@ class MeshCoreSession:
                             channel_index, text
                         )
                     else:
-                        result = await self._meshcore.commands.send_msg(contact_id, text)
+                        result = await self._meshcore.commands.send_msg(
+                            contact_id, text
+                        )
 
                     # Check for SDK-level error.
                     if hasattr(result, "is_error") and result.is_error():
@@ -937,4 +936,4 @@ class MeshCoreSession:
             self._diag.permanent_delivery_failures += 1
             raise MeshCoreSendError(
                 f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
-        ) from last_exc
+            ) from last_exc

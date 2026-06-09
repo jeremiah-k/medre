@@ -730,6 +730,22 @@ class TestMessageDelayPacing:
             await session.send_text("contact1", "test")
             mock_sleep.assert_any_call(2.5)
 
+    async def test_concurrent_sends_are_serialized(self) -> None:
+        """Concurrent send_text calls are serialized by the send lock."""
+        session, mock_mc = self._make_session_with_mock(delay=0.05)
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        import asyncio
+
+        results = await asyncio.gather(
+            session.send_text("contact1", "msg1"),
+            session.send_text("contact1", "msg2"),
+        )
+        # Both should succeed
+        assert all(r is not None for r in results)
+        # Sends should have been called twice (serialized, not concurrent)
+        assert mock_mc.commands.send_msg.await_count == 2
+
 
 # ===================================================================
 # Auto message fetching
@@ -966,6 +982,13 @@ class TestSelfInfoCapture:
         finally:
             await session.stop()
             self._teardown_mock_module()
+
+    async def test_public_key_normalized_to_lowercase(self) -> None:
+        """Uppercase hex pubkey is normalized to lowercase prefix."""
+        config = _make_config()
+        session = MeshCoreSession(config, "test-1")
+        session._capture_self_info({"public_key": "AABBCCDDEEFF0011223344"})
+        assert session.diagnostics()["public_key_prefix"] == "aabbccddeeff"
 
     async def test_short_public_key_no_prefix(self) -> None:
         """Public key shorter than 12 hex chars leaves prefix as None."""

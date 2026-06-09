@@ -25,6 +25,7 @@ Validation rules
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Literal, Self
@@ -116,6 +117,8 @@ class MeshCoreConfig:
                 f"connection_type must be one of fake/tcp/serial/ble, "
                 f"got {self.connection_type!r}"
             )
+        if not math.isfinite(self.message_delay_seconds):
+            raise MeshCoreConfigError("message_delay_seconds must be finite")
         if self.message_delay_seconds < 0:
             raise MeshCoreConfigError(
                 f"message_delay_seconds must be >= 0, "

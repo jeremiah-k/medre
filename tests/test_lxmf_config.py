@@ -146,6 +146,20 @@ class TestLxmfConfigStampCost:
         config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=32)
         assert config.validate().stamp_cost == 32
 
+    def test_bool_true_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=True)  # type: ignore[arg-type]
+        with pytest.raises(
+            LxmfConfigError, match="stamp_cost must be an integer, not a boolean"
+        ):
+            config.validate()
+
+    def test_bool_false_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=False)  # type: ignore[arg-type]
+        with pytest.raises(
+            LxmfConfigError, match="stamp_cost must be an integer, not a boolean"
+        ):
+            config.validate()
+
 
 class TestLxmfConfigInvalid:
     """Other invalid LxmfConfig cases."""

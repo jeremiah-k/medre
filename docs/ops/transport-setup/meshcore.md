@@ -92,7 +92,7 @@ config = MeshCoreConfig(
 ```
 
 - No `meshcore` package required.
-- `start()` sets `_client = None`. No network or serial activity.
+- `start()` sets `_meshcore = None`. No network or serial activity.
 - `deliver()` returns `None` (no real send).
 - `simulate_inbound()` is available for injecting test packets.
 - `health_check()` returns `"healthy"` after start.
@@ -254,7 +254,7 @@ Shutdown is idempotent. Start/stop cycles are safe.
 | `healthy` | Adapter started successfully                 |
 | `failed`  | Client exists but start did not complete     |
 
-No intermediate states. No `degraded` or `reconnecting` state.
+Intermediate state: reconnecting. The session enters a reconnecting state during exponential backoff after unexpected disconnects.
 
 ## Outbound Delivery
 
@@ -270,9 +270,9 @@ In fake mode, `deliver()` returns `None` — no real send occurs.
 1. **No Docker setup for MeshCore.** No containerized MeshCore node for Docker SDK-boundary tests.
 2. **BLE hardware validation pending.** BLE is implemented at session layer but not validated against real hardware.
 3. **Fire-and-forget delivery.** `sent` means local node acceptance. No remote receipt confirmation.
-4. **No auto-reconnect.** The adapter does not automatically reconnect on disconnect.
+4. **Auto-reconnect.** On unexpected disconnect, the session attempts bounded exponential backoff reconnection (1 s → 2 s → 4 s, capped at 30 s, max 10 attempts).
 5. **Contact-based sender resolution is scaffold.** `source_transport_id` carries the raw pubkey prefix.
-6. **message_delay_seconds is accepted but not enforced.** Reserved for future pacing.
+6. **message_delay_seconds is enforced.** Outbound sends are serialized with a lock and spaced by the configured delay.
 
 ## See Also
 

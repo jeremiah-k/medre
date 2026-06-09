@@ -115,6 +115,24 @@ class TestMeshCoreConfigInvalid:
         config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=0.0)
         assert config.validate() is config
 
+    def test_nan_message_delay_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", message_delay_seconds=float("nan")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
+    def test_inf_message_delay_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", message_delay_seconds=float("inf")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
     def test_negative_default_channel_raises(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1", default_channel=-1)
         with pytest.raises(MeshCoreConfigError, match="default_channel"):

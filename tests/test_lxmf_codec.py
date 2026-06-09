@@ -586,6 +586,46 @@ class TestEventRelationReconstruction:
         assert r1.target_native_ref is None
         assert r1.key == "🔥"
 
+    def test_native_channel_id_none_round_trip(self) -> None:
+        """Envelope with native_channel_id=None in target_native_ref round-trips,
+        preserving None (not empty string)."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+
+        original_relations = (
+            EventRelation(
+                relation_type="reply",
+                target_event_id="evt-no-chan",
+                target_native_ref=NativeRef(
+                    adapter="meshcore",
+                    native_channel_id=None,
+                    native_message_id="aabbccdd",
+                ),
+                key=None,
+                fallback_text=None,
+            ),
+        )
+
+        # Embed via LxmfFieldsHelper
+        fields = LxmfFieldsHelper.embed_envelope(
+            fields={},
+            event_id="evt-no-chan-trip",
+            relations=original_relations,
+            metadata={},
+            source_adapter="lxmf-1",
+        )
+
+        # Build packet with embedded fields
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+
+        # Verify native_channel_id is preserved as None
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.adapter == "meshcore"
+        assert rel.target_native_ref.native_channel_id is None
+        assert rel.target_native_ref.native_message_id == "aabbccdd"
+
 
 class TestEventRelationReconstructionEdgeCases:
     """Edge cases for EventRelation reconstruction from envelope."""

@@ -153,6 +153,8 @@ class LxmfConfig:
             raise LxmfConfigError(
                 f"default_channel must be >= 0, got {self.default_channel}"
             )
+        if isinstance(self.stamp_cost, bool):
+            raise LxmfConfigError("stamp_cost must be an integer, not a boolean")
         if self.stamp_cost < 0:
             raise LxmfConfigError(f"stamp_cost must be >= 0, got {self.stamp_cost}")
         if self.stamp_cost != 0 and not isinstance(self.stamp_cost, int):
