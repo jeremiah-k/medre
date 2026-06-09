@@ -251,9 +251,7 @@ class RenderingResult:
 
     def __post_init__(self) -> None:
         if self.attempt_number is not None and self.attempt_number < 1:
-            raise ValueError(
-                f"attempt_number must be >= 1, got {self.attempt_number}"
-            )
+            raise ValueError(f"attempt_number must be >= 1, got {self.attempt_number}")
 
 
 # ---------------------------------------------------------------------------

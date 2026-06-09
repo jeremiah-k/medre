@@ -1235,9 +1235,9 @@ class TestRecordTerminalAttemptNumber:
         receipts = await temp_storage.list_receipts_for_event(
             "evt-terminal-attempt",
         )
-        assert len(receipts) == 0, (
-            "Mismatched attempt_number must be rejected, not silently corrected"
-        )
+        assert (
+            len(receipts) == 0
+        ), "Mismatched attempt_number must be rejected, not silently corrected"
         assert "attempt_number" in caplog.text
 
         # Outbox must remain in_progress (not mutated by rejected callback).

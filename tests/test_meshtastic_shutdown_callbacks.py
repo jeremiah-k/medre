@@ -1056,4 +1056,3 @@ class TestStubbornCallbackTimeout:
         # The task should have completed (CancelledError propagated
         # through the sleep), and the done callback observed it.
         assert task.done()
-
