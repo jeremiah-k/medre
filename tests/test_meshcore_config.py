@@ -175,11 +175,6 @@ class TestMeshCoreConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_value_error(self) -> None:
-        config = MeshCoreConfig(adapter_id="")
-        with pytest.raises(ValueError):
-            config.validate()
-
 
 class TestMeshCoreConfigMaxTextBytes:
     """max_text_bytes validation: type, range, and edge cases."""

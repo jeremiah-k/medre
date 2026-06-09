@@ -481,6 +481,14 @@ class LxmfSession:
         When the tracking dict exceeds ``_MAX_OUTBOUND_DELIVERIES``,
         the oldest entry (by insertion order) is evicted.
         """
+        # Compact stale insert-order entries if list is much larger than dict.
+        if len(self._delivery_insert_order) > (
+            len(self._outbound_deliveries) * 2 + _MAX_OUTBOUND_DELIVERIES
+        ):
+            self._delivery_insert_order = [
+                k for k in self._delivery_insert_order if k in self._outbound_deliveries
+            ]
+
         if len(self._outbound_deliveries) >= _MAX_OUTBOUND_DELIVERIES:
             # Evict oldest entries to stay under the cap.
             evict_count = max(

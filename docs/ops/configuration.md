@@ -226,22 +226,24 @@ default_channel = 0
 message_delay_seconds = 0.5
 metadata_embedding = true
 identity_path = "{state}/lxmf/identity"
+# storage_path = "{state}/lxmf/router"  # required for reticulum mode
 ```
 
-| Field                     | Type   | Default       | Description                                                  |
-| ------------------------- | ------ | ------------- | ------------------------------------------------------------ |
-| `enabled`                 | bool   | `true`        | Active status.                                               |
-| `adapter_kind`            | string | `"real"`      | `"real"` or `"fake"`.                                        |
-| `adapter_id`              | string | instance name | Unique identifier.                                           |
-| `connection_type`         | string | `"fake"`      | `fake` or `reticulum`.                                       |
-| `display_name`            | string | `""`          | Display name for LXMF announces.                             |
-| `stamp_cost`              | int    | `8`           | Stamp cost. `0` means no stamp required.                     |
-| `default_delivery_method` | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.         |
-| `meshnet_name`            | string | `""`          | Informational.                                               |
-| `default_channel`         | int    | `0`           | Default outbound channel.                                    |
-| `message_delay_seconds`   | float  | `0.5`         | Pacing.                                                      |
-| `metadata_embedding`      | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.              |
-| `identity_path`           | string | `None`        | Path to Reticulum identity file. Supports path placeholders. |
+| Field                     | Type   | Default       | Description                                                                                        |
+| ------------------------- | ------ | ------------- | -------------------------------------------------------------------------------------------------- |
+| `enabled`                 | bool   | `true`        | Active status.                                                                                     |
+| `adapter_kind`            | string | `"real"`      | `"real"` or `"fake"`.                                                                              |
+| `adapter_id`              | string | instance name | Unique identifier.                                                                                 |
+| `connection_type`         | string | `"fake"`      | `fake` or `reticulum`.                                                                             |
+| `display_name`            | string | `""`          | Display name for LXMF announces.                                                                   |
+| `stamp_cost`              | int    | `8`           | Stamp cost. `0` means no stamp required.                                                           |
+| `default_delivery_method` | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.                                               |
+| `meshnet_name`            | string | `""`          | Informational.                                                                                     |
+| `default_channel`         | int    | `0`           | Default outbound channel.                                                                          |
+| `message_delay_seconds`   | float  | `0.5`         | Pacing.                                                                                            |
+| `metadata_embedding`      | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.                                                    |
+| `identity_path`           | string | `None`        | Path to Reticulum identity file. Supports path placeholders.                                       |
+| `storage_path`            | string | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders. |
 
 ### `[routes.ROUTE_ID]`
 

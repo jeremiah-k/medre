@@ -155,12 +155,13 @@ class LxmfConfig:
             )
         if isinstance(self.stamp_cost, bool):
             raise LxmfConfigError("stamp_cost must be an integer, not a boolean")
-        if self.stamp_cost < 0:
-            raise LxmfConfigError(f"stamp_cost must be >= 0, got {self.stamp_cost}")
-        if self.stamp_cost != 0 and not isinstance(self.stamp_cost, int):
+        if not isinstance(self.stamp_cost, int):
             raise LxmfConfigError(
-                f"stamp_cost must be an integer, "
-                f"got {type(self.stamp_cost).__name__}"
+                f"stamp_cost must be an integer, got {type(self.stamp_cost).__name__}"
+            )
+        if self.stamp_cost < 0:
+            raise LxmfConfigError(
+                f"stamp_cost must be non-negative, got {self.stamp_cost}"
             )
 
         # --- identity_path ---

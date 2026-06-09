@@ -540,7 +540,8 @@ class MeshCoreSession:
 
         # Connection succeeded — now subscribe to events.
         # If subscription fails, clean up the client before propagating.
-        self._diag.reconnect_attempts = 0
+        if not self._diag.reconnecting:
+            self._diag.reconnect_attempts = 0
         try:
             self._subscribe_events(mc)
         except Exception as exc:

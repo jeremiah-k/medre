@@ -187,8 +187,8 @@ the value was received but MEDRE has no mapping for it. This is not
 
 | File                                      | Lines | Status                                                           |
 | ----------------------------------------- | ----- | ---------------------------------------------------------------- |
-| `tests/test_meshcore_session.py`          | 329   | Refactored (1481 to 329; startup/recovery moved out)             |
-| `tests/test_meshcore_session_startup.py`  | 623   | New (startup lifecycle)                                          |
+| `tests/test_meshcore_session.py`          | 1008  | Refactored (startup/recovery moved out)                          |
+| `tests/test_meshcore_session_startup.py`  | 725   | New (startup lifecycle)                                          |
 | `tests/test_meshcore_session_recovery.py` | 756   | New (reconnection recovery)                                      |
 | `tests/helpers/meshcore_session.py`       | 81    | New (shared test fixtures)                                       |
 | `tests/test_meshcore_adapter.py`          | 1004  | Modified (+60 lines: appstart, metadata namespace, expected_ack) |

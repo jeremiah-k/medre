@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from medre.adapters.lxmf.errors import LxmfCodecError
@@ -41,7 +41,7 @@ class LxmfCodec(AdapterCodec):
         The :class:`~medre/config/adapters/lxmf.LxmfConfig`.
     clock:
         Callable returning the current UTC datetime.  Defaults to
-        ``lambda: datetime.now(UTC)``.  Override in tests for
+        ``lambda: datetime.now(timezone.utc)``.  Override in tests for
         deterministic timestamps.
     """
 
@@ -56,7 +56,7 @@ class LxmfCodec(AdapterCodec):
         self._classifier = LxmfPacketClassifier(config)
         self._logger = logging.getLogger(f"medre.adapters.lxmf.codec.{adapter_id}")
         self._clock: Callable[[], datetime] = (
-            clock if clock is not None else (lambda: datetime.now(UTC))
+            clock if clock is not None else (lambda: datetime.now(timezone.utc))
         )
 
     def _reconstruct_relations(self, envelope: dict) -> list[EventRelation]:
