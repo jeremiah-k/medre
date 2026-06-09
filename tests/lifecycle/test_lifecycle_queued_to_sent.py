@@ -86,7 +86,7 @@ class TestAppendQueuedToSentReceipt:
 
 
 # ===================================================================
-# Same-channel retry lineage regression
+# Same-channel retry lineage regression (outbox_id-based correlation)
 # ===================================================================
 
 
@@ -96,7 +96,7 @@ class TestSameChannelRetryLineageRegression:
 
     These tests verify that ``append_queued_to_sent_receipt`` correctly
     resolves unambiguous same-channel retry lineages and correctly
-    rejects cross-channel ambiguity for the deterministic plan_id path.
+    rejects cross-channel ambiguity for the exact outbox_id + attempt_number path.
     """
 
     async def test_plan_id_no_channel_same_plan_same_channel_multiple_attempts(
@@ -400,6 +400,8 @@ class TestAppendQueuedToSentErrorPaths:
                 record=record,
                 now=datetime.now(timezone.utc),
             )
+        # Verify the error was actually logged.
+        assert "outbox write fail" in caplog.text
 
 
 # ===================================================================

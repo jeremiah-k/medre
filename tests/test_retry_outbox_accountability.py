@@ -914,9 +914,8 @@ class TestUncorrelatedQueuedItems:
         item = summary.items[0]
         assert item.status == "queued"
         assert item.reason_pending is not None
-        assert "awaiting adapter callback" in item.reason_pending
-        assert "no outbox_id" in item.reason_pending
-        assert "no receipt linkage" in item.reason_pending
+        assert "missing delivery_plan_id" in item.reason_pending
+        assert "degraded plan metadata" in item.reason_pending
         assert "stale-grace reclaim" in item.reason_pending
 
     def test_queued_no_plan_id_with_receipt(self) -> None:
@@ -962,7 +961,8 @@ class TestUncorrelatedQueuedItems:
         )
         item = summary.items[0]
         assert item.reason_pending is not None
-        assert "without receipt linkage" in item.reason_pending
+        assert "Queued in adapter-local queue" in item.reason_pending
+        assert "callback correlation" in item.reason_pending
         # Should NOT mention delivery_plan_id since it exists.
         assert "no delivery_plan_id" not in item.reason_pending
 
@@ -1018,4 +1018,4 @@ class TestUncorrelatedQueuedItems:
         serialized = json.dumps(asdict(summary))
         parsed = json.loads(serialized)
         assert parsed["items"][0]["reason_pending"] is not None
-        assert "awaiting adapter callback" in parsed["items"][0]["reason_pending"]
+        assert "degraded plan metadata" in parsed["items"][0]["reason_pending"]

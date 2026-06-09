@@ -203,7 +203,7 @@ class TestDeliveryLifecycleConformance:
 
     @pytest.mark.asyncio
     async def test_queued_to_sent_supplemental_receipt(self, storage, lifecycle):
-        """Queued -> sent supplemental receipt correlates by delivery_plan_id."""
+        """Queued -> sent supplemental receipt correlates by outbox_id and attempt_number."""
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
         now = datetime(2025, 1, 1, tzinfo=timezone.utc)

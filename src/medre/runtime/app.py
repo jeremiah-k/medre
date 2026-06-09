@@ -1594,6 +1594,16 @@ class MedreApp:
         now = datetime.now(tz=timezone.utc)
         persisted_count = 0
         for inflight in abandoned:
+            # Preserve the real attempt_number from the outbox row when
+            # available, so drain-abandoned receipts maintain retry lineage.
+            attempt_number = 1
+            if inflight.outbox_id is not None and self.storage is not None:
+                try:
+                    item = await self.storage.get_outbox_item(inflight.outbox_id)
+                except Exception:
+                    item = None
+                if item is not None:
+                    attempt_number = item.attempt_number
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=f"rcpt-{uuid.uuid4()}",
@@ -1607,7 +1617,7 @@ class MedreApp:
                 failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
                 next_retry_at=None,
                 created_at=now,
-                attempt_number=1,
+                attempt_number=attempt_number,
                 parent_receipt_id=None,
                 source=inflight.source,
                 replay_run_id=inflight.replay_run_id,

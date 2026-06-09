@@ -620,6 +620,7 @@ class DeliveryReceipt:
     retry_max_delay: float | None = None   # Persisted retry policy: max delay
     retry_jitter: bool | None = None       # Persisted retry policy: jitter enabled
     rendering_evidence: str | None = None  # Structured rendering evidence for this attempt
+    outbox_id: str | None = None           # Internal correlation key — not wire metadata (see § 8.5.3)
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -666,6 +667,7 @@ CREATE TABLE delivery_receipts (
     retry_max_delay REAL,
     retry_jitter INTEGER,
     rendering_evidence TEXT,
+    outbox_id TEXT,                         -- Internal correlation key (see § 8.5.3)
     created_at TEXT NOT NULL
 );
 ```
@@ -727,7 +729,7 @@ The correlation algorithm in `append_queued_to_sent_receipt`:
 2. **Missing `attempt_number`** — hard reject. Same behavior as missing `outbox_id`.
 3. **Outbox row lookup** — the service loads the outbox item by `outbox_id`. If not found or already terminal, the callback is rejected as stale.
 4. **Field validation** — `event_id`, `adapter`, `delivery_plan_id` (when present), `native_channel_id` (when present), and `attempt_number` are validated against the outbox row. Any mismatch rejects the callback.
-5. **Exact receipt selection** — the queued receipt is selected by `receipt.outbox_id == record.outbox_id`. No plan-id-only or heuristic fallback exists.
+5. **Exact receipt selection** — the queued receipt is selected by `receipt.outbox_id == record.outbox_id` **and** `receipt.attempt_number == record.attempt_number`. The two-key match preserves the stale-safe invariant end-to-end. No plan-id-only or heuristic fallback exists.
 6. **Supplemental receipt** — if all validations pass, exactly one `sent` receipt is appended and the validated outbox row is transitioned to `sent`.
 
 #### 8.5.2 Invariant: Exact Outbox Correlation

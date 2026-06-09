@@ -150,6 +150,7 @@ def _derive_reason_pending(
     source: str = "outbox",
     delivery_plan_id: str | None = None,
     receipt_id: str | None = None,
+    outbox_id: str | None = None,
 ) -> str | None:
     """Derive a human-readable explanation for why work is still pending.
 
@@ -196,22 +197,25 @@ def _derive_reason_pending(
             return f"Claimed by worker {worker_id}"
         return "In progress"
     if status == "queued":
+        has_outbox_id = bool(outbox_id)
         has_plan_id = bool(delivery_plan_id)
         has_receipt = bool(receipt_id)
-        if not has_plan_id and not has_receipt:
+        if not has_outbox_id and not has_receipt:
             return (
-                "Queued, awaiting adapter callback (no outbox_id, no receipt linkage) "
-                "— awaiting stale-grace reclaim or adapter callback correlation"
+                "Queued without queued receipt linkage "
+                "— awaiting stale-grace reclaim or exact "
+                "outbox_id + attempt_number callback correlation"
             )
         if not has_plan_id:
             return (
                 "Queued with degraded plan metadata (missing delivery_plan_id) "
-                "— awaiting stale-grace reclaim or adapter callback correlation"
+                "— awaiting stale-grace reclaim or exact "
+                "outbox_id + attempt_number callback correlation"
             )
         if not has_receipt:
             return (
-                "Queued without receipt linkage "
-                "(awaiting stale-grace reclaim or exact adapter callback)"
+                "Queued in adapter-local queue "
+                "— awaiting outbox_id + attempt_number callback correlation"
             )
         return "Queued in adapter-local queue"
     # terminal — no reason needed
@@ -268,6 +272,7 @@ def _build_outbox_item_summary(item: Any) -> RetryOutboxItemSummary:
             source="outbox",
             delivery_plan_id=_get(item, "delivery_plan_id"),
             receipt_id=_get(item, "receipt_id"),
+            outbox_id=_get(item, "outbox_id"),
         ),
     )
 
@@ -314,6 +319,7 @@ def _build_receipt_only_summary(receipt: Any) -> RetryOutboxItemSummary:
             source="receipt",
             delivery_plan_id=_get(receipt, "delivery_plan_id"),
             receipt_id=_get(receipt, "receipt_id"),
+            outbox_id=None,
         ),
     )
 

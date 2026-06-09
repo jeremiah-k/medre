@@ -827,18 +827,19 @@ class MeshtasticAdapter(AdapterContract):
     # -- Background task management -----------------------------------------
 
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
-        """Cancel and await all tracked background tasks and inbound futures.
+        """Drain inbound futures and await tracked background tasks.
 
         First drains ``concurrent.futures.Future`` instances submitted by
         :meth:`_on_packet` via ``run_coroutine_threadsafe`` — cancelling
         any that haven't started yet and suppressing results from those
-        still in flight.  Then cancels and awaits tracked
-        :class:`asyncio.Task` instances.
+        still in flight.  Then awaits tracked :class:`asyncio.Task`
+        instances without cancelling them so that critical callbacks
+        (terminal / native-ref) can complete before shutdown.
 
         Parameters
         ----------
         timeout:
-            Maximum seconds to wait for tasks to finish after cancellation.
+            Maximum seconds to wait for tasks to finish.
         """
         # --- Drain inbound futures (run_coroutine_threadsafe) ---
         # Cancel any that haven't started; suppress results from the rest.
@@ -847,8 +848,8 @@ class MeshtasticAdapter(AdapterContract):
         self._inbound_futures.clear()
 
         # --- Drain asyncio background tasks ---
-        for task in list(self._background_tasks):
-            task.cancel()
+        # These are critical callback tasks (terminal / native-ref) that
+        # must complete before shutdown.  Do NOT cancel them — just await.
         if self._background_tasks:
             try:
                 await asyncio.wait_for(
@@ -935,10 +936,17 @@ class MeshtasticAdapter(AdapterContract):
                     if isinstance(result, QueueTerminalResult):
                         # Shield the terminal callback so stop() cancelling
                         # _drain_task cannot abort the report for an item
-                        # already dequeued from the queue.
+                        # already dequeued from the queue.  The inner task
+                        # is tracked so that stop()/_drain_background_tasks
+                        # can await it if the drain task is cancelled mid-callback.
+                        cb_task = asyncio.ensure_future(
+                            self._report_queue_terminal(result)
+                        )
                         try:
-                            await asyncio.shield(self._report_queue_terminal(result))
+                            await asyncio.shield(cb_task)
                         except asyncio.CancelledError:
+                            self._background_tasks.add(cb_task)
+                            cb_task.add_done_callback(self._background_tasks.discard)
                             raise
                         continue
 
@@ -954,14 +962,21 @@ class MeshtasticAdapter(AdapterContract):
                     ):
                         try:
                             # Shield the native-ref callback for the same
-                            # reason as _report_queue_terminal above.
-                            try:
-                                await asyncio.shield(
-                                    self._record_delayed_outbound_ref(
-                                        result, event_id, delivery
-                                    )
+                            # reason as _report_queue_terminal above.  The
+                            # inner task is tracked so that stop() can drain
+                            # it even if the drain task is cancelled mid-callback.
+                            cb_task = asyncio.ensure_future(
+                                self._record_delayed_outbound_ref(
+                                    result, event_id, delivery
                                 )
+                            )
+                            try:
+                                await asyncio.shield(cb_task)
                             except asyncio.CancelledError:
+                                self._background_tasks.add(cb_task)
+                                cb_task.add_done_callback(
+                                    self._background_tasks.discard
+                                )
                                 raise
                         except Exception:
                             if self.ctx is not None:

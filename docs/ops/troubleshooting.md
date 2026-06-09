@@ -618,9 +618,9 @@ WHERE delivery_plan_id = '<plan_id>';
 
 ### "Uncorrelated queued outbox items"
 
-**Symptom:** The retry/outbox summary shows queued items with reason `"Queued, awaiting adapter callback (no outbox_id, no receipt linkage)"`.
+**Symptom:** The retry/outbox summary shows queued items with reason `"Queued without queued receipt linkage"` (outbox row has no `outbox_id` and no receipt) or `"Queued with degraded plan metadata (missing delivery_plan_id)"` (outbox row has an `outbox_id` but no delivery plan metadata).
 
-**Cause:** The adapter callback has not yet supplied `outbox_id + attempt_number` linkage for the queued item.
+**Cause:** The adapter callback has not yet supplied `outbox_id + attempt_number` linkage for the queued item, or the queued row lacks delivery plan metadata.
 
 **Fix:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, check that the adapter is properly propagating `outbox_id` and `attempt_number` through its queue processing.
 

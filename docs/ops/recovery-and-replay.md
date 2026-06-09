@@ -778,14 +778,27 @@ When only replay-sourced queued receipts are available, the pipeline skips corre
 
 ### Uncorrelated Queued Outbox Items
 
-When a queued outbox item has no `outbox_id` correlation and no receipt linkage, the reason-pending derivation flags it as awaiting adapter callback. The evidence output includes:
+When a queued outbox item has no receipt linkage, the reason-pending derivation flags it as awaiting callback correlation. The evidence output depends on what metadata is present:
+
+- No `outbox_id` and no receipt linkage:
 
 ```text
-Queued, awaiting adapter callback (no outbox_id, no receipt linkage)
--- awaiting stale-grace reclaim or adapter callback correlation
+Queued without queued receipt linkage — awaiting stale-grace reclaim or exact outbox_id + attempt_number callback correlation
 ```
 
-Operators seeing this message should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
+- `outbox_id` present but missing `delivery_plan_id`:
+
+```text
+Queued with degraded plan metadata (missing delivery_plan_id) — awaiting stale-grace reclaim or exact outbox_id + attempt_number callback correlation
+```
+
+- `outbox_id` and `delivery_plan_id` present but no receipt:
+
+```text
+Queued in adapter-local queue — awaiting outbox_id + attempt_number callback correlation
+```
+
+Operators seeing these messages should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
 
 ### Replay Does Not Mutate Live Recovery State
 
