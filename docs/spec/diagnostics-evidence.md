@@ -597,7 +597,7 @@ The `outbox_id` field is the primary correlation key for exact receipt selection
 1. `RenderingResult.outbox_id` / `attempt_number` — stamped by `TargetDeliveryService` before adapter delivery.
 2. `OutboundNativeRefRecord.outbox_id` / `attempt_number` — populated by adapter queue processing at send-confirmation time.
 
-Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` are hard-rejected (no heuristic fallback).
+Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no heuristic fallback).
 
 `delivery_plan_id` is a validation field, not the correlation selector. When the callback carries `delivery_plan_id`, the lifecycle service validates it against the outbox item's `delivery_plan_id` to detect mismatched or corrupted callbacks. It does NOT use `delivery_plan_id` for receipt selection.
 
@@ -610,7 +610,6 @@ When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt(
 | Supplemental `sent` receipt        | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
 | No supplemental receipt created    | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
 | Replay-only skip warning           | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                                |
-| Ambiguity warning                  | `append_queued_to_sent_receipt` | Multiple queued items match the outbox_id but cross-plan or cross-channel ambiguity prevents deterministic selection; logged as warning, no receipt          |
 | Missing outbox_id on callback      | `append_queued_to_sent_receipt` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
 | Missing attempt_number on callback | `append_queued_to_sent_receipt` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
 | Delivery-plan metadata absent      | `append_queued_to_sent_receipt` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |

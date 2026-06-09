@@ -290,8 +290,9 @@ class TestCallbackExceptionLogged:
         # Release the failing callback.
         allow_callback_finish.set()
 
-        # _drain_background_tasks gathers with return_exceptions=True, so
-        # the exception is retrieved (not "never retrieved").
+        # _drain_background_tasks observes completed tasks and detaches
+        # still-pending ones, so the exception is retrieved (not "never
+        # retrieved").
         await adapter._drain_background_tasks(timeout=5.0)
 
         # All tasks cleaned up.

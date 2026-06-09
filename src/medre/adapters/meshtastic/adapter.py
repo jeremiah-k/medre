@@ -899,18 +899,21 @@ class MeshtasticAdapter(AdapterContract):
         :meth:`_on_packet` via ``run_coroutine_threadsafe`` — cancelling
         any that haven't started yet and suppressing results from those
         still in flight.  Then awaits tracked :class:`asyncio.Task`
-        instances without cancelling them so that critical callbacks
-        (terminal / native-ref) can complete before shutdown.
+        instances (terminal / native-ref callbacks) with a bounded timeout.
 
-        Uses ``asyncio.wait`` instead of ``asyncio.wait_for(gather())``
-        so that timeout does not cancel the child tasks.  When timeout
-        fires, pending tasks are explicitly cancelled and awaited with
-        ``return_exceptions=True`` to prevent unobserved exceptions.
+        Completed tasks have their exceptions observed and logged.  If any
+        tasks are still pending after the timeout, they are explicitly
+        cancelled and given a second bounded timeout to finish.  Tasks
+        that suppress ``CancelledError`` and remain pending after the
+        second timeout are detached with a done-callback observer so their
+        exceptions are still logged if/when they eventually finish.  No
+        callback exception is intentionally left unobserved.
 
         Parameters
         ----------
         timeout:
-            Maximum seconds to wait for tasks to finish.
+            Maximum seconds to wait for tasks to finish in each phase
+            (initial drain and post-cancel drain).
         """
         # --- Drain inbound futures (run_coroutine_threadsafe) ---
         # Cancel any that haven't started; suppress results from the rest.
@@ -919,10 +922,10 @@ class MeshtasticAdapter(AdapterContract):
         self._inbound_futures.clear()
 
         # --- Drain asyncio background tasks ---
-        # These are critical callback tasks (terminal / native-ref) that
-        # must complete before shutdown.  We do NOT cancel them on timeout
-        # unless they are still pending — only pending tasks are cancelled
-        # so that the shutdown can progress.
+        # Critical callback tasks (terminal / native-ref) are given a
+        # bounded timeout to complete.  Completed tasks have exceptions
+        # observed; pending tasks are cancelled and given a second
+        # timeout.  Still-pending tasks are detached with an observer.
         if self._background_tasks:
             _done, _pending = await asyncio.wait(
                 self._background_tasks,
@@ -1047,7 +1050,7 @@ class MeshtasticAdapter(AdapterContract):
         local queued items remain in memory for next start and the durable
         outbox remains queued/stale-recoverable.
 
-        See :meth:`_report_and_drain_on_cancel` for the drain-on-cancel
+        See :meth:`_report_cancelled_and_drain` for the drain-on-cancel
         implementation.
         """
         try:
@@ -1205,7 +1208,19 @@ class MeshtasticAdapter(AdapterContract):
                     error="queue drain task cancelled while item was in-flight",
                 )
                 try:
-                    await callback(record)
+                    cb_task = asyncio.ensure_future(callback(record))
+                    try:
+                        await asyncio.shield(cb_task)
+                    except asyncio.CancelledError:
+                        # stop() is cancelling us — observe the shielded
+                        # task so its exception (if any) is not lost, then
+                        # re-raise so shutdown can progress.
+                        self._observe_callback_task(
+                            cb_task,
+                            "cancelled",
+                            record.event_id,
+                        )
+                        raise
                 except Exception:
                     if self.ctx is not None:
                         self.ctx.logger.exception(
@@ -1235,7 +1250,16 @@ class MeshtasticAdapter(AdapterContract):
                         error="adapter shutdown with unsent queued items",
                     )
                     try:
-                        await callback(record)
+                        cb_task = asyncio.ensure_future(callback(record))
+                        try:
+                            await asyncio.shield(cb_task)
+                        except asyncio.CancelledError:
+                            self._observe_callback_task(
+                                cb_task,
+                                "abandoned",
+                                record.event_id,
+                            )
+                            raise
                     except Exception:
                         if self.ctx is not None:
                             self.ctx.logger.exception(

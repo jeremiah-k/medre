@@ -424,6 +424,16 @@ class TestCapabilityFieldsRoundtrip:
         )
         assert ctx.plan.deadline is None
 
+    def test_timezone_naive_deadline_ignored(self) -> None:
+        """Timezone-naive ISO deadline falls back to None."""
+        item = _make_outbox(metadata={"deadline": "2026-12-31T23:59:59"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.deadline is None
+
     def test_fallback_chain_still_empty(self) -> None:
         """Fallback chains are not persisted and cannot be recovered."""
         item = _make_outbox()
