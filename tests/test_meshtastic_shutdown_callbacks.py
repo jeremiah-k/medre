@@ -1048,11 +1048,39 @@ class TestStubbornCallbackTimeout:
         await adapter._drain_background_tasks(timeout=0.01)
         assert task not in adapter._background_tasks
 
-        # The task is still pending.  Cancel it so it completes —
-        # this simulates the process exiting or a hard kill.
-        task.cancel()
-        await asyncio.sleep(0.2)
+        # Install a loop exception handler to catch any
+        # "Task exception was never retrieved" context.
+        _contexts: list[Exception] = []
 
-        # The task should have completed (CancelledError propagated
-        # through the sleep), and the done callback observed it.
-        assert task.done()
+        def _capture_exception(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+            _contexts.append(context.get("exception", RuntimeError(context["message"])))
+
+        loop = asyncio.get_event_loop()
+        old_handler = loop.get_exception_handler()
+        loop.set_exception_handler(_capture_exception)
+        try:
+            # The task is still pending.  Cancel it so it completes —
+            # this simulates the process exiting or a hard kill.
+            task.cancel()
+            await asyncio.sleep(0.2)
+
+            # The task should have completed (CancelledError propagated
+            # through the sleep), and the done callback observed it.
+            assert task.done()
+
+            # Verify no "Task exception was never retrieved" was emitted.
+            unretrieved = [
+                c
+                for c in _contexts
+                if "Task exception was never retrieved"
+                in str(getattr(c, "message", ""))
+                or "was never retrieved" in str(c)
+            ]
+            assert (
+                not unretrieved
+            ), f"Unexpected 'Task exception was never retrieved': {unretrieved}"
+        finally:
+            if old_handler is not None:
+                loop.set_exception_handler(old_handler)
+            else:
+                loop.set_exception_handler(None)  # type: ignore[arg-type]

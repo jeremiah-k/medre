@@ -1046,6 +1046,9 @@ class MeshtasticAdapter(AdapterContract):
         If no in-flight item existed when stop cancelled the drain task,
         local queued items remain in memory for next start and the durable
         outbox remains queued/stale-recoverable.
+
+        See :meth:`_report_and_drain_on_cancel` for the drain-on-cancel
+        implementation.
         """
         try:
             while self._started:

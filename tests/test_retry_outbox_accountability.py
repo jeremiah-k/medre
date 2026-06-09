@@ -885,14 +885,14 @@ class TestMixedScenario:
 
 
 class TestUncorrelatedQueuedItems:
-    """Queued items lacking delivery_plan_id or receipt linkage get explicit
-    operator-visible pending/recovery reasons.
+    """Queued items without receipt linkage get explicit operator-visible
+    pending/recovery reasons.
 
     Uncorrelated queued item visibility: operator visibility for queued outbox
-    items that cannot be correlated because callback/native ref lacked
-    outbox_id or receipt linkage.  Missing delivery_plan_id is degraded
-    plan metadata only — outbox_id + attempt_number are the correlation
-    authority.
+    items that cannot be correlated because they lack receipt linkage
+    (outbox_id + attempt_number callback not yet received).  Missing
+    delivery_plan_id is degraded plan metadata only — outbox_id +
+    attempt_number are the correlation authority, not delivery_plan_id.
     """
 
     def test_queued_no_plan_id_no_receipt(self) -> None:

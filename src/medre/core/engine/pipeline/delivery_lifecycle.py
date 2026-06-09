@@ -568,9 +568,10 @@ class DeliveryLifecycleService:
         - The outbox item's ``attempt_number`` must match the queued
           receipt's ``attempt_number``.  A mismatch indicates a stale
           callback from a prior attempt.
-        - The queued receipt is found by matching the outbox item's
-          ``delivery_plan_id``, ``target_adapter``, and ``target_channel``
-          among queued receipts.
+        - The queued receipt is found by exact ``outbox_id`` match among
+          queued receipts after the outbox row has been validated.
+          ``delivery_plan_id`` and ``native_channel_id`` are validation
+          metadata only.
 
         Callbacks without ``outbox_id`` are hard-rejected — there is no
         ``delivery_plan_id``-only fallback.  All queue-based adapters
