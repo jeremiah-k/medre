@@ -9,6 +9,7 @@ intentionally absent (not guessed).
 from __future__ import annotations
 
 import datetime
+import logging
 
 import pytest
 
@@ -275,27 +276,137 @@ class TestMissingReceiptDefaults:
         assert ctx.retry_policy.jitter is False
 
 
-class TestCapabilityFieldsUnreconstructed:
-    """Capability fields are intentionally None; strategy is always direct."""
+class TestCapabilityFieldsRoundtrip:
+    """Capability and strategy fields are recovered from outbox metadata."""
 
-    def test_capability_fields_are_none(self) -> None:
-        """Capability decisions are not persisted, so reconstruction cannot
-        recover them.  This is documented intentional behavior."""
-        item = _make_outbox()
-        receipt = _make_receipt()
+    def test_capability_level_recovered(self) -> None:
+        """capability_level persisted in metadata is recovered on reconstruction."""
+        item = _make_outbox(
+            metadata={
+                "capability_level": "fallback",
+                "delivery_strategy": "fallback_text",
+            }
+        )
         ctx = reconstruct_retry_delivery_plan(
             item=item,
-            previous_receipt=receipt,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_level == "fallback"
+
+    def test_invalid_capability_level_falls_back_to_none(self) -> None:
+        """Invalid capability_level in metadata degrades to None."""
+        item = _make_outbox(metadata={"capability_level": "bogus"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_level is None
+
+    def test_invalid_capability_level_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Invalid capability_level produces a warning log with context."""
+        item = _make_outbox(
+            metadata={"capability_level": "partial"},
+        )
+        with caplog.at_level(logging.WARNING):
+            ctx = reconstruct_retry_delivery_plan(
+                item=item,
+                previous_receipt=None,
+                default_max_attempts=3,
+            )
+        assert ctx.plan.capability_level is None
+        assert "Invalid capability_level" in caplog.text
+        assert "partial" in caplog.text
+        assert "ob-1" in caplog.text
+
+    def test_valid_capability_levels_pass_through(self) -> None:
+        """Each valid capability_level value passes validation unchanged."""
+        for level in ("native", "fallback", "unsupported"):
+            item = _make_outbox(metadata={"capability_level": level})
+            ctx = reconstruct_retry_delivery_plan(
+                item=item,
+                previous_receipt=None,
+                default_max_attempts=3,
+            )
+            assert ctx.plan.capability_level == level
+
+    def test_capability_field_recovered(self) -> None:
+        """capability_field persisted in metadata is recovered on reconstruction."""
+        item = _make_outbox(metadata={"capability_field": "reactions"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_field == "reactions"
+
+    def test_capability_reason_recovered(self) -> None:
+        """capability_reason persisted in metadata is recovered on reconstruction."""
+        item = _make_outbox(
+            metadata={"capability_reason": "reactions unsupported by adapter"}
+        )
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_reason == "reactions unsupported by adapter"
+
+    def test_delivery_strategy_recovered(self) -> None:
+        """delivery_strategy persisted in metadata is recovered on reconstruction."""
+        item = _make_outbox(metadata={"delivery_strategy": "fallback_text"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.primary_strategy == DeliveryStrategy(method="fallback_text")
+
+    def test_deadline_recovered(self) -> None:
+        """deadline persisted as ISO string is recovered on reconstruction."""
+        deadline_str = "2026-12-31T23:59:59+00:00"
+        item = _make_outbox(metadata={"deadline": deadline_str})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.deadline is not None
+        assert ctx.plan.deadline.isoformat() == deadline_str
+
+    def test_all_none_when_no_metadata(self) -> None:
+        """Legacy outbox rows without route-decision metadata degrade gracefully."""
+        item = _make_outbox(metadata=None)
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
             default_max_attempts=3,
         )
         assert ctx.plan.capability_level is None
         assert ctx.plan.capability_field is None
         assert ctx.plan.capability_reason is None
+        assert ctx.plan.deadline is None
+        # Default strategy is "direct" when metadata is absent.
+        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
 
-    def test_strategy_is_direct(self) -> None:
-        """The original strategy is not persisted; retry always uses direct
-        delivery — the standard rendering/adapter path."""
-        item = _make_outbox()
+    def test_all_none_when_metadata_empty_dict(self) -> None:
+        """Empty metadata dict degrades gracefully to defaults."""
+        item = _make_outbox(metadata={})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.capability_level is None
+        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
+
+    def test_unknown_strategy_ignored(self) -> None:
+        """Unknown delivery_strategy values fall back to 'direct'."""
+        item = _make_outbox(metadata={"delivery_strategy": "unknown_method"})
         ctx = reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,
@@ -303,7 +414,27 @@ class TestCapabilityFieldsUnreconstructed:
         )
         assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
 
-    def test_fallback_chain_is_empty(self) -> None:
+    def test_invalid_deadline_ignored(self) -> None:
+        """Invalid deadline string falls back to None."""
+        item = _make_outbox(metadata={"deadline": "not-a-date"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.deadline is None
+
+    def test_timezone_naive_deadline_ignored(self) -> None:
+        """Timezone-naive ISO deadline falls back to None."""
+        item = _make_outbox(metadata={"deadline": "2026-12-31T23:59:59"})
+        ctx = reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+        assert ctx.plan.deadline is None
+
+    def test_fallback_chain_still_empty(self) -> None:
         """Fallback chains are not persisted and cannot be recovered."""
         item = _make_outbox()
         ctx = reconstruct_retry_delivery_plan(
@@ -313,14 +444,36 @@ class TestCapabilityFieldsUnreconstructed:
         )
         assert ctx.plan.fallback_chain == []
 
-    def test_deadline_is_none(self) -> None:
-        """Deadline is not persisted and cannot be recovered."""
-        item = _make_outbox()
+    def test_full_roundtrip_with_destination_and_route_decision(self) -> None:
+        """Full roundtrip: destination + capability + strategy + deadline."""
+        item = _make_outbox(
+            metadata={
+                # Destination keys
+                "destination_kind": "matrix_room",
+                "destination_hash": "abc123",
+                "destination_name": "my-room",
+                "destination_metadata": {"room_id": "!room:server"},
+                # Route-decision keys
+                "capability_level": "native",
+                "delivery_strategy": "direct",
+                "capability_field": None,
+                "capability_reason": None,
+                "deadline": None,
+            }
+        )
         ctx = reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,
             default_max_attempts=3,
         )
+        # Destination preserved
+        dest = ctx.plan.target.destination
+        assert dest is not None
+        assert dest.kind == "matrix_room"
+        assert dest.destination_hash == "abc123"
+        # Capability/strategy preserved
+        assert ctx.plan.capability_level == "native"
+        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
         assert ctx.plan.deadline is None
 
 

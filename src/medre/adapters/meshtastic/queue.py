@@ -20,19 +20,18 @@ Failure semantics
 When *send_fn* raises an exception during ``process_one``, the behaviour
 depends on the exception type and remaining retry budget:
 
-* ``asyncio.CancelledError`` — re-raised immediately and not counted
-  as failed/requeued/exhausted.  Because the item has already been
-  dequeued, shutdown-time cancellation can abandon the in-flight
-  item; this is **not** durable delivery.
+* ``asyncio.CancelledError`` — the in-flight item is stored for later
+  retrieval via :meth:`pop_cancelled_item` and the error is re-raised
+  so task cancellation propagates normally.  The caller should retrieve
+  and report the cancelled item after catching the error.
 * :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
   ``transient=True`` — the item is **front-requeued** (``appendleft``)
-  if the attempt count is below ``max_attempts``; otherwise it is
-  counted as exhausted (``total_exhausted`` + ``total_failed``) and
-  dropped.
+  if the attempt count is below ``max_attempts``; otherwise a
+  :class:`QueueTerminalResult` with outcome ``"exhausted"`` is returned.
 * :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
-  ``transient=False`` — the item is **not** retried; it is counted as
-  a permanent failure (``total_permanent_failed`` + ``total_failed``)
-  and dropped.
+  ``transient=False`` — the item is **not** retried; a
+  :class:`QueueTerminalResult` with outcome ``"permanent_failed"`` is
+  returned immediately.
 * Any other ``Exception`` — treated conservatively as transient and
   front-requeued with the same bounded retry logic.
 
@@ -61,8 +60,10 @@ rejected due to a full queue.
 
 .. note::
 
-   Shutdown cancels the drain task without flushing.  In-flight items that have
-   not yet been processed lose their native-ref mapping permanently.
+   Shutdown cancels the drain task.  Local queued items survive across
+   stop/start boundaries; the durable outbox row remains in ``queued``
+   status for stale-recovery.  If a cancelled in-flight item exists,
+   remaining queued items are drained and reported as abandoned.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.packet_snapshot import json_safe
@@ -107,6 +108,36 @@ class QueueDeliveryResult:
 
     item: dict[str, Any]
     delivery_result: AdapterDeliveryResult
+
+
+@dataclass(frozen=True)
+class QueueTerminalResult:
+    """Immutable result when a queued item reaches a terminal failure state.
+
+    Returned by :meth:`MeshtasticOutboundQueue.process_one` when a dequeued
+    item cannot be delivered and will not be retried.  The caller (typically
+    :class:`~medre.adapters.meshtastic.adapter.MeshtasticAdapter`) uses this
+    to report the terminal outcome to core via
+    :class:`~medre.core.contracts.adapter.QueueTerminalRecord`.
+
+    Attributes
+    ----------
+    item:
+        The dequeued item dict that reached a terminal state.
+    outcome:
+        Terminal outcome classification:
+
+        * ``"exhausted"`` — local retry budget exhausted after transient
+          failures.
+        * ``"permanent_failed"`` — permanent send failure; no retry
+          attempted.
+    error:
+        Human-readable error context, if available.
+    """
+
+    item: dict[str, Any]
+    outcome: Literal["exhausted", "permanent_failed"]
+    error: str | None = None
 
 
 class MeshtasticOutboundQueue:
@@ -174,6 +205,7 @@ class MeshtasticOutboundQueue:
         self._total_requeued: int = 0
         self._total_exhausted: int = 0
         self._total_permanent_failed: int = 0
+        self._last_cancelled_item: dict[str, Any] | None = None
 
     @property
     def delay_between_messages(self) -> float:
@@ -202,6 +234,8 @@ class MeshtasticOutboundQueue:
         *,
         event_id: str | None = None,
         delivery_plan_id: str | None = None,
+        outbox_id: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Enqueue a payload for delivery.
 
@@ -225,9 +259,20 @@ class MeshtasticOutboundQueue:
             Optional canonical event ID that originated this send.
             Stored outside the payload so it is never sent to the radio.
         delivery_plan_id:
-            Optional delivery plan ID for deterministic queued→sent
-            receipt correlation.  Propagated through the queue item into
-            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+            Optional delivery-plan identity and validation metadata.
+            Propagated through the queue item into
+            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`
+            and validated against the authoritative outbox row when
+            present.  Not sufficient for queued callback correlation —
+            exact correlation uses outbox_id + attempt_number.
+        outbox_id:
+            Internal outbox item correlation key.  Propagated through
+            the queue item into delayed callback records for exact
+            outbox-level correlation.  **Not wire metadata.**
+        attempt_number:
+            Delivery attempt number from pipeline retry lineage.
+            Propagated for stale-callback protection.  **Not wire
+            metadata.**
 
         Raises
         ------
@@ -255,6 +300,8 @@ class MeshtasticOutboundQueue:
                 "channel_index": channel_index,
                 "event_id": event_id,
                 "delivery_plan_id": delivery_plan_id,
+                "outbox_id": outbox_id,
+                "attempt_number": attempt_number,
                 "_attempt": 1,  # internal retry counter; not sent to radio
             }
         )
@@ -277,7 +324,7 @@ class MeshtasticOutboundQueue:
     async def process_one(
         self,
         send_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
-    ) -> QueueDeliveryResult | None:
+    ) -> QueueDeliveryResult | QueueTerminalResult | None:
         """Process one queued item.
 
         When *send_fn* is ``None`` (fake mode), this method dequeues
@@ -293,9 +340,13 @@ class MeshtasticOutboundQueue:
 
         On transient failure the item is front-requeued (``appendleft``)
         if its attempt count is below ``max_attempts``; otherwise the
-        item is dropped as exhausted.  Permanent failures are never
-        retried.  ``asyncio.CancelledError`` is re-raised without
-        touching the item's attempt counter or dropping it.
+        item is returned as a :class:`QueueTerminalResult` with outcome
+        ``"exhausted"``.  Permanent failures return a
+        :class:`QueueTerminalResult` with outcome ``"permanent_failed"``
+        immediately (no retry).  ``asyncio.CancelledError`` stores the
+        in-flight item for later retrieval via
+        :meth:`pop_cancelled_item` and re-raises so the caller's task
+        cancellation propagates normally.
 
         Parameters
         ----------
@@ -308,9 +359,17 @@ class MeshtasticOutboundQueue:
 
         Returns
         -------
-        QueueDeliveryResult | None
+        QueueDeliveryResult | QueueTerminalResult | None
             ``None`` in fake mode or when the queue is empty.
-            A :class:`QueueDeliveryResult` when a send was attempted.
+            A :class:`QueueDeliveryResult` when the send succeeded.
+            A :class:`QueueTerminalResult` when the item reached a
+            terminal failure state (exhausted or permanent failure).
+
+        Raises
+        ------
+        asyncio.CancelledError
+            Re-raised when the send is cancelled; the in-flight item is
+            stored and available via :meth:`pop_cancelled_item`.
         """
         item = await self.dequeue()
         if item is None:
@@ -319,6 +378,11 @@ class MeshtasticOutboundQueue:
         if send_fn is None:
             # Fake mode: no send, no pacing sleep.
             return None
+
+        # Capture the dequeued item as the potential cancelled item
+        # immediately so that cancellation during the pacing sleep
+        # does not silently lose the item.  Cleared on successful send.
+        self._last_cancelled_item = item
 
         # Apply pacing delay based on time since last send attempt.
         # Pacing is per-send-ATTEMPT, not per-dequeue: the timestamp is
@@ -340,13 +404,15 @@ class MeshtasticOutboundQueue:
         try:
             send_result = await send_fn(item)
         except asyncio.CancelledError:
-            # Re-raise immediately; do NOT swallow or requeue.
+            # _last_cancelled_item already set above — keep it so the
+            # caller can report the cancellation, then re-raise.
             raise
         except MeshtasticSendError as exc:
             if not exc.transient:
                 # Permanent failure: no retry.
                 self._total_failed += 1
                 self._total_permanent_failed += 1
+                self._last_cancelled_item = None
                 _logger.warning(
                     "MeshtasticOutboundQueue: permanent send failure for "
                     "event_id=%s; dropping item (attempt %d/%d): %s",
@@ -355,11 +421,16 @@ class MeshtasticOutboundQueue:
                     self._max_attempts,
                     exc,
                 )
-                return None
+                return QueueTerminalResult(
+                    item=item,
+                    outcome="permanent_failed",
+                    error=str(exc),
+                )
             # Transient: front-requeue if attempts remain.
-            self._handle_transient_failure(item)
-            return None
-        except Exception:
+            self._last_cancelled_item = None
+            terminal = self._handle_transient_failure(item, error=str(exc))
+            return terminal
+        except Exception as exc:
             # Unknown exception: treat conservatively as transient for
             # bounded retry.  send_fn wraps the SDK send boundary, so
             # unexpected errors here are treated as adapter-local
@@ -373,10 +444,13 @@ class MeshtasticOutboundQueue:
                 self._max_attempts,
                 exc_info=True,
             )
-            self._handle_transient_failure(item)
-            return None
+            self._last_cancelled_item = None
+            terminal = self._handle_transient_failure(item, error=str(exc))
+            return terminal
 
         self._total_sent += 1
+        # Send succeeded — clear the pre-emptive cancelled-item capture.
+        self._last_cancelled_item = None
 
         # Extract native packet ID from the send result.
         native_id = _extract_packet_id(send_result)
@@ -399,19 +473,31 @@ class MeshtasticOutboundQueue:
 
         return QueueDeliveryResult(item=item, delivery_result=delivery_result)
 
-    def _handle_transient_failure(self, item: dict[str, Any]) -> None:
+    def _handle_transient_failure(
+        self, item: dict[str, Any], *, error: str | None = None
+    ) -> QueueTerminalResult | None:
         """Handle a transient failure: front-requeue or exhaust.
 
         Increments the internal ``_attempt`` counter on the item.
         If attempts remain, the item is requeued to the **front**
         (``appendleft``) so it is retried before newer items.
-        If the budget is exhausted, the item is dropped and counted
-        in ``total_exhausted`` and ``total_failed``.
+        If the budget is exhausted, a :class:`QueueTerminalResult` is
+        returned so the caller can report the terminal outcome to core.
 
         Parameters
         ----------
         item:
             The dequeued item dict carrying ``_attempt`` metadata.
+        error:
+            Optional error text from the triggering exception, preserved
+            on the exhausted terminal result for diagnostics.
+
+        Returns
+        -------
+        QueueTerminalResult | None
+            ``None`` when the item was requeued (not terminal).
+            A :class:`QueueTerminalResult` with outcome ``"exhausted"``
+            when the retry budget is spent.
         """
         current_attempt = item.get("_attempt", 1)
         next_attempt = current_attempt + 1
@@ -427,8 +513,9 @@ class MeshtasticOutboundQueue:
                 next_attempt,
                 self._max_attempts,
             )
+            return None
         else:
-            # Exhausted: drop and count.
+            # Exhausted: count and return terminal result.
             self._total_failed += 1
             self._total_exhausted += 1
             _logger.warning(
@@ -436,6 +523,40 @@ class MeshtasticOutboundQueue:
                 item.get("event_id"),
                 self._max_attempts,
             )
+            return QueueTerminalResult(item=item, outcome="exhausted", error=error)
+
+    def pop_cancelled_item(self) -> dict[str, Any] | None:
+        """Return and clear the last in-flight item lost to CancelledError.
+
+        When :meth:`process_one` catches ``asyncio.CancelledError`` during
+        a send attempt, the dequeued item is stored internally so the
+        caller can retrieve it after catching the re-raised error.
+        This method returns that item (if any) and clears the reference.
+
+        Returns
+        -------
+        dict | None
+            The in-flight item that was cancelled, or ``None`` if no
+            cancelled item is pending.
+        """
+        item = self._last_cancelled_item
+        self._last_cancelled_item = None
+        return item
+
+    def drain_all(self) -> list[dict[str, Any]]:
+        """Remove and return all remaining items from the queue.
+
+        Used during adapter shutdown to retrieve items that were never
+        sent so they can be reported as abandoned.
+
+        Returns
+        -------
+        list[dict]
+            All items that were in the queue, in FIFO order.
+        """
+        items = list(self._queue)
+        self._queue.clear()
+        return items
 
     @property
     def pending_count(self) -> int:

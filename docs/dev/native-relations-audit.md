@@ -114,7 +114,7 @@ Codec sets `target_native_ref` on `EventRelation` for replies/reactions → pipe
 - `NativeMessageRef.direction` — `"inbound"` or `"outbound"`
 - `NativeMessageRef.created_at` — framework timestamp
 - `DeliveryReceipt.status` — pipeline-determined from adapter `delivery_status`
-- `OutboundNativeRefRecord.delivery_plan_id` — plan correlation
+- `OutboundNativeRefRecord.delivery_plan_id` — delivery-plan identity / validation metadata
 
 ### Adapter Facts (transport-originated)
 

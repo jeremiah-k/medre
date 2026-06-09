@@ -280,11 +280,11 @@ class DeliveryPlan:
 
 The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
 
-`plan_id` is produced by :func:`stable_delivery_plan_id`, which hashes `event_id`, `route_id` (or `"unrouted"`), `target_index`, and a SHA-256 digest of :func:`delivery_target_identity` (the stable JSON representation of the :class:`RouteTarget`). The format is `plan:{event_id}:{route_part}:{index_part}:{target_hash}`. It MUST NOT depend on Python object identity (`id()`). When route context is unavailable the plan uses `"unrouted"` attribution, but routed live and replay paths MUST include the matched route ID and target index so repeated equivalent targets in the same route remain distinct and queued-to-sent correlation is reproducible. Repeated replay runs over the same event and configuration produce the same `plan_id` values.
+`plan_id` is produced by :func:`stable_delivery_plan_id`, which hashes `event_id`, `route_id` (or `"unrouted"`), `target_index`, and a SHA-256 digest of :func:`delivery_target_identity` (the stable JSON representation of the :class:`RouteTarget`). The format is `plan:{event_id}:{route_part}:{index_part}:{target_hash}`. It MUST NOT depend on Python object identity (`id()`). When route context is unavailable the plan uses `"unrouted"` attribution, but routed live and replay paths MUST include the matched route ID and target index so repeated equivalent targets in the same route remain distinct and delivery-plan identity is reproducible. Repeated replay runs over the same event and configuration produce the same `plan_id` values.
 
 `target_identity` is a stable JSON representation produced by :func:`delivery_target_identity`, which serialises the :class:`RouteTarget` `adapter`, `channel`, and `destination` fields with sorted keys and compact separators. It is the same value used inside :func:`stable_delivery_plan_id` and is populated for every plan, not only for manually constructed ones.
 
-`capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only for manually constructed plans, retry reconstruction where the original receipt/outbox row is the authoritative evidence, or passthrough event kinds that have no capability candidate.
+`capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only for manually constructed plans, passthrough event kinds that have no capability candidate, or outbox rows with missing or corrupt prerelease metadata that predate route-decision metadata persistence. Retry reconstruction recovers these fields from the outbox `metadata` dict when present; see § 6.4.
 
 Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans MAY be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
@@ -503,6 +503,24 @@ class RetryPolicy:
     jitter: bool = True          # Whether to add jitter to avoid thundering-herd
 ```
 
+### 6.4 Route-Decision Metadata Persistence
+
+When `OutboxManager.create_for_delivery()` creates a `DeliveryOutboxItem`, the outbox `metadata` JSON dict includes route-decision fields alongside destination metadata. These fields are:
+
+| Metadata key        | Source                                 | Type                   |
+| ------------------- | -------------------------------------- | ---------------------- |
+| `capability_level`  | `DeliveryPlan.capability_level`        | `str \| None`          |
+| `delivery_strategy` | `DeliveryPlan.primary_strategy.method` | `str`                  |
+| `capability_field`  | `DeliveryPlan.capability_field`        | `str \| None`          |
+| `capability_reason` | `DeliveryPlan.capability_reason`       | `str \| None`          |
+| `deadline`          | `DeliveryPlan.deadline`                | ISO 8601 `str \| None` |
+
+Retry reconstruction (`reconstruct_retry_delivery_plan()`) reads these keys back from the outbox `metadata` dict and populates the reconstructed `DeliveryPlan`. This ensures retry delivery uses the same capability and strategy decisions as the original live delivery, rather than defaulting to `capability_level=None` (silently treated as `"native"`) and `strategy="direct"`.
+
+Outbox rows with missing or corrupt prerelease metadata that predate this persistence gracefully default to `capability_level=None` and `strategy="direct"` when the keys are absent.
+
+**Wire protocol**: These keys are internal correlation metadata stored in the SQLite `metadata` column. They MUST NOT be rendered into Meshtastic, Matrix, MeshCore, or LXMF wire payloads.
+
 ### 6.5 Fallback Resolution
 
 When primary delivery fails, the fallback resolution chain executes in order:
@@ -543,7 +561,7 @@ The following failure kinds are never auto-retried:
 1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`.
 2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`). The query excludes dead-lettered receipts sharing the same delivery lineage.
 3. The worker attempts to acquire delivery capacity. If capacity is unavailable, the worker advances the existing receipt's `next_retry_at` by one backoff interval. No new receipt is created. Capacity rejection does not advance `attempt_number`.
-4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context. Retry reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, and `target_identity` — these identity fields are frozen at first delivery and carried through the entire retry chain. Each retry attempt appends a new receipt row; earlier receipts are not overwritten.
+4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context. Retry reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, and `target_identity` — these identity fields are frozen at first delivery and carried through the entire retry chain. **Route-decision metadata recovery**: retry also preserves the original `capability_level`, `delivery_strategy` (primary strategy method), `capability_field`, `capability_reason`, and `deadline` from the outbox `metadata` dict. These fields were persisted at outbox creation time by the live delivery path. Outbox rows with missing or corrupt prerelease metadata that predate this persistence gracefully default to `capability_level=None` (which downstream code treats as `"native"`) and `strategy="direct"`. Each retry attempt appends a new receipt row; earlier receipts are not overwritten.
 5. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying. This receipt carries the same `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` as the preceding failed receipts, with `parent_receipt_id` linking to the last failed attempt. Retry exhaustion produces durable dead-lettered evidence — the receipt remains in storage with `status="dead_lettered"`, `next_retry_at=None`, and the full retry chain is visible via `parent_receipt_id` links.
 6. Retry uses the same delivery planning pipeline. No special bypass path exists.
 
@@ -602,6 +620,7 @@ class DeliveryReceipt:
     retry_max_delay: float | None = None   # Persisted retry policy: max delay
     retry_jitter: bool | None = None       # Persisted retry policy: jitter enabled
     rendering_evidence: str | None = None  # Structured rendering evidence for this attempt
+    outbox_id: str | None = None           # Internal correlation key — not wire metadata (see § 8.5.3)
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -648,6 +667,7 @@ CREATE TABLE delivery_receipts (
     retry_max_delay REAL,
     retry_jitter INTEGER,
     rendering_evidence TEXT,
+    outbox_id TEXT,                         -- Internal correlation key (see § 8.5.3)
     created_at TEXT NOT NULL
 );
 ```
@@ -697,38 +717,43 @@ Queue-based adapters (e.g., Meshtastic) produce a `queued` receipt at enqueue ti
 
 #### 8.5.1 Correlation Mechanism
 
-The `delivery_plan_id` field provides deterministic correlation between a `queued` receipt and its corresponding `sent` receipt. The threading path is:
+The `outbox_id` field provides **exact** correlation between a `queued` receipt and its corresponding `sent` receipt. Queue adapters MUST populate both `outbox_id` and `attempt_number` on callback records. The threading path is:
 
-1. `TargetDeliveryService` stamps `RenderingResult.delivery_plan_id = plan.plan_id` before adapter delivery.
-2. Queue-based adapters propagate `delivery_plan_id` through their internal queue items (e.g., `QueuedOutboundItem`).
-3. When the adapter reports send confirmation, `DeliveryLifecycleService.append_queued_to_sent_receipt()` matches the `delivery_plan_id` on the new `OutboundNativeRefRecord` against existing `queued` receipts.
+1. `TargetDeliveryService` stamps `RenderingResult.outbox_id` and `RenderingResult.attempt_number` before adapter delivery.
+2. Queue-based adapters propagate `outbox_id` and `attempt_number` through their internal queue items (e.g., `QueuedOutboundItem`).
+3. When the adapter reports send confirmation, `DeliveryLifecycleService.append_queued_to_sent_receipt()` requires `outbox_id` and `attempt_number` on the `OutboundNativeRefRecord`, then validates all callback fields against the authoritative outbox row.
 
 The correlation algorithm in `append_queued_to_sent_receipt`:
 
-1. **Exact `delivery_plan_id` match** (deterministic, preferred). When the outbound ref carries a `delivery_plan_id`, the service queries for a `queued` receipt with that exact `delivery_plan_id`. If found, a supplemental `sent` receipt is appended and the outbox item is transitioned to `sent`. When no `native_channel_id` is available on the outbound ref and multiple plan matches exist, the service checks `target_channel` uniformity: if all matches share the same `target_channel` (unambiguous retry lineage), the latest (last appended) queued receipt is used; if `target_channel` values differ, the service logs a warning and returns (ambiguous).
-2. **No match found.** If no `queued` receipt matches the `delivery_plan_id`, the service logs and returns without creating a supplemental receipt. The pipeline MUST NOT fall back to heuristic matching when a `delivery_plan_id` is present.
-3. **Missing `delivery_plan_id` on callback.** When `delivery_plan_id` is `None` on the outbound ref (e.g., pre-migration data or adapters that do not propagate plan IDs), the service skips deterministic correlation. No heuristic fallback is attempted. The service logs an operator-visible warning and returns without creating a supplemental receipt. Replay-only queued candidates are skipped to avoid live/replay lineage contamination.
+1. **Missing `outbox_id`** — hard reject. No supplemental receipt, no outbox mutation. Logged as a warning.
+2. **Missing `attempt_number`** — hard reject. Same behavior as missing `outbox_id`.
+3. **Outbox row lookup** — the service loads the outbox item by `outbox_id`. If not found or already terminal, the callback is rejected as stale.
+4. **Field validation** — `event_id`, `adapter`, `delivery_plan_id` (when present), `native_channel_id` (when present), and `attempt_number` are validated against the outbox row. Any mismatch rejects the callback.
+5. **Exact receipt selection** — the queued receipt is selected by `receipt.outbox_id == record.outbox_id` **and** `receipt.attempt_number == record.attempt_number`. The two-key match preserves the stale-safe invariant end-to-end. No plan-id-only or heuristic fallback exists.
+6. **Supplemental receipt** — if all validations pass, exactly one `sent` receipt is appended and the validated outbox row is transitioned to `sent`.
 
-#### 8.5.2 Invariant: Plan-ID Correlation Is Preferred
+#### 8.5.2 Invariant: Exact Outbox Correlation
 
-> When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID matching. When `delivery_plan_id` is absent, no heuristic fallback is attempted and the service logs a warning. This ensures deterministic correlation even when multiple deliveries to the same adapter and channel overlap.
+> Queue callbacks MUST carry `outbox_id` and `attempt_number`. The pipeline MUST use exact outbox-level correlation. When either field is missing, no heuristic fallback is attempted and the service logs a warning. This ensures deterministic, stale-safe correlation even when multiple deliveries to the same adapter and channel overlap.
 
-#### 8.5.3 Internal Correlation Key
+#### 8.5.3 Internal Correlation Keys
 
-`delivery_plan_id` is an internal lifecycle correlation key. It is:
+`outbox_id` and `attempt_number` are internal lifecycle correlation keys. They are:
 
-- Not sent over transports.
+- Not sent over transports (not wire metadata).
 - Not persisted in `native_message_refs` storage.
 - Propagated by adapters only through internal local queues and callback records.
 
+`delivery_plan_id` is retained as an internal delivery-plan identity. It is validated against the outbox row when present on the callback, but it is not sufficient for queued callback correlation on its own.
+
 #### 8.5.4 RenderingResult and OutboundNativeRefRecord Threading
 
-| Dataclass                 | Field              | Set by                                              |
-| ------------------------- | ------------------ | --------------------------------------------------- |
-| `RenderingResult`         | `delivery_plan_id` | `TargetDeliveryService` via `dataclasses.replace()` |
-| `OutboundNativeRefRecord` | `delivery_plan_id` | Adapter queue processing                            |
-
-The `delivery_plan_id` is not stored in `native_message_refs` storage. It is carried by the callback record (`OutboundNativeRefRecord`) at send-confirmation time for correlation purposes only.
+| Dataclass                 | Field            | Set by                                              |
+| ------------------------- | ---------------- | --------------------------------------------------- |
+| `RenderingResult`         | `outbox_id`      | `TargetDeliveryService` via `dataclasses.replace()` |
+| `RenderingResult`         | `attempt_number` | `TargetDeliveryService` via `dataclasses.replace()` |
+| `OutboundNativeRefRecord` | `outbox_id`      | Adapter queue processing (required)                 |
+| `OutboundNativeRefRecord` | `attempt_number` | Adapter queue processing (required)                 |
 
 ## 9. delivery_status Projection
 

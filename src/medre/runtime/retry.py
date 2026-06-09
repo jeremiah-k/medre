@@ -725,6 +725,7 @@ class RetryWorker:
                 previous_receipt=previous_receipt,
                 source="retry",
                 replay_run_id=None,
+                outbox_id=item.outbox_id,
             )
         except asyncio.CancelledError:
             raise

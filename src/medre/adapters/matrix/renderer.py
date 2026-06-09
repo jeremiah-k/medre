@@ -212,6 +212,8 @@ class MatrixRenderer:
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
         }
 
         # Handle relations — reply and reaction
@@ -332,6 +334,8 @@ class MatrixRenderer:
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
         }
 
         # Embed metadata envelope
@@ -475,15 +479,21 @@ class MatrixRenderer:
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
+        _longname = str(native_data.get("longname") or "")
+        _shortname = str(native_data.get("shortname") or "")
+        _from_id = str(native_data.get("from_id") or "")
+        _meshnet_name = self._get_meshnet_name(event)
+        _shortname5 = (_shortname or _from_id)[:5]
         try:
             return prefix.format(
-                longname=native_data.get("longname", ""),
-                shortname=native_data.get("shortname", ""),
-                meshnet_name=self._get_meshnet_name(event),
-                from_id=native_data.get("from_id", ""),
+                longname=_longname,
+                shortname=_shortname,
+                shortname5=_shortname5,
+                meshnet_name=_meshnet_name,
+                from_id=_from_id,
             )
-        except (KeyError, IndexError, ValueError):
-            return prefix
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
+            return ""
 
     # ------------------------------------------------------------------
     # Reaction rendering
@@ -517,9 +527,11 @@ class MatrixRenderer:
 
         if mx_event_id is not None and not self._get_mmrelay_compat(event):
             # True Matrix reaction — adapter will use _matrix_event_type
-            # Remove default msgtype/body set at top of render()
+            # Remove default msgtype/body/format/formatted_body set at top of render()
             content.pop("msgtype", None)
             content.pop("body", None)
+            content.pop("format", None)
+            content.pop("formatted_body", None)
             symbol = self._extract_reaction_symbol(rel, event)
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
@@ -545,6 +557,7 @@ class MatrixRenderer:
 
             content["msgtype"] = "m.emote"
             content["body"] = emote_body
+            content["formatted_body"] = self._text_to_html(emote_body)
             content[KEY_EMOJI] = EMOJI_FLAG_VALUE
             content[KEY_REACTION_KEY] = symbol
 
@@ -571,6 +584,29 @@ class MatrixRenderer:
             content[KEY_PORTNUM] = PORTNUM_TEXT
 
     # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _text_to_html(text: str) -> str:
+        """Convert plain text to a safe HTML formatted body.
+
+        Applies HTML escaping, converts line breaks to ``<br/>``, and
+        wraps the result in ``<p>`` tags.  This provides a safe baseline
+        formatted body for Matrix clients that prefer HTML.
+        """
+        import html as _html
+
+        # Normalize line endings before escaping so that Windows-style
+        # \r\n and legacy Mac \r are both converted to \n first.
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        escaped = _html.escape(normalized, quote=False)
+        # Convert line breaks to <br/>
+        br = escaped.replace("\n", "<br/>")
+        # Wrap in <p> tags
+        return f"<p>{br}</p>"
+
+    # ------------------------------------------------------------------
     # Relay prefix
     # ------------------------------------------------------------------
 
@@ -582,10 +618,15 @@ class MatrixRenderer:
 
         * ``{longname}`` — sender long name.
         * ``{shortname}`` — sender short name.
+        * ``{shortname5}`` — first 5 characters of shortname or from_id.
         * ``{meshnet_name}`` — mesh network name from config.
         * ``{from_id}`` — sender node ID.
 
-        If the prefix is empty, *body* is returned unchanged.
+        ``None`` values in native metadata are coalesced to empty strings
+        to avoid producing the literal text ``"None"`` in the prefix.
+
+        If the prefix is empty or formatting fails (unknown template
+        variable, malformed template), *body* is returned unchanged.
         """
         prefix = self._get_matrix_relay_prefix(event)
         if not prefix:
@@ -595,12 +636,30 @@ class MatrixRenderer:
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        formatted_prefix = prefix.format(
-            longname=native_data.get("longname", ""),
-            shortname=native_data.get("shortname", ""),
-            meshnet_name=self._get_meshnet_name(event),
-            from_id=native_data.get("from_id", ""),
-        )
+        # Coalesce None values to empty strings — native metadata keys may
+        # exist with None values, which str.format() would render as the
+        # literal string "None".
+        _longname = str(native_data.get("longname") or "")
+        _shortname = str(native_data.get("shortname") or "")
+        _from_id = str(native_data.get("from_id") or "")
+        _meshnet_name = self._get_meshnet_name(event)
+
+        # shortname5: first 5 chars of shortname, falling back to from_id
+        # when shortname is empty.  Matches Meshtastic renderer convention.
+        _shortname5 = (_shortname or _from_id)[:5]
+
+        try:
+            formatted_prefix = prefix.format(
+                longname=_longname,
+                shortname=_shortname,
+                shortname5=_shortname5,
+                meshnet_name=_meshnet_name,
+                from_id=_from_id,
+            )
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
+            # Unknown template variable or malformed template — return
+            # body unchanged rather than crashing the render pipeline.
+            return body
         return f"{formatted_prefix}{body}"
 
     # ------------------------------------------------------------------

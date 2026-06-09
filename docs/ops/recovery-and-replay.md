@@ -763,29 +763,37 @@ receipt rows:
 
 Replay and live delivery are isolated by the `source` field on receipts (`"live"`, `"retry"`, `"replay"`). This separation is enforced at correlation time:
 
-### Queued Callback Source Selection
+### Queued Callback Correlation
 
-When a queue-based adapter callback arrives to confirm a queued delivery (queued-to-sent transition), the pipeline selects among matching queued receipts. The selection prefers non-replay candidates (`"live"` or `"retry"`) over `"replay"` candidates.
+When a queue-based adapter callback arrives to confirm a queued delivery (queued-to-sent transition), the pipeline correlates by **`outbox_id` + `attempt_number`** — the only correlation authority. The outbox row is validated first (must exist, must be `queued` or `in_progress`, event_id must match, attempt_number must match). Then the queued receipt is selected by exact `outbox_id` match.
 
-| Scenario                                              | Selected candidate                          | Log level |
-| ----------------------------------------------------- | ------------------------------------------- | --------- |
-| One live/retry candidate, no replay candidates        | Live/retry candidate                        | Debug     |
-| Multiple live/retry candidates, same plan and channel | Latest live/retry candidate                 | Debug     |
-| Only replay candidates available                      | None — correlation skipped (warning logged) | Warning   |
-| No candidates at all                                  | No supplemental receipt created             | Debug     |
+`delivery_plan_id` and `native_channel_id` are validation metadata only. They are checked against the outbox row when present, but they are never used as correlation selectors. No plan/channel latest-candidate fallback exists.
 
-When only replay-sourced queued receipts are available, the pipeline skips correlation entirely and emits an operator-visible warning. No supplemental sent receipt is created, no outbox transition occurs. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation without risking live recovery state mutation. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
+Replay-sourced receipts (`source="replay"`) are not allowed to mutate live recovery state unless they match the exact trusted outbox lineage. When only replay-sourced queued receipts are available and the outbox row does not match, the pipeline skips correlation and emits an operator-visible warning. No supplemental sent receipt is created, no outbox transition occurs. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
 
 ### Uncorrelated Queued Outbox Items
 
-When a queued outbox item has no `delivery_plan_id` and no receipt linkage, the reason-pending derivation flags it as uncorrelated. The evidence output includes:
+When a queued outbox item has no receipt linkage, the reason-pending derivation flags it as awaiting callback correlation. The evidence output depends on what metadata is present:
+
+- No `outbox_id` and no receipt linkage:
 
 ```text
-Queued, uncorrelated (no delivery_plan_id, no receipt linkage)
--- awaiting stale-grace reclaim or adapter callback correlation
+Queued without queued receipt linkage — awaiting stale-grace reclaim or manual investigation
 ```
 
-Operators seeing this message should check whether the adapter callback is expected to provide `delivery_plan_id` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
+- `outbox_id` present but missing `delivery_plan_id`:
+
+```text
+Queued with degraded plan metadata (missing delivery_plan_id) — awaiting stale-grace reclaim or exact outbox_id + attempt_number callback correlation
+```
+
+- `outbox_id` and `delivery_plan_id` present but no receipt:
+
+```text
+Queued in adapter-local queue — awaiting outbox_id + attempt_number callback correlation
+```
+
+Operators seeing these messages should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
 
 ### Replay Does Not Mutate Live Recovery State
 

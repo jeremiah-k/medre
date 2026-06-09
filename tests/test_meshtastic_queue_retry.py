@@ -32,7 +32,10 @@ import asyncio
 import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.queue import (
+    MeshtasticOutboundQueue,
+    QueueTerminalResult,
+)
 
 # ===================================================================
 # Helpers
@@ -204,9 +207,10 @@ class TestTransientExhaustion:
         assert q.total_requeued == 1
         assert q.pending_count == 1
 
-        # Attempt 2: exhausted → dropped.
+        # Attempt 2: exhausted → terminal result.
         result2 = await q.process_one(send_fn=always_transient)
-        assert result2 is None
+        assert isinstance(result2, QueueTerminalResult)
+        assert result2.outcome == "exhausted"
         assert q.total_exhausted == 1
         assert q.total_failed == 1
         assert q.pending_count == 0
@@ -221,7 +225,8 @@ class TestTransientExhaustion:
         await q.enqueue({"text": "hello"}, channel_index=0)
         result = await q.process_one(send_fn=always_transient)
 
-        assert result is None
+        assert isinstance(result, QueueTerminalResult)
+        assert result.outcome == "exhausted"
         assert q.total_exhausted == 1
         assert q.total_failed == 1
         assert q.total_requeued == 0
@@ -245,7 +250,9 @@ class TestPermanentNoRequeue:
         await q.enqueue({"text": "hello"}, channel_index=0)
         result = await q.process_one(send_fn=permanent_fail)
 
-        assert result is None
+        assert isinstance(result, QueueTerminalResult)
+        assert result.outcome == "permanent_failed"
+        assert result.error == "payload too large"
         assert q.total_permanent_failed == 1
         assert q.total_failed == 1
         assert q.total_requeued == 0

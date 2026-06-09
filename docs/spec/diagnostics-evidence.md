@@ -590,37 +590,40 @@ The `RenderingEvidence` snapshot captures the budget constraints (`max_text_char
 
 Queue-based adapters (e.g., Meshtastic) produce two receipts per delivery: a `queued` receipt at enqueue time and a `sent` receipt when the adapter confirms handoff. Correlating these two receipts requires deterministic matching because multiple deliveries to the same adapter and channel may be in-flight simultaneously.
 
-### 15.2 Deterministic Correlation via delivery_plan_id
+### 15.2 Strict Correlation via outbox_id
 
-The `delivery_plan_id` field provides the correlation key. The pipeline threads `plan.plan_id` through:
+The `outbox_id` field is the primary correlation key for exact receipt selection. `attempt_number` is required alongside `outbox_id` for stale-callback protection. The pipeline threads these through:
 
-1. `RenderingResult.delivery_plan_id` — stamped by `TargetDeliveryService` before adapter delivery.
-2. `OutboundNativeRefRecord.delivery_plan_id` — populated by adapter queue processing at send-confirmation time.
+1. `RenderingResult.outbox_id` / `attempt_number` — stamped by `TargetDeliveryService` before adapter delivery.
+2. `OutboundNativeRefRecord.outbox_id` / `attempt_number` — populated by adapter queue processing at send-confirmation time.
 
-For routed live and replay planning, `delivery_plan_id` is deterministic from `event_id`, matched `route_id`, route target index, and a stable JSON target identity. It MUST NOT depend on Python object identity. This lets equivalent live and replay plans correlate to the same semantic target while repeated equivalent targets in one route still receive distinct plan IDs.
+Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no heuristic fallback).
 
-When `delivery_plan_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against existing `queued` receipts. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
+`delivery_plan_id` is a validation field, not the correlation selector. When the callback carries `delivery_plan_id`, the lifecycle service validates it against the outbox item's `delivery_plan_id` to detect mismatched or corrupted callbacks. It does NOT use `delivery_plan_id` for receipt selection.
+
+When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against the corresponding outbox item's `queued` receipt. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
 
 ### 15.3 Evidence Signals
 
-| Signal                               | Source                          | Meaning                                                                                                           |
-| ------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Supplemental `sent` receipt          | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated and finalized                                                          |
-| No supplemental receipt created      | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                            |
-| Replay-only skip warning             | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                     |
-| Ambiguity warning                    | `append_queued_to_sent_receipt` | Multiple candidates with cross-plan or cross-channel ambiguity; logged as warning, no receipt                     |
-| Missing delivery_plan_id on callback | `append_queued_to_sent_receipt` | `delivery_plan_id` was `None` on outbound ref; deterministic correlation skipped, no heuristic fallback attempted |
-| Same-channel latest-wins             | `append_queued_to_sent_receipt` | Unambiguous retry lineage: same plan_id, same target_channel; latest appended receipt selected                    |
+| Signal                             | Source                          | Meaning                                                                                                                                                      |
+| ---------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Supplemental `sent` receipt        | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
+| No supplemental receipt created    | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
+| Replay-only skip warning           | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                                |
+| Missing outbox_id on callback      | `append_queued_to_sent_receipt` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
+| Missing attempt_number on callback | `append_queued_to_sent_receipt` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
+| Delivery-plan metadata absent      | `append_queued_to_sent_receipt` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
 
 ### 15.4 Normative Requirements
 
-1. When `delivery_plan_id` is available on the outbound ref, the pipeline MUST use exact plan-ID correlation.
-2. When `delivery_plan_id` is present but no `native_channel_id` is available and multiple plan matches exist, the pipeline MUST check `target_channel` uniformity. If all matches share the same `target_channel` (unambiguous retry lineage), the pipeline MAY select the latest candidate (last appended). If `target_channel` values differ, the pipeline MUST NOT create a supplemental receipt and MUST log a warning.
-3. When `delivery_plan_id` is `None` on the outbound ref, no heuristic fallback is attempted. The pipeline MUST log an operator-visible warning and return without creating a supplemental receipt.
-4. All ambiguous correlation skips and missing `delivery_plan_id` skips MUST log at warning level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
-5. The `delivery_plan_id` on `OutboundNativeRefRecord` is for correlation only. It is not stored in `native_message_refs` storage.
+1. Queue callbacks MUST carry `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no receipt created, no heuristic fallback).
+2. `outbox_id` is used for exact receipt selection — the lifecycle service matches the outbox item's `queued` receipt directly. `delivery_plan_id` is NOT the correlation selector.
+3. `delivery_plan_id` is validated against the outbox item's `delivery_plan_id` when present. A mismatch causes the callback to be rejected. When absent, correlation proceeds via `outbox_id` but validation is skipped. Missing `delivery_plan_id` on an otherwise valid callback (outbox_id + attempt_number present and matching) is NOT a correlation failure — it is degraded validation metadata only.
+4. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
+5. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
 6. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
 7. When all matching queued receipt candidates are replay-sourced (`source="replay"`), the pipeline MUST NOT create a supplemental sent receipt, MUST NOT transition the outbox from `queued` to `sent`, and MUST log a warning. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation. This restriction applies to both single-candidate and multi-candidate paths. It MAY be relaxed in a future version when callback records carry trusted replay provenance.
+8. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
 
 ## 16. Evidence Bundle Model
 
@@ -1364,4 +1367,4 @@ When a native ref is absent from persisted evidence, operators should:
 - Inspect persisted receipts and outbox items for the delivery target. A `queued` receipt without a subsequent `sent` receipt indicates the native ref was never produced by the transport, not that delivery failed.
 - Inspect `native_message_refs` storage directly if available, as native refs may have been persisted independently of the receipt chain.
 - Treat missing native refs as **correlation gaps**, not as evidence of delivery success or failure. Absence of a native ref means the delivery outcome cannot be correlated to the transport's own records; it does not mean the message was or was not delivered.
-- Use `delivery_plan_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable.
+- Use `outbox_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable. `delivery_plan_id` is a validation field only (see § 15.2).

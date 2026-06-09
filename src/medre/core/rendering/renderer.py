@@ -213,12 +213,28 @@ class RenderingResult:
         renderer returns.  ``None`` when the result was not produced
         by :meth:`RenderingPipeline.render` (e.g. manually constructed).
     delivery_plan_id:
-        Stable correlation key from the delivery plan.  Set by
+        Stable delivery-plan identity propagated to adapter callbacks
+        for validation.  Set by
         :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
         after rendering, before adapter delivery.  Queue-based adapters
         propagate this through their queue into
+        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+        The lifecycle service validates it against the outbox item but
+        does NOT use it for receipt selection — ``outbox_id`` provides
+        exact correlation.
+    outbox_id:
+        Internal correlation key linking this render result to the durable
+        outbox item tracking this delivery attempt.  Set by
+        :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        alongside ``delivery_plan_id``.  Queue-based adapters propagate this
+        through their internal queue into
         :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
-        deterministic queued→sent receipt correlation.
+        exact outbox-level correlation.  **Not wire metadata, not public API.**
+    attempt_number:
+        1-indexed delivery attempt number from the pipeline retry lineage.
+        Set by :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
+        alongside ``delivery_plan_id`` and ``outbox_id``.  Queue-based adapters
+        propagate this for stale-callback protection.
     """
 
     event_id: str
@@ -230,6 +246,12 @@ class RenderingResult:
     fallback_applied: FallbackApplied | None = None
     rendering_evidence: RenderingEvidence | None = None
     delivery_plan_id: str | None = None
+    outbox_id: str | None = None
+    attempt_number: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.attempt_number is not None and self.attempt_number < 1:
+            raise ValueError(f"attempt_number must be >= 1, got {self.attempt_number}")
 
 
 # ---------------------------------------------------------------------------

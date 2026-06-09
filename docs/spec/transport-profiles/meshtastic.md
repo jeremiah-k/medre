@@ -113,9 +113,14 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 **Queue semantics:**
 
 - Bounded queue (default 1024 items); rejects with `MeshtasticSendError(transient=True)` when full.
-- Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then dropped as exhausted.
-- Permanent failures: item dropped immediately.
+- Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then reported as terminal (`exhausted`) via `record_outbound_terminal`.
+- Permanent failures: reported as terminal (`permanent_failed`) immediately via `record_outbound_terminal`.
+- `asyncio.CancelledError` during send: in-flight item stored for cancellation reporting; remaining queue items reported as `abandoned`.
+- Adapter stop: when an in-flight cancelled item exists (evidence the drain task was actively processing), remaining queued items are drained and reported as `abandoned`. When no in-flight item exists, remaining items are left in the in-memory queue to survive across the stop boundary for the next `start()` cycle.
+- Terminal outcomes produce durable receipts and outbox transitions; there is no silent drop.
 - `listen_only` mode: `deliver()` raises `AdapterPermanentError` before enqueue.
+
+**Correlation:** Each queued item carries an internal `outbox_id` and `attempt_number` from the pipeline. These are stored in queue item metadata (never in the wire payload sent to the radio). When the delayed callback arrives, these keys enable exact outbox-level correlation with stale-callback protection.
 
 **Startup backlog suppression:** Packets with `rxTime` before `adapter_start_epoch - startup_backlog_suppress_seconds` are silently dropped.
 

@@ -341,3 +341,118 @@ class TestMeshtasticConfigInvalid:
         )
         with pytest.raises(MeshtasticConfigError, match="outbound_mode"):
             config.validate()
+
+    # -- encrypted_action validation --
+
+    def test_encrypted_action_default_is_drop(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.encrypted_action == "drop"
+
+    def test_encrypted_action_drop_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", encrypted_action="drop")
+        assert config.validate().encrypted_action == "drop"
+
+    def test_encrypted_action_deferred_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", encrypted_action="deferred")
+        assert config.validate().encrypted_action == "deferred"
+
+    def test_encrypted_action_invalid_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", encrypted_action="allow"  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="encrypted_action"):
+            config.validate()
+
+    # -- chat_portnums validation --
+
+    def test_chat_portnums_default_is_empty_frozenset(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.chat_portnums == frozenset()
+
+    def test_chat_portnums_frozenset_strings_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", chat_portnums=frozenset({"1", "3"})
+        )
+        assert config.validate().chat_portnums == frozenset({"1", "3"})
+
+    def test_chat_portnums_set_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", chat_portnums={"1"}  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="chat_portnums"):
+            config.validate()
+
+    def test_chat_portnums_list_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", chat_portnums=["1"]  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="chat_portnums"):
+            config.validate()
+
+    def test_chat_portnums_non_string_items_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", chat_portnums=frozenset({1, 2})  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="chat_portnums"):
+            config.validate()
+
+    # -- disabled_portnums validation --
+
+    def test_disabled_portnums_default_is_empty_frozenset(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.disabled_portnums == frozenset()
+
+    def test_disabled_portnums_frozenset_strings_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", disabled_portnums=frozenset({"66", "67"})
+        )
+        assert config.validate().disabled_portnums == frozenset({"66", "67"})
+
+    def test_disabled_portnums_set_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", disabled_portnums={"66"}  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="disabled_portnums"):
+            config.validate()
+
+    def test_disabled_portnums_list_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", disabled_portnums=["66"]  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="disabled_portnums"):
+            config.validate()
+
+    def test_disabled_portnums_non_string_items_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", disabled_portnums=frozenset({66})  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="disabled_portnums"):
+            config.validate()
+
+    # -- detection_sensor_relay validation --
+
+    def test_detection_sensor_relay_default_is_false(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.detection_sensor_relay is False
+
+    def test_detection_sensor_relay_true_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", detection_sensor_relay=True)
+        assert config.validate().detection_sensor_relay is True
+
+    def test_detection_sensor_relay_false_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", detection_sensor_relay=False)
+        assert config.validate().detection_sensor_relay is False
+
+    def test_detection_sensor_relay_int_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", detection_sensor_relay=1  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="detection_sensor_relay"):
+            config.validate()
+
+    def test_detection_sensor_relay_string_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", detection_sensor_relay="true"  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="detection_sensor_relay"):
+            config.validate()

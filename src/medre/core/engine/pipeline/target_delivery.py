@@ -308,6 +308,7 @@ class TargetDeliveryService:
         previous_receipt: DeliveryReceipt | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
+        outbox_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -345,6 +346,13 @@ class TargetDeliveryService:
         previous_receipt:
             The receipt from the previous delivery attempt, if this is a
             retry.  ``None`` for the first attempt.
+        outbox_id:
+            Internal correlation key from the durable outbox item tracking
+            this delivery attempt.  Stamped onto the
+            :class:`~medre.core.rendering.renderer.RenderingResult` so
+            queue-based adapters can propagate it through their queue for
+            exact callback correlation.  ``None`` when no outbox item was
+            created.
 
         Returns
         -------
@@ -384,6 +392,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -413,6 +422,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -475,6 +485,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -516,6 +527,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(_skip_receipt)
@@ -550,6 +562,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -590,6 +603,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -600,11 +614,16 @@ class TargetDeliveryService:
                 failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
             ) from None
 
-        # Stamp the delivery_plan_id onto the rendering result so that
-        # queue-based adapters can propagate it through their queue into
-        # OutboundNativeRefRecord for deterministic queued→sent receipt
-        # correlation.  RenderingResult is frozen; use dataclass replace().
-        rendering_result = replace(rendering_result, delivery_plan_id=plan.plan_id)
+        # Stamp delivery_plan_id for validation in queue callbacks;
+        # outbox_id provides exact correlation.  Also stamp attempt_number
+        # for stale-callback protection.  RenderingResult is frozen; use
+        # dataclass replace().
+        rendering_result = replace(
+            rendering_result,
+            delivery_plan_id=plan.plan_id,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+        )
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
@@ -629,6 +648,7 @@ class TargetDeliveryService:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(receipt)
@@ -768,6 +788,7 @@ class TargetDeliveryService:
             replay_run_id=replay_run_id,
             **self._lifecycle.extract_retry_fields(plan),
             rendering_evidence=_rendering_evidence,
+            outbox_id=outbox_id,
         )
         await self._storage.append_receipt(receipt)
 

@@ -14,6 +14,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -733,3 +734,157 @@ class TestFailureKindDetailDrainTimeout:
         assert report["target_adapter"] == "fake_dst"
         assert report["route_id"] == "r-1"
         assert report["attempt_number"] == 1
+
+
+# ===================================================================
+# Test 10: _persist_drain_abandoned_evidence attempt_number lookup
+# ===================================================================
+
+
+class TestPersistDrainAbandonedAttemptNumber:
+    """Covers app.py lines 1600-1606: attempt_number lookup from outbox item.
+
+    Three scenarios:
+    a) inflight has outbox_id → storage.get_outbox_item returns item with
+       attempt_number=3 → receipt has attempt_number=3.
+    b) inflight has outbox_id → get_outbox_item raises → falls back to
+       attempt_number=1.
+    c) inflight has outbox_id=None → skips lookup, uses attempt_number=1.
+
+    Tests call _persist_drain_abandoned_evidence directly on a lightweight
+    mock with mocked pipeline_runner.drain_abandoned_deliveries and real
+    or mock storage.
+    """
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_from_outbox_item(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id and storage returns item with
+        attempt_number=3, the persisted receipt uses attempt_number=3."""
+
+        from medre.core.engine.pipeline import InflightDelivery
+        from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.runtime.app import MedreApp
+
+        # Create an outbox item with attempt_number=3.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="ob-attempt-3",
+            event_id="evt-attempt-test",
+            route_id="r-1",
+            delivery_plan_id="dp-1",
+            target_adapter="fake_dst",
+            target_channel="ch-0",
+            attempt_number=3,
+            status="in_progress",
+        )
+        await temp_db.create_outbox_item(outbox_item)
+
+        inflight = InflightDelivery(
+            event_id="evt-attempt-test",
+            route_id="r-1",
+            target_adapter="fake_dst",
+            target_channel="ch-0",
+            delivery_plan_id="dp-1",
+            source="live",
+            replay_run_id=None,
+            acquired_at=0.0,
+            outbox_id="ob-attempt-3",
+        )
+
+        # Lightweight mock with just the required attributes.
+        app = MagicMock(spec=[])
+        app.pipeline_runner = MagicMock()
+        app.pipeline_runner.drain_abandoned_deliveries = MagicMock(
+            return_value=[inflight]
+        )
+        app.storage = temp_db
+
+        method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
+        await method()
+
+        receipts = await temp_db.list_receipts_for_event("evt-attempt-test")
+        assert len(receipts) >= 1
+        assert receipts[0].attempt_number == 3
+        assert receipts[0].status == "suppressed"
+        assert receipts[0].failure_kind == "shutdown_rejection"
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_fallback_on_get_outbox_item_error(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id but get_outbox_item raises,
+        attempt_number falls back to 1."""
+
+        from unittest.mock import AsyncMock
+
+        from medre.core.engine.pipeline import InflightDelivery
+        from medre.runtime.app import MedreApp
+
+        inflight = InflightDelivery(
+            event_id="evt-fallback",
+            route_id="r-1",
+            target_adapter="fake_dst",
+            target_channel="ch-0",
+            delivery_plan_id="dp-1",
+            source="retry",
+            replay_run_id=None,
+            acquired_at=0.0,
+            outbox_id="ob-missing",
+        )
+
+        # Mock storage that raises on get_outbox_item but records receipts.
+        mock_storage = AsyncMock()
+        mock_storage.get_outbox_item = AsyncMock(side_effect=RuntimeError("db error"))
+        mock_storage.append_receipt = temp_db.append_receipt
+
+        app = MagicMock(spec=[])
+        app.pipeline_runner = MagicMock()
+        app.pipeline_runner.drain_abandoned_deliveries = MagicMock(
+            return_value=[inflight]
+        )
+        app.storage = mock_storage
+
+        method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
+        await method()
+
+        receipts = await temp_db.list_receipts_for_event("evt-fallback")
+        assert len(receipts) >= 1
+        assert receipts[0].attempt_number == 1
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_skips_lookup_when_outbox_id_none(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id=None, lookup is skipped and
+        attempt_number=1 is used."""
+
+        from medre.core.engine.pipeline import InflightDelivery
+        from medre.runtime.app import MedreApp
+
+        inflight = InflightDelivery(
+            event_id="evt-no-outbox",
+            route_id="r-1",
+            target_adapter="fake_dst",
+            target_channel="ch-0",
+            delivery_plan_id="dp-1",
+            source="live",
+            replay_run_id=None,
+            acquired_at=0.0,
+            outbox_id=None,
+        )
+
+        app = MagicMock(spec=[])
+        app.pipeline_runner = MagicMock()
+        app.pipeline_runner.drain_abandoned_deliveries = MagicMock(
+            return_value=[inflight]
+        )
+        app.storage = temp_db
+
+        method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
+        await method()
+
+        receipts = await temp_db.list_receipts_for_event("evt-no-outbox")
+        assert len(receipts) >= 1
+        assert receipts[0].attempt_number == 1
+        assert receipts[0].source == "live"

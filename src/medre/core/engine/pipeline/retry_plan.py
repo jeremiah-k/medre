@@ -5,12 +5,18 @@ When the RetryWorker re-attempts a delivery it must rebuild a minimal
 :class:`~medre.core.routing.models.Route` from the information persisted in
 the outbox item and (when available) the previous delivery receipt.
 
-Reconstruction is intentionally *minimal*: only fields that are persisted
-in the outbox or receipt schema survive.  Fields that were computed at
-planning time but never persisted — capability decisions, fallback chains,
-deadlines — are omitted because the outbox schema does not store them.
-Recovering those fields would require either schema changes (to persist
-them) or full replanning (to recompute them).
+**Route-decision metadata recovery.**  The outbox ``metadata`` dict
+persists route-decision fields (capability_level, delivery_strategy,
+capability_field, capability_reason, deadline) alongside destination
+metadata.  The reconstruction helper reads these back so retry delivery
+matches the original live delivery decision rather than defaulting to
+``capability_level=None`` (which silently becomes ``"native"``) and
+``strategy="direct"``.
+
+Fields that are *not* persisted and cannot be recovered:
+
+* ``fallback_chain`` — always ``[]``.
+* ``Route.source`` — always a minimal/dummy source.
 
 The helper in this module centralises that reconstruction so the
 RetryWorker does not duplicate planning logic and so the semantics are
@@ -19,17 +25,29 @@ documented in one place.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime
+from typing import get_args
 
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
+    DeliveryStrategyMethod,
     RetryPolicy,
     delivery_target_identity,
 )
 from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
+
+logger = logging.getLogger(__name__)
+
+#: Valid capability-level values matching
+#: :data:`~medre.core.rendering.renderer.CapabilityLevel`.
+_VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(
+    {"native", "fallback", "unsupported"}
+)
 
 
 @dataclass(frozen=True)
@@ -66,7 +84,8 @@ def reconstruct_retry_delivery_plan(
     ----------
     item:
         The outbox item being retried.  Provides target adapter/channel,
-        destination metadata, route/plan/event IDs.
+        destination metadata, route/plan/event IDs, and route-decision
+        metadata persisted at outbox creation time.
     previous_receipt:
         The most recent delivery receipt for this target, or ``None`` if
         no previous receipt exists (first retry of a newly-created item).
@@ -94,9 +113,16 @@ def reconstruct_retry_delivery_plan(
       optional).
     * **Plan ID**: ``item.delivery_plan_id or ""``.
     * **Event ID**: ``item.event_id``.
-    * **Primary strategy**: always ``DeliveryStrategy(method="direct")``.
-      The original strategy is not persisted in the outbox schema; retry
-      always uses the standard delivery path.
+    * **Primary strategy**: recovered from ``item.metadata["delivery_strategy"]``
+      when present; falls back to ``"direct"`` for outbox rows with missing
+      or corrupt prerelease metadata that predate route-decision persistence.
+    * **Capability level**: recovered from ``item.metadata["capability_level"]``
+      when present; falls back to ``None`` for rows with missing or corrupt
+      prerelease metadata.
+    * **Capability field/reason**: recovered from ``item.metadata`` keys
+      ``capability_field`` and ``capability_reason`` when present.
+    * **Deadline**: recovered from ``item.metadata["deadline"]`` (ISO 8601
+      string) when present; falls back to ``None``.
     * **Retry policy**: restored from the previous receipt's
       ``retry_max_attempts``, ``retry_backoff_base``,
       ``retry_max_delay``, and ``retry_jitter`` fields.  Falls back to
@@ -107,13 +133,10 @@ def reconstruct_retry_delivery_plan(
     * **Route source**: a minimal/dummy source — the original source is
       not persisted.
 
-    Intentionally omitted (not persisted, cannot be recovered without
-    schema changes or replanning):
+    Intentionally omitted (not persisted, cannot be recovered):
 
     * ``fallback_chain`` — always ``[]``.
-    * ``deadline`` — always ``None``.
-    * ``capability_level``, ``capability_field``, ``capability_reason``
-      — always ``None``.
+    * ``Route.source`` — always ``RouteSource(adapter=None, ...)``.
     """
     # -- Retry policy from previous receipt with fallback defaults --------
     max_attempts = default_max_attempts
@@ -173,15 +196,74 @@ def reconstruct_retry_delivery_plan(
         targets=[target],
     )
 
+    # -- Route-decision metadata recovery ----------------------------------
+    # Recover capability/strategy/deadline from the outbox metadata dict.
+    # Outbox rows with missing or corrupt prerelease metadata that predate
+    # route-decision persistence will not have these keys; graceful
+    # degradation uses DeliveryPlan defaults.
+    _meta = item.metadata or {}
+    _capability_level_raw = _meta.get("capability_level")
+    _capability_level: str | None = (
+        _capability_level_raw if isinstance(_capability_level_raw, str) else None
+    )
+
+    if _capability_level_raw is not None and not isinstance(_capability_level_raw, str):
+        logger.warning(
+            "Non-string capability_level %r in outbox metadata for item %s; "
+            "falling back to None",
+            _capability_level_raw,
+            item.outbox_id,
+        )
+
+    # Validate _capability_level against the closed vocabulary.
+    if (
+        _capability_level is not None
+        and _capability_level not in _VALID_CAPABILITY_LEVELS
+    ):
+        logger.warning(
+            "Invalid capability_level %r in outbox metadata for item %s; "
+            "falling back to None",
+            _capability_level,
+            item.outbox_id,
+        )
+        _capability_level = None
+
+    _delivery_strategy_raw: str | None = _meta.get("delivery_strategy")
+    _capability_field: str | None = _meta.get("capability_field")
+    _capability_reason: str | None = _meta.get("capability_reason")
+    _deadline_raw: str | None = _meta.get("deadline")
+
+    # Validate delivery_strategy against the closed vocabulary.
+    _strategy_method: DeliveryStrategyMethod = "direct"
+    if _delivery_strategy_raw is not None:
+        # Accept the raw string if it matches a known DeliveryStrategyMethod value.
+        if _delivery_strategy_raw in get_args(DeliveryStrategyMethod):
+            _strategy_method = _delivery_strategy_raw  # type: ignore[assignment]
+
+    _deadline: datetime | None = None
+    if _deadline_raw is not None:
+        try:
+            _parsed = datetime.fromisoformat(_deadline_raw)
+            # Reject timezone-naive datetimes — comparison with
+            # datetime.now(tz=timezone.utc) would raise TypeError.
+            if _parsed.tzinfo is not None:
+                _deadline = _parsed
+        except (ValueError, TypeError):
+            pass  # Graceful degradation: deadline stays None.
+
     # -- Delivery plan ----------------------------------------------------
     plan = DeliveryPlan(
         plan_id=item.delivery_plan_id or "",
         event_id=item.event_id,
         target=target,
-        primary_strategy=DeliveryStrategy(method="direct"),
+        primary_strategy=DeliveryStrategy(method=_strategy_method),
         retry_policy=retry_policy,
         route_id=item.route_id or None,
         target_identity=delivery_target_identity(target),
+        capability_level=_capability_level,
+        capability_field=_capability_field,
+        capability_reason=_capability_reason,
+        deadline=_deadline,
     )
 
     return ReconstructedRetryPlan(

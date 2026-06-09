@@ -77,8 +77,22 @@ class TestDelegationIntegration:
             status="queued",
             adapter="mesh",
             channel="0",
+            outbox_id="obox-delegate-qs",
         )
         await temp_storage.append_receipt(queued)
+
+        # Create matching outbox item for exact correlation.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-delegate-qs",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-001",
+            target_adapter="mesh",
+            target_channel="0",
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-delegate-qs")
 
         runner = _make_runner(temp_storage)
 
@@ -88,6 +102,8 @@ class TestDelegationIntegration:
             native_channel_id="0",
             native_message_id="pkt-42",
             delivery_plan_id="plan-001",
+            outbox_id="obox-delegate-qs",
+            attempt_number=1,
         )
         await runner._append_queued_to_sent_receipt(record=record, now=now)
 

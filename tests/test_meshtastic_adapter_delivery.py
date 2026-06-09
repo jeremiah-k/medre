@@ -105,8 +105,12 @@ class TestMeshtasticAdapterSendSemantics:
 
     async def test_queue_process_one_tracks_failures(self) -> None:
         """process_one treats unknown exceptions as transient; after
-        exhausting max_attempts the item is counted as failed."""
-        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+        exhausting max_attempts the item is counted as failed and
+        a QueueTerminalResult is returned."""
+        from medre.adapters.meshtastic.queue import (
+            MeshtasticOutboundQueue,
+            QueueTerminalResult,
+        )
 
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test"}, 0)
@@ -115,9 +119,15 @@ class TestMeshtasticAdapterSendSemantics:
             raise RuntimeError("boom")
 
         # Run process_one max_attempts times to exhaust retries.
-        for _ in range(queue.max_attempts):
+        for i in range(queue.max_attempts):
             result = await queue.process_one(send_fn=fake_send_fail)
-            assert result is None
+            if i < queue.max_attempts - 1:
+                # Still requeued, not terminal yet.
+                assert result is None
+            else:
+                # Exhausted → terminal result.
+                assert isinstance(result, QueueTerminalResult)
+                assert result.outcome == "exhausted"
 
         assert queue.total_failed == 1
 

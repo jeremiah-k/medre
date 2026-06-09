@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     retry_max_delay REAL,
     retry_jitter INTEGER,
     rendering_evidence TEXT,
+    outbox_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -104,7 +105,8 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base,
-       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence, dr.created_at
+       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence,
+       dr.outbox_id, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
@@ -298,6 +300,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "retry_max_delay",
             "retry_jitter",
             "rendering_evidence",
+            "outbox_id",
             "created_at",
         }
     ),

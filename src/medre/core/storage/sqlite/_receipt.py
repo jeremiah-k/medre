@@ -90,6 +90,7 @@ class _ReceiptMixin:
                     else (0 if receipt.retry_jitter is False else None)
                 ),
                 receipt.rendering_evidence,
+                receipt.outbox_id,
                 receipt.created_at.isoformat(),
             ),
         )

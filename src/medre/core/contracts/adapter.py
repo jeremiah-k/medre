@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
@@ -308,9 +308,11 @@ class OutboundNativeRefRecord:
 
     .. note::
 
-       When the adapter is shut down before the queue drain records the native
-       ref, the mapping is permanently lost.  The queue does not flush or retry
-       on shutdown.
+        When the adapter is shut down, items in the local queue survive across
+        stop/start boundaries.  The durable outbox row remains in ``queued``
+        status for stale-recovery.  Terminal outcomes (cancelled/abandoned) are
+        reported only when there is evidence the drain task was actively
+        processing work.
 
     Attributes
     ----------
@@ -332,13 +334,23 @@ class OutboundNativeRefRecord:
         **Reserved** — no adapter currently populates this field; it
         is always ``None`` at runtime.
     delivery_plan_id:
-        Stable correlation key that identifies which delivery plan
-        produced this outbound send.  When present,
-        :meth:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService.append_queued_to_sent_receipt`
-        uses it for deterministic queued→sent receipt correlation,
-        avoiding the older event_id+adapter+channel+latest heuristic.
-        ``None`` when the adapter did not propagate a plan ID (legacy
-        path or non-queue adapters).
+        Stable delivery-plan identity carried through the callback for
+        validation.  The lifecycle service validates it against the
+        outbox item's ``delivery_plan_id`` but does NOT use it for
+        receipt selection — ``outbox_id`` provides exact correlation.
+        ``None`` when the adapter did not propagate a plan ID.
+    outbox_id:
+        **Required** internal correlation key linking this callback to
+        the exact durable outbox item for this delivery attempt.
+        The lifecycle service uses it for **exact** outbox-level
+        correlation, which provides stale-callback protection.
+        Queue adapters MUST populate this field; callbacks without
+        ``outbox_id`` are hard-rejected.
+        **Not wire metadata, not public API.**
+    attempt_number:
+        **Required** 1-indexed delivery attempt number from pipeline
+        retry lineage.  Used alongside ``outbox_id`` for stale-callback
+        protection.  Queue adapters MUST populate this field.
     metadata:
         Adapter-specific metadata about this mapping.  Must contain only
         JSON-safe, simple values.
@@ -351,6 +363,8 @@ class OutboundNativeRefRecord:
     native_thread_id: str | None = None
     native_relation_id: str | None = None
     delivery_plan_id: str | None = None
+    outbox_id: str | None = None
+    attempt_number: int | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -383,6 +397,65 @@ class OutboundNativeRefRecord:
                 "OutboundNativeRefRecord.metadata must contain only JSON-safe values"
             ) from exc
         object.__setattr__(self, "metadata", MappingProxyType(frozen))
+
+
+@dataclass(frozen=True)
+class QueueTerminalRecord:
+    """Immutable record reporting a terminal queue outcome to core.
+
+    Queue-based adapters (e.g. Meshtastic) that accepted delivery into a
+    local queue may later experience terminal outcomes that the pipeline
+    needs durable evidence for.  This record carries the facts; the
+    pipeline/core maps them into appropriate receipt/outbox lifecycle
+    transitions.
+
+    **Adapters report facts; adapters must not become lifecycle authority.**
+    Core decides what receipt status, failure kind, and outbox transition
+    result from each terminal outcome.
+
+    Attributes
+    ----------
+    event_id:
+        The canonical event ID that originated the outbound send.
+    adapter:
+        The adapter ID reporting this outcome.
+    outcome:
+        Terminal outcome classification:
+
+        * ``"exhausted"`` — local retry budget exhausted.
+        * ``"permanent_failed"`` — permanent send failure, no retry.
+        * ``"cancelled"`` — item cancelled while in-flight.
+        * ``"abandoned"`` — adapter shutdown with unsent queued items.
+    outbox_id:
+        **Required** internal correlation key linking this callback to
+        the exact durable outbox item.  Queue adapters MUST populate
+        this field; callbacks without ``outbox_id`` are hard-rejected
+        by core and produce no durable terminal receipt or outbox
+        mutation.
+        **Not wire metadata, not public API.**
+    delivery_plan_id:
+        Delivery-plan identity / validation metadata.  Core validates
+        it against the authoritative outbox row when present, but it
+        is not a queue callback correlation key.
+    attempt_number:
+        **Required** 1-indexed delivery attempt number from pipeline
+        retry lineage.  Queue adapters MUST populate this field;
+        callbacks without ``attempt_number`` are hard-rejected by core
+        and produce no durable terminal receipt or outbox mutation.
+    native_channel_id:
+        Channel / conversation ID in the adapter's native format.
+    error:
+        Human-readable error context.
+    """
+
+    event_id: str
+    adapter: str
+    outcome: Literal["exhausted", "permanent_failed", "cancelled", "abandoned"]
+    outbox_id: str | None = None
+    delivery_plan_id: str | None = None
+    attempt_number: int | None = None
+    native_channel_id: str | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -419,6 +492,13 @@ class AdapterContext:
         this after a queued send returns a real native message ID.  When
         ``None``, the adapter has no callback wired and delayed refs are
         silently discarded (e.g. in test or standalone mode).
+    record_outbound_terminal:
+        Optional async callback that reports a terminal queue outcome
+        via a :class:`QueueTerminalRecord`.  Queue-based adapters call
+        this when a previously-enqueued item reaches a terminal state
+        (exhausted, permanent failure, cancelled, or abandoned) without
+        producing a native message ID.  When ``None``, terminal outcomes
+        are silently discarded (e.g. in test or standalone mode).
     """
 
     adapter_id: str
@@ -429,6 +509,9 @@ class AdapterContext:
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
     record_outbound_native_ref: (
         Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
+    ) = None
+    record_outbound_terminal: (
+        Callable[[QueueTerminalRecord], Awaitable[None]] | None
     ) = None
 
 
@@ -707,4 +790,5 @@ __all__ = [
     "AdapterRole",
     "AdapterSendError",
     "OutboundNativeRefRecord",
+    "QueueTerminalRecord",
 ]
