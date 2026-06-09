@@ -733,3 +733,236 @@ class TestFailureKindDetailDrainTimeout:
         assert report["target_adapter"] == "fake_dst"
         assert report["route_id"] == "r-1"
         assert report["attempt_number"] == 1
+
+
+# ===================================================================
+# Test 10: _persist_drain_abandoned_evidence attempt_number lookup
+# ===================================================================
+
+
+class TestPersistDrainAbandonedAttemptNumber:
+    """Covers app.py lines 1600-1606: attempt_number lookup from outbox item.
+
+    Three scenarios:
+    a) inflight has outbox_id → storage.get_outbox_item returns item with
+       attempt_number=3 → receipt has attempt_number=3.
+    b) inflight has outbox_id → get_outbox_item raises → falls back to
+       attempt_number=1.
+    c) inflight has outbox_id=None → skips lookup, uses attempt_number=1.
+    """
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_from_outbox_item(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id and storage returns item with
+        attempt_number=3, the persisted receipt uses attempt_number=3."""
+
+        from medre.core.engine.pipeline import InflightDelivery
+
+        # Build a minimal app via the builder to get real MedreApp.
+        dst = FakePresentationAdapter("fake_dst")
+        router = Router(routes=[_make_route()])
+        runner = _build_runner(temp_db, router, {"fake_dst": dst})
+        await runner.start()
+
+        fd, cfg_path = tempfile.mkstemp(suffix=".toml")
+        os.close(fd)
+        try:
+            cfg_path_obj = __import__("pathlib").Path(cfg_path)
+            cfg_path_obj.write_text(
+                '[runtime]\nname = "attempt-number-test"\n\n'
+                '[storage]\nbackend = "memory"\n\n'
+                '[adapters.matrix.solo]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
+                'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
+                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n'
+            )
+            from medre.config.loader import load_config
+
+            config, _source, paths = load_config(str(cfg_path_obj))
+            app = RuntimeBuilder(config, paths).build()
+            await app.start()
+
+            # Replace storage with our temp_db so we can control get_outbox_item.
+            app.storage = temp_db  # type: ignore[assignment]
+
+            # Create an outbox item with attempt_number=3.
+            from medre.core.storage.backend import DeliveryOutboxItem
+
+            outbox_item = DeliveryOutboxItem(
+                outbox_id="ob-attempt-3",
+                event_id="evt-attempt-test",
+                route_id="r-1",
+                delivery_plan_id="dp-1",
+                target_adapter="fake_dst",
+                target_channel="ch-0",
+                attempt_number=3,
+                status="in_progress",
+            )
+            await temp_db.create_outbox_item(outbox_item)
+
+            # Create an inflight delivery with the outbox_id.
+            inflight = InflightDelivery(
+                event_id="evt-attempt-test",
+                route_id="r-1",
+                target_adapter="fake_dst",
+                target_channel="ch-0",
+                delivery_plan_id="dp-1",
+                source="live",
+                replay_run_id=None,
+                acquired_at=0.0,
+                outbox_id="ob-attempt-3",
+            )
+
+            # Mock drain_abandoned_deliveries to return our inflight.
+            runner.drain_abandoned_deliveries = lambda: [inflight]  # type: ignore[assignment]
+            app.pipeline_runner = runner  # type: ignore[assignment]
+
+            # Call _persist_drain_abandoned_evidence directly.
+            await app._persist_drain_abandoned_evidence()
+
+            # Verify the persisted receipt has attempt_number=3.
+            receipts = await temp_db.list_receipts_for_event("evt-attempt-test")
+            assert len(receipts) >= 1
+            receipt = receipts[0]
+            assert receipt.attempt_number == 3
+            assert receipt.status == "suppressed"
+            assert receipt.failure_kind == "shutdown_rejection"
+
+            await app.stop()
+            await runner.stop()
+        finally:
+            os.unlink(cfg_path)
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_fallback_on_get_outbox_item_error(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id but get_outbox_item raises,
+        attempt_number falls back to 1."""
+
+        from unittest.mock import AsyncMock
+
+        from medre.core.engine.pipeline import InflightDelivery
+
+        dst = FakePresentationAdapter("fake_dst")
+        router = Router(routes=[_make_route()])
+        runner = _build_runner(temp_db, router, {"fake_dst": dst})
+        await runner.start()
+
+        fd, cfg_path = tempfile.mkstemp(suffix=".toml")
+        os.close(fd)
+        try:
+            cfg_path_obj = __import__("pathlib").Path(cfg_path)
+            cfg_path_obj.write_text(
+                '[runtime]\nname = "attempt-fallback-test"\n\n'
+                '[storage]\nbackend = "memory"\n\n'
+                '[adapters.matrix.solo]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
+                'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
+                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n'
+            )
+            from medre.config.loader import load_config
+
+            config, _source, paths = load_config(str(cfg_path_obj))
+            app = RuntimeBuilder(config, paths).build()
+            await app.start()
+
+            # Use a mock storage that raises on get_outbox_item.
+            mock_storage = AsyncMock(spec=temp_db)
+            mock_storage.get_outbox_item = AsyncMock(
+                side_effect=RuntimeError("db error")
+            )
+            mock_storage.append_receipt = temp_db.append_receipt
+            mock_storage._closed = False
+            mock_storage.close = temp_db.close
+            app.storage = mock_storage  # type: ignore[assignment]
+
+            inflight = InflightDelivery(
+                event_id="evt-fallback",
+                route_id="r-1",
+                target_adapter="fake_dst",
+                target_channel="ch-0",
+                delivery_plan_id="dp-1",
+                source="retry",
+                replay_run_id=None,
+                acquired_at=0.0,
+                outbox_id="ob-missing",
+            )
+
+            runner.drain_abandoned_deliveries = lambda: [inflight]  # type: ignore[assignment]
+            app.pipeline_runner = runner  # type: ignore[assignment]
+
+            await app._persist_drain_abandoned_evidence()
+
+            # Verify receipt persisted with attempt_number=1 (fallback).
+            receipts = await temp_db.list_receipts_for_event("evt-fallback")
+            assert len(receipts) >= 1
+            assert receipts[0].attempt_number == 1
+
+            await app.stop()
+            await runner.stop()
+        finally:
+            os.unlink(cfg_path)
+
+    @pytest.mark.asyncio
+    async def test_attempt_number_skips_lookup_when_outbox_id_none(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """When inflight has outbox_id=None, lookup is skipped and
+        attempt_number=1 is used."""
+
+        from medre.core.engine.pipeline import InflightDelivery
+
+        dst = FakePresentationAdapter("fake_dst")
+        router = Router(routes=[_make_route()])
+        runner = _build_runner(temp_db, router, {"fake_dst": dst})
+        await runner.start()
+
+        fd, cfg_path = tempfile.mkstemp(suffix=".toml")
+        os.close(fd)
+        try:
+            cfg_path_obj = __import__("pathlib").Path(cfg_path)
+            cfg_path_obj.write_text(
+                '[runtime]\nname = "attempt-no-outbox"\n\n'
+                '[storage]\nbackend = "memory"\n\n'
+                '[adapters.matrix.solo]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
+                'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
+                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n'
+            )
+            from medre.config.loader import load_config
+
+            config, _source, paths = load_config(str(cfg_path_obj))
+            app = RuntimeBuilder(config, paths).build()
+            await app.start()
+
+            app.storage = temp_db  # type: ignore[assignment]
+
+            inflight = InflightDelivery(
+                event_id="evt-no-outbox",
+                route_id="r-1",
+                target_adapter="fake_dst",
+                target_channel="ch-0",
+                delivery_plan_id="dp-1",
+                source="live",
+                replay_run_id=None,
+                acquired_at=0.0,
+                outbox_id=None,  # None → skips lookup
+            )
+
+            runner.drain_abandoned_deliveries = lambda: [inflight]  # type: ignore[assignment]
+            app.pipeline_runner = runner  # type: ignore[assignment]
+
+            await app._persist_drain_abandoned_evidence()
+
+            receipts = await temp_db.list_receipts_for_event("evt-no-outbox")
+            assert len(receipts) >= 1
+            assert receipts[0].attempt_number == 1
+            assert receipts[0].source == "live"
+
+            await app.stop()
+            await runner.stop()
+        finally:
+            os.unlink(cfg_path)

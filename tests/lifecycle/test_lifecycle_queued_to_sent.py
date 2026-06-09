@@ -1100,3 +1100,317 @@ class TestDeliveryStateTransitionGuard:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
+
+
+# ===================================================================
+# Supplemental queued→sent receipt — uncovered edge-case paths
+# ===================================================================
+
+
+class TestAppendQueuedToSentEdgeCases:
+    """Edge-case rejection paths in append_queued_to_sent_receipt."""
+
+    async def test_event_id_mismatch_rejects_callback(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When outbox_item.event_id != record.event_id, the callback is
+        rejected with a warning and no supplemental receipt is created.
+        Covers lines 655-664.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-evm",
+            event_id="evt-real",
+            route_id="route-1",
+            delivery_plan_id="plan-evm",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-evm")
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-wrong",  # mismatch with outbox_item.event_id
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-evm",
+            delivery_plan_id="plan-evm",
+            outbox_id="obox-evm",
+            attempt_number=1,
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-wrong")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+        assert "Outbox event_id mismatch" in caplog.text
+
+    async def test_no_queued_receipt_matched_outbox_id(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Valid outbox item exists but no queued receipt with matching
+        outbox_id → early return with debug log.  Covers lines 744-755.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Queued receipt with a DIFFERENT outbox_id (won't match).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-other-oid",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-nom",
+                outbox_id="obox-different",
+            )
+        )
+
+        # Outbox item matching the record's outbox_id.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-nom",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-nom",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-nom")
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-nom",
+            delivery_plan_id="plan-nom",
+            outbox_id="obox-nom",
+            attempt_number=1,
+        )
+        with caplog.at_level(logging.DEBUG):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+        assert "No queued receipt matched outbox_id" in caplog.text
+
+    async def test_attempt_number_mismatch_outbox_vs_receipt(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Outbox item attempt_number != queued receipt attempt_number →
+        stale callback rejection.  Covers lines 768-769 and 781.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Queued receipt with attempt_number=1 (stale).
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-stale-attempt",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-atm",
+                attempt_number=1,
+                outbox_id="obox-atm",
+            )
+        )
+
+        # Outbox item now on attempt_number=2 (retry happened).
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-atm",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-atm",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=2,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-atm")
+
+        # Record with attempt_number=2 matches outbox but mismatches receipt.
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-atm",
+            delivery_plan_id="plan-atm",
+            outbox_id="obox-atm",
+            attempt_number=2,
+        )
+        with caplog.at_level(logging.WARNING):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+        assert "Attempt number mismatch" in caplog.text
+
+    async def test_invalid_status_transition_skips_supplemental(
+        self,
+        temp_storage: StorageBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Selected queued receipt has a status that cannot transition to
+        'sent' — defensive guard fires.  Covers line 805 rejection branch.
+
+        The normal flow always selects receipts with status='queued', so we
+        mock _select_source_preferred_candidate to return a non-queued receipt.
+        """
+        from unittest.mock import patch
+
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        # Set up a normal queued receipt + outbox to satisfy earlier checks.
+        await temp_storage.append_receipt(
+            _make_receipt(
+                receipt_id="rcpt-sent-already",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-inv",
+                outbox_id="obox-inv",
+            )
+        )
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-inv",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-inv",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-inv")
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-inv",
+            delivery_plan_id="plan-inv",
+            outbox_id="obox-inv",
+            attempt_number=1,
+        )
+
+        # Build a receipt with status="sent" to feed into the guard.
+        fake_receipt = _make_receipt(
+            receipt_id="rcpt-sent-already",
+            status="sent",  # cannot transition to "sent" again
+            adapter="m",
+            channel="0",
+            plan_id="plan-inv",
+            attempt_number=1,
+            outbox_id="obox-inv",
+        )
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch.object(
+                lifecycle,
+                "_select_source_preferred_candidate",
+                return_value=fake_receipt,
+            ),
+        ):
+            await lifecycle.append_queued_to_sent_receipt(
+                temp_storage,
+                record=record,
+                now=now,
+            )
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 0
+        assert "cannot transition to sent" in caplog.text
+
+    async def test_mark_outbox_sent_happy_path_validated_outbox(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """validated_outbox is not None → mark_outbox_sent is called and
+        transitions the outbox item.  Covers lines 842-849 happy path.
+
+        This is essentially the same as test_outbox_transitioned_from_queued_to_sent
+        but explicitly exercises the validated_outbox path.
+        """
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        queued = _make_receipt(
+            receipt_id="rcpt-vo",
+            status="queued",
+            adapter="mesh-1",
+            channel="0",
+            plan_id="plan-vo",
+            outbox_id="obox-vo",
+        )
+        await temp_storage.append_receipt(queued)
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-vo",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-vo",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
+        await temp_storage.mark_outbox_queued("obox-vo")
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="pkt-vo",
+            delivery_plan_id="plan-vo",
+            outbox_id="obox-vo",
+            attempt_number=1,
+        )
+        await lifecycle.append_queued_to_sent_receipt(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        updated = await temp_storage.get_outbox_item("obox-vo")
+        assert updated is not None
+        assert updated.status == "sent"
+
+        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in all_receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].outbox_id == "obox-vo"

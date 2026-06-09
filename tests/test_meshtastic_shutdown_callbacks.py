@@ -366,3 +366,436 @@ class TestNoUntrackedTasksAfterStop:
             and "meshtastic" in (t.get_coro().__qualname__ or "")
         ]
         assert len(stray) == 0
+
+
+# ===================================================================
+# 5. Delayed outbound ref callback exception logs error (lines 981-988)
+# ===================================================================
+
+
+class TestDelayedOutboundRefExceptionLogged:
+    """When _record_delayed_outbound_ref raises a non-CancelledError
+    inside the shielded try/except, the exception is logged (lines
+    981-988) and the drain loop continues."""
+
+    async def test_native_ref_exception_logged_in_drain_loop(self) -> None:
+        """A native-ref callback that raises is caught by the outer
+        except Exception block and logged; the drain loop keeps running."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        async def failing_native_ref(record):
+            raise RuntimeError("native-ref boom")
+
+        adapter.ctx = _make_ctx(record_outbound_native_ref=failing_native_ref)
+        adapter._started = True
+
+        call_count = 0
+
+        async def mock_send_one():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _delivery_result()
+            # Second call returns None so loop sleeps; we cancel shortly.
+            await asyncio.sleep(10)
+
+        adapter.send_one = mock_send_one
+
+        drain_task = asyncio.ensure_future(adapter._process_queue())
+        adapter._drain_task = drain_task
+
+        # Wait for the first send to complete (including the failed callback).
+        await asyncio.sleep(0.3)
+
+        # Drain task should still be running (exception was caught).
+        assert not drain_task.done()
+
+        # Clean up.
+        drain_task.cancel()
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+
+        await adapter._drain_background_tasks(timeout=2.0)
+
+    async def test_native_ref_exception_ctx_none_no_crash(self) -> None:
+        """When ctx is set to None mid-flight, the exception handler
+        at line 982-983 skips logging but does not crash."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        async def failing_native_ref(record):
+            raise RuntimeError("native-ref boom with no ctx")
+
+        adapter.ctx = _make_ctx(record_outbound_native_ref=failing_native_ref)
+        adapter._started = True
+
+        call_count = 0
+
+        async def mock_send_one():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Remove ctx before returning so the exception handler
+                # sees ctx=None.
+                adapter.ctx = None
+                return _delivery_result()
+            await asyncio.sleep(10)
+
+        adapter.send_one = mock_send_one
+
+        drain_task = asyncio.ensure_future(adapter._process_queue())
+        adapter._drain_task = drain_task
+
+        await asyncio.sleep(0.3)
+        assert not drain_task.done()
+
+        drain_task.cancel()
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+
+
+# ===================================================================
+# 6. Generic exception in drain loop triggers sleep (line 997)
+# ===================================================================
+
+
+class TestGenericExceptionTriggersSleep:
+    """A generic Exception (not CancelledError) from send_one triggers
+    the catch-all except block which logs the error and sleeps for 1s
+    (line 997)."""
+
+    async def test_generic_exception_sleeps_and_continues(self) -> None:
+        """send_one raising RuntimeError → logged + sleep(1.0) → continues."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        adapter.ctx = _make_ctx()
+        adapter._started = True
+
+        call_count = 0
+
+        async def mock_send_one():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("generic drain boom")
+            return None
+
+        adapter.send_one = mock_send_one
+
+        # Patch asyncio.sleep to detect the 1.0 sleep call and avoid
+        # actually waiting.
+        original_sleep = asyncio.sleep
+        sleep_args: list[float] = []
+
+        async def tracking_sleep(delay):
+            sleep_args.append(delay)
+            # Short-circuit the 1.0 sleep so the test runs fast.
+            if delay == 1.0:
+                return
+            await original_sleep(delay)
+
+        adapter._report_cancelled_and_drain = AsyncMock()
+
+        # Monkey-patch sleep on the module to intercept the call at line 997.
+        import medre.adapters.meshtastic.adapter as adapter_mod
+
+        original_mod_sleep = adapter_mod.asyncio.sleep
+        adapter_mod.asyncio.sleep = tracking_sleep
+
+        try:
+            drain_task = asyncio.ensure_future(adapter._process_queue())
+            adapter._drain_task = drain_task
+
+            # Wait for the error to be caught and the sleep to happen.
+            await asyncio.sleep(0.3)
+
+            drain_task.cancel()
+            try:
+                await drain_task
+            except asyncio.CancelledError:
+                pass
+
+            # Verify the 1.0 sleep was requested.
+            assert 1.0 in sleep_args, (
+                f"Expected sleep(1.0) in drain loop error handler; "
+                f"got sleeps: {sleep_args}"
+            )
+            # send_one was called (the first call raised).
+            assert call_count >= 1
+        finally:
+            adapter_mod.asyncio.sleep = original_mod_sleep
+
+
+# ===================================================================
+# 7. _report_queue_terminal callback raises (lines 1029, 1033)
+# ===================================================================
+
+
+class TestReportQueueTerminalCallbackRaises:
+    """_report_queue_terminal catches and logs exceptions from the
+    record_outbound_terminal callback (lines 1029-1040)."""
+
+    async def test_callback_exception_caught_and_logged(self) -> None:
+        """When record_outbound_terminal raises, _report_queue_terminal
+        catches it (lines 1032-1040) and does not propagate."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        async def failing_terminal(record):
+            raise RuntimeError("terminal callback boom")
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=failing_terminal)
+
+        result = _terminal_result()
+
+        # Should NOT raise despite the callback raising.
+        await adapter._report_queue_terminal(result)
+
+    async def test_callback_exception_with_no_ctx(self) -> None:
+        """_report_queue_terminal with ctx=None does not crash when the
+        result has no callback to call."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        adapter.ctx = None
+
+        result = _terminal_result()
+
+        # Should not raise — callback is None, so the if block is skipped.
+        await adapter._report_queue_terminal(result)
+
+
+# ===================================================================
+# 8. _report_cancelled_and_drain paths (lines 1062-1119)
+# ===================================================================
+
+
+class TestReportCancelledAndDrainPaths:
+    """Covers the _report_cancelled_and_drain method's various branches:
+    - cancelled_item present with callback (line 1062)
+    - cancelled-item callback raises (lines 1079-1081)
+    - drain_all with callback for remaining items (line 1091)
+    - abandoned-item callback raises (lines 1109-1119)
+    - no-callback drain_all path (lines 1117-1119)
+    """
+
+    async def test_cancelled_item_with_callback_reports_cancelled(self) -> None:
+        """When pop_cancelled_item returns an item and callback is set,
+        a 'cancelled' QueueTerminalRecord is sent to the callback."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        records: list[Any] = []
+
+        async def capture_terminal(record):
+            records.append(record)
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=capture_terminal)
+
+        # Enqueue an item and simulate it being the cancelled in-flight item.
+        await adapter._queue.enqueue(
+            {
+                "event_id": "evt-cancelled-1",
+                "outbox_id": "ob-cancelled",
+                "delivery_plan_id": "dp-cancel",
+                "attempt_number": 2,
+                "payload": {"text": "cancel me"},
+                "channel_index": 1,
+            },
+            channel_index=1,
+        )
+        # Process one to dequeue it, then mark it as cancelled.
+        # Instead, directly set the cancelled item on the queue.
+        adapter._queue._last_cancelled_item = {
+            "event_id": "evt-cancelled-1",
+            "outbox_id": "ob-cancelled",
+            "delivery_plan_id": "dp-cancel",
+            "attempt_number": 2,
+            "payload": {"text": "cancel me"},
+            "channel_index": 1,
+        }
+
+        await adapter._report_cancelled_and_drain()
+
+        assert len(records) >= 1
+        cancelled_rec = records[0]
+        assert cancelled_rec.outcome == "cancelled"
+        assert cancelled_rec.event_id == "evt-cancelled-1"
+        assert cancelled_rec.attempt_number == 2
+        assert cancelled_rec.native_channel_id == "1"
+
+    async def test_cancelled_item_callback_exception_logged(self) -> None:
+        """When the cancelled-item callback raises, the exception is
+        caught and logged (lines 1079-1086)."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        async def failing_terminal(record):
+            raise RuntimeError("cancelled callback boom")
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=failing_terminal)
+
+        # Set up a cancelled item.
+        adapter._queue._last_cancelled_item = {
+            "event_id": "evt-fail-cancel",
+            "outbox_id": "ob-fail",
+            "delivery_plan_id": "dp-fail",
+            "attempt_number": 1,
+            "channel_index": 0,
+        }
+
+        # Should not raise — exception is caught internally.
+        await adapter._report_cancelled_and_drain()
+
+    async def test_drain_all_remaining_with_callback(self) -> None:
+        """When there's a cancelled item and remaining items in the queue,
+        drain_all reports each as 'abandoned' via the callback (line 1091)."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        records: list[Any] = []
+
+        async def capture_terminal(record):
+            records.append(record)
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=capture_terminal)
+
+        # Set up a cancelled item so the drain path activates.
+        adapter._queue._last_cancelled_item = {
+            "event_id": "evt-inflight",
+            "outbox_id": "ob-inflight",
+            "delivery_plan_id": "dp-1",
+            "attempt_number": 1,
+            "channel_index": 0,
+        }
+
+        # Enqueue remaining items that will be drained as abandoned.
+        # enqueue(payload, channel_index, event_id=..., ...)
+        await adapter._queue.enqueue(
+            {"text": "abandoned 1"},
+            channel_index=2,
+            event_id="evt-remain-1",
+            outbox_id="ob-remain-1",
+            delivery_plan_id="dp-remain",
+            attempt_number=1,
+        )
+        await adapter._queue.enqueue(
+            {"text": "abandoned 2"},
+            channel_index=3,
+            event_id="evt-remain-2",
+            outbox_id="ob-remain-2",
+            delivery_plan_id="dp-remain",
+            attempt_number=3,
+        )
+
+        await adapter._report_cancelled_and_drain()
+
+        # Should have: 1 cancelled + 2 abandoned = 3 records.
+        assert len(records) == 3
+        outcomes = [r.outcome for r in records]
+        assert outcomes[0] == "cancelled"
+        assert outcomes[1] == "abandoned"
+        assert outcomes[2] == "abandoned"
+
+        # Verify attempt_number flows through.
+        abandoned = [r for r in records if r.outcome == "abandoned"]
+        assert abandoned[0].attempt_number == 1
+        assert abandoned[1].attempt_number == 3
+        assert abandoned[0].native_channel_id == "2"
+        assert abandoned[1].native_channel_id == "3"
+
+    async def test_abandoned_callback_exception_logged(self) -> None:
+        """When the abandoned-item callback raises for a remaining item,
+        the exception is caught and logged (lines 1109-1116)."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        call_count = 0
+
+        async def failing_on_second(record):
+            nonlocal call_count
+            call_count += 1
+            if record.outcome == "abandoned":
+                raise RuntimeError("abandoned callback boom")
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=failing_on_second)
+
+        # Set up cancelled + remaining items.
+        adapter._queue._last_cancelled_item = {
+            "event_id": "evt-inflight",
+            "channel_index": 0,
+        }
+        await adapter._queue.enqueue(
+            {"event_id": "evt-remain", "channel_index": 0},
+            channel_index=0,
+        )
+
+        # Should not raise — abandoned callback exception caught.
+        await adapter._report_cancelled_and_drain()
+        assert call_count >= 2  # cancelled + abandoned
+
+    async def test_no_callback_drain_all_silent(self) -> None:
+        """When callback is None, remaining items are drained silently
+        via queue.drain_all() (lines 1117-1119)."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        # No record_outbound_terminal → callback is None.
+        adapter.ctx = _make_ctx()
+
+        # Set up cancelled item so drain path activates.
+        adapter._queue._last_cancelled_item = {
+            "event_id": "evt-inflight",
+            "channel_index": 0,
+        }
+
+        # Enqueue remaining items.
+        await adapter._queue.enqueue(
+            {"event_id": "evt-remain", "channel_index": 0},
+            channel_index=0,
+        )
+
+        await adapter._report_cancelled_and_drain()
+
+        # Queue should be empty after drain_all.
+        assert adapter._queue.pending_count == 0
+
+    async def test_no_cancelled_item_no_drain(self) -> None:
+        """When pop_cancelled_item returns None, no cancelled record is
+        created and drain_all is not called."""
+
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+
+        records: list[Any] = []
+
+        async def capture_terminal(record):
+            records.append(record)
+
+        adapter.ctx = _make_ctx(record_outbound_terminal=capture_terminal)
+
+        # Enqueue items but don't set cancelled item.
+        await adapter._queue.enqueue(
+            {"event_id": "evt-queued", "channel_index": 0},
+            channel_index=0,
+        )
+
+        await adapter._report_cancelled_and_drain()
+
+        # No records produced, items remain in queue.
+        assert len(records) == 0
+        assert adapter._queue.pending_count == 1

@@ -1019,3 +1019,29 @@ class TestUncorrelatedQueuedItems:
         parsed = json.loads(serialized)
         assert parsed["items"][0]["reason_pending"] is not None
         assert "degraded plan metadata" in parsed["items"][0]["reason_pending"]
+
+    def test_queued_no_outbox_id_no_receipt(
+        self,
+    ) -> None:
+        """Queued item with empty outbox_id and no receipt_id hits the
+        truly-missing-outbox_id branch.  Covers line 203."""
+        summary = build_retry_outbox_summary(
+            outbox_items=[
+                _outbox(
+                    outbox_id="",  # empty → falsy
+                    status="queued",
+                    delivery_plan_id="plan-has",
+                    receipt_id=None,
+                    event_id="evt-no-oid",
+                    target_adapter="meshtastic",
+                    target_channel="ch-msh",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        assert summary.counts["queued"] == 1
+        item = summary.items[0]
+        assert item.status == "queued"
+        assert item.reason_pending is not None
+        assert "Queued without queued receipt linkage" in item.reason_pending
+        assert "stale-grace reclaim" in item.reason_pending
