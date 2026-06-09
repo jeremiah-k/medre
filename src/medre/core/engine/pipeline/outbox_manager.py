@@ -572,6 +572,23 @@ class OutboxManager:
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
             )
+            # Guard against duplicate terminal receipts: re-check outbox
+            # state before appending.  If a concurrent operation
+            # transitioned the outbox to terminal during validation,
+            # skip appending to prevent duplicates.
+            if record.outbox_id is not None:
+                re_check = await self._storage.get_outbox_item(record.outbox_id)
+                if re_check is not None and re_check.status not in (
+                    "queued",
+                    "in_progress",
+                ):
+                    self._log.warning(
+                        "Terminal receipt skipped: outbox_id=%s transitioned "
+                        "to %s during processing; duplicate prevented",
+                        record.outbox_id,
+                        re_check.status,
+                    )
+                    return
             await self._storage.append_receipt(receipt)
 
             # Transition the outbox item to terminal status.

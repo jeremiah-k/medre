@@ -220,6 +220,10 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     replay_run_id:
         When ``source="replay"``, the ``run_id`` of the replay execution
         that produced this receipt.  ``None`` for live and retry deliveries.
+    outbox_id:
+        Internal correlation key linking this receipt to the durable
+        outbox item tracking this delivery attempt.  ``None`` when not
+        applicable (e.g., synchronous adapters, suppressed receipts).
     created_at:
         Timestamp when this receipt was created.
     """
