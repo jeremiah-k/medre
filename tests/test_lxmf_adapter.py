@@ -1428,3 +1428,40 @@ class TestLxmfLifecycleGuardSimulateInbound:
         # simulate_inbound must not publish after stop.
         await adapter.simulate_inbound(_make_text_packet(content="after stop"))
         assert len(inbound_collector.events) == 1
+
+
+# ===================================================================
+# Lifecycle parity: _on_packet_async guard matches MeshCore
+# ===================================================================
+
+
+class TestLxmfOnPacketAsyncStartedGuard:
+    """_on_packet_async must not publish after _started becomes False.
+
+    Parity nit: MeshCore _on_message_async checks both ctx and _started
+    before publish_inbound.  LXMF _on_packet_async must do the same so
+    that an already-scheduled background task does not publish after
+    stop() begins.
+    """
+
+    async def test_on_packet_async_skips_publish_when_not_started(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """Directly call _on_packet_async with _started=False → no publish."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        assert adapter._started is True
+
+        # Decode a canonical event manually for direct injection.
+        packet = _make_text_packet(content="guarded")
+        canonical = adapter._codec.decode(packet)
+
+        await adapter.stop()
+        assert adapter._started is False
+        assert adapter.ctx is not None  # ctx retained
+
+        # Directly invoke _on_packet_async — must not publish.
+        await adapter._on_packet_async(canonical)
+        assert len(inbound_collector.events) == 0
