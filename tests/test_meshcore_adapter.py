@@ -477,7 +477,11 @@ class TestMeshCoreAdapterDiagnostics:
         adapter = MeshCoreAdapter(config)
         diag = adapter.diagnostics()
         assert diag["started"] is False
-        assert "session" not in diag
+        # No-session fallback: session sub-dict present with safe defaults.
+        assert "session" in diag
+        assert diag["session"]["connected"] is False
+        assert diag["session"]["reconnecting"] is False
+        assert diag["session"]["reconnect_attempts"] == 0
 
     async def test_diagnostics_after_start(self, make_adapter_context) -> None:
         config = _make_config()

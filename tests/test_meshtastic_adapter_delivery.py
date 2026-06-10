@@ -189,12 +189,17 @@ class TestMeshtasticSessionBoundary:
         await adapter.stop()
 
     async def test_session_diagnostics_after_stop(self, make_adapter_context) -> None:
-        """diagnostics() without session shows adapter-only state."""
+        """diagnostics() without session shows safe-default session sub-dict."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         diag = adapter.diagnostics()
         assert diag["started"] is False
-        assert "session" not in diag
+        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        assert isinstance(diag["session"], dict)
+        assert diag["session"]["connected"] is False
+        assert diag["session"]["reconnecting"] is False
+        assert diag["session"]["reconnect_attempts"] == 0
+        assert diag["session"]["last_error"] is None
 
     async def test_session_diagnostics_no_secrets(self, make_adapter_context) -> None:
         """Diagnostics never exposes secrets, keys, or raw protobuf."""
