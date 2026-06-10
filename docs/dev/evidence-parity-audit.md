@@ -10,7 +10,7 @@
 
 This audit compares how the four MEDRE adapters produce evidence through their `diagnostics()` methods and `health_check()` APIs. The [Diagnostics and Evidence Specification](../spec/diagnostics-evidence.md) §2 defines eight contractual common keys that SHALL appear in every adapter's `diagnostics()` output. This audit measures actual production against that contract, identifies gaps, inconsistencies, and misleading evidence, and ranks implementation opportunities by operational value.
 
-**Key finding:** No adapter includes a `health` key in its `diagnostics()` output. Two adapters (Matrix, Meshtastic) omit `mode` from their real-adapter `diagnostics()`. Three adapters (Meshtastic, MeshCore, LXMF) produce incomplete common-key coverage when no session exists. The normalization layer (`diagnostic_contract.py`) resolves missing keys to `None`, preserving JSON-safety but losing information that operators need.
+**Key finding:** Matrix now includes both `health` and `mode` keys in its `diagnostics()` output. The remaining three adapters (Meshtastic, MeshCore, LXMF) do not include `health`. Meshtastic omits `mode` from its real-adapter `diagnostics()`. Three adapters (Meshtastic, MeshCore, LXMF) produce incomplete common-key coverage when no session exists. The normalization layer (`diagnostic_contract.py`) resolves missing keys to `None`, preserving JSON-safety but losing information that operators need.
 
 ## 2. Relevant Testing Rules
 
@@ -45,18 +45,18 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 #### Matrix
 
-| Key                           | Expected type | Value source                                  | Actual type   | Status             | Notes                                                      |
-| ----------------------------- | ------------- | --------------------------------------------- | ------------- | ------------------ | ---------------------------------------------------------- |
-| `connected`                   | `bool`        | `diag.connected` (session dataclass)          | `bool`        | **present**        | Top-level when session exists; `False` in fallback         |
-| `health`                      | `str`         | Not produced                                  | N/A           | **missing**        | Available only via `health_check()` → `AdapterInfo.health` |
-| `mode`                        | `str`         | Not produced in real adapter                  | N/A           | **missing (real)** | Fake adapter emits `"mode": "fake"`; real adapter omits    |
-| `reconnecting`                | `bool`        | `diag.reconnecting` (session dataclass)       | `bool`        | **present**        | Sync recovery track                                        |
-| `reconnect_attempts`          | `int`         | `diag.reconnect_attempts` (session dataclass) | `int`         | **present**        |                                                            |
-| `last_error`                  | `str or None` | `diag.last_sync_error`                        | `str or None` | **renamed**        | Named `last_sync_error` in output; spec acknowledges this  |
-| `transient_delivery_failures` | `int`         | `self._transient_delivery_failures`           | `int`         | **present**        | Adapter-level counter                                      |
-| `permanent_delivery_failures` | `int`         | `self._permanent_delivery_failures`           | `int`         | **present**        | Adapter-level counter                                      |
+| Key                           | Expected type | Value source                                  | Actual type   | Status      | Notes                                                   |
+| ----------------------------- | ------------- | --------------------------------------------- | ------------- | ----------- | ------------------------------------------------------- |
+| `connected`                   | `bool`        | `diag.connected` (session dataclass)          | `bool`        | **present** | Top-level when session exists; `False` in fallback      |
+| `health`                      | `str`         | `self._last_health` (cached health value)     | `str`         | **present** | Cached from `health_check()`; alias for spec common key |
+| `mode`                        | `str`         | Hardcoded `"live"`                            | `str`         | **present** | Hardcoded in both session and fallback branches         |
+| `reconnecting`                | `bool`        | `diag.reconnecting` (session dataclass)       | `bool`        | **present** | Sync recovery track                                     |
+| `reconnect_attempts`          | `int`         | `diag.reconnect_attempts` (session dataclass) | `int`         | **present** |                                                         |
+| `last_error`                  | `str or None` | `diag.last_sync_error`                        | `str or None` | **present** | Aliased as both `last_sync_error` and `last_error`      |
+| `transient_delivery_failures` | `int`         | `self._transient_delivery_failures`           | `int`         | **present** | Adapter-level counter                                   |
+| `permanent_delivery_failures` | `int`         | `self._permanent_delivery_failures`           | `int`         | **present** | Adapter-level counter                                   |
 
-**Matrix assessment:** 5/8 keys fully conformant at top level. `health` absent from diagnostics (available through separate API). `mode` absent from real adapter. `last_error` has Matrix-specific name.
+**Matrix assessment:** 7/8 keys fully conformant at top level (health included via cached `_last_health`; mode hardcoded `"live"`; `last_error` aliased from `last_sync_error`). Only `last_sync_error` is a Matrix-specific extension beyond the eight contractual keys.
 
 #### Meshtastic
 
@@ -111,13 +111,13 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 ### 5.1 Diagnostics Evidence
 
-| Aspect                          | Matrix                 | Meshtastic                      | MeshCore                                    | LXMF                            |
-| ------------------------------- | ---------------------- | ------------------------------- | ------------------------------------------- | ------------------------------- |
-| Common keys at top level        | 5 (no health, no mode) | 0 (all nested)                  | 1 (`mode` only)                             | 1 (`mode` only)                 |
-| Common keys in session sub-dict | N/A (flat)             | 7 (no health)                   | 7 (no health)                               | 7 (no health)                   |
-| Session-less fallback           | Full fallback dict     | No common keys                  | No common keys                              | No common keys                  |
-| Transport-specific keys         | 21+                    | 30+                             | 10+                                         | 3                               |
-| Diagnostics shape               | Flat dict              | Adapter dict + session sub-dict | Adapter dict + session sub-dict (sanitized) | Adapter dict + session sub-dict |
+| Aspect                          | Matrix             | Meshtastic                      | MeshCore                                    | LXMF                            |
+| ------------------------------- | ------------------ | ------------------------------- | ------------------------------------------- | ------------------------------- |
+| Common keys at top level        | 8 (all present)    | 0 (all nested)                  | 1 (`mode` only)                             | 1 (`mode` only)                 |
+| Common keys in session sub-dict | N/A (flat)         | 7 (no health)                   | 7 (no health)                               | 7 (no health)                   |
+| Session-less fallback           | Full fallback dict | No common keys                  | No common keys                              | No common keys                  |
+| Transport-specific keys         | 21+                | 30+                             | 10+                                         | 3                               |
+| Diagnostics shape               | Flat dict          | Adapter dict + session sub-dict | Adapter dict + session sub-dict (sanitized) | Adapter dict + session sub-dict |
 
 ### 5.2 Queue Evidence
 
@@ -187,13 +187,13 @@ All adapters produce health through the same path:
 
 ## 6. Identified Gaps, Inconsistencies, and Misleading Evidence
 
-### 6.1 `health` missing from all adapters' `diagnostics()` output
+### 6.1 `health` missing from diagnostics output (Meshtastic, MeshCore, LXMF)
 
 **Severity:** High
-**Scope:** All four adapters
-**Description:** The spec (§2) requires eight common keys in `diagnostics()` output, including `health`. No adapter includes a `health` key in its `diagnostics()` return value. Health is available only through the separate `health_check()` API. The normalization layer (`diagnostic_contract.py`) resolves `health` to `None`.
+**Scope:** Meshtastic, MeshCore, LXMF (Matrix resolved — see §4.1)
+**Description:** The spec (§2) requires eight common keys in `diagnostics()` output, including `health`. Matrix now includes `health` via a cached `_last_health` value. The remaining three adapters do not include a `health` key in their `diagnostics()` return value. Health is available only through the separate `health_check()` API. The normalization layer (`diagnostic_contract.py`) resolves `health` to `None` for these adapters.
 
-**Operator impact:** Operators examining raw `diagnostics()` output see `health: null` for all adapters. This is misleading — the adapter may be healthy, but the diagnostics surface doesn't show it. Operators must call `health_check()` separately or rely on the `normalize_adapter_health()` projection.
+**Operator impact:** Operators examining raw `diagnostics()` output see `health: null` for Meshtastic, MeshCore, and LXMF. This is misleading — the adapter may be healthy, but the diagnostics surface doesn't show it. Operators must call `health_check()` separately or rely on the `normalize_adapter_health()` projection.
 
 **Constraint note:** Adapters report facts only. Including `health` in `diagnostics()` would require adapters to duplicate the `AdapterInfo.health` field or derive it at diagnostics time. This is feasible because `health_check()` is observational and the health value is already computed.
 
@@ -209,25 +209,21 @@ All adapters produce health through the same path:
 
 **Risk:** `normalize_diagnostics()` resolves all missing common keys to `None`. This is safe (no invented success) but loses the explicit `False`/`0` signal that a fallback dict would provide.
 
-### 6.3 `mode` missing from real adapter diagnostics (Matrix, Meshtastic)
+### 6.3 `mode` missing from real adapter diagnostics (Meshtastic)
 
 **Severity:** Medium
-**Scope:** Matrix (real adapter), Meshtastic (real adapter)
-**Description:** The Matrix real adapter's `diagnostics()` does not include a `mode` key. The Meshtastic real adapter uses `connection_type` at the adapter level instead of `mode`. Both fake adapters emit `"mode": "fake"`.
+**Scope:** Meshtastic (real adapter). Matrix resolved — emits `"mode": "live"` in both branches.
+**Description:** The Meshtastic real adapter uses `connection_type` at the adapter level instead of `mode`. The fake adapter emits `"mode": "fake"`.
 
-**Operator impact:** The `normalize_diagnostics()` layer resolves `mode` to `None` for real Matrix and Meshtastic adapters. Operators cannot determine transport mode from raw diagnostics.
+**Operator impact:** The `normalize_diagnostics()` layer resolves `mode` to `None` for real Meshtastic adapters. Operators cannot determine transport mode from raw diagnostics.
 
 **Constraint note:** The adapter knows its mode from `self._config.connection_type`. Including a `mode` key is a simple addition that reports an existing fact.
 
-### 6.4 `last_error` naming inconsistency (Matrix)
+### 6.4 ~~`last_error` naming inconsistency (Matrix)~~ RESOLVED
 
 **Severity:** Low
 **Scope:** Matrix only
-**Description:** The spec (§2 Matrix note) acknowledges that Matrix uses `last_sync_error` instead of `last_error`. The normalization layer looks for `last_error` and will not find the Matrix-specific name.
-
-**Operator impact:** Tooling that checks `diagnostics["last_error"]` will see `None` for Matrix adapters even when a sync error exists. Operators must check `last_sync_error` specifically for Matrix.
-
-**Status:** Acknowledged by spec. Not a bug, but an inconsistency that reduces parity.
+**Status:** Resolved. Matrix adapter now emits both `last_sync_error` (Matrix-specific) and `last_error` (spec common key) as aliases of the same value. Cross-adapter tooling checking `last_error` now works correctly for Matrix.
 
 ### 6.5 Common-key nesting inconsistency
 
@@ -283,26 +279,24 @@ if session is None:
 
 ### Priority 2 (P0): `health` key in diagnostics output
 
-**Adapters:** All four
-**Fix:** Include the current health string (from `AdapterInfo.health` or a cached health value) in the `diagnostics()` output under the `health` key.
-**Operational value:** High. The spec mandates `health` as one of eight contractual keys. Operators and tooling expect it. Currently, `normalize_diagnostics()` resolves it to `None`, losing information that exists in the adapter. This is the most visible spec compliance gap.
+**Adapters:** Meshtastic, MeshCore, LXMF (Matrix resolved — uses cached `_last_health`)
+**Fix:** Include the current health string (from `AdapterInfo.health` or a cached health value) in the `diagnostics()` output under the `health` key, following Matrix's pattern of caching `health_check()` results.
+**Operational value:** High. The spec mandates `health` as one of eight contractual keys. Operators and tooling expect it. Currently, `normalize_diagnostics()` resolves it to `None` for these three adapters, losing information that exists in the adapter. This is the most visible spec compliance gap.
 **Constraint:** Adapters report facts only. The `health` value is already a fact computed by the adapter. Including it in `diagnostics()` does not require new health polling or state changes.
-**Design choice:** Adapters could cache the last `AdapterInfo.health` value and include it in `diagnostics()`. Alternatively, the normalization layer could merge health from `health_check()` results when available.
-**Estimated effort:** Low to medium. Requires coordinated change across all four adapters plus fakes.
+**Design choice:** Adapters could cache the last `AdapterInfo.health` value and include it in `diagnostics()` (as Matrix does with `_last_health`). Alternatively, the normalization layer could merge health from `health_check()` results when available.
+**Estimated effort:** Low to medium. Requires coordinated change across three adapters plus fakes.
 
-### Priority 3 (P1): `mode` key in real adapter diagnostics
+### Priority 3 (P1): `mode` key in real adapter diagnostics (Meshtastic)
 
-**Adapters:** Matrix, Meshtastic
-**Fix:** Include `"mode": self._config.connection_type` (or equivalent) in the real adapter's `diagnostics()` output, matching the fake adapter behavior and MeshCore/LXMF pattern.
-**Operational value:** Medium. Operators need to know whether an adapter is in `fake`, `tcp`, `serial`, or `ble` mode from diagnostics output. Currently, real Matrix and Meshtastic adapters don't expose this. Meshtastic has `connection_type` at adapter level which is semantically equivalent but uses a non-standard key name.
+**Adapters:** Meshtastic (Matrix resolved — emits `"mode": "live"`)
+**Fix:** Include `"mode": self._config.connection_type` in Meshtastic's real adapter `diagnostics()` output, matching the MeshCore/LXMF pattern.
+**Operational value:** Medium. Operators need to know whether an adapter is in `fake`, `tcp`, `serial`, or `ble` mode from diagnostics output. Currently, the real Meshtastic adapter uses `connection_type` which is semantically equivalent but uses a non-standard key name.
 **Estimated effort:** Trivial. One line per adapter.
 
-### Priority 4 (P1): `last_error` normalization for Matrix
+### Priority 4 (P1): ~~`last_error` normalization for Matrix~~ RESOLVED
 
 **Adapters:** Matrix
-**Fix:** Either include both `last_error` and `last_sync_error` in Matrix diagnostics, or update the normalization layer to recognize `last_sync_error` as a Matrix-specific alias for `last_error`.
-**Operational value:** Medium. Cross-adapter tooling that checks `last_error` currently sees `None` for Matrix even when a sync error exists. This creates a blind spot in error diagnostics for the most operationally critical adapter.
-**Estimated effort:** Low. Either a one-line addition in Matrix adapter diagnostics or a mapping entry in the normalization layer.
+**Status:** Resolved. Matrix adapter now emits both `last_sync_error` (Matrix-specific) and `last_error` (spec common key) as aliases of the same value. Cross-adapter tooling checking `last_error` now works correctly for Matrix.
 
 ### Priority 5 (P2): LXMF adapter diagnostics completeness
 

@@ -556,8 +556,8 @@ async def test_lxmf_deliver_delivery_status_sent():
     await adapter.stop()
 
 
-async def test_meshcore_deliver_no_content_no_result():
-    """MeshCoreAdapter: deliver with empty text returns None (silent no-op)."""
+async def test_meshcore_deliver_empty_payload_returns_result():
+    """MeshCoreAdapter: deliver with empty text still returns a result (documents actual behavior)."""
     adapter = FakeMeshCoreAdapter()
     ctx = _make_context(adapter_id=adapter.adapter_id)
     await adapter.start(ctx)
@@ -579,8 +579,8 @@ async def test_meshcore_deliver_no_content_no_result():
     await adapter.stop()
 
 
-async def test_lxmf_deliver_no_content_no_title_returns_none():
-    """LxmfAdapter: deliver with no content and no title returns None."""
+async def test_lxmf_deliver_empty_payload_returns_result():
+    """LxmfAdapter: deliver with no content and no title returns a result (documents fake behavior)."""
     adapter = FakeLxmfAdapter()
     ctx = _make_context(adapter_id=adapter.adapter_id)
     await adapter.start(ctx)
@@ -604,7 +604,7 @@ async def test_lxmf_deliver_no_content_no_title_returns_none():
 # ---------------------------------------------------------------------------
 
 
-async def test_meshcore_simulate_inbound_after_stop():
+async def test_meshcore_ctx_preserved_after_stop():
     """MeshCoreAdapter: after stop, ctx is still set; simulate_inbound
     does not raise RuntimeError (ctx is not cleared).
 
@@ -623,7 +623,7 @@ async def test_meshcore_simulate_inbound_after_stop():
     assert adapter.ctx is not None, "ctx is preserved after stop()"
 
 
-async def test_lxmf_simulate_inbound_after_stop():
+async def test_lxmf_ctx_preserved_after_stop():
     """LxmfAdapter: after stop, ctx is still set; simulate_inbound
     does not raise RuntimeError (ctx is not cleared).
 

@@ -824,6 +824,7 @@ class MatrixAdapter(AdapterContract):
                 "last_sync_error": (
                     str(diag.last_sync_error) if diag.last_sync_error else None
                 ),
+                # alias: matches spec common-key name for cross-adapter tooling
                 "last_error": (
                     str(diag.last_sync_error) if diag.last_sync_error else None
                 ),
