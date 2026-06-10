@@ -345,7 +345,7 @@ class MeshCoreSession:
                         self._meshcore.stop_auto_message_fetching(),
                         timeout=_SDK_LIFECYCLE_TIMEOUT,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self._logger.warning(
                         "MeshCoreSession %s: timed out stopping auto_message_fetching",
                         self._adapter_id,
@@ -599,7 +599,7 @@ class MeshCoreSession:
                     self._meshcore.start_auto_message_fetching(),
                     timeout=_SDK_LIFECYCLE_TIMEOUT,
                 )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._logger.warning(
                 "MeshCoreSession %s: timed out starting auto_message_fetching",
                 self._adapter_id,
@@ -657,6 +657,11 @@ class MeshCoreSession:
 
         if payload is None:
             return
+
+        # Reset to avoid stale values across reconnects when payload is partial.
+        self._diag.device_name = None
+        self._diag.public_key_prefix = None
+        self._diag.radio_freq = None
 
         # Device name.
         name = payload.get("name")

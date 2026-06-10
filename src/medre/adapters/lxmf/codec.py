@@ -75,6 +75,11 @@ class LxmfCodec(AdapterCodec):
                 continue
 
             relation_type = raw.get("relation_type")
+            if not isinstance(relation_type, str):
+                self._logger.debug(
+                    "Skipping relation with non-string type: %r", relation_type
+                )
+                continue
             if relation_type not in VALID_RELATION_TYPES:
                 self._logger.debug(
                     "Skipping relation with invalid type: %r", relation_type

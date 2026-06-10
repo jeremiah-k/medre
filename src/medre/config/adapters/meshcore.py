@@ -21,7 +21,8 @@ Validation rules
   It must not contain keys named ``"private_key"``, ``"secret"``, or
   ``"password"`` — secrets must be provisioned through a secure channel,
   never embedded in configuration metadata.
-- ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0.
+- ``message_delay_seconds`` must be a non-negative finite number
+  (≥ 0, finite), ``default_channel`` ≥ 0.
 - ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
 """
 
@@ -75,6 +76,8 @@ class MeshCoreConfig:
         Default radio channel index for outbound messages.
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
+        Must be a non-negative finite number; ``nan`` and ``inf``
+        are rejected.
     identity:
         Optional MeshCore node identity string (e.g. a node name).
         If provided, must be non-empty.
