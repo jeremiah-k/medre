@@ -68,7 +68,7 @@ def _meshcore_text_packet(
 def _dedup_key(
     sender_id: str = "abc123",
     packet_id: int = 42,
-    channel_index: int = 0,
+    channel_index: int | None = 0,
     text: str = "hello",
 ) -> tuple[str, int, int | None, str]:
     """Build the expected dedup key tuple for a packet."""
@@ -265,11 +265,11 @@ async def test_on_message_async_publish_failure_rolls_back_dedup(
 
 
 # ===================================================================
-# LRU semantics: move_to_end on dedup hit, popitem(last=False)
+# LRU recency promotion: move_to_end on dedup hit
 # ===================================================================
 
 
-async def test_simulate_inbound_lru_eviction_and_promotion(
+async def test_simulate_inbound_lru_recency_promotion(
     make_adapter_context,
     inbound_collector,
 ) -> None:

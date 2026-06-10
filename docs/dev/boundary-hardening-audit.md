@@ -58,12 +58,12 @@ What happens when `deliver()` receives a `RenderingResult` with missing target i
 
 What prevents the same inbound event from entering the pipeline twice?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | Self-message suppression (`sender == config.user_id`). MEDRE-origin envelope loop suppression (envelope `source_adapter == self.adapter_id`). Startup history suppression (`session.is_live` guard). Stale-event filter in base `publish_inbound` (timestamp < start time).                                                                                                                                                                                                                                                                                                               |
-| **Meshtastic** | **Implemented** | Self-echo suppression via classifier (`REASON_SELF_ECHO`). Startup backlog suppression via `should_suppress_startup_backlog` with `rxTime` check. Stale-event filter in base `publish_inbound`.                                                                                                                                                                                                                                                                                                                                                                                           |
-| **MeshCore**   | **Implemented** | Classifier filters by category (`text` only) and drops ACKs. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)` — native identity plus text content. Exact replays suppressed; same identity with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `packet_id` is `None` (no reliable native identity). Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G1). |
-| **LXMF**       | **Implemented** | Classifier filters `is_ack` and non-`text` categories. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(message_id, content)` — message hash plus content. Exact replays suppressed; same ID with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `message_id` is `None`. Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G2).                                                                          |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | Self-message suppression (`sender == config.user_id`). MEDRE-origin envelope loop suppression (envelope `source_adapter == self.adapter_id`). Startup history suppression (`session.is_live` guard). Stale-event filter in base `publish_inbound` (timestamp < start time).                                                                                                                                                                                                                                                                                                                                                                             |
+| **Meshtastic** | **Implemented** | Self-echo suppression via classifier (`REASON_SELF_ECHO`). Startup backlog suppression via `should_suppress_startup_backlog` with `rxTime` check. Stale-event filter in base `publish_inbound`.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **MeshCore**   | **Implemented** | Classifier filters by category (`text` only) and drops ACKs. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(sender_id, packet_id, channel_index, text)`, where `sender_id` is derived from the packet's `pubkey_prefix` — native identity plus text content. Exact replays suppressed; same identity with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `packet_id` is `None` (no reliable native identity). Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G1). |
+| **LXMF**       | **Implemented** | Classifier filters `is_ack` and non-`text` categories. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(message_id, content)` — message hash plus content. Exact replays suppressed; same ID with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `message_id` is `None`. Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G2).                                                                                                                                        |
 
 ### 4. Stale Callbacks
 
@@ -209,7 +209,7 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 
 **Status**: **Completed.** Implemented and tested.
 
-**Implementation**: MeshCoreAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)`. The dedup key includes native identity (pubkey prefix + packet ID + channel index) plus text content, ensuring exact replays of the same packet are suppressed while distinct payloads sharing the same packet ID are both processed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit promotes the entry, and `popitem(last=False)` evicts the least-recently-seen entry when the cap is exceeded. When `packet_id` is `None` (no reliable native identity), adapter-level dedup is skipped entirely. The dedup dict is cleared on start via `_reset_inbound_counters()` (which also zeroes counters) and on stop via `self._inbound_dedup.clear()` in `MeshCoreAdapter.stop()`.
+**Implementation**: MeshCoreAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(sender_id, packet_id, channel_index, text)`, where `sender_id` is derived from the packet's `pubkey_prefix`. The dedup key includes native identity (sender ID derived from pubkey prefix + packet ID + channel index) plus text content, ensuring exact replays of the same packet are suppressed while distinct payloads sharing the same packet ID are both processed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit promotes the entry, and `popitem(last=False)` evicts the least-recently-seen entry when the cap is exceeded. When `packet_id` is `None` (no reliable native identity), adapter-level dedup is skipped entirely. The dedup dict is cleared on start via `_reset_inbound_counters()` (which also zeroes counters) and on stop via `self._inbound_dedup.clear()` in `MeshCoreAdapter.stop()`.
 
 **Tests**: `test_boundary_hardening.py` — `test_meshcore_simulate_inbound_deduplicates_identical_packets`, `test_meshcore_simulate_inbound_allows_different_packets`, `test_meshcore_dedup_resets_on_restart`, `test_meshcore_on_message_deduplicates_via_callback`, `test_meshcore_dedup_evicts_oldest_at_capacity`. `test_meshcore_lifecycle_boundaries.py` — `test_meshcore_stop_clears_dedup_without_restart`, `test_meshcore_simulate_inbound_raises_before_start`, `test_meshcore_simulate_inbound_publishes_while_started`, `test_meshcore_simulate_inbound_silent_after_stop`, `test_meshcore_restart_allows_same_packet_to_publish`.
 
@@ -287,9 +287,9 @@ Ranked by correctness risk (highest first). Gaps G1, G2, and G3 are resolved; th
 
 **File**: `tests/test_lxmf_operational_boundaries.py`
 
-**Test**: Start LxmfAdapter, send a message (fake mode), then call `stop()`. Inject a terminal delivery state update (`"delivered"`). Assert the adapter's `_on_delivery_state` does not crash and the callback is silently dropped.
+**Test**: Start LxmfAdapter, send a message (fake mode), then call `stop()`. Directly invoke the adapter's `_on_delivery_state` handler with a terminal state update (`"delivered"`). Assert no crash occurs; after stop the handler performs at most bounded harmless behaviour (e.g. logging via `ctx.logger` if still attached). This tests the adapter-level handler directly, complementing the existing session-level `_on_delivery_state_update` coverage that verifies `_stop_requested` guards suppress processing at the session layer.
 
-**Current coverage**: Session `_on_delivery_state_update` checks `_stop_requested`, but the adapter-level callback is not independently tested.
+**Current coverage**: Session `_on_delivery_state_update` checks `_stop_requested` (tested), but the adapter-level handler (`_on_delivery_state`) is not independently tested after stop — its post-stop behaviour (logging, no-op, or side-effect-free) is the coverage gap.
 
 ---
 
@@ -349,8 +349,9 @@ path).
 
 This means:
 
-- **Successful exact replays are suppressed.** The same `(pubkey_prefix,
-packet_id, channel_idx, text)` tuple (MeshCore) or `(message_id, content)`
+- **Successful exact replays are suppressed.** The same `(sender_id,
+packet_id, channel_index, text)` tuple (MeshCore; `sender_id` derived
+  from the packet's `pubkey_prefix`) or `(message_id, content)`
   tuple (LXMF) that was already published will not be published again.
 - **Decode failures never insert a dedup key.** Both paths agree: if decode
   raises, no dedup key is recorded, so a retry gets another chance.
@@ -359,6 +360,16 @@ packet_id, channel_idx, text)` tuple (MeshCore) or `(message_id, content)`
   is temporarily inserted after decode for in-flight duplicate suppression,
   then rolled back on async publish failure. Neither path retains the key
   after a failed publish.
+- **CancelledError bypasses the rollback handler but does not leak dedup
+  entries.** The SDK callback rollback uses `except Exception` to catch
+  publish failures. `CancelledError` is `BaseException`, not `Exception`, so
+  it is not caught by the rollback handler. During graceful stop,
+  `_drain_background_tasks` cancels in-flight tasks, which raises
+  `CancelledError` and skips rollback. This is safe because lifecycle
+  teardown (the `stop()` / `start()` boundary) clears the entire dedup dict
+  via `_inbound_dedup.clear()`, so any key left by a cancelled task is
+  removed. This does not imply durable authority; the clear is
+  adapter-local and in-memory only.
 - **Dedup is adapter-local replay suppression, not durable/core delivery
   authority.** The `OrderedDict` lives in the adapter instance. It is cleared
   on stop/start boundaries. It is never persisted to storage. Its purpose is

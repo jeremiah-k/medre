@@ -15,6 +15,9 @@ The two inbound paths handle key insertion differently:
 
 Covers both the ``_on_packet`` (sync → async) path and the
 ``simulate_inbound`` (all-async) path.
+
+Evidence level: ``fake_pipeline`` / ``fake_adapter_callback`` (tier 1–2).
+No network, no hardware, no Docker.
 """
 
 from __future__ import annotations
@@ -246,46 +249,35 @@ async def test_on_packet_decode_failure_no_dedup_key(
 # ===================================================================
 
 
-async def test_simulate_inbound_lru_eviction(
+async def test_simulate_inbound_lru_recency_promotion(
     make_adapter_context,
     inbound_collector,
 ) -> None:
-    """LRU eviction with popitem(last=False) after successful publish."""
+    """LRU recency promotion: move_to_end on dedup hit preserves access order."""
 
     config = _make_config(connection_type="fake")
     adapter = LxmfAdapter(config)
     ctx = make_adapter_context("lxmf-dedup-test")
     await adapter.start(ctx)
 
-    # Temporarily lower the max size for testing.
-    try:
-        # We'll manually check eviction by inserting directly.
-        # Fill dedup to near capacity, then verify eviction on insert.
-        small_max = 3
-        # Manually populate to simulate near-full.
-        for i in range(small_max):
-            key = (f"msg-{i}", f"content-{i}")
-            adapter._inbound_dedup[key] = None
+    # Insert additional entries alongside the real cap to verify
+    # that a successful publish appends without evicting under the
+    # 1024-entry ceiling, then verify recency ordering below.
+    for i in range(3):
+        key = (f"msg-{i}", f"content-{i}")
+        adapter._inbound_dedup[key] = None
 
-        assert len(adapter._inbound_dedup) == small_max
+    assert len(adapter._inbound_dedup) == 3
 
-        # This simulate_inbound should trigger eviction on success.
-        packet = _make_text_packet(content="evict-me", msg_id="msg-evict")
-        # The packet will go through normally — decode + publish succeed.
-        await adapter.simulate_inbound(packet)
+    # This simulate_inbound appends a new key; no eviction expected
+    # because the dedup cap is 1024 (well above 4 entries total).
+    packet = _make_text_packet(content="extra", msg_id="msg-extra")
+    await adapter.simulate_inbound(packet)
 
-        # The new key should be present.
-        assert ("msg-evict", "evict-me") in adapter._inbound_dedup
-        # Total should not exceed the limit + 1 before eviction.
-        # Since we manually set 3 and the cap is 1024, we expect 4.
-        # Real eviction only happens when > _DEDUP_MAX_SIZE (1024).
-        # So with the real limit, no eviction happens.
-        # Instead test move_to_end on hit.
-    finally:
-        # Restore not needed since we only read original_max.
-        pass
+    # The new key should be present.
+    assert ("msg-extra", "extra") in adapter._inbound_dedup
 
-    # Test move_to_end: insert two keys, hit the first, verify order.
+    # Now verify move_to_end recency promotion.
     adapter._inbound_dedup.clear()
     await adapter.simulate_inbound(
         _make_text_packet(content="first", msg_id="msg-first")
@@ -306,7 +298,7 @@ async def test_simulate_inbound_lru_eviction(
     assert keys_after[1] == ("msg-first", "first")
     assert (
         len(inbound_collector.events) == 3
-    )  # evict-me + first + second (duplicate first suppressed)
+    )  # extra + first + second (duplicate first suppressed)
 
     await adapter.stop()
 
