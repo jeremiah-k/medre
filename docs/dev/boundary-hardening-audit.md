@@ -265,7 +265,7 @@ Ranked by correctness risk (highest first). Gaps G1, G2, and G3 are resolved; th
 
 **Test**: For each adapter (fake mode), start, then stop, then attempt `simulate_inbound`. Assert it either raises `RuntimeError` or silently drops the event without publishing.
 
-**Current coverage**: `test_adapter_conformance.py` covers `publish_inbound` wiring but not the post-stop guard. This test hardens the boundary.
+**Current coverage**: Partial. Vector 7 (callback-after-stop) is implemented in all adapters, and individual adapter tests verify post-stop `simulate_inbound` behavior (e.g., `test_meshcore_lifecycle_boundaries.py`). However, a dedicated cross-adapter conformance test that starts, stops, then attempts `simulate_inbound` for all four adapters in one parametrized case does not yet exist. `test_adapter_conformance.py` covers `publish_inbound` wiring but not the post-stop guard. This test would harden the boundary with explicit cross-adapter coverage.
 
 ### P5 — Meshtastic callback-after-stop with in-flight futures (medium risk)
 
@@ -327,22 +327,38 @@ The inbound dedup mechanism (vector 3) for MeshCore and LXMF suppresses only
 successful exact replays. It does not poison the dedup table with entries from
 failed decode or publish attempts.
 
-### Commit-after-success behavior
+### Dedup insertion and rollback semantics
 
-Dedup keys commit to the `OrderedDict` only after the inbound event passes
-classification, decode, and `publish_inbound` succeeds. If any step fails
-(classifier drop, codec error, publish exception), the dedup key is never
-inserted. A retry of the same message from the SDK will not be suppressed by
-a previous failed attempt, because the failed attempt left no dedup entry.
+The two inbound code paths handle dedup key insertion differently:
+
+**`simulate_inbound` path** (all-async, used in tests and fake adapters):
+Dedup keys are inserted only after both decode and `publish_inbound` succeed.
+If either step fails (codec error, publish exception), the dedup key is never
+inserted. A retry of the same message will not be suppressed by a previous
+failed attempt, because the failed attempt left no dedup entry.
+
+**SDK callback path** (`_on_message` / `_on_packet`, sync-to-async bridge):
+Dedup keys are inserted after successful decode but _before_ the async
+publish. This guards the async publish window against concurrent duplicates:
+if the same packet arrives again while the first is still in flight, the
+dedup check in `_on_message` suppresses it. If the async publish fails
+(`_on_message_async` / `_on_packet_async` raises), the dedup key is rolled
+back via `pop(dedup_key, None)` so that redelivery is not suppressed. If
+decode fails, the dedup key is never inserted (same as the simulate_inbound
+path).
 
 This means:
 
 - **Successful exact replays are suppressed.** The same `(pubkey_prefix,
 packet_id, channel_idx, text)` tuple (MeshCore) or `(message_id, content)`
   tuple (LXMF) that was already published will not be published again.
-- **Failed delivery attempts do not poison dedup state.** If decode or publish
-  fails, no dedup key is recorded, so a retry of the identical message gets
-  another chance to process.
+- **Decode failures never insert a dedup key.** Both paths agree: if decode
+  raises, no dedup key is recorded, so a retry gets another chance.
+- **Publish failures do not poison dedup state.** In `simulate_inbound`, the
+  key is never inserted on publish failure. In the SDK callback path, the key
+  is temporarily inserted after decode for in-flight duplicate suppression,
+  then rolled back on async publish failure. Neither path retains the key
+  after a failed publish.
 - **Dedup is adapter-local replay suppression, not durable/core delivery
   authority.** The `OrderedDict` lives in the adapter instance. It is cleared
   on stop/start boundaries. It is never persisted to storage. Its purpose is

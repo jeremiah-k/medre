@@ -1,7 +1,17 @@
 """LXMF dedup rollback regression tests.
 
-Verifies that dedup keys are not committed when decode or publish fails,
-so that redelivery of the same (message_id, content) is not suppressed.
+Verifies that dedup keys are not retained after failed decode or publish
+attempts, so that redelivery of the same (message_id, content) is not
+suppressed.
+
+The two inbound paths handle key insertion differently:
+
+- ``simulate_inbound``: dedup key is never inserted on any failure (decode or
+  publish).  Success-only final insertion.
+- ``_on_packet`` (SDK callback): dedup key is inserted after decode to guard
+  the async publish window against concurrent duplicates, then rolled back
+  if ``_on_packet_async`` publish fails.  Decode failure means the key is
+  never inserted.
 
 Covers both the ``_on_packet`` (sync → async) path and the
 ``simulate_inbound`` (all-async) path.
@@ -84,14 +94,15 @@ async def test_simulate_inbound_decode_failure_no_dedup_key(
 
 
 # ===================================================================
-# simulate_inbound: dedup rollback on publish failure
+# simulate_inbound: dedup key not retained after publish failure
+# (simulate_inbound never inserts the key until publish succeeds)
 # ===================================================================
 
 
 async def test_simulate_inbound_publish_failure_no_dedup_key(
     make_adapter_context,
 ) -> None:
-    """If publish_inbound raises, the dedup key must NOT remain."""
+    """If publish_inbound raises in simulate_inbound, dedup key is not retained."""
     config = _make_config(connection_type="fake")
     adapter = LxmfAdapter(config)
     ctx = make_adapter_context("lxmf-dedup-test")
@@ -152,14 +163,15 @@ async def test_simulate_inbound_success_inserts_dedup_key(
 
 
 # ===================================================================
-# _on_packet async publish failure rolls back dedup key
+# _on_packet: async publish failure rolls back dedup key inserted
+# after decode (key is temporarily present, then removed)
 # ===================================================================
 
 
 async def test_on_packet_async_publish_failure_rolls_back_dedup(
     make_adapter_context,
 ) -> None:
-    """If _on_packet_async publish fails, dedup key is rolled back."""
+    """If _on_packet_async publish fails, dedup key is rolled back (not retained)."""
     config = _make_config(connection_type="fake")
     adapter = LxmfAdapter(config)
 
