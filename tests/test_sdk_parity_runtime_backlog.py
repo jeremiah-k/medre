@@ -618,7 +618,16 @@ class TestP06LxmfNoPeriodicAnnounce:
         assert "_announce_task" in source
 
     def test_no_announce_call_in_connect_path(self) -> None:
-        """No router.announce() call exists in any connect/start method."""
+        """No direct .announce() call exists in any connect/start method.
+
+        Uses regex to detect ``.announce(`` method-call patterns (e.g.
+        ``router.announce(...)``, ``session.announce(...)``) while allowing
+        ``announce_task`` attribute references (no dot-call pattern).
+        The old check ``"announce" not in source or "announce_task" in source``
+        could false-pass when both ``router.announce(...)`` and
+        ``announce_task`` appeared in the same method.
+        """
+        announce_call_re = re.compile(r"\.\s*announce\s*\(")
         for method_name in (
             "_connect_fake",
             "_connect_real",
@@ -629,9 +638,15 @@ class TestP06LxmfNoPeriodicAnnounce:
             source = inspect.getsource(
                 getattr(lxmf_session_mod.LxmfSession, method_name),
             )
-            assert "announce" not in source or "announce_task" in source, (
-                f"Found 'announce' in {method_name} — if periodic announce "
-                "was implemented, update this test."
+            matches = [
+                line.strip()
+                for line in source.splitlines()
+                if announce_call_re.search(line) and not line.strip().startswith("#")
+            ]
+            assert len(matches) == 0, (
+                f"Found direct .announce() call in {method_name}: "
+                f"{matches}. "
+                "If periodic announce was implemented, update this test."
             )
 
 
@@ -768,13 +783,43 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
     """
 
     def test_no_water_mark_constants_in_adapter(self) -> None:
-        """Meshtastic adapter does not define water-mark threshold constants."""
-        import medre.adapters.meshtastic.adapter as adapter_mod
+        """Meshtastic package has no water-mark threshold constants anywhere.
 
-        source = inspect.getsource(adapter_mod)
-        assert "HIGH_WATER_MARK" not in source
-        assert "WATER_MARK" not in source
-        assert "water_mark" not in source
+        Scans all modules under ``medre.adapters.meshtastic`` using
+        ``pkgutil.walk_packages`` + ``importlib.import_module`` so that
+        water-mark constants in queue, session, or future modules are
+        caught — not just the adapter module.  Reports all offending
+        module names in the failure message.
+        """
+        import importlib
+        import pkgutil
+
+        import medre.adapters.meshtastic as mesh_pkg
+
+        forbidden = ("HIGH_WATER_MARK", "WATER_MARK", "water_mark")
+        offending: list[str] = []
+
+        for _importer, modname, _ispkg in pkgutil.walk_packages(
+            path=mesh_pkg.__path__,
+            prefix=mesh_pkg.__name__ + ".",
+        ):
+            try:
+                mod = importlib.import_module(modname)
+            except Exception:
+                continue
+            try:
+                source = inspect.getsource(mod)
+            except (OSError, TypeError):
+                continue
+            for term in forbidden:
+                if term in source:
+                    offending.append(f"{modname} contains '{term}'")
+
+        assert not offending, (
+            "Water-mark constants found in meshtastic package: "
+            + "; ".join(offending)
+            + ". If water-mark monitoring was implemented, update this test."
+        )
 
 
 # ===================================================================

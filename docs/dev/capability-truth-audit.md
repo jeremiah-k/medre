@@ -34,6 +34,7 @@ report facts; no compatibility shims; no schema churn.
 | LXMF JSON                    | `docs/spec/transport-profiles/lxmf-capabilities.json`                  |
 | Capability tests             | `tests/test_capabilities.py`                                           |
 | Conformance tests            | `tests/test_capability_conformance.py`                                 |
+| Audit companion tests        | `tests/test_capability_audit.py`                                       |
 | Prior audit                  | `docs/dev/adapter-reality-audit.md`                                    |
 
 ## 3. Conformance Test Gate
@@ -46,6 +47,12 @@ This suite runs on every CI pass with zero network or hardware dependencies.
 `tests/test_capabilities.py` additionally verifies that each fake adapter's
 declared capabilities match the expected values and survive
 `serialize_adapter_capabilities` / JSON round-trip.
+
+`tests/test_capability_audit.py` is the audit-specific companion test that
+directly validates the findings recorded in this document (overclaim checks,
+underclaim checks, per-adapter matrix assertions). It complements
+`test_capability_conformance.py`, which remains the JSON↔code conformance
+guard enforcing field-value parity across all four transport profiles.
 
 ## 4. Capability Audit Matrix
 

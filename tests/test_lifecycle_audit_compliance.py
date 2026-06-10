@@ -609,7 +609,12 @@ class TestTransitionGraphProperties:
 
     def test_graph_is_symmetric_for_non_terminal(self) -> None:
         """Non-terminal transitions include paths back to READY (except
-        STOPPING which only goes to STOPPED/FAILED)."""
+        STOPPING which only goes to STOPPED/FAILED).
+
+        Every non-terminal state (excluding FAILED, STOPPED, STOPPING)
+        must be able to reach STOPPING directly and READY via a path
+        through the transition graph.
+        """
         for state in AdapterState:
             if state in (
                 AdapterState.FAILED,
@@ -623,6 +628,31 @@ class TestTransitionGraphProperties:
             assert (
                 AdapterState.STOPPING in targets
             ), f"{state.name} should be able to transition to STOPPING"
+
+            # READY is reachable by definition.
+            if state is AdapterState.READY:
+                continue
+
+            # BFS over VALID_TRANSITIONS to confirm READY is reachable.
+            visited: set[AdapterState] = set()
+            queue = [state]
+            found_ready = False
+            while queue:
+                current = queue.pop(0)
+                if current in visited:
+                    continue
+                visited.add(current)
+                for target in VALID_TRANSITIONS[current]:
+                    if target is AdapterState.READY:
+                        found_ready = True
+                        break
+                    if target not in visited:
+                        queue.append(target)
+                if found_ready:
+                    break
+            assert (
+                found_ready
+            ), f"{state.name} cannot reach READY through any transition path"
 
     def test_no_self_transitions(self) -> None:
         """No state has itself as a valid transition target."""
@@ -661,9 +691,11 @@ class TestAuditFollowUpIdentifiers:
 
     @pytest.fixture
     def audit_content(self) -> str:
-        audit_path = Path("docs/dev/adapter-lifecycle-audit.md")
-        if not audit_path.exists():
-            pytest.skip("adapter-lifecycle-audit.md not found")
+        repo_root = Path(__file__).resolve().parents[1]
+        audit_path = repo_root / "docs" / "dev" / "adapter-lifecycle-audit.md"
+        assert (
+            audit_path.exists()
+        ), f"adapter-lifecycle-audit.md not found at {audit_path}"
         return audit_path.read_text()
 
     def test_lxmf_1_present(self, audit_content: str) -> None:

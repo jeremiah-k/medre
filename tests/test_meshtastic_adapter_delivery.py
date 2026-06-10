@@ -200,6 +200,8 @@ class TestMeshtasticSessionBoundary:
         assert diag["session"]["reconnecting"] is False
         assert diag["session"]["reconnect_attempts"] == 0
         assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_session_diagnostics_no_secrets(self, make_adapter_context) -> None:
         """Diagnostics never exposes secrets, keys, or raw protobuf."""

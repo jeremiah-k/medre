@@ -232,6 +232,8 @@ class TestMeshtasticNoSdkLifecycle:
         assert diag["session"]["reconnecting"] is False
         assert diag["session"]["reconnect_attempts"] == 0
         assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_non_fake_raises_without_mtjk(self):
         """Non-fake connection types raise MeshtasticConnectionError
@@ -314,6 +316,8 @@ class TestMeshtasticDiagnostics:
         assert diag["session"]["reconnecting"] is False
         assert diag["session"]["reconnect_attempts"] == 0
         assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_diagnostics_no_secrets_after_start(self):
         """diagnostics() does NOT expose serial paths, host IPs, or secrets

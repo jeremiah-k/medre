@@ -482,6 +482,9 @@ class TestMeshCoreAdapterDiagnostics:
         assert diag["session"]["connected"] is False
         assert diag["session"]["reconnecting"] is False
         assert diag["session"]["reconnect_attempts"] == 0
+        assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_diagnostics_after_start(self, make_adapter_context) -> None:
         config = _make_config()
