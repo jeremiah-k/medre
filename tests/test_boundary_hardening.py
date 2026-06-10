@@ -1,11 +1,16 @@
-"""Boundary hardening tests for adapter gap closure.
+"""Boundary hardening tests for MeshCore and LXMF adapters.
 
-Tests for the three partial gaps identified in the wave-1 boundary audit
-(``docs/dev/boundary-hardening-audit.md``):
+Validates the three implemented hardening checks (G1–G3):
 
-* **G1** — MeshCore: no inbound dedup by message identity.
-* **G2** — LXMF: no inbound dedup by message hash.
-* **G3** — MeshCore: ``_on_message`` can create a task after stop drain.
+* **G1** — MeshCore: inbound dedup by native identity + content (bounded
+  LRU ``OrderedDict``).  Exact replays suppressed; distinct payloads with
+  reused identity are processed.  Dedup is skipped when the classifier
+  reports ``packet_id is None`` (missing ``sender_timestamp``).
+* **G2** — LXMF: inbound dedup by ``message_id`` + content (bounded LRU
+  ``OrderedDict``).  Same LRU hit-refresh semantics as MeshCore.
+* **G3** — MeshCore / LXMF: ``_on_message`` / ``_on_packet`` cannot create
+  tasks after ``stop()`` clears ``_started``.  Callback-after-stop guards
+  are in place for both adapters.
 
 Plus contract tests for metadata namespace and ``delivery_status`` values.
 
@@ -116,7 +121,8 @@ def _make_rendering_result(
 
 
 # ---------------------------------------------------------------------------
-# G3 — MeshCore: _on_message must not create tasks after _started=False
+# G3 — Callback-after-stop guard: _on_message/_on_packet must not create
+#       tasks once _started is False
 # ---------------------------------------------------------------------------
 
 
@@ -169,14 +175,16 @@ async def test_meshcore_on_message_drops_after_started_false():
 
 
 # ---------------------------------------------------------------------------
-# G1 — MeshCore: duplicate inbound events must be suppressed
+# G1 — MeshCore: inbound dedup (exact replays suppressed, LRU bounded)
 # ---------------------------------------------------------------------------
 
 
 async def test_meshcore_simulate_inbound_deduplicates_identical_packets():
     """G1: Sending the same MeshCore packet twice must publish only once.
 
-    The dedup key is ``(pubkey_prefix, sender_timestamp, channel_idx)``.
+    The dedup key is ``(sender_id, packet_id, channel_index, text)``.
+    Exact native replays are suppressed; distinct payloads with a reused
+    packet_id are both processed.
     """
     config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
     adapter = MeshCoreAdapter(config)
@@ -304,7 +312,7 @@ async def test_meshcore_on_message_deduplicates_via_callback():
 
 
 # ---------------------------------------------------------------------------
-# G2 — LXMF: duplicate inbound events must be suppressed
+# G2 — LXMF: inbound dedup (exact replays suppressed, LRU bounded)
 # ---------------------------------------------------------------------------
 
 
@@ -885,3 +893,196 @@ async def test_lxmf_stop_gates_callbacks_before_drain():
     assert (
         adapter._background_tasks == set()
     ), "no new tasks from _on_packet after stop()"
+
+
+# ---------------------------------------------------------------------------
+# G1 — MeshCore: missing native identity skips adapter-level dedup
+# ---------------------------------------------------------------------------
+
+
+async def test_meshcore_no_sender_timestamp_skips_dedup():
+    """MeshCore packets without ``sender_timestamp`` skip adapter-level dedup.
+
+    When the classifier reports ``packet_id is None`` (no native identity),
+    the adapter cannot construct a dedup key and skips dedup entirely.
+    Repeated identical routeable packets must therefore both publish.
+    """
+    config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
+    adapter = MeshCoreAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    # Build a routeable packet WITHOUT sender_timestamp — the classifier
+    # will set packet_id=None, causing the adapter to skip dedup.
+    packet_no_ts: dict[str, Any] = {
+        "text": "no-timestamp",
+        "pubkey_prefix": "notime",
+        "type": "CHAN",
+        "txt_type": 0,
+        "channel_idx": 0,
+        # sender_timestamp deliberately omitted
+    }
+
+    await adapter.simulate_inbound(packet_no_ts)
+    await adapter.simulate_inbound(packet_no_ts)
+
+    assert (
+        len(published) == 2
+    ), "identical packets without sender_timestamp must both publish (dedup skipped)"
+
+    await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# G1 — MeshCore: true LRU hit-refresh (move_to_end promotes on re-hit)
+# ---------------------------------------------------------------------------
+
+
+async def test_meshcore_dedup_is_true_lru_not_fifo():
+    """MeshCore dedup is true LRU: re-hitting a packet promotes it via move_to_end.
+
+    Strategy:
+    1. Insert a "hot" packet, then fill beyond capacity while re-hitting it
+       each iteration (promoting it via move_to_end).
+    2. Verify the hot packet is still suppressed after the fill (it was
+       promoted to the MRU end, never evicted).
+    3. Verify the oldest *non-refreshed* fill packet was evicted — replaying
+       it publishes again.
+    """
+    from medre.adapters.meshcore.adapter import _DEDUP_MAX_SIZE
+
+    config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
+    adapter = MeshCoreAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    # 1. Insert the "hot" packet that we will keep re-hitting.
+    hot_packet = _meshcore_text_packet(
+        text="hot",
+        pubkey_prefix="hot",
+        sender_timestamp=0,
+        channel_idx=0,
+    )
+    await adapter.simulate_inbound(hot_packet)
+    hot_count = len(published)
+    assert hot_count == 1, "hot packet must publish on first arrival"
+
+    # 2. Fill well beyond capacity, re-hitting the hot packet each time
+    #    so move_to_end promotes it above the eviction boundary.
+    for i in range(_DEDUP_MAX_SIZE + 10):
+        # Re-hit hot packet (dedup suppressed, move_to_end promoted).
+        await adapter.simulate_inbound(hot_packet)
+        # Insert a distinct fill packet.
+        await adapter.simulate_inbound(
+            _meshcore_text_packet(
+                text=f"fill-{i}",
+                pubkey_prefix="fill",
+                sender_timestamp=10_000 + i,
+                channel_idx=0,
+            )
+        )
+
+    # Hot packet must still be suppressed (promoted, not evicted).
+    # Re-hit it now: if LRU promoted it correctly, this is a dedup hit
+    # and publish count should not increase.
+    count_before = len(published)
+    await adapter.simulate_inbound(hot_packet)
+    assert (
+        len(published) == count_before
+    ), "hot packet must remain suppressed — true LRU promoted it"
+
+    # 3. The oldest fill packet (fill-0) should have been evicted because
+    #    it was never re-hit.  Replaying it must publish again.
+    oldest_fill = _meshcore_text_packet(
+        text="fill-0",
+        pubkey_prefix="fill",
+        sender_timestamp=10_000,
+        channel_idx=0,
+    )
+    count_before = len(published)
+    await adapter.simulate_inbound(oldest_fill)
+    assert (
+        len(published) > count_before
+    ), "oldest non-refreshed fill packet must have been evicted from LRU"
+
+    await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# G2 — LXMF: true LRU hit-refresh (move_to_end promotes on re-hit)
+# ---------------------------------------------------------------------------
+
+
+async def test_lxmf_dedup_is_true_lru_not_fifo():
+    """LXMF dedup is true LRU: re-hitting a message promotes it via move_to_end.
+
+    Same strategy as MeshCore LRU test: keep a "hot" message alive by
+    re-hitting while filling beyond capacity, then verify it survives
+    while the oldest non-refreshed message is evicted.
+    """
+    from medre.adapters.lxmf.adapter import _DEDUP_MAX_SIZE as LXMF_DEDUP_MAX
+
+    config = LxmfConfig(adapter_id=_unique_id("lx"), connection_type="fake")
+    adapter = LxmfAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    # 1. Insert the "hot" message.
+    hot_msg_id = "ff" * 32
+    hot_packet = _lxmf_text_packet(content="hot", message_id=hot_msg_id)
+    await adapter.simulate_inbound(hot_packet)
+    hot_count = len(published)
+    assert hot_count == 1, "hot message must publish on first arrival"
+
+    # 2. Fill well beyond capacity, re-hitting hot each time.
+    for i in range(LXMF_DEDUP_MAX + 10):
+        # Re-hit hot message (dedup suppressed, move_to_end promoted).
+        await adapter.simulate_inbound(hot_packet)
+        # Insert a distinct fill message.
+        await adapter.simulate_inbound(
+            _lxmf_text_packet(
+                content=f"fill-{i}",
+                message_id=f"{(i + 1):064x}",
+            )
+        )
+
+    # Hot message must still be suppressed.
+    # Re-hit it now: if LRU promoted it correctly, this is a dedup hit
+    # and publish count should not increase.
+    count_before = len(published)
+    await adapter.simulate_inbound(hot_packet)
+    assert (
+        len(published) == count_before
+    ), "hot message must remain suppressed — true LRU promoted it"
+
+    # 3. Oldest fill message (fill-0, message_id = 0...01) should have
+    #    been evicted.  Replaying it must publish again.
+    oldest_fill = _lxmf_text_packet(
+        content="fill-0",
+        message_id=f"{1:064x}",
+    )
+    count_before = len(published)
+    await adapter.simulate_inbound(oldest_fill)
+    assert (
+        len(published) > count_before
+    ), "oldest non-refreshed fill message must have been evicted from LRU"
+
+    await adapter.stop()

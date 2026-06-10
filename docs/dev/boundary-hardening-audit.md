@@ -58,23 +58,23 @@ What happens when `deliver()` receives a `RenderingResult` with missing target i
 
 What prevents the same inbound event from entering the pipeline twice?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                    |
-| -------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | Self-message suppression (`sender == config.user_id`). MEDRE-origin envelope loop suppression (envelope `source_adapter == self.adapter_id`). Startup history suppression (`session.is_live` guard). Stale-event filter in base `publish_inbound` (timestamp < start time). |
-| **Meshtastic** | **Implemented** | Self-echo suppression via classifier (`REASON_SELF_ECHO`). Startup backlog suppression via `should_suppress_startup_backlog` with `rxTime` check. Stale-event filter in base `publish_inbound`.                                                                             |
-| **MeshCore**   | **Partial**     | Classifier filters by category (`text` only) and drops ACKs. Stale-event filter in base `publish_inbound`. **Gap**: no dedup by packet/message ID. SDK could theoretically deliver the same message twice (e.g., reconnect replay). See prioritized tests §P1.              |
-| **LXMF**       | **Partial**     | Classifier filters `is_ack` and non-`text` categories. Stale-event filter in base `publish_inbound`. **Gap**: no dedup by `message_id` (LXMF hash). Reticulum could redeliver the same message. See prioritized tests §P2.                                                  |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | Self-message suppression (`sender == config.user_id`). MEDRE-origin envelope loop suppression (envelope `source_adapter == self.adapter_id`). Startup history suppression (`session.is_live` guard). Stale-event filter in base `publish_inbound` (timestamp < start time).                                                                                                                                                                                                                                                                                                               |
+| **Meshtastic** | **Implemented** | Self-echo suppression via classifier (`REASON_SELF_ECHO`). Startup backlog suppression via `should_suppress_startup_backlog` with `rxTime` check. Stale-event filter in base `publish_inbound`.                                                                                                                                                                                                                                                                                                                                                                                           |
+| **MeshCore**   | **Implemented** | Classifier filters by category (`text` only) and drops ACKs. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)` — native identity plus text content. Exact replays suppressed; same identity with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `packet_id` is `None` (no reliable native identity). Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G1). |
+| **LXMF**       | **Implemented** | Classifier filters `is_ack` and non-`text` categories. Stale-event filter in base `publish_inbound`. **Inbound dedup**: `OrderedDict` keyed by `(message_id, content)` — message hash plus content. Exact replays suppressed; same ID with different content allowed. Bounded to `_DEDUP_MAX_SIZE` (1024) with true LRU eviction (`move_to_end` on hit, `popitem(last=False)` when full). Dedup skipped when `message_id` is `None`. Cleared on stop/start boundaries. Tests: `test_boundary_hardening.py` (G2).                                                                          |
 
 ### 4. Stale Callbacks
 
 What prevents callbacks from a previous start/stop cycle from affecting a new session?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                               |
-| -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | Session `_closed` flag; double-start guard (`_client is not None and not _closed`). Adapter clears `_session = None` on stop. New start creates fresh `MatrixSession`. `_live_sync_started` resets on session start.                   |
-| **Meshtastic** | **Implemented** | `_started` flag gates `_on_packet` (sync, SDK thread) and `_on_packet_async` (async). Both check `self._started` before processing. Session `_stop_requested` prevents reconnect loops after stop.                                     |
-| **MeshCore**   | **Implemented** | `_started` flag checked in `_on_message` (via `self.ctx is None` guard). Session `_stop_requested` flag prevents reconnect after stop. Subscriptions unsubscribed in `stop()`.                                                         |
-| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `self._stop_requested or not self._started`. `_loop` reference cleared in `stop()`, so late SDK callbacks on Reticulum threads are dropped (`loop is None`). `_message_callback` set to `None` in `stop()`. |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                              |
+| -------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | Session `_closed` flag; double-start guard (`_client is not None and not _closed`). Adapter clears `_session = None` on stop. New start creates fresh `MatrixSession`. `_live_sync_started` resets on session start.                                                  |
+| **Meshtastic** | **Implemented** | `_started` flag gates `_on_packet` (sync, SDK thread) and `_on_packet_async` (async). Both check `self._started` before processing. Session `_stop_requested` prevents reconnect loops after stop.                                                                    |
+| **MeshCore**   | **Implemented** | `_started` flag checked in `_on_message` (explicit `if not self._started: return` guard plus `self.ctx is None` guard). Session `_stop_requested` flag prevents reconnect after stop. Subscriptions unsubscribed in `stop()`. Dedup cleared on stop/start boundaries. |
+| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `self._stop_requested or not self._started`. `_loop` reference cleared in `stop()`, so late SDK callbacks on Reticulum threads are dropped (`loop is None`). `_message_callback` set to `None` in `stop()`.                                |
 
 ### 5. Reconnect Races
 
@@ -91,12 +91,12 @@ What happens if the SDK reconnects while the adapter is processing an inbound ev
 
 What happens when `stop()` is called while inbound events are being processed?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | `stop()` calls `session.stop()` which cancels `_sync_task`. `_message_callback` remains set but `_on_room_message` checks `self.ctx is None` (not cleared until after session stop). Session `_closed = True` stops nio event processing.                                                                                                                                                                                                                                                                                                                                 |
-| **Meshtastic** | **Implemented** | `_started` cleared **before** draining. `_on_packet` (called from SDK thread) checks `_started` early, rejecting late packets. `_drain_background_tasks` cancels tracked inbound futures and awaits background tasks with bounded timeout. Detached tasks get observer callbacks.                                                                                                                                                                                                                                                                                         |
-| **MeshCore**   | **Partial**     | `_drain_background_tasks` cancels and awaits with `return_exceptions=True`. Session `stop()` calls `_unsubscribe_all` then `disconnect`. **Gap**: `_on_message` (sync) creates `asyncio.create_task` and adds to `_background_tasks`, but does not check `_started` before task creation. The async handler `_on_message_async` checks `self.ctx is not None` but not `_started`. A message arriving between `_drain_background_tasks` completing and `_session.stop()` unsubscribing could create a task that runs against a stopped adapter. See prioritized tests §P3. |
-| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `_stop_requested` and `_started` on the Reticulum thread before scheduling. `loop.call_soon_threadsafe` bridges to event loop; `stop()` sets `_loop = None` and `_message_callback = None` so late bridges are dropped. `_drain_background_tasks` cancels tracked tasks.                                                                                                                                                                                                                                                                       |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | `stop()` calls `session.stop()` which cancels `_sync_task`. `_message_callback` remains set but `_on_room_message` checks `self.ctx is None` (not cleared until after session stop). Session `_closed = True` stops nio event processing.                                                                                                                                                                                     |
+| **Meshtastic** | **Implemented** | `_started` cleared **before** draining. `_on_packet` (called from SDK thread) checks `_started` early, rejecting late packets. `_drain_background_tasks` cancels tracked inbound futures and awaits background tasks with bounded timeout. Detached tasks get observer callbacks.                                                                                                                                             |
+| **MeshCore**   | **Implemented** | `_started` cleared **before** draining (`self._started = False` at top of `stop()`). `_on_message` checks `if not self._started: return` before task creation — closes the race window between drain completing and session unsubscribing. `_drain_background_tasks` cancels and awaits with `return_exceptions=True`. Session `stop()` calls `_unsubscribe_all` then `disconnect`. Tests: `test_boundary_hardening.py` (G3). |
+| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `_stop_requested` and `_started` on the Reticulum thread before scheduling. `loop.call_soon_threadsafe` bridges to event loop; `stop()` sets `_loop = None` and `_message_callback = None` so late bridges are dropped. `_drain_background_tasks` cancels tracked tasks.                                                                                                                           |
 
 ### 7. Callback-After-Stop
 
@@ -185,10 +185,10 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 | --------------------------- | -------------- | -------------- | -------------- | -------------- |
 | 1. Malformed SDK data       | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 2. Missing identifiers      | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 3. Duplicate inbound events | ✅ Implemented | ✅ Implemented | ⚠️ Partial     | ⚠️ Partial     |
+| 3. Duplicate inbound events | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 4. Stale callbacks          | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 5. Reconnect races          | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 6. Shutdown races           | ✅ Implemented | ✅ Implemented | ⚠️ Partial     | ✅ Implemented |
+| 6. Shutdown races           | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 7. Callback-after-stop      | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 8. Metadata namespace       | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 9. Delivery result contract | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
@@ -197,71 +197,65 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 | 12. Resource release        | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 13. Reconnect suppression   | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 
-**Overall**: 49 of 52 boundary protections are fully implemented. 3 are partial with specific gaps identified below.
+**Overall**: 52 of 52 boundary protections are fully implemented. All previously identified gaps (G1, G2, G3) have been resolved.
 
 ---
 
-## Gaps Requiring Hardening
+## Resolved Gaps
 
-### G1. MeshCore: No inbound dedup by message identity
+### G1. ~~MeshCore: No inbound dedup by message identity~~ — RESOLVED
 
-**Risk**: If the MeshCore SDK delivers the same event twice (e.g., reconnect replay, duplicate channel broadcast), both are decoded and published as separate canonical events. There is no dedup key (no `message_id` or `expected_ack` for inbound).
+**Status**: **Completed.** Implemented and tested.
 
-**Current mitigation**: Classifier drops non-text and ACK categories. Stale-event filter in base `publish_inbound` catches timestamps before start time. But within a single session, identical payloads arriving milliseconds apart both pass through.
+**Implementation**: MeshCoreAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)`. The dedup key includes native identity (pubkey prefix + packet ID + channel index) plus text content, ensuring exact replays of the same packet are suppressed while distinct payloads sharing the same packet ID are both processed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit promotes the entry, and `popitem(last=False)` evicts the least-recently-seen entry when the cap is exceeded. When `packet_id` is `None` (no reliable native identity), adapter-level dedup is skipped entirely. The dedup dict is cleared on stop/start boundaries via `_reset_inbound_counters()`.
 
-**Recommended**: Add an inbound dedup set keyed by `(pubkey_prefix, sender_timestamp, channel_idx)` tuple with a bounded TTL (e.g., 60 s). Evict entries older than the TTL on each insertion. This mirrors Matrix's undecryptable-event dedup pattern.
+**Tests**: `test_boundary_hardening.py` — `test_meshcore_simulate_inbound_deduplicates_identical_packets`, `test_meshcore_simulate_inbound_allows_different_packets`, `test_meshcore_dedup_resets_on_restart`, `test_meshcore_on_message_deduplicates_via_callback`, `test_meshcore_dedup_evicts_oldest_at_capacity`.
 
-### G2. LXMF: No inbound dedup by message hash
+### G2. ~~LXMF: No inbound dedup by message hash~~ — RESOLVED
 
-**Risk**: Reticulum may redeliver the same `LXMessage` if the delivery callback fires twice for the same message (e.g., opportunistic + propagated paths, or a store-and-forward node replaying). The `_on_lxmf_delivery` callback does not check whether the `message_id` (LXMF hash) was already processed.
+**Status**: **Completed.** Implemented and tested.
 
-**Current mitigation**: Stale-event filter catches pre-start messages. Classifier filters ACKs. But same-session duplicate delivery is not guarded.
+**Implementation**: LxmfAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(message_id, content)`. The dedup key includes the LXMF message hash plus content, ensuring exact replays are suppressed while same-ID-different-content messages are allowed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit, `popitem(last=False)` eviction when full. When `message_id` is `None`, adapter-level dedup is skipped. The dedup dict is cleared on stop (`stop()` calls `self._inbound_dedup.clear()`) and on start (`start()` calls `self._inbound_dedup.clear()`).
 
-**Recommended**: Add an inbound dedup set keyed by `message_id` (hex string of message hash) with a bounded TTL. The set is cleared on `stop()`.
+**Tests**: `test_boundary_hardening.py` — `test_lxmf_simulate_inbound_deduplicates_identical_messages`, `test_lxmf_simulate_inbound_allows_different_messages`, `test_lxmf_dedup_resets_on_restart`, `test_lxmf_on_packet_deduplicates_via_callback`, `test_lxmf_dedup_evicts_oldest_at_capacity`.
 
-### G3. MeshCore: Shutdown race between `_on_message` task creation and `_started` guard
+### G3. ~~MeshCore: Shutdown race between `_on_message` task creation and `_started` guard~~ — RESOLVED
 
-**Risk**: `_on_message` (sync, called from session) creates an `asyncio.create_task` and adds it to `_background_tasks` without checking `_started`. If `stop()` drains background tasks and then the session fires one more event before `_unsubscribe_all` completes, a task is created after the drain. The task's `_on_message_async` handler checks `self.ctx is not None` (which is still true at that point) but not `self._started`.
+**Status**: **Completed.** Implemented and tested.
 
-**Current mitigation**: The session's `_unsubscribe_all` is called before `disconnect` in `stop()`. The window is narrow but non-zero.
+**Implementation**: `MeshCoreAdapter.stop()` sets `self._started = False` at the top, before calling `_drain_background_tasks()`. `_on_message` (sync callback from session) checks `if not self._started: return` before creating any `asyncio.create_task`. This closes the race window where a message arriving between drain completion and session unsubscribe could create a task against a stopped adapter. `LxmfAdapter._on_packet` also checks `if not self._started: return` before task creation, matching the same pattern.
 
-**Recommended**: Add `if not self._started: return` at the top of `_on_message` in `MeshCoreAdapter`, matching the pattern used by MeshtasticAdapter's `_on_packet`.
+**Tests**: `test_boundary_hardening.py` — `test_meshcore_on_message_drops_after_started_false`, `test_meshcore_stop_gates_callbacks_before_drain`, `test_lxmf_on_packet_drops_after_stop`, `test_lxmf_stop_gates_callbacks_before_drain`.
 
 ---
 
 ## Prioritized Hardening Tests
 
-Ranked by correctness risk (highest first).
+Ranked by correctness risk (highest first). Gaps G1, G2, and G3 are resolved; their tests now pass.
 
-### P1 — MeshCore shutdown race guard (§G3, highest risk)
+### P1 — MeshCore shutdown race guard (§G3) — IMPLEMENTED & TESTED
 
-**File**: `tests/test_meshcore_operational_boundaries.py` (or new file if at cap)
+**File**: `tests/test_boundary_hardening.py`
 
-**Test**: Start MeshCoreAdapter, inject an inbound event, then call `stop()` while the session fires one more `_on_message` callback immediately after `_drain_background_tasks` completes but before `_session.stop()` unsubscribes.
+**Tests**: `test_meshcore_on_message_drops_after_started_false`, `test_meshcore_stop_gates_callbacks_before_drain`.
 
-**Assert**: The late callback is silently dropped (no publish_inbound call, no exception). The adapter's `_inbound_published` counter does not increment for the late event.
+**Status**: Passing. `_on_message` checks `if not self._started: return` before task creation. Late callbacks after drain are silently dropped.
 
-**Why highest**: This is a concrete race window that can produce events after `stop()` returns — violating the spec requirement that "no orphaned asyncio tasks MUST remain after `stop()` returns."
+### P2 — MeshCore inbound dedup (§G1) — IMPLEMENTED & TESTED
 
-### P2 — MeshCore inbound dedup (§G1, high risk)
+**File**: `tests/test_boundary_hardening.py`
 
-**File**: `tests/test_meshcore_operational_boundaries.py`
+**Tests**: `test_meshcore_simulate_inbound_deduplicates_identical_packets`, `test_meshcore_simulate_inbound_allows_different_packets`, `test_meshcore_dedup_resets_on_restart`, `test_meshcore_on_message_deduplicates_via_callback`, `test_meshcore_dedup_evicts_oldest_at_capacity`.
 
-**Test**: Inject two identical inbound packets (same `pubkey_prefix`, `sender_timestamp`, `channel_idx`) within the same session. Both should be classified as `relay`, but only one should reach `publish_inbound`.
+**Status**: Passing. Duplicate exact replays suppressed; same identity with different content allowed; LRU cap-bounded eviction verified.
 
-**Assert**: `_inbound_published == 1` after both injections. The second is either dropped or suppressed.
+### P3 — LXMF inbound dedup (§G2) — IMPLEMENTED & TESTED
 
-**Current behavior**: Both are published. Test would fail, documenting the gap.
+**File**: `tests/test_boundary_hardening.py`
 
-### P3 — LXMF inbound dedup (§G2, high risk)
+**Tests**: `test_lxmf_simulate_inbound_deduplicates_identical_messages`, `test_lxmf_simulate_inbound_allows_different_messages`, `test_lxmf_dedup_resets_on_restart`, `test_lxmf_on_packet_deduplicates_via_callback`, `test_lxmf_dedup_evicts_oldest_at_capacity`, `test_lxmf_on_packet_drops_after_stop`.
 
-**File**: `tests/test_lxmf_operational_boundaries.py`
-
-**Test**: Inject two identical inbound messages (same `message_id` / message hash) within the same session. Both should be decoded, but only one should reach `publish_inbound`.
-
-**Assert**: Only one canonical event is published. The second is silently dropped.
-
-**Current behavior**: Both are published. Test would fail, documenting the gap.
+**Status**: Passing. Duplicate exact replays suppressed; same ID with different content allowed; LRU cap-bounded eviction verified.
 
 ### P4 — Cross-adapter callback-after-stop verification (medium risk)
 
