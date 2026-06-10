@@ -238,6 +238,7 @@ class MatrixAdapter(AdapterContract):
         "_capabilities",
         "_session",
         "_sync_failure_stored",
+        "_last_health",
         "_codec",
         "_relation_handler",
         "_envelope_handler",
@@ -264,6 +265,7 @@ class MatrixAdapter(AdapterContract):
         self._capabilities = _MATRIX_CAPABILITIES
         self._session: MatrixSession | None = None
         self._sync_failure_stored: Exception | None = None
+        self._last_health: str | None = None
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
@@ -419,6 +421,7 @@ class MatrixAdapter(AdapterContract):
         else:
             health = "failed"
 
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -814,9 +817,14 @@ class MatrixAdapter(AdapterContract):
             diag = self._session.diagnostics()
             return {
                 "connected": diag.connected,
+                "health": self._last_health,
+                "mode": "live",
                 "logged_in": diag.logged_in,
                 "sync_task_running": diag.sync_task_running,
                 "last_sync_error": (
+                    str(diag.last_sync_error) if diag.last_sync_error else None
+                ),
+                "last_error": (
                     str(diag.last_sync_error) if diag.last_sync_error else None
                 ),
                 "store_path_configured": diag.store_path_configured,
@@ -856,9 +864,12 @@ class MatrixAdapter(AdapterContract):
             }
         return {
             "connected": False,
+            "health": self._last_health,
+            "mode": "live",
             "logged_in": False,
             "sync_task_running": False,
             "last_sync_error": None,
+            "last_error": None,
             "store_path_configured": self._config.store_path is not None,
             "device_id_configured": self._config.device_id is not None,
             "encryption_mode": self._config.encryption_mode,

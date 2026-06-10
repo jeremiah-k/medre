@@ -220,8 +220,16 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
+        # Inbound dedup set: keyed by (pubkey_prefix, sender_timestamp, channel_idx).
+        # Prevents duplicate events from SDK redelivery (e.g., reconnect replay).
+        # Cleared on stop/start boundaries.
+        self._inbound_dedup: set[tuple[str, int, int | None]] = set()
+
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
+
+        # Cached health string from last health_check() call.
+        self._last_health: str | None = None
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -242,6 +250,7 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_dm_relayed = 0
         self._classifier_packets_malformed = 0
         self._inbound_published = 0
+        self._inbound_dedup.clear()
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the MeshCore node and begin receiving events.
@@ -331,6 +340,7 @@ class MeshCoreAdapter(AdapterContract):
                 health = "degraded"
         else:
             health = "unknown"
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -466,6 +476,11 @@ class MeshCoreAdapter(AdapterContract):
         packet:
             Raw MeshCore event payload dict.
         """
+        # Guard: reject callbacks that arrive after stop() clears _started.
+        # This closes the race window between _drain_background_tasks
+        # completing and _session.stop() unsubscribing callbacks.
+        if not self._started:
+            return
         if self.ctx is None:
             return
 
@@ -476,6 +491,16 @@ class MeshCoreAdapter(AdapterContract):
             # Gate: only relay action packets enter the codec pipeline
             if classification.action != "relay":
                 return
+
+            # Dedup: suppress duplicate packets by identity tuple.
+            dedup_key = (
+                classification.sender_id or "",
+                classification.packet_id or 0,
+                classification.channel_index,
+            )
+            if dedup_key in self._inbound_dedup:
+                return
+            self._inbound_dedup.add(dedup_key)
 
             canonical = self._codec.decode(packet)
             # Schedule the async publish — _on_message is synchronous
@@ -541,6 +566,16 @@ class MeshCoreAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
+        # Dedup: suppress duplicate packets by identity tuple.
+        dedup_key = (
+            classification.sender_id or "",
+            classification.packet_id or 0,
+            classification.channel_index,
+        )
+        if dedup_key in self._inbound_dedup:
+            return
+        self._inbound_dedup.add(dedup_key)
+
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
         self._inbound_published += 1
@@ -567,6 +602,7 @@ class MeshCoreAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": self._config.connection_type,
+            "health": self._last_health,
             "classifier_packets_seen": self._classifier_packets_seen,
             "classifier_packets_relayed": self._classifier_packets_relayed,
             "classifier_packets_ignored": self._classifier_packets_ignored,
@@ -581,6 +617,20 @@ class MeshCoreAdapter(AdapterContract):
         }
         if self._session is not None:
             base["session"] = sanitize_diagnostic_mapping(self._session.diagnostics())
+        else:
+            base["session"] = {
+                "connected": False,
+                "reconnecting": False,
+                "reconnect_attempts": 0,
+                "last_message_time": None,
+                "last_error": None,
+                "transient_delivery_failures": 0,
+                "permanent_delivery_failures": 0,
+                "device_name": None,
+                "public_key_prefix": None,
+                "radio_freq": None,
+                "mode": self._config.connection_type,
+            }
         return base
 
     # -- Background task management -----------------------------------------

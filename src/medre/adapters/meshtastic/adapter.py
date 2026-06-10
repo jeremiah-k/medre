@@ -205,6 +205,9 @@ class MeshtasticAdapter(AdapterContract):
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
 
+        # Cached health string from last health_check() call.
+        self._last_health: str | None = None
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -326,6 +329,7 @@ class MeshtasticAdapter(AdapterContract):
             health = "failed"
         else:
             health = "unknown"
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -764,6 +768,8 @@ class MeshtasticAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "connection_type": self._config.connection_type,
+            "mode": self._config.connection_type,
+            "health": self._last_health,
             "queue_pending": self._queue.pending_count,
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
@@ -820,6 +826,18 @@ class MeshtasticAdapter(AdapterContract):
                 "transient_delivery_failures": session_diag.transient_delivery_failures,
                 "permanent_delivery_failures": session_diag.permanent_delivery_failures,
                 "last_error": session_diag.last_error,
+            }
+        else:
+            result["session"] = {
+                "connected": False,
+                "reconnecting": False,
+                "reconnect_attempts": 0,
+                "last_packet_time": None,
+                "node_id": None,
+                "channel_count": 0,
+                "transient_delivery_failures": 0,
+                "permanent_delivery_failures": 0,
+                "last_error": None,
             }
 
         return result

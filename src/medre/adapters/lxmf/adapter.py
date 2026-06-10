@@ -126,6 +126,14 @@ class LxmfAdapter(AdapterContract):
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
+        # Cached health string from last health_check() call.
+        self._last_health: str | None = None
+
+        # Inbound dedup set: keyed by message_id (hex string of message hash).
+        # Prevents duplicate events from Reticulum redelivery.
+        # Cleared on stop/start boundaries.
+        self._inbound_dedup: set[str] = set()
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -147,6 +155,7 @@ class LxmfAdapter(AdapterContract):
         if self._started:
             return
 
+        self._inbound_dedup.clear()
         self.ctx = ctx
         self._mark_started(ctx)
 
@@ -197,6 +206,7 @@ class LxmfAdapter(AdapterContract):
         await self._session.stop(timeout=timeout)
 
         self._started = False
+        self._inbound_dedup.clear()
         if self.ctx is not None:
             self.ctx.logger.info("LxmfAdapter %s stopped", self.adapter_id)
 
@@ -215,6 +225,7 @@ class LxmfAdapter(AdapterContract):
             health = "failed"
         else:
             health = "unknown"
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -240,6 +251,7 @@ class LxmfAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": self._config.connection_type,
+            "health": self._last_health,
         }
         if self._session is not None:
             base["session"] = {
@@ -400,6 +412,8 @@ class LxmfAdapter(AdapterContract):
         packet:
             Normalised LXMF message payload dict.
         """
+        if not self._started:
+            return
         if self.ctx is None:
             return
 
@@ -409,6 +423,14 @@ class LxmfAdapter(AdapterContract):
                 return
             if classification["is_ack"]:
                 return
+
+            # Dedup: suppress duplicate messages by message_id hash.
+            msg_id = packet.get("message_id")
+            if msg_id is not None:
+                dedup_key = str(msg_id)
+                if dedup_key in self._inbound_dedup:
+                    return
+                self._inbound_dedup.add(dedup_key)
 
             canonical = self._codec.decode(packet)
             task = asyncio.create_task(self._on_packet_async(canonical))
@@ -493,6 +515,14 @@ class LxmfAdapter(AdapterContract):
             return
         if classification["is_ack"]:
             return
+
+        # Dedup: suppress duplicate messages by message_id hash.
+        msg_id = packet.get("message_id")
+        if msg_id is not None:
+            dedup_key = str(msg_id)
+            if dedup_key in self._inbound_dedup:
+                return
+            self._inbound_dedup.add(dedup_key)
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
