@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+from unittest.mock import patch
 
 import pytest
 
@@ -37,6 +38,21 @@ PROFILES_DIR = (
 # Helpers
 # ---------------------------------------------------------------------------
 
+_OPTIONAL_SDK_PREFIXES = ("nio", "meshtastic", "meshcore", "RNS", "LXMF")
+
+
+def _is_optional_sdk_import_error(exc: ImportError) -> bool:
+    """Return True if *exc* was caused by a missing optional external SDK.
+
+    Known optional SDKs: nio (Matrix), meshtastic, meshcore, RNS/LXMF
+    (Reticulum).  MEDRE-internal ``ImportError`` (e.g. a typo in
+    ``medre.adapters.*``) must propagate so that the test fails loudly.
+    """
+    return exc.name is not None and any(
+        exc.name == prefix or exc.name.startswith(prefix + ".")
+        for prefix in _OPTIONAL_SDK_PREFIXES
+    )
+
 
 def _load_capabilities_json(transport: str) -> dict[str, Any]:
     """Load the capabilities JSON for *transport*."""
@@ -55,19 +71,25 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
 
     Raises ``pytest.skip`` when optional SDKs are not installed, so the
     suite runs cleanly in reduced-dependency environments.
+    MEDRE-internal ``ImportError`` is re-raised (test failure) rather than
+    skipped.
     """
     if transport == "matrix":
         try:
             from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
         except ImportError as exc:
-            pytest.skip(f"Matrix SDK not available: {exc}")
+            if _is_optional_sdk_import_error(exc):
+                pytest.skip(f"Matrix SDK not available: {exc}")
+            raise
         return _MATRIX_CAPABILITIES
 
     if transport == "lxmf":
         try:
             from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
         except ImportError as exc:
-            pytest.skip(f"LXMF SDK not available: {exc}")
+            if _is_optional_sdk_import_error(exc):
+                pytest.skip(f"LXMF SDK not available: {exc}")
+            raise
         return _LXMF_CAPABILITIES
 
     if transport == "meshtastic":
@@ -75,7 +97,9 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
             from medre.adapters.meshtastic.adapter import MeshtasticAdapter
             from medre.config.adapters.meshtastic import MeshtasticConfig
         except ImportError as exc:
-            pytest.skip(f"Meshtastic SDK not available: {exc}")
+            if _is_optional_sdk_import_error(exc):
+                pytest.skip(f"Meshtastic SDK not available: {exc}")
+            raise
 
         config = MeshtasticConfig(adapter_id="test_conformance")
         adapter = MeshtasticAdapter(config)
@@ -86,7 +110,9 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
             from medre.adapters.meshcore.adapter import MeshCoreAdapter
             from medre.config.adapters.meshcore import MeshCoreConfig
         except ImportError as exc:
-            pytest.skip(f"MeshCore SDK not available: {exc}")
+            if _is_optional_sdk_import_error(exc):
+                pytest.skip(f"MeshCore SDK not available: {exc}")
+            raise
 
         config = MeshCoreConfig(adapter_id="test_conformance")
         adapter = MeshCoreAdapter(config)
@@ -162,3 +188,101 @@ def test_markdown_references_capability_json(transport: str) -> None:
         f"{transport}.md does not reference {json_filename}. "
         f"Add a link to the machine-readable capability declaration."
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: ImportError discrimination in _get_adapter_capabilities
+# ---------------------------------------------------------------------------
+
+
+class TestIsOptionalSdkImportError:
+    """Unit tests for the _is_optional_sdk_import_error helper."""
+
+    def test_known_sdk_top_level_names_match(self) -> None:
+        for name in _OPTIONAL_SDK_PREFIXES:
+            assert _is_optional_sdk_import_error(
+                ImportError(name=name)
+            ), f"{name} should be recognised as an optional SDK"
+
+    def test_sdk_submodule_names_match(self) -> None:
+        assert _is_optional_sdk_import_error(ImportError(name="nio.client"))
+        assert _is_optional_sdk_import_error(ImportError(name="RNS.Interfaces"))
+        assert _is_optional_sdk_import_error(ImportError(name="meshtastic.protobuf"))
+
+    def test_medre_internal_names_do_not_match(self) -> None:
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.adapters.matrix.adapter")
+        )
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.adapters.lxmf.adapter")
+        )
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.config.adapters.meshtastic")
+        )
+
+    def test_none_name_does_not_match(self) -> None:
+        """ImportError without a .name attribute must not be treated as optional."""
+        assert not _is_optional_sdk_import_error(ImportError("something broke"))
+
+
+class TestGetAdapterCapabilitiesImportErrorPropagation:
+    """Regression: MEDRE-internal ImportError propagates; optional SDK absence
+    triggers pytest.skip."""
+
+    @staticmethod
+    def _make_import_raising_for(target_module: str, error_name: str) -> object:
+        """Return a ``__import__`` replacement that raises for *target_module*."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fake_import(
+            name: str,
+            globals: Mapping[str, object] | None = None,
+            locals: Mapping[str, object] | None = None,
+            fromlist: tuple[str, ...] = (),
+            level: int = 0,
+        ) -> object:
+            if name == target_module:
+                raise ImportError(f"simulated: {error_name}", name=error_name)
+            return real_import(name, globals, locals, fromlist, level)
+
+        return _fake_import
+
+    def test_internal_import_error_propagates(self) -> None:
+        """MEDRE-internal ImportError must re-raise, not pytest.skip."""
+        import builtins
+        import sys
+
+        key = "medre.adapters.matrix.adapter"
+        saved = sys.modules.pop(key, None)
+        try:
+            fake = self._make_import_raising_for(
+                key, "medre.adapters.matrix.buggy_module"
+            )
+            with patch.object(builtins, "__import__", fake):
+                with pytest.raises(
+                    ImportError, match="medre.adapters.matrix.buggy_module"
+                ):
+                    _get_adapter_capabilities("matrix")
+        finally:
+            if saved is not None:
+                sys.modules[key] = saved
+
+    def test_optional_sdk_import_error_skips(self) -> None:
+        """Missing optional SDK (e.g. nio) triggers pytest.skip."""
+        import builtins
+        import sys
+
+        key = "medre.adapters.matrix.adapter"
+        saved = sys.modules.pop(key, None)
+        try:
+            fake = self._make_import_raising_for(key, "nio")
+            with patch.object(builtins, "__import__", fake):
+                with pytest.raises(
+                    pytest.skip.Exception, match="Matrix SDK not available"
+                ):
+                    _get_adapter_capabilities("matrix")
+        finally:
+            if saved is not None:
+                sys.modules[key] = saved

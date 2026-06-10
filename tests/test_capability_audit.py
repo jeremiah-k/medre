@@ -28,7 +28,8 @@ from __future__ import annotations
 import json
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+from unittest.mock import patch
 
 import pytest
 
@@ -69,6 +70,22 @@ def _load_json_caps(transport: str) -> dict[str, Any]:
     return data["capabilities"]
 
 
+_OPTIONAL_SDK_PREFIXES = ("nio", "meshtastic", "meshcore", "RNS", "LXMF")
+
+
+def _is_optional_sdk_import_error(exc: ImportError) -> bool:
+    """Return True if *exc* was caused by a missing optional external SDK.
+
+    Known optional SDKs: nio (Matrix), meshtastic, meshcore, RNS/LXMF
+    (Reticulum).  MEDRE-internal ``ImportError`` (e.g. a typo in
+    ``medre.adapters.*``) must propagate so that the test fails loudly.
+    """
+    return exc.name is not None and any(
+        exc.name == prefix or exc.name.startswith(prefix + ".")
+        for prefix in _OPTIONAL_SDK_PREFIXES
+    )
+
+
 def _get_real_caps(transport: str) -> AdapterCapabilities | None:
     """Return real adapter capabilities, or None when the SDK is unavailable.
 
@@ -79,29 +96,37 @@ def _get_real_caps(transport: str) -> AdapterCapabilities | None:
     if transport == "matrix":
         try:
             from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
-        except ImportError:
-            return None
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                return None
+            raise
         return _MATRIX_CAPABILITIES
     if transport == "lxmf":
         try:
             from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
-        except ImportError:
-            return None
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                return None
+            raise
         return _LXMF_CAPABILITIES
     if transport == "meshtastic":
         try:
             from medre.adapters.meshtastic.adapter import MeshtasticAdapter
             from medre.config.adapters.meshtastic import MeshtasticConfig
-        except ImportError:
-            return None
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                return None
+            raise
         config = MeshtasticConfig(adapter_id="audit_test")
         return MeshtasticAdapter(config)._capabilities
     if transport == "meshcore":
         try:
             from medre.adapters.meshcore.adapter import MeshCoreAdapter
             from medre.config.adapters.meshcore import MeshCoreConfig
-        except ImportError:
-            return None
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                return None
+            raise
         config = MeshCoreConfig(adapter_id="audit_test")
         return MeshCoreAdapter(config)._capabilities
     raise ValueError(f"Unknown transport: {transport}")
@@ -656,3 +681,99 @@ def test_no_adapter_claims_priority_delivery() -> None:
         assert (
             _get_fake_caps(transport).priority_delivery is False
         ), f"{transport} unexpectedly declares priority_delivery"
+
+
+# ---------------------------------------------------------------------------
+# 11. Regression: ImportError discrimination
+# ---------------------------------------------------------------------------
+
+
+class TestIsOptionalSdkImportError:
+    """Unit tests for the _is_optional_sdk_import_error helper."""
+
+    def test_known_sdk_top_level_names_match(self) -> None:
+        for name in _OPTIONAL_SDK_PREFIXES:
+            assert _is_optional_sdk_import_error(
+                ImportError(name=name)
+            ), f"{name} should be recognised as an optional SDK"
+
+    def test_sdk_submodule_names_match(self) -> None:
+        assert _is_optional_sdk_import_error(ImportError(name="nio.client"))
+        assert _is_optional_sdk_import_error(ImportError(name="RNS.Interfaces"))
+        assert _is_optional_sdk_import_error(ImportError(name="meshtastic.protobuf"))
+
+    def test_medre_internal_names_do_not_match(self) -> None:
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.adapters.matrix.adapter")
+        )
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.adapters.lxmf.adapter")
+        )
+        assert not _is_optional_sdk_import_error(
+            ImportError(name="medre.config.adapters.meshtastic")
+        )
+
+    def test_none_name_does_not_match(self) -> None:
+        """ImportError without a .name attribute must not be treated as optional."""
+        assert not _is_optional_sdk_import_error(ImportError("something broke"))
+
+
+class TestGetRealCapsImportErrorPropagation:
+    """Regression: MEDRE-internal ImportError propagates; optional SDK absence
+    returns None."""
+
+    @staticmethod
+    def _make_import_raising_for(target_module: str, error_name: str) -> object:
+        """Return a ``__import__`` replacement that raises for *target_module*."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fake_import(
+            name: str,
+            globals: Mapping[str, object] | None = None,
+            locals: Mapping[str, object] | None = None,
+            fromlist: tuple[str, ...] = (),
+            level: int = 0,
+        ) -> object:
+            if name == target_module:
+                raise ImportError(f"simulated: {error_name}", name=error_name)
+            return real_import(name, globals, locals, fromlist, level)
+
+        return _fake_import
+
+    def test_internal_import_error_propagates(self) -> None:
+        """MEDRE-internal ImportError must re-raise, not return None."""
+        import builtins
+        import sys
+
+        key = "medre.adapters.matrix.adapter"
+        saved = sys.modules.pop(key, None)
+        try:
+            fake = self._make_import_raising_for(
+                key, "medre.adapters.matrix.buggy_module"
+            )
+            with patch.object(builtins, "__import__", fake):
+                with pytest.raises(
+                    ImportError, match="medre.adapters.matrix.buggy_module"
+                ):
+                    _get_real_caps("matrix")
+        finally:
+            if saved is not None:
+                sys.modules[key] = saved
+
+    def test_optional_sdk_import_error_returns_none(self) -> None:
+        """Missing optional SDK (e.g. nio) causes _get_real_caps to return None."""
+        import builtins
+        import sys
+
+        key = "medre.adapters.matrix.adapter"
+        saved = sys.modules.pop(key, None)
+        try:
+            fake = self._make_import_raising_for(key, "nio")
+            with patch.object(builtins, "__import__", fake):
+                result = _get_real_caps("matrix")
+                assert result is None
+        finally:
+            if saved is not None:
+                sys.modules[key] = saved

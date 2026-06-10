@@ -437,18 +437,28 @@ class LxmfAdapter(AdapterContract):
             # Dedup: suppress exact duplicate messages by message_id + content.
             # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction):
             # least-recently-seen entries evicted when full.
+            dedup_key: tuple[str, str] | None = None
             msg_id = packet.get("message_id")
             if msg_id is not None:
                 dedup_key = (str(msg_id), str(packet.get("content", "")))
                 if dedup_key in self._inbound_dedup:
                     self._inbound_dedup.move_to_end(dedup_key)
                     return
+
+            # Decode before committing dedup key so that decode failures
+            # do not suppress redelivery of the same packet.
+            canonical = self._codec.decode(packet)
+
+            # Commit dedup key only after successful decode.  The key
+            # guards the async publish window against concurrent
+            # duplicates.  If publish fails _on_packet_async rolls it
+            # back so redelivery is not suppressed.
+            if dedup_key is not None:
                 self._inbound_dedup[dedup_key] = None
                 if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
                     self._inbound_dedup.popitem(last=False)
 
-            canonical = self._codec.decode(packet)
-            task = asyncio.create_task(self._on_packet_async(canonical))
+            task = asyncio.create_task(self._on_packet_async(canonical, dedup_key))
             task.add_done_callback(self._background_tasks.discard)
             self._background_tasks.add(task)
         except Exception:
@@ -458,7 +468,11 @@ class LxmfAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    async def _on_packet_async(self, canonical: CanonicalEvent) -> None:
+    async def _on_packet_async(
+        self,
+        canonical: CanonicalEvent,
+        dedup_key: tuple[str, str] | None = None,
+    ) -> None:
         """Async handler for packets received via :meth:`_on_packet`.
 
         Publishes the canonical event and logs exceptions from the
@@ -472,11 +486,18 @@ class LxmfAdapter(AdapterContract):
         ----------
         canonical:
             The decoded canonical event to publish.
+        dedup_key:
+            The dedup key committed by :meth:`_on_packet` after
+            successful decode.  Rolled back on publish failure so that
+            redelivery is not suppressed.
         """
         try:
             if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
         except Exception:
+            # Roll back dedup key so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "LxmfAdapter %s: error in background publish",
@@ -542,18 +563,30 @@ class LxmfAdapter(AdapterContract):
             return
 
         # Dedup: suppress exact duplicate messages by message_id + content.
+        dedup_key: tuple[str, str] | None = None
         msg_id = packet.get("message_id")
         if msg_id is not None:
             dedup_key = (str(msg_id), str(packet.get("content", "")))
             if dedup_key in self._inbound_dedup:
                 self._inbound_dedup.move_to_end(dedup_key)
                 return
+
+        # Decode and publish before committing dedup key so that
+        # failures do not suppress redelivery.
+        try:
+            canonical = self._codec.decode(packet)
+            await self.publish_inbound(canonical)
+        except Exception:
+            # Roll back dedup key on any decode/publish failure.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
+            raise
+
+        # Commit dedup key only after successful decode + publish.
+        if dedup_key is not None:
             self._inbound_dedup[dedup_key] = None
             if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
                 self._inbound_dedup.popitem(last=False)
-
-        canonical = self._codec.decode(packet)
-        await self.publish_inbound(canonical)
 
     # -- Codec access -------------------------------------------------------
 
