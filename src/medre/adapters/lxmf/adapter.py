@@ -573,14 +573,8 @@ class LxmfAdapter(AdapterContract):
 
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.
-        try:
-            canonical = self._codec.decode(packet)
-            await self.publish_inbound(canonical)
-        except Exception:
-            # Roll back dedup key on any decode/publish failure.
-            if dedup_key is not None:
-                self._inbound_dedup.pop(dedup_key, None)
-            raise
+        canonical = self._codec.decode(packet)
+        await self.publish_inbound(canonical)
 
         # Commit dedup key only after successful decode + publish.
         if dedup_key is not None:

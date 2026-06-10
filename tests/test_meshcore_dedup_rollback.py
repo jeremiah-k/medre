@@ -11,6 +11,7 @@ Covers both the ``_on_message`` (sync → async) path and the
 Evidence level: ``fake_pipeline`` / ``fake_adapter_callback`` (tier 1–2).
 No network, no hardware, no Docker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,7 +23,6 @@ import pytest
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterContext
-
 
 # ---------------------------------------------------------------------------
 # Helpers
