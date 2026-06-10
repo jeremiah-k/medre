@@ -807,6 +807,7 @@ class MeshCoreSession:
                         self._adapter_id,
                     )
                     self._diag.reconnecting = False
+                    self._diag.reconnect_attempts = 0
                     return
                 except Exception as exc:
                     self._diag.reconnect_attempts += 1
