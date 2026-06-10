@@ -137,8 +137,8 @@ class LxmfAdapter(AdapterContract):
         # Prevents duplicate events from Reticulum redelivery.
         # Including content ensures distinct payloads sharing the same
         # message_id are both processed, while exact replays are suppressed.
-        # Bounded OrderedDict — oldest entries evicted when full. Cleared on
-        # stop/start boundaries.
+        # Bounded OrderedDict — least-recently-seen entries evicted when full.
+        # Cleared on stop/start boundaries.
         self._inbound_dedup: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # -- Lifecycle ----------------------------------------------------------
@@ -435,11 +435,13 @@ class LxmfAdapter(AdapterContract):
                 return
 
             # Dedup: suppress exact duplicate messages by message_id + content.
-            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
+            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction):
+            # least-recently-seen entries evicted when full.
             msg_id = packet.get("message_id")
             if msg_id is not None:
                 dedup_key = (str(msg_id), str(packet.get("content", "")))
                 if dedup_key in self._inbound_dedup:
+                    self._inbound_dedup.move_to_end(dedup_key)
                     return
                 self._inbound_dedup[dedup_key] = None
                 if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
@@ -534,6 +536,7 @@ class LxmfAdapter(AdapterContract):
         if msg_id is not None:
             dedup_key = (str(msg_id), str(packet.get("content", "")))
             if dedup_key in self._inbound_dedup:
+                self._inbound_dedup.move_to_end(dedup_key)
                 return
             self._inbound_dedup[dedup_key] = None
             if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:

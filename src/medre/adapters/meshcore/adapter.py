@@ -228,8 +228,8 @@ class MeshCoreAdapter(AdapterContract):
         # Prevents duplicate events from SDK redelivery (e.g., reconnect replay).
         # Including text ensures distinct payloads sharing the same packet_id are
         # both processed, while exact replays of the same packet are suppressed.
-        # Bounded OrderedDict — oldest entries evicted when full. Cleared on
-        # stop/start boundaries.
+        # Bounded OrderedDict — least-recently-seen entries evicted when full.
+        # Cleared on stop/start boundaries.
         self._inbound_dedup: OrderedDict[tuple[str, int, int | None, str], None] = (
             OrderedDict()
         )
@@ -508,17 +508,21 @@ class MeshCoreAdapter(AdapterContract):
             # Text is included so distinct payloads with reused packet_id
             # are both processed while exact replays are suppressed.
             # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
-            dedup_key = (
-                classification.sender_id or "",
-                classification.packet_id or 0,
-                classification.channel_index,
-                str(packet.get("text", "")),
-            )
-            if dedup_key in self._inbound_dedup:
-                return
-            self._inbound_dedup[dedup_key] = None
-            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
-                self._inbound_dedup.popitem(last=False)
+            # When packet_id is None there is no reliable native identity,
+            # so adapter-level dedup is skipped entirely.
+            if classification.packet_id is not None:
+                dedup_key = (
+                    classification.sender_id or "",
+                    classification.packet_id,
+                    classification.channel_index,
+                    str(packet.get("text", "")),
+                )
+                if dedup_key in self._inbound_dedup:
+                    self._inbound_dedup.move_to_end(dedup_key)
+                    return
+                self._inbound_dedup[dedup_key] = None
+                if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                    self._inbound_dedup.popitem(last=False)
 
             canonical = self._codec.decode(packet)
             # Schedule the async publish — _on_message is synchronous
@@ -585,17 +589,21 @@ class MeshCoreAdapter(AdapterContract):
             return
 
         # Dedup: suppress exact duplicate packets by identity + content.
-        dedup_key = (
-            classification.sender_id or "",
-            classification.packet_id or 0,
-            classification.channel_index,
-            str(packet.get("text", "")),
-        )
-        if dedup_key in self._inbound_dedup:
-            return
-        self._inbound_dedup[dedup_key] = None
-        if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
-            self._inbound_dedup.popitem(last=False)
+        # When packet_id is None there is no reliable native identity,
+        # so adapter-level dedup is skipped entirely.
+        if classification.packet_id is not None:
+            dedup_key = (
+                classification.sender_id or "",
+                classification.packet_id,
+                classification.channel_index,
+                str(packet.get("text", "")),
+            )
+            if dedup_key in self._inbound_dedup:
+                self._inbound_dedup.move_to_end(dedup_key)
+                return
+            self._inbound_dedup[dedup_key] = None
+            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                self._inbound_dedup.popitem(last=False)
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
