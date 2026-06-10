@@ -236,8 +236,9 @@ class TestMeshCoreWrapperCallbackPath:
             assert len(events) == 1
             assert events[0]["source_adapter"] == "mc-dup-src"
 
-            # loop_prevented >= 1
-            assert accounting.counters().loop_prevented >= 1
+            # Adapter-level dedup suppresses duplicates before they reach
+            # the pipeline, so loop_prevented is not incremented.
+            assert accounting.counters().loop_prevented == 0
 
             # inbound_accepted == 1 (only first accepted)
             assert accounting.counters().inbound_accepted == 1
