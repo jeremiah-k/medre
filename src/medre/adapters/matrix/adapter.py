@@ -310,6 +310,11 @@ class MatrixAdapter(AdapterContract):
             to connect, or E2EE preconditions are unmet.
         """
         self._sync_failure = None  # Reset from any previous failure
+
+        # Clear cached health at lifecycle boundary so diagnostics
+        # never reports a stale health string from a previous session.
+        self._last_health = None
+
         # Track 5 — reset delivery stats on start
         self._transient_delivery_failures = 0
         self._permanent_delivery_failures = 0
@@ -371,6 +376,9 @@ class MatrixAdapter(AdapterContract):
             self._sync_failure_stored = self._session.last_sync_error
             await self._session.stop(timeout=timeout)
             self._session = None
+
+        # Clear cached health at lifecycle boundary.
+        self._last_health = None
 
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)

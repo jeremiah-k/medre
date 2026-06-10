@@ -786,10 +786,11 @@ async def test_meshcore_dedup_evicts_oldest_at_capacity():
 
     # The first packet's dedup entry should have been evicted, so it
     # publishes again.
+    pre_replay_count = len(published)
     await adapter.simulate_inbound(first_packet)
     assert (
-        len(published) >= 3
-    ), "first packet should publish again after eviction from bounded dedup"
+        len(published) == pre_replay_count + 1
+    ), "first packet should publish exactly once after eviction from bounded dedup"
 
     # The most recent fill packet should still be deduped.
     last_fill_packet = _meshcore_text_packet(
@@ -837,10 +838,11 @@ async def test_lxmf_dedup_evicts_oldest_at_capacity():
         )
 
     # The first packet's dedup entry should have been evicted.
+    pre_replay_count = len(published)
     await adapter.simulate_inbound(first_packet)
     assert (
-        len(published) >= 3
-    ), "first message should publish again after eviction from bounded dedup"
+        len(published) == pre_replay_count + 1
+    ), "first message should publish exactly once after eviction from bounded dedup"
 
     # The most recent fill packet should still be deduped.
     last_fill_id = f"{_DEDUP_MAX_SIZE:064x}"

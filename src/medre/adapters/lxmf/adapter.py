@@ -162,6 +162,10 @@ class LxmfAdapter(AdapterContract):
         if self._started:
             return
 
+        # Clear cached health at lifecycle boundary so diagnostics
+        # never reports a stale health string from a previous session.
+        self._last_health = None
+
         self._inbound_dedup.clear()
         self.ctx = ctx
         self._mark_started(ctx)
@@ -209,6 +213,9 @@ class LxmfAdapter(AdapterContract):
         # Gate callbacks immediately — prevents race between drain completing
         # and session.stop() unsubscribing.
         self._started = False
+
+        # Clear cached health at lifecycle boundary.
+        self._last_health = None
 
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)

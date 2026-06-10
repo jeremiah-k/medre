@@ -12,9 +12,10 @@ and that every JSON key corresponds to a valid capability field.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -262,7 +263,7 @@ class TestGetAdapterCapabilitiesImportErrorPropagation:
             )
             with patch.object(builtins, "__import__", fake):
                 with pytest.raises(
-                    ImportError, match="medre.adapters.matrix.buggy_module"
+                    ImportError, match=r"medre\.adapters\.matrix\.buggy_module"
                 ):
                     _get_adapter_capabilities("matrix")
         finally:

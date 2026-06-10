@@ -1133,24 +1133,73 @@ class TestMeshCoreLifecycleGuardOnMessageAsync:
         # already scheduled from _on_message.
         adapter._started = False
 
-        # Construct a minimal canonical event and call _on_message_async.
-        event = CanonicalEvent(
-            event_id="evt-stale",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="meshcore-1",
-            source_transport_id="sender",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "stale"},
-            metadata=EventMetadata(),
-        )
-        await adapter._on_message_async(event)
+        try:
+            # Construct a minimal canonical event and call _on_message_async.
+            event = CanonicalEvent(
+                event_id="evt-stale",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="meshcore-1",
+                source_transport_id="sender",
+                source_channel_id="0",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"body": "stale"},
+                metadata=EventMetadata(),
+            )
+            await adapter._on_message_async(event)
 
-        # Must NOT have published — _started was False.
-        assert len(inbound_collector.events) == 0
+            # Must NOT have published — _started was False.
+            assert len(inbound_collector.events) == 0
+        finally:
+            # Restore _started so stop() can perform full teardown
+            # (session drain, cleanup) instead of returning early.
+            adapter._started = True
+            await adapter.stop()
+
+
+# ===================================================================
+# Lifecycle guard: _last_health cleared at boundaries
+# ===================================================================
+
+
+class TestMeshCoreLastHealthLifecycleBoundary:
+    """_last_health is cleared at start/stop boundaries.
+
+    Oracle finding C: cached _last_health must be reset to None on
+    start() and stop() so diagnostics never reports a stale health
+    string from a previous session.
+    """
+
+    async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:
+        """start() clears _last_health so a stale value from a prior
+        session does not leak into diagnostics."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        # Simulate a stale _last_health from a prior session.
+        adapter._last_health = "failed"
+
+        await adapter.start(ctx)
+        assert adapter._last_health is None
 
         await adapter.stop()
+
+    async def test_last_health_cleared_on_stop(self, make_adapter_context) -> None:
+        """stop() clears _last_health so diagnostics shows None, not
+        the value from the just-stopped session."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+
+        # health_check populates _last_health.
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+        assert adapter._last_health == "healthy"
+
+        await adapter.stop()
+        assert adapter._last_health is None

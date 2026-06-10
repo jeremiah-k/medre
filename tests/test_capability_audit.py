@@ -26,9 +26,10 @@ Covers:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -121,14 +122,12 @@ def _get_real_caps(transport: str) -> AdapterCapabilities | None:
         return MeshtasticAdapter(config)._capabilities
     if transport == "meshcore":
         try:
-            from medre.adapters.meshcore.adapter import MeshCoreAdapter
-            from medre.config.adapters.meshcore import MeshCoreConfig
+            from medre.adapters.meshcore.adapter import _MESHCORE_CAPS_BASE
         except ImportError as exc:
             if _is_optional_sdk_import_error(exc):
                 return None
             raise
-        config = MeshCoreConfig(adapter_id="audit_test")
-        return MeshCoreAdapter(config)._capabilities
+        return _MESHCORE_CAPS_BASE
     raise ValueError(f"Unknown transport: {transport}")
 
 
@@ -755,7 +754,8 @@ class TestGetRealCapsImportErrorPropagation:
             )
             with patch.object(builtins, "__import__", fake):
                 with pytest.raises(
-                    ImportError, match="medre.adapters.matrix.buggy_module"
+                    ImportError,
+                    match=r"medre\.adapters\.matrix\.buggy_module",
                 ):
                     _get_real_caps("matrix")
         finally:

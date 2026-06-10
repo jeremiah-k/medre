@@ -427,7 +427,12 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
             "expected_ack": b"\xab\xcd\xef\x01",
             "suggested_timeout": 7,  # SDK says wait 7 seconds for ACK
         }
-        instance.commands.send_msg = AsyncMock(return_value=sdk_result)
+        # Force one transient failure so the retry path actually exercises
+        # sleep — without this, send_msg succeeds immediately and the
+        # sleep assertions are vacuous.
+        instance.commands.send_msg = AsyncMock(
+            side_effect=[RuntimeError("transient send failure"), sdk_result]
+        )
 
         install_mock_module(mock_mc)
         try:
@@ -444,6 +449,10 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
 
             # native_id should be extracted from expected_ack (hex of 4 bytes).
             assert native_id == "abcdef01"
+            # At least one retry sleep must have occurred (non-vacuous check).
+            assert (
+                mock_sleep.call_count >= 1
+            ), "At least one retry sleep must occur after transient send failure"
             # suggested_timeout was available but ignored.
             # No sleep call received the suggested_timeout value (7 seconds).
             for sleep_call in mock_sleep.call_args_list:
@@ -453,7 +462,7 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
                     f"({sdk_result['suggested_timeout']}): {sleep_call}. "
                     "If parity was implemented, update this test."
                 )
-            # Verify send_msg was called correctly.
+            # Verify send_msg was called correctly (twice: initial + 1 retry).
             for call in instance.commands.send_msg.call_args_list:
                 assert call is not None
 
@@ -913,8 +922,10 @@ class TestP12MatrixKeyRequestRateLimiting:
         """Undecryptable event handler sends key request inline without
         rate limiting, throttling, or sleep gating around as_key_request."""
         source_text = inspect.getsource(matrix_session_mod.MatrixSession)
-        if "as_key_request" not in source_text:
-            pytest.skip("as_key_request not in current session source")
+        assert "as_key_request" in source_text, (
+            "as_key_request not found in MatrixSession source; "
+            "characterization test must be updated if the source path changed"
+        )
         # Verify no rate-limit/throttle/queue/sleep gating around key
         # requests.  Check lines within a window around as_key_request
         # for gating patterns.
