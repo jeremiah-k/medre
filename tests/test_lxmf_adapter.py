@@ -737,45 +737,7 @@ class TestLxmfAdapterSessionIntegration:
             await adapter.start(ctx)
             assert adapter._started is True
             assert adapter.session.connected is True
-        await adapter.stop()
-
-
-# ===================================================================
-# Lifecycle guard: simulate_inbound refuses post-stop calls
-# ===================================================================
-
-
-class TestLxmfLifecycleGuardSimulateInbound:
-    """simulate_inbound must not publish after stop().
-
-    Oracle finding A: ctx is retained after stop() but _started is
-    cleared — a stale ctx must not be sufficient to publish
-    lifecycle-stale inbound messages.
-    """
-
-    async def test_simulate_inbound_silent_return_after_stop(
-        self, make_adapter_context, inbound_collector
-    ) -> None:
-        """After stop(), simulate_inbound returns silently without publishing."""
-        config = _make_config(connection_type="fake")
-        adapter = LxmfAdapter(config)
-        ctx = make_adapter_context("lxmf-1")
-        await adapter.start(ctx)
-
-        # Publish one event while started — should succeed.
-        packet = _make_text_packet(content="before stop")
-        await adapter.simulate_inbound(packet)
-        assert len(inbound_collector.events) == 1
-
-        await adapter.stop()
-
-        # ctx is still set but _started is False.
-        assert adapter.ctx is not None
-        assert adapter._started is False
-
-        # simulate_inbound must not publish after stop.
-        await adapter.simulate_inbound(_make_text_packet(content="after stop"))
-        assert len(inbound_collector.events) == 1
+            await adapter.stop()
             assert adapter._started is False
             assert adapter.session.connected is False
 
@@ -1428,3 +1390,41 @@ class TestLxmfAdapterDeliverHonestDeliverySemantics:
         assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
 
         await adapter.stop()
+
+
+# ===================================================================
+# Lifecycle guard: simulate_inbound refuses post-stop calls
+# ===================================================================
+
+
+class TestLxmfLifecycleGuardSimulateInbound:
+    """simulate_inbound must not publish after stop().
+
+    Oracle finding A: ctx is retained after stop() but _started is
+    cleared — a stale ctx must not be sufficient to publish
+    lifecycle-stale inbound messages.
+    """
+
+    async def test_simulate_inbound_silent_return_after_stop(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """After stop(), simulate_inbound returns silently without publishing."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        # Publish one event while started — should succeed.
+        packet = _make_text_packet(content="before stop")
+        await adapter.simulate_inbound(packet)
+        assert len(inbound_collector.events) == 1
+
+        await adapter.stop()
+
+        # ctx is still set but _started is False.
+        assert adapter.ctx is not None
+        assert adapter._started is False
+
+        # simulate_inbound must not publish after stop.
+        await adapter.simulate_inbound(_make_text_packet(content="after stop"))
+        assert len(inbound_collector.events) == 1

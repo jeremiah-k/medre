@@ -1020,9 +1020,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
     string from a previous session.
     """
 
-    async def test_last_health_cleared_on_start(
-        self, make_adapter_context
-    ) -> None:
+    async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:
         """start() clears _last_health so a stale value from a prior
         session does not leak into diagnostics."""
         config = make_meshtastic_config(connection_type="fake")
@@ -1037,9 +1035,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
 
         await adapter.stop()
 
-    async def test_last_health_cleared_on_stop(
-        self, make_adapter_context
-    ) -> None:
+    async def test_last_health_cleared_on_stop(self, make_adapter_context) -> None:
         """stop() clears _last_health so diagnostics shows None, not
         the value from the just-stopped session."""
         config = make_meshtastic_config(connection_type="fake")
@@ -1055,9 +1051,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
         await adapter.stop()
         assert adapter._last_health is None
 
-    async def test_last_health_round_trip(
-        self, make_adapter_context
-    ) -> None:
+    async def test_last_health_round_trip(self, make_adapter_context) -> None:
         """After stop→start→health_check→stop, _last_health is None."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
