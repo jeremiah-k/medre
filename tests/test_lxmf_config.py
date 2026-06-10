@@ -146,6 +146,25 @@ class TestLxmfConfigStampCost:
         config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=32)
         assert config.validate().stamp_cost == 32
 
+    def test_bool_true_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=True)  # type: ignore[arg-type]
+        with pytest.raises(
+            LxmfConfigError, match="stamp_cost must be an integer, not a boolean"
+        ):
+            config.validate()
+
+    def test_bool_false_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=False)  # type: ignore[arg-type]
+        with pytest.raises(
+            LxmfConfigError, match="stamp_cost must be an integer, not a boolean"
+        ):
+            config.validate()
+
+    def test_string_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost="8")  # type: ignore[arg-type]
+        with pytest.raises(LxmfConfigError, match="stamp_cost must be an integer"):
+            config.validate()
+
 
 class TestLxmfConfigInvalid:
     """Other invalid LxmfConfig cases."""
@@ -158,6 +177,20 @@ class TestLxmfConfigInvalid:
     def test_negative_message_delay_raises(self) -> None:
         config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=-1.0)
         with pytest.raises(LxmfConfigError, match="message_delay_seconds"):
+            config.validate()
+
+    def test_nan_message_delay_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=float("nan"))
+        with pytest.raises(
+            LxmfConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
+    def test_inf_message_delay_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=float("inf"))
+        with pytest.raises(
+            LxmfConfigError, match="message_delay_seconds must be finite"
+        ):
             config.validate()
 
     def test_zero_message_delay_is_valid(self) -> None:
@@ -199,3 +232,128 @@ class TestLxmfConfigMetadataSafety:
             assert not hasattr(
                 config, field_name
             ), f"LxmfConfig must not have secret-like field: {field_name}"
+
+
+class TestLxmfConfigMessageType:
+    """message_delay_seconds type validation."""
+
+    def test_bool_true_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            message_delay_seconds=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="message_delay_seconds must be int or float, got bool",
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            message_delay_seconds=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="message_delay_seconds must be int or float, got bool",
+        ):
+            config.validate()
+
+    def test_string_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            message_delay_seconds="0",  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="message_delay_seconds must be int or float, got str"
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            message_delay_seconds=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="message_delay_seconds must be int or float, got NoneType",
+        ):
+            config.validate()
+
+    def test_zero_int_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=0)
+        assert config.validate().message_delay_seconds == 0
+
+    def test_zero_float_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=0.0)
+        assert config.validate().message_delay_seconds == 0.0
+
+    def test_positive_int_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=1)
+        assert config.validate().message_delay_seconds == 1
+
+    def test_positive_float_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", message_delay_seconds=1.5)
+        assert config.validate().message_delay_seconds == 1.5
+
+
+class TestLxmfConfigDefaultChannelType:
+    """default_channel type validation."""
+
+    def test_bool_true_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            default_channel=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="default_channel must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            default_channel=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="default_channel must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_float_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            default_channel=1.5,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="default_channel must be an int, got float"
+        ):
+            config.validate()
+
+    def test_string_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            default_channel="0",  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="default_channel must be an int, got str"
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            default_channel=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError, match="default_channel must be an int, got NoneType"
+        ):
+            config.validate()
+
+    def test_zero_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", default_channel=0)
+        assert config.validate().default_channel == 0
+
+    def test_positive_int_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", default_channel=1)
+        assert config.validate().default_channel == 1

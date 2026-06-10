@@ -24,7 +24,7 @@ class TestMeshCoreConfigValid:
             adapter_id="meshcore-2",
             connection_type="tcp",
             host="192.168.1.100",
-            port=4403,
+            port=4000,
             default_channel=1,
             message_delay_seconds=1.0,
             meshnet_name="testnet",
@@ -64,8 +64,6 @@ class TestMeshCoreConfigValid:
         assert config.connection_type == "fake"
         assert config.default_channel == 0
         assert config.message_delay_seconds == 0.5
-        assert config.sync_timeout_ms == 30000
-        assert config.channel_mapping == {}
         assert config.identity is None
         assert config.pubkey is None
         assert config.node_config == {}
@@ -104,7 +102,7 @@ class TestMeshCoreConfigInvalid:
             config.validate()
 
     def test_invalid_connection_type_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", connection_type="wifi")
+        config = MeshCoreConfig(adapter_id="meshcore-1", connection_type="wifi")  # type: ignore[arg-type]
         with pytest.raises(MeshCoreConfigError, match="connection_type"):
             config.validate()
 
@@ -116,6 +114,24 @@ class TestMeshCoreConfigInvalid:
     def test_zero_message_delay_is_valid(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=0.0)
         assert config.validate() is config
+
+    def test_nan_message_delay_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", message_delay_seconds=float("nan")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
+
+    def test_inf_message_delay_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", message_delay_seconds=float("inf")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="message_delay_seconds must be finite"
+        ):
+            config.validate()
 
     def test_negative_default_channel_raises(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1", default_channel=-1)
@@ -157,21 +173,6 @@ class TestMeshCoreConfigInvalid:
     def test_config_error_is_also_value_error(self) -> None:
         config = MeshCoreConfig(adapter_id="")
         with pytest.raises(ValueError):
-            config.validate()
-
-    def test_config_error_is_value_error(self) -> None:
-        config = MeshCoreConfig(adapter_id="")
-        with pytest.raises(ValueError):
-            config.validate()
-
-    def test_zero_sync_timeout_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", sync_timeout_ms=0)
-        with pytest.raises(MeshCoreConfigError, match="sync_timeout_ms"):
-            config.validate()
-
-    def test_negative_sync_timeout_raises(self) -> None:
-        config = MeshCoreConfig(adapter_id="meshcore-1", sync_timeout_ms=-1)
-        with pytest.raises(MeshCoreConfigError, match="sync_timeout_ms"):
             config.validate()
 
 
@@ -323,3 +324,315 @@ class TestMeshCoreConfigNonFakeRequiresField:
         )
         with pytest.raises(MeshCoreConfigError, match="ble_address.*ble"):
             config.validate()
+
+
+class TestMeshCoreConfigSerialBaudrate:
+    """serial_baudrate validation for serial connection type."""
+
+    def test_valid_baudrate(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=9600,
+        )
+        assert config.validate().serial_baudrate == 9600
+
+    def test_default_baudrate_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+        )
+        assert config.validate().serial_baudrate == 115200
+
+    def test_zero_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=0,
+        )
+        with pytest.raises(MeshCoreConfigError, match="serial_baudrate must be > 0"):
+            config.validate()
+
+    def test_negative_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=-1,
+        )
+        with pytest.raises(MeshCoreConfigError, match="serial_baudrate must be > 0"):
+            config.validate()
+
+    def test_bool_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="serial_baudrate must be an integer"
+        ):
+            config.validate()
+
+    def test_float_baudrate_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+            serial_baudrate=9600.0,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="serial_baudrate must be an integer"
+        ):
+            config.validate()
+
+    def test_baudrate_not_validated_for_non_serial(self) -> None:
+        """baudrate validation only applies when connection_type='serial'."""
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            serial_baudrate=0,  # Invalid but not validated for tcp
+        )
+        assert config.validate().serial_baudrate == 0
+
+
+class TestMeshCoreConfigPort:
+    """port validation for TCP connection type."""
+
+    def test_port_none_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", port=None)
+        assert config.validate().port is None
+
+    def test_port_4000_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=4000,
+        )
+        assert config.validate().port == 4000
+
+    def test_port_1_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=1,
+        )
+        assert config.validate().port == 1
+
+    def test_port_65535_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=65535,
+        )
+        assert config.validate().port == 65535
+
+    def test_port_0_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=0,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_negative_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=-1,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_65536_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=65536,
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="port must be between 1 and 65535"
+        ):
+            config.validate()
+
+    def test_port_bool_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got bool"):
+            config.validate()
+
+    def test_port_false_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got bool"):
+            config.validate()
+
+    def test_port_string_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port="4000",  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got str"):
+            config.validate()
+
+    def test_port_float_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            connection_type="tcp",
+            host="192.168.1.1",
+            port=4000.0,  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshCoreConfigError, match="port must be an int, got float"):
+            config.validate()
+
+
+class TestMeshCoreConfigMessageType:
+    """message_delay_seconds type validation."""
+
+    def test_bool_true_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            message_delay_seconds=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="message_delay_seconds must be int or float, got bool",
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            message_delay_seconds=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="message_delay_seconds must be int or float, got bool",
+        ):
+            config.validate()
+
+    def test_string_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            message_delay_seconds="0",  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="message_delay_seconds must be int or float, got str",
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            message_delay_seconds=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="message_delay_seconds must be int or float, got NoneType",
+        ):
+            config.validate()
+
+    def test_zero_int_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=0)
+        assert config.validate().message_delay_seconds == 0
+
+    def test_zero_float_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=0.0)
+        assert config.validate().message_delay_seconds == 0.0
+
+    def test_positive_int_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=1)
+        assert config.validate().message_delay_seconds == 1
+
+    def test_positive_float_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", message_delay_seconds=1.5)
+        assert config.validate().message_delay_seconds == 1.5
+
+
+class TestMeshCoreConfigDefaultChannelType:
+    """default_channel type validation."""
+
+    def test_bool_true_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            default_channel=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="default_channel must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            default_channel=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="default_channel must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_float_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            default_channel=1.5,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="default_channel must be an int, got float"
+        ):
+            config.validate()
+
+    def test_string_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            default_channel="0",  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="default_channel must be an int, got str"
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            default_channel=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="default_channel must be an int, got NoneType"
+        ):
+            config.validate()
+
+    def test_zero_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", default_channel=0)
+        assert config.validate().default_channel == 0
+
+    def test_positive_int_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", default_channel=1)
+        assert config.validate().default_channel == 1

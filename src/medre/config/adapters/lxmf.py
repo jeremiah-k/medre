@@ -25,6 +25,7 @@ SDK is unavailable or production connectivity is not yet implemented.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Self
 
@@ -144,21 +145,41 @@ class LxmfConfig:
             )
 
         # --- numeric fields ---
+        if isinstance(self.message_delay_seconds, bool):
+            raise LxmfConfigError(
+                "message_delay_seconds must be int or float, got bool"
+            )
+        if not isinstance(self.message_delay_seconds, (int, float)):
+            raise LxmfConfigError(
+                f"message_delay_seconds must be int or float, "
+                f"got {type(self.message_delay_seconds).__name__}"
+            )
+        if not math.isfinite(self.message_delay_seconds):
+            raise LxmfConfigError("message_delay_seconds must be finite")
         if self.message_delay_seconds < 0:
             raise LxmfConfigError(
                 f"message_delay_seconds must be >= 0, "
                 f"got {self.message_delay_seconds}"
             )
+        if isinstance(self.default_channel, bool):
+            raise LxmfConfigError("default_channel must be an int, got bool")
+        if not isinstance(self.default_channel, int):
+            raise LxmfConfigError(
+                f"default_channel must be an int, got {type(self.default_channel).__name__}"
+            )
         if self.default_channel < 0:
             raise LxmfConfigError(
                 f"default_channel must be >= 0, got {self.default_channel}"
             )
-        if self.stamp_cost < 0:
-            raise LxmfConfigError(f"stamp_cost must be >= 0, got {self.stamp_cost}")
-        if self.stamp_cost != 0 and not isinstance(self.stamp_cost, int):
+        if isinstance(self.stamp_cost, bool):
+            raise LxmfConfigError("stamp_cost must be an integer, not a boolean")
+        if not isinstance(self.stamp_cost, int):
             raise LxmfConfigError(
-                f"stamp_cost must be an integer, "
-                f"got {type(self.stamp_cost).__name__}"
+                f"stamp_cost must be an integer, got {type(self.stamp_cost).__name__}"
+            )
+        if self.stamp_cost < 0:
+            raise LxmfConfigError(
+                f"stamp_cost must be non-negative, got {self.stamp_cost}"
             )
 
         # --- identity_path ---

@@ -82,6 +82,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import math
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -107,6 +108,9 @@ _RECONNECT_JITTER_FRACTION: float = 0.25  # ±25 %
 # Outbound delivery retry.
 _SEND_MAX_RETRIES: int = 3
 
+# Timeout for external SDK lifecycle calls (auto-fetch start/stop).
+_SDK_LIFECYCLE_TIMEOUT: float = 5.0  # seconds
+
 # Type alias for the inbound message callback.
 # The callback receives a plain dict (native payload), NOT an SDK Event object.
 # Both sync and async callables are accepted.
@@ -124,7 +128,9 @@ class _SessionDiagnostics:
     last_error: str | None = None
     transient_delivery_failures: int = 0
     permanent_delivery_failures: int = 0
-    peer_count: int | None = None
+    device_name: str | None = None
+    public_key_prefix: str | None = None
+    radio_freq: float | None = None
 
 
 class _MeshCoreModule(Protocol):
@@ -209,6 +215,13 @@ class MeshCoreSession:
         self._started: bool = False
         self._stop_requested: bool = False
         self._reconnect_task: asyncio.Task | None = None
+
+        # Send serialization: ensures pacing sleeps are not bypassed when
+        # multiple send_text() calls overlap via pipeline fan-out.
+        # Created in __init__ (not start()) because MeshCoreSession does not
+        # capture a running loop reference — asyncio.Lock() lazy-binds on
+        # first use in Python 3.10+.
+        self._send_lock = asyncio.Lock()
 
         # Diagnostics.
         self._diag = _SessionDiagnostics()
@@ -325,6 +338,24 @@ class MeshCoreSession:
 
         # Disconnect SDK client.
         if self._meshcore is not None:
+            # Stop auto message fetching if available.
+            if hasattr(self._meshcore, "stop_auto_message_fetching"):
+                try:
+                    await asyncio.wait_for(
+                        self._meshcore.stop_auto_message_fetching(),
+                        timeout=_SDK_LIFECYCLE_TIMEOUT,
+                    )
+                except TimeoutError:
+                    self._logger.warning(
+                        "MeshCoreSession %s: timed out stopping auto_message_fetching",
+                        self._adapter_id,
+                    )
+                except Exception as exc:
+                    self._logger.debug(
+                        "MeshCoreSession %s: error stopping auto_message_fetching: %s",
+                        self._adapter_id,
+                        exc,
+                    )
             try:
                 await self._meshcore.disconnect()
             except Exception as exc:
@@ -405,7 +436,9 @@ class MeshCoreSession:
             "last_error": self._diag.last_error,
             "transient_delivery_failures": self._diag.transient_delivery_failures,
             "permanent_delivery_failures": self._diag.permanent_delivery_failures,
-            "peer_count": self._diag.peer_count,
+            "device_name": self._diag.device_name,
+            "public_key_prefix": self._diag.public_key_prefix,
+            "radio_freq": self._diag.radio_freq,
             "mode": self._config.connection_type,
         }
 
@@ -450,7 +483,7 @@ class MeshCoreSession:
             if self._config.connection_type == "tcp":
                 self._meshcore = await mc.MeshCore.create_tcp(
                     self._config.host or "localhost",
-                    self._config.port or 4403,
+                    self._config.port if self._config.port is not None else 4000,
                 )
                 if self._meshcore is None:
                     raise MeshCoreConnectionError(
@@ -510,7 +543,8 @@ class MeshCoreSession:
 
         # Connection succeeded — now subscribe to events.
         # If subscription fails, clean up the client before propagating.
-        self._diag.reconnect_attempts = 0
+        if not self._diag.reconnecting:
+            self._diag.reconnect_attempts = 0
         try:
             self._subscribe_events(mc)
         except Exception as exc:
@@ -540,6 +574,8 @@ class MeshCoreSession:
                 raise RuntimeError(
                     f"send_appstart rejected: {appstart_result.payload!r}"
                 )
+            # Capture self_info payload into diagnostics.
+            self._capture_self_info(appstart_result)
         except Exception as exc:
             self._diag.last_error = str(exc)
             if self._meshcore is not None:
@@ -554,6 +590,26 @@ class MeshCoreSession:
                 self._meshcore = None
             self._subscriptions.clear()
             raise MeshCoreConnectionError(f"send_appstart failed: {exc}") from exc
+
+        # Start auto message fetching to drain buffered messages from the device.
+        # Best-effort: failure is logged but does not prevent connection.
+        try:
+            if hasattr(self._meshcore, "start_auto_message_fetching"):
+                await asyncio.wait_for(
+                    self._meshcore.start_auto_message_fetching(),
+                    timeout=_SDK_LIFECYCLE_TIMEOUT,
+                )
+        except TimeoutError:
+            self._logger.warning(
+                "MeshCoreSession %s: timed out starting auto_message_fetching",
+                self._adapter_id,
+            )
+        except Exception as exc:
+            self._logger.debug(
+                "MeshCoreSession %s: auto_message_fetching failed (non-fatal): %s",
+                self._adapter_id,
+                exc,
+            )
 
         # Only mark connected AFTER subscriptions + appstart succeed.
         self._diag.connected = True
@@ -583,6 +639,50 @@ class MeshCoreSession:
             self._on_disconnect_event,
         )
         self._subscriptions.append(sub_disc)
+
+    def _capture_self_info(self, appstart_result: Any) -> None:
+        """Extract device self_info from the send_appstart result payload.
+
+        Per meshcore_py, send_appstart returns a result whose ``payload``
+        dict contains fields like ``public_key``, ``name``, and radio
+        parameters.  We extract safe diagnostic fields from it.
+        """
+        payload: dict[str, Any] | None = None
+        if hasattr(appstart_result, "payload") and isinstance(
+            appstart_result.payload, dict
+        ):
+            payload = appstart_result.payload
+        elif isinstance(appstart_result, dict):
+            payload = appstart_result
+
+        # Reset to avoid stale values across reconnects when payload is partial.
+        self._diag.device_name = None
+        self._diag.public_key_prefix = None
+        self._diag.radio_freq = None
+
+        if payload is None:
+            return
+
+        # Device name.
+        name = payload.get("name")
+        if isinstance(name, str):
+            self._diag.device_name = name
+
+        # Public key prefix (first 6 hex bytes / 12 hex chars).
+        pubkey = payload.get("public_key")
+        if isinstance(pubkey, str) and len(pubkey) >= 12:
+            self._diag.public_key_prefix = pubkey[:12].lower()
+        elif isinstance(pubkey, bytes) and len(pubkey) >= 6:
+            self._diag.public_key_prefix = pubkey[:6].hex()
+
+        # Radio frequency (if present).
+        freq = payload.get("freq")
+        if freq is None:
+            freq = payload.get("radio_freq")
+        if isinstance(freq, (int, float)) and not isinstance(freq, bool):
+            f = float(freq)
+            if math.isfinite(f) and f > 0.0:
+                self._diag.radio_freq = f
 
     async def _unsubscribe_all(self) -> None:
         """Unsubscribe all registered callbacks."""
@@ -707,6 +807,7 @@ class MeshCoreSession:
                         self._adapter_id,
                     )
                     self._diag.reconnecting = False
+                    self._diag.reconnect_attempts = 0
                     return
                 except Exception as exc:
                     self._diag.reconnect_attempts += 1
@@ -752,88 +853,99 @@ class MeshCoreSession:
         if self._meshcore is None:
             raise MeshCoreSendError("SDK client not initialised", transient=False)
 
-        last_exc: Exception | None = None
-        for attempt in range(1, _SEND_MAX_RETRIES + 1):
-            try:
-                if channel_index is not None:
-                    result = await self._meshcore.commands.send_chan_msg(
-                        channel_index, text
-                    )
-                else:
-                    result = await self._meshcore.commands.send_msg(contact_id, text)
+        # Pacing + send are serialized so concurrent calls honour the
+        # configured delay between transmissions.
+        async with self._send_lock:
+            # Pacing: sleep before the real send so consecutive sends are
+            # spaced by message_delay_seconds.  The delay applies once per
+            # send_text() call, not per retry attempt.
+            if self._config.message_delay_seconds > 0:
+                await asyncio.sleep(self._config.message_delay_seconds)
 
-                # Check for SDK-level error.
-                if hasattr(result, "is_error") and result.is_error():
-                    reason = (
-                        result.payload.get("reason", "unknown")
-                        if isinstance(result.payload, dict)
-                        else "unknown"
-                    )
-                    self._diag.permanent_delivery_failures += 1
-                    raise MeshCoreSendError(
-                        f"SDK send error: {reason}",
-                        transient=False,
-                    )
+            last_exc: Exception | None = None
+            for attempt in range(1, _SEND_MAX_RETRIES + 1):
+                try:
+                    if channel_index is not None:
+                        result = await self._meshcore.commands.send_chan_msg(
+                            channel_index, text
+                        )
+                    else:
+                        result = await self._meshcore.commands.send_msg(
+                            contact_id, text
+                        )
 
-                # Extract native message ID if available.
-                # Per meshcore_py, MSG_SENT returns {'expected_ack': bytes(4),
-                # 'suggested_timeout': int}. Channel sends return OK with no ID.
-                # Use expected_ack as the native_id for DMs (channel sends
-                # honestly have no canonical identity from the SDK).
-                native_id: str | None = None
-                if isinstance(result, dict):
-                    raw_ack = result.get("expected_ack")
-                    native_id = _extract_expected_ack(raw_ack)
-                    if native_id is None:
-                        # Defensive fallback for older SDKs.
-                        raw_mid = result.get("message_id")
-                        if isinstance(raw_mid, bytes):
-                            native_id = raw_mid.hex()
-                        elif raw_mid is not None:
-                            native_id = str(raw_mid)
-                else:
-                    payload = getattr(result, "payload", None)
-                    if isinstance(payload, dict):
-                        raw_ack = payload.get("expected_ack")
+                    # Check for SDK-level error.
+                    if hasattr(result, "is_error") and result.is_error():
+                        reason = (
+                            result.payload.get("reason", "unknown")
+                            if isinstance(result.payload, dict)
+                            else "unknown"
+                        )
+                        self._diag.permanent_delivery_failures += 1
+                        raise MeshCoreSendError(
+                            f"SDK send error: {reason}",
+                            transient=False,
+                        )
+
+                    # Extract native message ID if available.
+                    # Per meshcore_py, MSG_SENT returns {'expected_ack': bytes(4),
+                    # 'suggested_timeout': int}. Channel sends return OK with no ID.
+                    # Use expected_ack as the native_id for DMs (channel sends
+                    # honestly have no canonical identity from the SDK).
+                    native_id: str | None = None
+                    if isinstance(result, dict):
+                        raw_ack = result.get("expected_ack")
                         native_id = _extract_expected_ack(raw_ack)
                         if native_id is None:
-                            raw_mid = payload.get("message_id")
+                            # Defensive fallback for older SDKs.
+                            raw_mid = result.get("message_id")
                             if isinstance(raw_mid, bytes):
                                 native_id = raw_mid.hex()
                             elif raw_mid is not None:
                                 native_id = str(raw_mid)
-                    if native_id is None:
-                        attrs = getattr(result, "attributes", None)
-                        if isinstance(attrs, dict):
-                            raw_ack = attrs.get("expected_ack")
+                    else:
+                        payload = getattr(result, "payload", None)
+                        if isinstance(payload, dict):
+                            raw_ack = payload.get("expected_ack")
                             native_id = _extract_expected_ack(raw_ack)
                             if native_id is None:
-                                raw_mid = attrs.get("message_id")
+                                raw_mid = payload.get("message_id")
                                 if isinstance(raw_mid, bytes):
                                     native_id = raw_mid.hex()
                                 elif raw_mid is not None:
                                     native_id = str(raw_mid)
+                        if native_id is None:
+                            attrs = getattr(result, "attributes", None)
+                            if isinstance(attrs, dict):
+                                raw_ack = attrs.get("expected_ack")
+                                native_id = _extract_expected_ack(raw_ack)
+                                if native_id is None:
+                                    raw_mid = attrs.get("message_id")
+                                    if isinstance(raw_mid, bytes):
+                                        native_id = raw_mid.hex()
+                                    elif raw_mid is not None:
+                                        native_id = str(raw_mid)
 
-                return str(native_id) if native_id is not None else None
+                    return str(native_id) if native_id is not None else None
 
-            except MeshCoreSendError:
-                raise
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                last_exc = exc
-                self._diag.transient_delivery_failures += 1
-                self._logger.warning(
-                    "MeshCoreSession %s: send attempt %d/%d failed: %s",
-                    self._adapter_id,
-                    attempt,
-                    _SEND_MAX_RETRIES,
-                    exc,
-                )
-                if attempt < _SEND_MAX_RETRIES:
-                    await asyncio.sleep(0.1 * attempt)
+                except MeshCoreSendError:
+                    raise
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    last_exc = exc
+                    self._diag.transient_delivery_failures += 1
+                    self._logger.warning(
+                        "MeshCoreSession %s: send attempt %d/%d failed: %s",
+                        self._adapter_id,
+                        attempt,
+                        _SEND_MAX_RETRIES,
+                        exc,
+                    )
+                    if attempt < _SEND_MAX_RETRIES:
+                        await asyncio.sleep(0.1 * attempt)
 
-        self._diag.permanent_delivery_failures += 1
-        raise MeshCoreSendError(
-            f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
-        ) from last_exc
+            self._diag.permanent_delivery_failures += 1
+            raise MeshCoreSendError(
+                f"Send failed after {_SEND_MAX_RETRIES} attempts: {last_exc}"
+            ) from last_exc

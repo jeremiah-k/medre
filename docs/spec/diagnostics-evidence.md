@@ -41,6 +41,8 @@ Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics(
 
 **Meshtastic/MeshCore note:** Session-level diagnostics are exposed via a `session` sub-dict within the adapter-level diagnostics dict.
 
+**MeshCore exception:** MeshCore does not currently expose a `health` key in its diagnostics output. The `health` key is provided via `health_check()` returning `AdapterInfo`, not via the `diagnostics()` dict.
+
 **LXMF note:** Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top.
 
 These eight keys are contractual for the current version. They SHALL NOT be removed or have their types changed without a version bump.
@@ -99,15 +101,33 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (5 keys)
+### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 11 keys)
 
-| Key                 | Type          | Semantics                                 |
-| ------------------- | ------------- | ----------------------------------------- |
-| `adapter_id`        | `str`         | Adapter identifier                        |
-| `platform`          | `str`         | Always `"meshcore"`                       |
-| `mode`              | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
-| `last_message_time` | `str or None` | ISO 8601 timestamp                        |
-| `peer_count`        | `int or None` | Known mesh peers                          |
+**Common keys present:** `connected`, `reconnecting`, `reconnect_attempts`, `last_error`, `transient_delivery_failures`, `permanent_delivery_failures`, `mode` (7 of 8 common keys). The `health` key is not currently implemented for MeshCore.
+
+Adapter-level keys:
+
+| Key          | Type  | Semantics                                 |
+| ------------ | ----- | ----------------------------------------- |
+| `adapter_id` | `str` | Adapter identifier                        |
+| `platform`   | `str` | Always `"meshcore"`                       |
+| `mode`       | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+
+Session sub-dict keys (`session.*`):
+
+| Key                                   | Type            | Semantics                                                          |
+| ------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `session.connected`                   | `bool`          | Transport connection state                                         |
+| `session.reconnecting`                | `bool`          | Active reconnect loop in progress                                  |
+| `session.reconnect_attempts`          | `int`           | Current reconnect attempt count                                    |
+| `session.last_error`                  | `str or None`   | Last exception string                                              |
+| `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                             |
+| `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                             |
+| `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                 |
+| `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                         |
+| `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)           |
+| `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                            |
+| `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`) |
 
 ### 3.4 LXMF (6 keys)
 
@@ -330,7 +350,7 @@ No adapter, snapshot, or evidence path SHALL expose access tokens, private keys,
 | ---------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Matrix     | No secrets, access tokens, keys, or private device material                  | Frozen dataclass; token/key fields never included; room names/IDs excluded |
 | Meshtastic | No secrets, private keys, raw protobuf dumps, or sensitive radio identifiers | Frozen dataclass; node_id is public info; no packet payloads               |
-| MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no pubkey material                                        |
+| MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no full pubkey material (first 12 hex chars only)         |
 | LXMF       | No secrets, private keys, identity material, or unsafe peer dumps            | Frozen dataclass; identity hashes not included; mode is string             |
 
 ### 9.2 No SDK Object Leakage

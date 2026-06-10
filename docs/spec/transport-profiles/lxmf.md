@@ -130,6 +130,8 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
 
 State transitions are tracked via `_on_delivery_state_update` callbacks from `LXMRouter`. Terminal states (`delivered`, `failed`, `rejected`, `cancelled`) remove the message from tracking.
 
+**Delivery state is session-local observability only.** The LXMF adapter tracks SDK delivery state transitions for diagnostics and logging, but does not append durable MEDRE delivery receipts or update outbox lifecycle state from terminal states. `delivery_receipts` is `False` because confirmed recipient delivery is not yet persisted into the MEDRE receipt/outbox lifecycle. The `AdapterDeliveryResult.delivery_status` of `"sent"` means local handoff to `LXMRouter` only — not confirmed recipient delivery.
+
 **Outbound delivery tracking is bounded** — capped at 1000 entries with FIFO eviction to prevent unbounded growth.
 
 **Retry:** `send_text()` retries transient failures up to 3 attempts with linear backoff (0.1 s × attempt). Permanent failures (`ValueError`, `TypeError`) raise immediately.
@@ -206,7 +208,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Known Limitations
 
-- **No reply or reaction support.** Capabilities declare both as `"unsupported"`. LXMF has no built-in threading mechanism; relation reconstruction from fields envelope is deferred.
+- **No reply or reaction support.** Capabilities declare both as `"unsupported"`. LXMF has no built-in threading mechanism; however, relation reconstruction from the MEDRE fields envelope (`0xFD`) is implemented via `_reconstruct_relations` in `codec.py`. The codec reconstructs `EventRelation` objects from the envelope's `relations` list at decode time. FIELD_THREAD (`0x08`) is explicitly excluded — MEDRE does not read or write the LXMF native thread field.
 - **Destination routing is a placeholder.** The renderer sets `destination_hash=""` — the actual routing/destination resolution must be handled upstream before delivery.
 - **Attachment-only messages are classified but not relayed.** `has_fields` without `content` yields `"unsupported"` category.
 - **No channel concept.** LXMF uses point-to-point identity hashes; `channels=False` and `channel_index` is always `None`.

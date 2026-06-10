@@ -225,7 +225,10 @@ class TestMeshCoreSessionDiagnostics:
         assert diag["last_error"] is None
         assert diag["transient_delivery_failures"] == 0
         assert diag["permanent_delivery_failures"] == 0
-        assert diag["peer_count"] is None
+        assert "peer_count" not in diag
+        assert diag["device_name"] is None
+        assert diag["public_key_prefix"] is None
+        assert diag["radio_freq"] is None
         assert diag["mode"] == "fake"
 
     async def test_diagnostics_after_start(self) -> None:
@@ -522,3 +525,484 @@ class TestExpectedAckPersistence:
 
         result = await session.send_text("ignored", "test", channel_index=0)
         assert result is None
+
+
+# ===================================================================
+# Channel send routing and ACK tracking integration
+# ===================================================================
+
+
+class TestChannelSendAndAckTracking:
+    """Verify send_chan_msg vs send_msg dispatch and ACK extraction.
+
+    These tests exercise the _send_real branching logic:
+      - channel_index is not None  →  send_chan_msg(channel_index, text)
+      - channel_index is None      →  send_msg(contact_id, text)
+
+    Plus ACK extraction from various SDK result shapes.
+    """
+
+    def _make_session_with_mock(self) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with connected=True and a mock _meshcore."""
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "chan-ack-test")
+        session._diag.connected = True
+
+        mock_meshcore = AsyncMock()
+        mock_meshcore.commands = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
+        session._meshcore = mock_meshcore
+
+        return session, mock_meshcore
+
+    # -- send_chan_msg dispatch ------------------------------------------------
+
+    async def test_channel_index_routes_to_send_chan_msg(self) -> None:
+        """channel_index=3 calls send_chan_msg(3, text), NOT send_msg."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_chan_msg.return_value = {}
+
+        await session.send_text("ignored_contact", "hello chan", channel_index=3)
+
+        mock_mc.commands.send_chan_msg.assert_awaited_once_with(3, "hello chan")
+        mock_mc.commands.send_msg.assert_not_awaited()
+
+    async def test_no_channel_index_routes_to_send_msg(self) -> None:
+        """channel_index=None calls send_msg(contact_id, text), NOT send_chan_msg."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\xaa\xbb\xcc\xdd"}
+
+        await session.send_text("contact_abc", "hello dm")
+
+        mock_mc.commands.send_msg.assert_awaited_once_with("contact_abc", "hello dm")
+        mock_mc.commands.send_chan_msg.assert_not_awaited()
+
+    async def test_channel_index_zero_routes_to_send_chan_msg(self) -> None:
+        """channel_index=0 (first channel) still dispatches to send_chan_msg."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_chan_msg.return_value = {}
+
+        await session.send_text("ignored", "msg", channel_index=0)
+
+        mock_mc.commands.send_chan_msg.assert_awaited_once_with(0, "msg")
+        mock_mc.commands.send_msg.assert_not_awaited()
+
+    # -- ACK extraction for DMs ------------------------------------------------
+
+    async def test_dm_4byte_ack_returned_as_hex(self) -> None:
+        """DM with 4-byte expected_ack → hex native_id."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\xde\xad\xbe\xef",
+        }
+
+        result = await session.send_text("contact1", "test")
+        assert result == "deadbeef"
+
+    async def test_dm_ack_from_payload_dict(self) -> None:
+        """Object result with .payload dict containing 4-byte expected_ack."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = MockEvent(
+            event_type=MockEventType.MSG_SENT,
+            payload={"expected_ack": b"\x11\x22\x33\x44"},
+        )
+
+        result = await session.send_text("contact1", "test")
+        assert result == "11223344"
+
+    async def test_dm_ack_from_attributes_dict(self) -> None:
+        """Object result with .attributes dict containing 4-byte expected_ack."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = MockEvent(
+            event_type=MockEventType.MSG_SENT,
+            payload={},
+            attributes={"expected_ack": b"\x00\xff\x00\xff"},
+        )
+
+        result = await session.send_text("contact1", "test")
+        assert result == "00ff00ff"
+
+    # -- Channel send returns None (no ACK protocol) --------------------------
+
+    async def test_channel_send_dict_returns_none(self) -> None:
+        """Channel send returning empty dict → None (no ACK protocol)."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_chan_msg.return_value = {}
+
+        result = await session.send_text("ignored", "test", channel_index=1)
+        assert result is None
+
+    async def test_channel_send_object_returns_none(self) -> None:
+        """Channel send returning MockEvent with empty payload → None."""
+        from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_chan_msg.return_value = MockEvent(
+            event_type=MockEventType.OK,
+            payload={},
+        )
+
+        result = await session.send_text("ignored", "test", channel_index=2)
+        assert result is None
+
+    # -- 8-byte expected_ack triggers warning and returns None -----------------
+
+    async def test_8byte_ack_triggers_warning_and_returns_none(self) -> None:
+        """8-byte expected_ack triggers logger warning, returns None.
+
+        The _extract_expected_ack function explicitly warns on non-4-byte
+        values (possible SDK API change) and returns None.
+        """
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\x01\x02\x03\x04\x05\x06\x07\x08",
+        }
+
+        result = await session.send_text("contact1", "test")
+        assert result is None
+
+
+# ===================================================================
+# Message delay (pacing)
+# ===================================================================
+
+
+class TestMessageDelayPacing:
+    """Verify message_delay_seconds is respected in _send_real."""
+
+    def _make_session_with_mock(
+        self, delay: float = 0.0
+    ) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with mock _meshcore and given delay."""
+        config = _make_config(
+            connection_type="tcp", host="localhost", message_delay_seconds=delay
+        )
+        session = MeshCoreSession(config, "delay-test")
+        session._diag.connected = True
+
+        mock_meshcore = AsyncMock()
+        mock_meshcore.commands = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
+        session._meshcore = mock_meshcore
+
+        return session, mock_meshcore
+
+    async def test_delay_applied_when_positive(self) -> None:
+        """When message_delay_seconds > 0, asyncio.sleep is called with that value."""
+        from unittest.mock import patch
+
+        session, mock_mc = self._make_session_with_mock(delay=1.5)
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await session.send_text("contact1", "test")
+            # Find the pacing call (1.5), ignoring retry backoff calls.
+            pacing_calls = [c for c in mock_sleep.call_args_list if c.args[0] == 1.5]
+            assert len(pacing_calls) == 1
+
+    async def test_no_delay_when_zero(self) -> None:
+        """When message_delay_seconds == 0, no pacing sleep is added."""
+        from unittest.mock import patch
+
+        session, mock_mc = self._make_session_with_mock(delay=0.0)
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await session.send_text("contact1", "test")
+            for call in mock_sleep.call_args_list:
+                # Pacing sleep(0.0) should never happen — only backoff values.
+                assert call.args[0] != 0.0
+
+    async def test_sleep_duration_matches_config(self) -> None:
+        """The exact configured delay value is passed to asyncio.sleep."""
+        from unittest.mock import patch
+
+        session, mock_mc = self._make_session_with_mock(delay=2.5)
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await session.send_text("contact1", "test")
+            mock_sleep.assert_any_call(2.5)
+
+    async def test_concurrent_sends_are_serialized(self) -> None:
+        """Concurrent send_text calls are serialized by the send lock."""
+        session, mock_mc = self._make_session_with_mock(delay=0.05)
+        mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
+
+        import asyncio
+
+        results = await asyncio.gather(
+            session.send_text("contact1", "msg1"),
+            session.send_text("contact1", "msg2"),
+        )
+        # Both should succeed
+        assert all(r is not None for r in results)
+        # Sends should have been called twice (serialized, not concurrent)
+        assert mock_mc.commands.send_msg.await_count == 2
+
+
+# ===================================================================
+# Auto message fetching
+# ===================================================================
+
+
+class TestAutoMessageFetching:
+    """Verify start_auto_message_fetching is called on connect and stopped
+    on disconnect."""
+
+    def _setup_real_session(self) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session and install mock meshcore module."""
+        from unittest.mock import patch
+
+        from tests.helpers.meshcore_session import (
+            build_mock_meshcore_module,
+            install_mock_module,
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "auto-fetch-test")
+        mock_mc, instance = build_mock_meshcore_module()
+        install_mock_module(mock_mc)
+        # Patch HAS_MESHCORE so _connect_real proceeds.
+        self._has_mc_patcher = patch(
+            "medre.adapters.meshcore.session.HAS_MESHCORE", True
+        )
+        self._has_mc_patcher.start()
+        return session, instance
+
+    def _teardown_mock_module(self) -> None:
+        from tests.helpers.meshcore_session import remove_mock_module
+
+        self._has_mc_patcher.stop()
+        remove_mock_module()
+
+    async def test_auto_message_fetching_called_on_connect(self) -> None:
+        """start_auto_message_fetching is called during _connect_real."""
+        session, instance = self._setup_real_session()
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            instance.start_auto_message_fetching.assert_awaited_once()
+            assert session.connected is True
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_auto_message_fetching_graceful_on_failure(self) -> None:
+        """If start_auto_message_fetching raises, connection still succeeds."""
+        session, instance = self._setup_real_session()
+        instance.start_auto_message_fetching = AsyncMock(
+            side_effect=RuntimeError("fetch failed")
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            # Connection should still succeed despite fetch failure.
+            assert session.connected is True
+            instance.start_auto_message_fetching.assert_awaited_once()
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_auto_message_fetching_stopped_on_disconnect(self) -> None:
+        """stop_auto_message_fetching is called during stop()."""
+        session, instance = self._setup_real_session()
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            await session.stop()
+            instance.stop_auto_message_fetching.assert_awaited_once()
+        finally:
+            self._teardown_mock_module()
+
+    async def test_auto_message_fetching_not_required(self) -> None:
+        """Connection works even if SDK lacks start_auto_message_fetching."""
+        session, instance = self._setup_real_session()
+        # Remove the method to simulate older SDK.
+        del instance.start_auto_message_fetching
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            assert session.connected is True
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+
+# ===================================================================
+# Self-info capture from send_appstart
+# ===================================================================
+
+
+class TestSelfInfoCapture:
+    """Verify device self_info is captured from send_appstart result."""
+
+    def _setup_real_session(
+        self,
+        appstart_payload: dict | None = None,
+    ) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with mock meshcore returning given appstart payload."""
+        from unittest.mock import patch
+
+        from tests.helpers.meshcore_session import (
+            MockEvent,
+            MockEventType,
+            build_mock_meshcore_module,
+            install_mock_module,
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "selfinfo-test")
+        mock_mc, instance = build_mock_meshcore_module()
+
+        payload = appstart_payload if appstart_payload is not None else {}
+        instance.commands.send_appstart = AsyncMock(
+            return_value=MockEvent(event_type=MockEventType.OK, payload=payload)
+        )
+
+        install_mock_module(mock_mc)
+        # Patch HAS_MESHCORE so _connect_real proceeds.
+        self._has_mc_patcher = patch(
+            "medre.adapters.meshcore.session.HAS_MESHCORE", True
+        )
+        self._has_mc_patcher.start()
+        return session, instance
+
+    def _teardown_mock_module(self) -> None:
+        from tests.helpers.meshcore_session import remove_mock_module
+
+        self._has_mc_patcher.stop()
+        remove_mock_module()
+
+    async def test_device_name_captured(self) -> None:
+        """Device name extracted from appstart payload."""
+        session, _ = self._setup_real_session(
+            appstart_payload={"name": "MyNode42", "public_key": "aabbccdd"}
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["device_name"] == "MyNode42"
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_public_key_prefix_captured(self) -> None:
+        """Public key prefix (first 12 hex chars) extracted from appstart."""
+        session, _ = self._setup_real_session(
+            appstart_payload={
+                "name": "node",
+                "public_key": "aabbccddeeff00112233445566778899",
+            }
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["public_key_prefix"] == "aabbccddeeff"
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_radio_freq_captured(self) -> None:
+        """Radio frequency extracted from appstart payload."""
+        session, _ = self._setup_real_session(
+            appstart_payload={"name": "node", "freq": 868.0}
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["radio_freq"] == 868.0
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_empty_payload_leaves_defaults(self) -> None:
+        """Empty appstart payload leaves all self_info fields as None."""
+        session, _ = self._setup_real_session(appstart_payload={})
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["device_name"] is None
+            assert diag["public_key_prefix"] is None
+            assert diag["radio_freq"] is None
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_public_key_bytes_prefix(self) -> None:
+        """Public key as bytes is converted to hex prefix."""
+        session, _ = self._setup_real_session(
+            appstart_payload={
+                "name": "node",
+                "public_key": b"\xaa\xbb\xcc\xdd\xee\xff\x00\x11",
+            }
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["public_key_prefix"] == "aabbccddeeff"
+        finally:
+            await session.stop()
+            self._teardown_mock_module()
+
+    async def test_public_key_normalized_to_lowercase(self) -> None:
+        """Uppercase hex pubkey is normalized to lowercase prefix."""
+        config = _make_config()
+        session = MeshCoreSession(config, "test-1")
+        session._capture_self_info({"public_key": "AABBCCDDEEFF0011223344"})
+        assert session.diagnostics()["public_key_prefix"] == "aabbccddeeff"
+
+    async def test_short_public_key_no_prefix(self) -> None:
+        """Public key shorter than 12 hex chars leaves prefix as None."""
+        session, _ = self._setup_real_session(
+            appstart_payload={"name": "node", "public_key": "abc"}
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        try:
+            await session.start(noop)
+            diag = session.diagnostics()
+            assert diag["public_key_prefix"] is None
+        finally:
+            await session.stop()
+            self._teardown_mock_module()

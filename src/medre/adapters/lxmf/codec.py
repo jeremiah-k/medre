@@ -10,6 +10,7 @@ without a real LXMF dependency.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -18,9 +19,10 @@ from medre.adapters.lxmf.errors import LxmfCodecError
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.contracts.adapter import AdapterCodec
-from medre.core.events.canonical import CanonicalEvent, NativeRef
+from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
+from medre.core.events.schema import VALID_RELATION_TYPES
 
 
 class LxmfCodec(AdapterCodec):
@@ -52,9 +54,80 @@ class LxmfCodec(AdapterCodec):
         self._adapter_id = adapter_id
         self._config = config
         self._classifier = LxmfPacketClassifier(config)
+        self._logger = logging.getLogger(f"medre.adapters.lxmf.codec.{adapter_id}")
         self._clock: Callable[[], datetime] = (
             clock if clock is not None else (lambda: datetime.now(timezone.utc))
         )
+
+    def _reconstruct_relations(self, envelope: dict) -> list[EventRelation]:
+        """Reconstruct EventRelation objects from a MEDRE envelope dict.
+
+        Gracefully skips invalid or corrupt relation entries.
+        """
+        raw_relations = envelope.get("relations")
+        if not raw_relations or not isinstance(raw_relations, list):
+            return []
+
+        relations: list[EventRelation] = []
+        for raw in raw_relations:
+            if not isinstance(raw, dict):
+                self._logger.debug("Skipping non-dict relation entry")
+                continue
+
+            relation_type = raw.get("relation_type")
+            if not isinstance(relation_type, str):
+                self._logger.debug(
+                    "Skipping relation with non-string type: %r", relation_type
+                )
+                continue
+            if relation_type not in VALID_RELATION_TYPES:
+                self._logger.debug(
+                    "Skipping relation with invalid type: %r", relation_type
+                )
+                continue
+
+            try:
+                # Deserialize target_native_ref if present
+                target_native_ref: NativeRef | None = None
+                raw_ref = raw.get("target_native_ref")
+                if isinstance(raw_ref, dict):
+                    adapter = raw_ref.get("adapter")
+                    msg_id = raw_ref.get("native_message_id")
+                    if adapter and msg_id:
+                        raw_channel_id = raw_ref.get("native_channel_id")
+                        target_native_ref = NativeRef(
+                            adapter=str(adapter),
+                            native_channel_id=(
+                                str(raw_channel_id)
+                                if raw_channel_id is not None
+                                else None
+                            ),
+                            native_message_id=str(msg_id),
+                        )
+
+                target_event_id = raw.get("target_event_id")
+                key = raw.get("key")
+                fallback_text = raw.get("fallback_text")
+                relations.append(
+                    EventRelation(
+                        relation_type=relation_type,
+                        target_event_id=(
+                            target_event_id
+                            if isinstance(target_event_id, str)
+                            else None
+                        ),
+                        target_native_ref=target_native_ref,
+                        key=key if isinstance(key, str) else None,
+                        fallback_text=(
+                            fallback_text if isinstance(fallback_text, str) else None
+                        ),
+                    )
+                )
+            except (TypeError, ValueError, AttributeError) as exc:
+                self._logger.debug("Skipping relation construction error: %s", exc)
+                continue
+
+        return relations
 
     def decode(
         self,
@@ -119,8 +192,7 @@ class LxmfCodec(AdapterCodec):
         # MEDRE is envelope-only for LXMF relations — it does not read or
         # write LXMF FIELD_THREAD (0x08).  Relation data is carried in the
         # MEDRE fields envelope (0xFD) for cross-transport round-trip only.
-        # Inbound relation reconstruction from the envelope is deferred.
-        relations: list[Any] = []
+        relations: list[EventRelation] = []
 
         # Build native metadata
         dest_hash = native_event.get("destination_hash")
@@ -146,14 +218,7 @@ class LxmfCodec(AdapterCodec):
             envelope = LxmfFieldsHelper.extract_envelope(fields)
             if envelope is not None:
                 custom_meta["medre_envelope"] = envelope
-
-        # Relation reconstruction from fields envelope is deferred to a
-        # future revision.  The raw envelope dict is stored under
-        # metadata.custom["medre_envelope"] but EventRelation objects
-        # are NOT created from envelope relations during decode.
-        # TODO: Reconstruct EventRelation from 0xFD envelope
-        # relations list so that inbound LXMF round-trips preserve
-        # cross-transport reply/reaction metadata.
+                relations = self._reconstruct_relations(envelope)
 
         metadata = EventMetadata(
             native=NativeMetadata(data=native_meta_data),

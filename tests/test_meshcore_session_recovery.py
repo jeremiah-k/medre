@@ -122,7 +122,7 @@ class TestMockedSDKReconnectBackoff:
 
             await session._reconnect_loop()
 
-            assert session.reconnect_attempts == 1
+            assert session.reconnect_attempts == 0  # reset after successful reconnect
             assert session.reconnecting is False
             assert session.connected is True
         finally:
