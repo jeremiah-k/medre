@@ -327,6 +327,7 @@ class MeshCoreAdapter(AdapterContract):
             await self._session.stop()
             self._session = None
 
+        self._inbound_dedup.clear()
         if self.ctx is not None:
             self.ctx.logger.info("MeshCoreAdapter %s stopped", self.adapter_id)
 
@@ -584,6 +585,12 @@ class MeshCoreAdapter(AdapterContract):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+
+        # Lifecycle guard: refuse post-stop calls.  ctx is retained
+        # after stop() but _started is cleared — a stale ctx must not
+        # be sufficient to publish lifecycle-stale inbound messages.
+        if not self._started:
+            return
 
         classification = self._classifier.classify(packet)
         self._increment_classifier_counters(classification)

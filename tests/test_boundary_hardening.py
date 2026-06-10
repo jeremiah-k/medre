@@ -605,40 +605,66 @@ async def test_lxmf_deliver_empty_payload_returns_result():
 
 
 async def test_meshcore_ctx_preserved_after_stop():
-    """MeshCoreAdapter: after stop, ctx is still set; simulate_inbound
-    does not raise RuntimeError (ctx is not cleared).
+    """MeshCoreAdapter: after stop, ctx is still set but _started is False.
 
-    This test documents actual behavior: real adapters do not clear ctx
-    on stop, so the RuntimeError guard in simulate_inbound does not fire.
+    ctx is retained after stop() (not cleared), but simulate_inbound must
+    silently return rather than publish — ctx retention must not imply
+    publish is allowed post-stop.
     """
     config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
     adapter = MeshCoreAdapter(config)
 
-    ctx = _make_context(adapter_id=adapter.adapter_id)
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
     await adapter.start(ctx)
     await adapter.stop()
 
-    # ctx is not cleared by stop(), so simulate_inbound won't raise RuntimeError.
-    # This documents the current behavior.
+    # ctx is not cleared by stop(), so the ctx-is-None RuntimeError guard
+    # does not fire.  But the _started guard must prevent publishing.
     assert adapter.ctx is not None, "ctx is preserved after stop()"
+    assert not adapter._started, "_started must be False after stop()"
+
+    packet = _meshcore_text_packet()
+    await adapter.simulate_inbound(packet)
+    assert (
+        len(published) == 0
+    ), "simulate_inbound must not publish after stop() even though ctx is retained"
 
 
 async def test_lxmf_ctx_preserved_after_stop():
-    """LxmfAdapter: after stop, ctx is still set; simulate_inbound
-    does not raise RuntimeError (ctx is not cleared).
+    """LxmfAdapter: after stop, ctx is retained but simulate_inbound
+    must not publish because the _started guard blocks inbound processing.
 
-    This test documents actual behavior: real adapters do not clear ctx
-    on stop, so the RuntimeError guard in simulate_inbound does not fire.
+    This test documents actual behavior: stop() does not clear ctx (it is
+    retained for diagnostics access), but simulate_inbound returns early
+    when _started is False, so no inbound event is published after stop.
     """
     config = LxmfConfig(adapter_id=_unique_id("lx"), connection_type="fake")
     adapter = LxmfAdapter(config)
 
-    ctx = _make_context(adapter_id=adapter.adapter_id)
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
     await adapter.start(ctx)
     await adapter.stop()
 
-    # ctx is not cleared by stop(), so simulate_inbound won't raise RuntimeError.
+    # ctx is not cleared by stop(), so the ctx-is-None RuntimeError guard
+    # does not fire.  But the _started guard must prevent publishing.
     assert adapter.ctx is not None, "ctx is preserved after stop()"
+    assert not adapter._started, "_started must be False after stop()"
+
+    packet = _lxmf_text_packet()
+    await adapter.simulate_inbound(packet)
+    assert (
+        len(published) == 0
+    ), "simulate_inbound must not publish after stop() even though ctx is retained"
 
 
 async def test_lxmf_on_packet_drops_after_stop():

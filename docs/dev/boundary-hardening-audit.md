@@ -1,6 +1,6 @@
 # Adapter Boundary Hardening Audit
 
-> **Status**: Audit-only (wave `adapter-sdk-parity`, post-merge `main`).
+> **Status**: Post-implementation audit (adapter-lifecycle-parity wave, synced with source/tests/docs).
 > **Scope**: Runtime correctness at the adapter–SDK boundary. Not lifecycle authority, not capability declarations, not SDK parity.
 > **Authority**: `docs/spec/adapter-runtime.md` (normative), `src/medre/core/contracts/adapter.py` (code contracts).
 > **Concurrency**: Other workers own lifecycle, evidence, capability, and SDK parity docs. This document does not touch those files.
@@ -69,12 +69,12 @@ What prevents the same inbound event from entering the pipeline twice?
 
 What prevents callbacks from a previous start/stop cycle from affecting a new session?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                              |
-| -------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | Session `_closed` flag; double-start guard (`_client is not None and not _closed`). Adapter clears `_session = None` on stop. New start creates fresh `MatrixSession`. `_live_sync_started` resets on session start.                                                  |
-| **Meshtastic** | **Implemented** | `_started` flag gates `_on_packet` (sync, SDK thread) and `_on_packet_async` (async). Both check `self._started` before processing. Session `_stop_requested` prevents reconnect loops after stop.                                                                    |
-| **MeshCore**   | **Implemented** | `_started` flag checked in `_on_message` (explicit `if not self._started: return` guard plus `self.ctx is None` guard). Session `_stop_requested` flag prevents reconnect after stop. Subscriptions unsubscribed in `stop()`. Dedup cleared on stop/start boundaries. |
-| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `self._stop_requested or not self._started`. `_loop` reference cleared in `stop()`, so late SDK callbacks on Reticulum threads are dropped (`loop is None`). `_message_callback` set to `None` in `stop()`.                                |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | Session `_closed` flag; double-start guard (`_client is not None and not _closed`). Adapter clears `_session = None` on stop. New start creates fresh `MatrixSession`. `_live_sync_started` resets on session start.                                                                                                                                                                         |
+| **Meshtastic** | **Implemented** | `_started` flag gates `_on_packet` (sync, SDK thread) and `_on_packet_async` (async). Both check `self._started` before processing. Session `_stop_requested` prevents reconnect loops after stop.                                                                                                                                                                                           |
+| **MeshCore**   | **Implemented** | `_started` flag checked in `_on_message` (explicit `if not self._started: return` guard plus `self.ctx is None` guard). Session `_stop_requested` flag prevents reconnect after stop. Subscriptions unsubscribed in `stop()`. Dedup cleared on start via `_reset_inbound_counters()` (which also resets counters) and on stop via `self._inbound_dedup.clear()` in `MeshCoreAdapter.stop()`. |
+| **LXMF**       | **Implemented** | `_on_lxmf_delivery` checks `self._stop_requested or not self._started`. `_loop` reference cleared in `stop()`, so late SDK callbacks on Reticulum threads are dropped (`loop is None`). `_message_callback` set to `None` in `stop()`.                                                                                                                                                       |
 
 ### 5. Reconnect Races
 
@@ -106,7 +106,7 @@ What prevents SDK callbacks from firing after `stop()` returns?
 | -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Matrix**     | **Implemented** | Session `stop()` cancels sync task, clears `_closed = True`. Nio client is closed (`_client.close()`). Callback is registered on the client object which is discarded.                                                                                                                                       |
 | **Meshtastic** | **Implemented** | `_unsubscribe_callbacks` unsubscribes from pubsub. Session `_client = None` after close. `_started = False` gates `_on_packet`. Remaining inbound futures are cancelled in `_drain_background_tasks`.                                                                                                        |
-| **MeshCore**   | **Implemented** | `_unsubscribe_all` unsubscribes all SDK event subscriptions. `_meshcore = None` after disconnect. `_started = False` set after drain.                                                                                                                                                                        |
+| **MeshCore**   | **Implemented** | `_unsubscribe_all` unsubscribes all SDK event subscriptions. `_meshcore = None` after disconnect. `_started = False` set before drain (at top of `stop()`).                                                                                                                                                  |
 | **LXMF**       | **Implemented** | `_teardown_sdk()` sets `_router = None`, `_identity = None`. `_message_callback = None` and `_loop = None` set in `stop()`. Late SDK callbacks on Reticulum thread hit `self._stop_requested` guard and `self._loop is None` check. `_delivery_state_callback = None` prevents terminal state notifications. |
 
 ### 8. Metadata Namespace Rules
@@ -159,12 +159,14 @@ Do `diagnostics()` and `health_check()` return only JSON-safe primitives?
 
 Do adapters release all resources (SDK clients, tasks, futures) on `stop()`?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                               |
-| -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Matrix**     | **Implemented** | `stop()` calls `session.stop()` which cancels sync task and closes nio client. Adapter sets `_session = None`.                                                                                         |
-| **Meshtastic** | **Implemented** | `stop()` clears `_started`, cancels drain task, drains background tasks (bounded timeout with detach observer), calls `session.stop()` which closes client and unsubscribes pubsub. `_session = None`. |
-| **MeshCore**   | **Implemented** | `stop()` drains background tasks, calls `session.stop()` which unsubscribes, stops auto-fetching, disconnects SDK client. `_session = None`.                                                           |
-| **LXMF**       | **Implemented** | `stop()` cancels announce/reconnect tasks, unsubscribes callbacks, tears down SDK (router/identity/reticulum references), clears outbound tracking, sets `_message_callback = None`, `_loop = None`.   |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                         |
+| -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | `stop()` calls `session.stop()` which cancels sync task and closes nio client. Adapter sets `_session = None`.                                                                                                                                                                   |
+| **Meshtastic** | **Implemented** | `stop()` clears `_started`, cancels drain task, drains background tasks (bounded timeout with detach observer), calls `session.stop()` which closes client and unsubscribes pubsub. `_session = None`.                                                                           |
+| **MeshCore**   | **Implemented** | `stop()` sets `_started = False` before drain, drains background tasks with `return_exceptions=True`, calls `session.stop()` which unsubscribes, stops auto-fetching, disconnects SDK client. `_session = None`.                                                                 |
+| **LXMF**       | **Implemented** | `stop()` sets `_started = False` before drain, cancels announce/reconnect tasks, unsubscribes callbacks, tears down SDK (router/identity/reticulum references), clears outbound tracking, sets `_message_callback = None`, `_loop = None`. `_inbound_dedup` cleared in `stop()`. |
+
+**Resource release note:** MeshCore and LXMF implement bounded best-effort drain for normal background publish tasks via `_drain_background_tasks()` with a timeout and `return_exceptions=True`. Python `asyncio.Task.cancel()` is a cooperative request, not a hard kill; tasks can suppress `CancelledError`. The drain is therefore best-effort, not a strict guaranteed release for cancellation-resistant tasks. Hardening against long-running or cancellation-resistant observation/drain tasks remains future resilience work.
 
 ### 13. Reconnect Suppression During Shutdown
 
@@ -197,7 +199,7 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 | 12. Resource release        | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 13. Reconnect suppression   | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 
-**Overall**: 52 of 52 boundary protections are fully implemented. All previously identified gaps (G1, G2, G3) have been resolved.
+**Overall**: 52 of 52 boundary protections implemented. Vectors 1 through 11 and 13 are fully implemented with test coverage. Vector 12 (resource release) is implemented as bounded best-effort drain for normal background tasks; strict guaranteed release for cancellation-resistant tasks is future long-running resilience work (see vector 12 note). All previously identified gaps (G1, G2, G3) have been resolved.
 
 ---
 
@@ -207,9 +209,9 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 
 **Status**: **Completed.** Implemented and tested.
 
-**Implementation**: MeshCoreAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)`. The dedup key includes native identity (pubkey prefix + packet ID + channel index) plus text content, ensuring exact replays of the same packet are suppressed while distinct payloads sharing the same packet ID are both processed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit promotes the entry, and `popitem(last=False)` evicts the least-recently-seen entry when the cap is exceeded. When `packet_id` is `None` (no reliable native identity), adapter-level dedup is skipped entirely. The dedup dict is cleared on stop/start boundaries via `_reset_inbound_counters()`.
+**Implementation**: MeshCoreAdapter maintains `_inbound_dedup`, an `OrderedDict` keyed by `(pubkey_prefix, packet_id, channel_idx, text)`. The dedup key includes native identity (pubkey prefix + packet ID + channel index) plus text content, ensuring exact replays of the same packet are suppressed while distinct payloads sharing the same packet ID are both processed. The dict is bounded to `_DEDUP_MAX_SIZE` (1024 entries) with true LRU semantics: `move_to_end()` on hit promotes the entry, and `popitem(last=False)` evicts the least-recently-seen entry when the cap is exceeded. When `packet_id` is `None` (no reliable native identity), adapter-level dedup is skipped entirely. The dedup dict is cleared on start via `_reset_inbound_counters()` (which also zeroes counters) and on stop via `self._inbound_dedup.clear()` in `MeshCoreAdapter.stop()`.
 
-**Tests**: `test_boundary_hardening.py` — `test_meshcore_simulate_inbound_deduplicates_identical_packets`, `test_meshcore_simulate_inbound_allows_different_packets`, `test_meshcore_dedup_resets_on_restart`, `test_meshcore_on_message_deduplicates_via_callback`, `test_meshcore_dedup_evicts_oldest_at_capacity`.
+**Tests**: `test_boundary_hardening.py` — `test_meshcore_simulate_inbound_deduplicates_identical_packets`, `test_meshcore_simulate_inbound_allows_different_packets`, `test_meshcore_dedup_resets_on_restart`, `test_meshcore_on_message_deduplicates_via_callback`, `test_meshcore_dedup_evicts_oldest_at_capacity`. `test_meshcore_lifecycle_boundaries.py` — `test_meshcore_stop_clears_dedup_without_restart`, `test_meshcore_simulate_inbound_raises_before_start`, `test_meshcore_simulate_inbound_publishes_while_started`, `test_meshcore_simulate_inbound_silent_after_stop`, `test_meshcore_restart_allows_same_packet_to_publish`.
 
 ### G2. ~~LXMF: No inbound dedup by message hash~~ — RESOLVED
 
