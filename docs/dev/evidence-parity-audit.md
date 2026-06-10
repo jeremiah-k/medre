@@ -197,7 +197,7 @@ All adapters produce health through the same path:
 
 **Behavioral note:** Meshtastic clears `_last_health` to `None` in both `start()` and `stop()`. MeshCore and LXMF do not clear `_last_health` in `stop()`, so post-stop diagnostics retain the last known health value. This asymmetry is benign (stale health is observational, not invented) but worth noting for operators comparing adapter diagnostics across restart cycles.
 
-### 6.2 ~~No-session fallback incompleteness~~ — MOSTLY RESOLVED
+### 6.2 ~~Session-less diagnostics fallback gap~~ — MOSTLY RESOLVED
 
 **Severity:** ~~High~~ Resolved for Meshtastic and MeshCore; structural gap remains for LXMF
 **Scope:** Meshtastic (resolved), MeshCore (resolved), LXMF (structural gap only)

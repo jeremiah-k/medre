@@ -161,10 +161,10 @@ Do adapters release all resources (SDK clients, tasks, futures) on `stop()`?
 
 | Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                         |
 | -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | `stop()` calls `session.stop()` which cancels sync task and closes nio client. Adapter sets `_session = None`.                                                                                                                                                                   |
-| **Meshtastic** | **Implemented** | `stop()` clears `_started`, cancels drain task, drains background tasks (bounded timeout with detach observer), calls `session.stop()` which closes client and unsubscribes pubsub. `_session = None`.                                                                           |
-| **MeshCore**   | **Implemented** | `stop()` sets `_started = False` before drain, drains background tasks with `return_exceptions=True`, calls `session.stop()` which unsubscribes, stops auto-fetching, disconnects SDK client. `_session = None`.                                                                 |
-| **LXMF**       | **Implemented** | `stop()` sets `_started = False` before drain, cancels announce/reconnect tasks, unsubscribes callbacks, tears down SDK (router/identity/reticulum references), clears outbound tracking, sets `_message_callback = None`, `_loop = None`. `_inbound_dedup` cleared in `stop()`. |
+| **Matrix**     | **Bounded best-effort** | `stop()` calls `session.stop()` which cancels sync task and closes nio client. Adapter sets `_session = None`.                                                                                                                                                                   |
+| **Meshtastic** | **Bounded best-effort** | `stop()` clears `_started`, cancels drain task, drains background tasks (bounded timeout with detach observer), calls `session.stop()` which closes client and unsubscribes pubsub. `_session = None`.                                                                           |
+| **MeshCore**   | **Bounded best-effort** | `stop()` sets `_started = False` before drain, drains background tasks with `return_exceptions=True`, calls `session.stop()` which unsubscribes, stops auto-fetching, disconnects SDK client. `_session = None`.                                                                 |
+| **LXMF**       | **Bounded best-effort** | `stop()` sets `_started = False` before drain, cancels announce/reconnect tasks, unsubscribes callbacks, tears down SDK (router/identity/reticulum references), clears outbound tracking, sets `_message_callback = None`, `_loop = None`. `_inbound_dedup` cleared in `stop()`. |
 
 **Resource release note:** MeshCore and LXMF implement bounded best-effort drain for normal background publish tasks via `_drain_background_tasks()` with a timeout and `return_exceptions=True`. Python `asyncio.Task.cancel()` is a cooperative request, not a hard kill; tasks can suppress `CancelledError`. The drain is therefore best-effort, not a strict guaranteed release for cancellation-resistant tasks. Hardening against long-running or cancellation-resistant observation/drain tasks remains future resilience work.
 
@@ -196,10 +196,10 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 | 9. Delivery result contract | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 10. Exception normalization | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | 11. Diagnostics plain-data  | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 12. Resource release        | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| 12. Resource release        | ✅ Bounded best-effort | ✅ Bounded best-effort | ✅ Bounded best-effort | ✅ Bounded best-effort |
 | 13. Reconnect suppression   | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 
-**Overall**: 52 of 52 boundary protections implemented. Vectors 1 through 11 and 13 are fully implemented with test coverage. Vector 12 (resource release) is implemented as bounded best-effort drain for normal background tasks; strict guaranteed release for cancellation-resistant tasks is future long-running resilience work (see vector 12 note). All previously identified gaps (G1, G2, G3) have been resolved.
+**Overall**: Vectors 1 through 11 and 13 are fully implemented with test coverage (48 of 52 adapter-vector cells). Vector 12 (resource release) is scoped as bounded best-effort drain for normal background tasks; strict guaranteed release for cancellation-resistant tasks is future resilience work (see vector 12 note). All previously identified gaps (G1, G2, G3) have been resolved.
 
 ---
 

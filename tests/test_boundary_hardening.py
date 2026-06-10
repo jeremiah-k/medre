@@ -608,8 +608,8 @@ async def test_meshcore_ctx_preserved_after_stop():
     """MeshCoreAdapter: after stop, ctx is still set but _started is False.
 
     ctx is retained after stop() (not cleared), but simulate_inbound must
-    silently return rather than publish — ctx retention must not imply
-    publish is allowed post-stop.
+    silently return rather than publish. ctx remains available after stop
+    for diagnostics, but this does not permit post-stop publish.
     """
     config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
     adapter = MeshCoreAdapter(config)
@@ -625,7 +625,7 @@ async def test_meshcore_ctx_preserved_after_stop():
 
     # ctx is not cleared by stop(), so the ctx-is-None RuntimeError guard
     # does not fire.  But the _started guard must prevent publishing.
-    assert adapter.ctx is not None, "ctx is preserved after stop()"
+    assert adapter.ctx is not None, "ctx remains available after stop()"
     assert not adapter._started, "_started must be False after stop()"
 
     packet = _meshcore_text_packet()
@@ -639,9 +639,10 @@ async def test_lxmf_ctx_preserved_after_stop():
     """LxmfAdapter: after stop, ctx is retained but simulate_inbound
     must not publish because the _started guard blocks inbound processing.
 
-    This test documents actual behavior: stop() does not clear ctx (it is
-    retained for diagnostics access), but simulate_inbound returns early
+    This test documents actual behavior: ctx remains available after stop()
+    (retained for diagnostics access), but simulate_inbound returns early
     when _started is False, so no inbound event is published after stop.
+    Post-stop publish is not permitted despite ctx retention.
     """
     config = LxmfConfig(adapter_id=_unique_id("lx"), connection_type="fake")
     adapter = LxmfAdapter(config)
@@ -657,7 +658,7 @@ async def test_lxmf_ctx_preserved_after_stop():
 
     # ctx is not cleared by stop(), so the ctx-is-None RuntimeError guard
     # does not fire.  But the _started guard must prevent publishing.
-    assert adapter.ctx is not None, "ctx is preserved after stop()"
+    assert adapter.ctx is not None, "ctx remains available after stop()"
     assert not adapter._started, "_started must be False after stop()"
 
     packet = _lxmf_text_packet()
