@@ -129,10 +129,12 @@ class LxmfAdapter(AdapterContract):
         # Cached health string from last health_check() call.
         self._last_health: str | None = None
 
-        # Inbound dedup set: keyed by message_id (hex string of message hash).
+        # Inbound dedup set: keyed by (message_id, content).
         # Prevents duplicate events from Reticulum redelivery.
+        # Including content ensures distinct payloads sharing the same
+        # message_id are both processed, while exact replays are suppressed.
         # Cleared on stop/start boundaries.
-        self._inbound_dedup: set[str] = set()
+        self._inbound_dedup: set[tuple[str, str]] = set()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -424,10 +426,10 @@ class LxmfAdapter(AdapterContract):
             if classification["is_ack"]:
                 return
 
-            # Dedup: suppress duplicate messages by message_id hash.
+            # Dedup: suppress exact duplicate messages by message_id + content.
             msg_id = packet.get("message_id")
             if msg_id is not None:
-                dedup_key = str(msg_id)
+                dedup_key = (str(msg_id), str(packet.get("content", "")))
                 if dedup_key in self._inbound_dedup:
                     return
                 self._inbound_dedup.add(dedup_key)
@@ -516,10 +518,10 @@ class LxmfAdapter(AdapterContract):
         if classification["is_ack"]:
             return
 
-        # Dedup: suppress duplicate messages by message_id hash.
+        # Dedup: suppress exact duplicate messages by message_id + content.
         msg_id = packet.get("message_id")
         if msg_id is not None:
-            dedup_key = str(msg_id)
+            dedup_key = (str(msg_id), str(packet.get("content", "")))
             if dedup_key in self._inbound_dedup:
                 return
             self._inbound_dedup.add(dedup_key)

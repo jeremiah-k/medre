@@ -220,10 +220,12 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
-        # Inbound dedup set: keyed by (pubkey_prefix, sender_timestamp, channel_idx).
+        # Inbound dedup set: keyed by (pubkey_prefix, sender_timestamp, channel_idx, text).
         # Prevents duplicate events from SDK redelivery (e.g., reconnect replay).
+        # Including text ensures distinct payloads sharing the same packet_id are
+        # both processed, while exact replays of the same packet are suppressed.
         # Cleared on stop/start boundaries.
-        self._inbound_dedup: set[tuple[str, int, int | None]] = set()
+        self._inbound_dedup: set[tuple[str, int, int | None, str]] = set()
 
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
@@ -492,11 +494,14 @@ class MeshCoreAdapter(AdapterContract):
             if classification.action != "relay":
                 return
 
-            # Dedup: suppress duplicate packets by identity tuple.
+            # Dedup: suppress exact duplicate packets by identity + content.
+            # Text is included so distinct payloads with reused packet_id
+            # are both processed while exact replays are suppressed.
             dedup_key = (
                 classification.sender_id or "",
                 classification.packet_id or 0,
                 classification.channel_index,
+                str(packet.get("text", "")),
             )
             if dedup_key in self._inbound_dedup:
                 return
@@ -566,11 +571,12 @@ class MeshCoreAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
-        # Dedup: suppress duplicate packets by identity tuple.
+        # Dedup: suppress exact duplicate packets by identity + content.
         dedup_key = (
             classification.sender_id or "",
             classification.packet_id or 0,
             classification.channel_index,
+            str(packet.get("text", "")),
         )
         if dedup_key in self._inbound_dedup:
             return
