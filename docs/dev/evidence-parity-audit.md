@@ -4,7 +4,9 @@
 > **Audience:** Runtime developers, adapter authors, code reviewers.
 > **Authority:** [diagnostics-evidence.md](../spec/diagnostics-evidence.md) is the normative specification. This document records adapter-level evidence parity findings, gaps, and a prioritized implementation list. If this document conflicts with the spec, the spec is correct.
 > **Scope:** Operational runtime evidence produced by the four transport adapters (Matrix, Meshtastic, MeshCore, LXMF). Does not cover lifecycle, capability, SDK parity, or boundary documentation owned by other workers.
-> **Branch:** `main` post-merge of `adapter-sdk-parity`.
+> **Branch:** `adapter-lifecycle-parity`
+> **Baseline:** Post `adapter-sdk-parity` / after #99
+> **Status:** Implementation audit synced with source/tests/docs
 
 ## 1. Summary
 

@@ -1,7 +1,9 @@
 # Capability Truth Audit
 
 **Work Package**: Capability Truth Audit
-**Branch**: `main` (post-merge adapter-sdk-parity)
+**Branch**: `adapter-lifecycle-parity`
+**Baseline**: after merging `adapter-sdk-parity` (#99)
+**Status**: Implementation audit synced with source/tests/docs
 **Date**: 2026-06-10
 **Scope**: All 4 real adapters (Matrix, Meshtastic, MeshCore, LXMF), their fakes, JSON declarations, and conformance tests.
 
@@ -290,6 +292,6 @@ All 4 adapters × 21 capability fields = **84 capability declarations** audited.
 - **4** adapters with honest, conservative capability declarations
 
 This audit confirms that the MEDRE capability system is in a truthful state
-as of `main` post-merge `adapter-sdk-parity`. No source code, test, JSON, or
+as of `adapter-lifecycle-parity` (after `adapter-sdk-parity` was merged). No source code, test, JSON, or
 spec changes are required. This document serves as the authoritative
 capability truth record.

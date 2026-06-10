@@ -1,7 +1,9 @@
 # Adapter Lifecycle Parity Audit
 
 > **Classification:** Audit documentation (pre-release)
-> **Branch:** `main` (post `adapter-sdk-parity` merge)
+> **Branch:** `adapter-lifecycle-parity`
+> **Baseline:** Post `adapter-sdk-parity` / after #99
+> **Status:** Implementation audit synced with source/tests/docs
 > **Scope:** Meshtastic, MeshCore, LXMF, Matrix runtime lifecycle behavior
 > **Authority:** `src/medre/core/lifecycle/states.py` owns the `AdapterState` enum and `VALID_TRANSITIONS` graph; `src/medre/runtime/app.py` owns startup/shutdown ordering and per-adapter state management; adapters report facts via `health_check()` and the runtime sets lifecycle state.
 

@@ -511,6 +511,7 @@ class MeshCoreAdapter(AdapterContract):
             # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
             # When packet_id is None there is no reliable native identity,
             # so adapter-level dedup is skipped entirely.
+            dedup_key: tuple[str, int, int | None, str] | None = None
             if classification.packet_id is not None:
                 dedup_key = (
                     classification.sender_id or "",
@@ -521,14 +522,23 @@ class MeshCoreAdapter(AdapterContract):
                 if dedup_key in self._inbound_dedup:
                     self._inbound_dedup.move_to_end(dedup_key)
                     return
+
+            # Decode before committing dedup key so that decode failures
+            # do not suppress redelivery of the same packet.
+            canonical = self._codec.decode(packet)
+
+            # Commit dedup key only after successful decode.  The key
+            # guards the async publish window against concurrent
+            # duplicates.  If publish fails _on_message_async rolls it
+            # back so redelivery is not suppressed.
+            if dedup_key is not None:
                 self._inbound_dedup[dedup_key] = None
                 if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
                     self._inbound_dedup.popitem(last=False)
 
-            canonical = self._codec.decode(packet)
             # Schedule the async publish — _on_message is synchronous
             # so we create a tracked task that is cleaned up on stop().
-            task = asyncio.create_task(self._on_message_async(canonical))
+            task = asyncio.create_task(self._on_message_async(canonical, dedup_key))
             task.add_done_callback(self._background_tasks.discard)
             self._background_tasks.add(task)
         except Exception:
@@ -538,7 +548,11 @@ class MeshCoreAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    async def _on_message_async(self, canonical: CanonicalEvent) -> None:
+    async def _on_message_async(
+        self,
+        canonical: CanonicalEvent,
+        dedup_key: tuple[str, int, int | None, str] | None = None,
+    ) -> None:
         """Async handler for messages received via :meth:`_on_message`.
 
         Publishes the canonical event and logs exceptions from the
@@ -552,12 +566,19 @@ class MeshCoreAdapter(AdapterContract):
         ----------
         canonical:
             The decoded canonical event to publish.
+        dedup_key:
+            The dedup key committed by :meth:`_on_message` after
+            successful decode.  Rolled back on publish failure so that
+            redelivery is not suppressed.
         """
         try:
             if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
         except Exception:
+            # Roll back dedup key so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "MeshCoreAdapter %s: error in background publish",
@@ -602,6 +623,7 @@ class MeshCoreAdapter(AdapterContract):
         # Dedup: suppress exact duplicate packets by identity + content.
         # When packet_id is None there is no reliable native identity,
         # so adapter-level dedup is skipped entirely.
+        dedup_key: tuple[str, int, int | None, str] | None = None
         if classification.packet_id is not None:
             dedup_key = (
                 classification.sender_id or "",
@@ -612,13 +634,24 @@ class MeshCoreAdapter(AdapterContract):
             if dedup_key in self._inbound_dedup:
                 self._inbound_dedup.move_to_end(dedup_key)
                 return
+
+        # Decode and publish before committing dedup key so that
+        # failures do not suppress redelivery.
+        try:
+            canonical = self._codec.decode(packet)
+            await self.publish_inbound(canonical)
+            self._inbound_published += 1
+        except Exception:
+            # Roll back dedup key on any decode/publish failure.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
+            raise
+
+        # Commit dedup key only after successful decode + publish.
+        if dedup_key is not None:
             self._inbound_dedup[dedup_key] = None
             if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
                 self._inbound_dedup.popitem(last=False)
-
-        canonical = self._codec.decode(packet)
-        await self.publish_inbound(canonical)
-        self._inbound_published += 1
 
     # -- Diagnostics --------------------------------------------------------
 

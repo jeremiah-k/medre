@@ -321,6 +321,72 @@ These protections are **not required** and are documented as intentionally absen
 
 ---
 
+## Dedup Rollback Semantics (MeshCore and LXMF)
+
+The inbound dedup mechanism (vector 3) for MeshCore and LXMF suppresses only
+successful exact replays. It does not poison the dedup table with entries from
+failed decode or publish attempts.
+
+### Commit-after-success behavior
+
+Dedup keys commit to the `OrderedDict` only after the inbound event passes
+classification, decode, and `publish_inbound` succeeds. If any step fails
+(classifier drop, codec error, publish exception), the dedup key is never
+inserted. A retry of the same message from the SDK will not be suppressed by
+a previous failed attempt, because the failed attempt left no dedup entry.
+
+This means:
+
+- **Successful exact replays are suppressed.** The same `(pubkey_prefix,
+packet_id, channel_idx, text)` tuple (MeshCore) or `(message_id, content)`
+  tuple (LXMF) that was already published will not be published again.
+- **Failed delivery attempts do not poison dedup state.** If decode or publish
+  fails, no dedup key is recorded, so a retry of the identical message gets
+  another chance to process.
+- **Dedup is adapter-local replay suppression, not durable/core delivery
+  authority.** The `OrderedDict` lives in the adapter instance. It is cleared
+  on stop/start boundaries. It is never persisted to storage. Its purpose is
+  preventing the same SDK callback from producing duplicate canonical events
+  within a single adapter session, not providing cross-restart delivery
+  guarantees.
+
+### MeshCore: native replay identity limitation
+
+MeshCore packets do not always carry a reliable `packet_id`. When `packet_id`
+is `None`, the adapter skips dedup entirely for that packet. This is correct:
+without a native identity, there is no basis for distinguishing a replay from
+a genuinely new message with identical content from the same sender. Packets
+with `packet_id = None` are always passed through, accepting the risk of
+occasional duplicates in exchange for not suppressing legitimate messages.
+
+### LXMF: message hash as identity
+
+LXMF messages carry a `message_id` (hash) provided by the LXMRouter. When
+`message_id` is `None`, dedup is skipped, matching the same principle as
+MeshCore. In practice, LXMRouter always provides a hash, so this path is
+defensive.
+
+### LRU eviction semantics
+
+Both adapters use true LRU eviction via Python's `OrderedDict`:
+
+- `move_to_end(key)` on dedup hit, promoting the accessed entry to most-recent.
+- `popitem(last=False)` when the dict exceeds `_DEDUP_MAX_SIZE` (1024 entries),
+  evicting the least-recently-seen entry.
+
+This is true LRU, not FIFO or approximate. Entries that are accessed
+repeatedly stay in the dict; stale entries age out from the front.
+
+### Resource release is bounded best-effort
+
+The dedup `OrderedDict` is an in-memory data structure bounded to 1024 entries.
+Its memory footprint is deterministic and small (a few tens of KB at most). It
+is cleared on stop and on start, so it does not leak across adapter lifecycles.
+No overclaim is made about dedup providing resource release guarantees beyond
+this bounded best-effort scope.
+
+---
+
 ## Related Documents
 
 - `docs/spec/adapter-runtime.md` — normative adapter runtime specification.

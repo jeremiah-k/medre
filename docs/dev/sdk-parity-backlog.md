@@ -1,11 +1,13 @@
 # SDK Parity Opportunities Backlog
 
-**Branch**: `main` (post `adapter-sdk-parity` merge)
+**Branch**: `adapter-lifecycle-parity`
+**Baseline**: Post `adapter-sdk-parity` / after #99
+**Status**: Backlog for future work packages
 **Date**: 2026-06-10
 **Scope**: Runtime behavioral parity across all four adapters — Matrix, Meshtastic, MeshCore, LXMF
 **Purpose**: Ranked backlog of SDK parity improvements that MEDRE should likely adopt from reference implementations, with rationale for every proposed parity move.
 
-This document is **audit-only**. It identifies gaps and proposes actions; it does not change source, tests, or specs.
+This document is a **ranked backlog** for future implementation waves. It identifies gaps and proposes actions; implementation belongs to later work packages.
 
 ---
 
@@ -349,7 +351,7 @@ Items are ranked by **operational value** — the impact on real deployment reli
 - **No facades**: Items propose using SDK APIs directly, not adding abstraction layers.
 - **No public API commitments**: All proposals are internal to the adapter session/adapter layer.
 - **No user-facing feature expansion**: Items improve reliability and observability of existing functionality.
-- **Audit-only wave**: This document proposes actions; implementation belongs to future work packages.
+- **Backlog status**: This document proposes actions for future work packages; implementation belongs to those packages.
 
 ## Relationship to Prior Audit
 
