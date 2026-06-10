@@ -228,6 +228,10 @@ class MeshtasticAdapter(AdapterContract):
         if self._started:
             return
 
+        # Clear cached health at lifecycle boundary so diagnostics
+        # never reports a stale health string from a previous session.
+        self._last_health = None
+
         self.ctx = ctx
         self._mark_started(ctx)
 
@@ -286,6 +290,9 @@ class MeshtasticAdapter(AdapterContract):
         # causes _on_packet to return early, preventing new
         # run_coroutine_threadsafe submissions.
         self._started = False
+
+        # Clear cached health at lifecycle boundary.
+        self._last_health = None
 
         # Cancel the queue drain background task.
         if self._drain_task is not None:

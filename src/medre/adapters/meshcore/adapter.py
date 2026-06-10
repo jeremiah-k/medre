@@ -543,13 +543,17 @@ class MeshCoreAdapter(AdapterContract):
         Publishes the canonical event and logs exceptions from the
         background task.
 
+        Re-checks ``_started`` before publishing to close the race
+        window where a task was scheduled by :meth:`_on_message` but
+        has not yet executed when :meth:`stop` sets ``_started = False``.
+
         Parameters
         ----------
         canonical:
             The decoded canonical event to publish.
         """
         try:
-            if self.ctx is not None:
+            if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
         except Exception:

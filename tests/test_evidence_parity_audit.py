@@ -87,7 +87,7 @@ def _matrix_config(adapter_id: str = "epa-mx") -> Any:
         adapter_id=adapter_id,
         homeserver="https://example.com",
         user_id="@test:example.com",
-        access_token="fake-token",
+        access_token="fake-token",  # noqa: S106
     )
 
 

@@ -1005,3 +1005,79 @@ class TestMeshtasticAdapterSelfEcho:
             assert adapter.diagnostics()["classifier_packets_self_echo_ignored"] == 0
         finally:
             await adapter.stop()
+
+
+# ===================================================================
+# Lifecycle guard: _last_health cleared at boundaries
+# ===================================================================
+
+
+class TestMeshtasticLastHealthLifecycleBoundary:
+    """_last_health is cleared at start/stop boundaries.
+
+    Oracle finding C: cached _last_health must be reset to None on
+    start() and stop() so diagnostics never reports a stale health
+    string from a previous session.
+    """
+
+    async def test_last_health_cleared_on_start(
+        self, make_adapter_context
+    ) -> None:
+        """start() clears _last_health so a stale value from a prior
+        session does not leak into diagnostics."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+
+        # Simulate a stale _last_health from a prior session.
+        adapter._last_health = "failed"
+
+        await adapter.start(ctx)
+        assert adapter._last_health is None
+
+        await adapter.stop()
+
+    async def test_last_health_cleared_on_stop(
+        self, make_adapter_context
+    ) -> None:
+        """stop() clears _last_health so diagnostics shows None, not
+        the value from the just-stopped session."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        # health_check populates _last_health.
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+        assert adapter._last_health == "healthy"
+
+        await adapter.stop()
+        assert adapter._last_health is None
+
+    async def test_last_health_round_trip(
+        self, make_adapter_context
+    ) -> None:
+        """After stop→start→health_check→stop, _last_health is None."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+
+        await adapter.start(ctx)
+        await adapter.health_check()
+        assert adapter._last_health == "healthy"
+
+        await adapter.stop()
+        assert adapter._last_health is None
+
+        # Restart — stale value from previous session must be gone.
+        adapter._last_health = "failed"  # simulate stale injection
+        ctx2 = make_adapter_context("mesh-2")
+        await adapter.start(ctx2)
+        assert adapter._last_health is None
+
+        await adapter.health_check()
+        assert adapter._last_health == "healthy"
+
+        await adapter.stop()
+        assert adapter._last_health is None

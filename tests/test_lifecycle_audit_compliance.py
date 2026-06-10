@@ -62,6 +62,8 @@ from medre.runtime.app import MedreApp
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -484,13 +486,13 @@ class TestAdaptersReportHealthNotState:
     def test_real_adapters_do_not_import_adapter_state(self) -> None:
         """No real adapter module mentions AdapterState."""
         adapter_files = [
-            "src/medre/adapters/matrix/adapter.py",
-            "src/medre/adapters/meshtastic/adapter.py",
-            "src/medre/adapters/meshcore/adapter.py",
-            "src/medre/adapters/lxmf/adapter.py",
+            REPO_ROOT / "src/medre/adapters/matrix/adapter.py",
+            REPO_ROOT / "src/medre/adapters/meshtastic/adapter.py",
+            REPO_ROOT / "src/medre/adapters/meshcore/adapter.py",
+            REPO_ROOT / "src/medre/adapters/lxmf/adapter.py",
         ]
         for path in adapter_files:
-            content = Path(path).read_text()
+            content = path.read_text()
             assert "AdapterState" not in content, f"{path} must not import AdapterState"
             assert (
                 "_adapter_states" not in content
@@ -691,8 +693,7 @@ class TestAuditFollowUpIdentifiers:
 
     @pytest.fixture
     def audit_content(self) -> str:
-        repo_root = Path(__file__).resolve().parents[1]
-        audit_path = repo_root / "docs" / "dev" / "adapter-lifecycle-audit.md"
+        audit_path = REPO_ROOT / "docs" / "dev" / "adapter-lifecycle-audit.md"
         assert (
             audit_path.exists()
         ), f"adapter-lifecycle-audit.md not found at {audit_path}"
@@ -785,10 +786,7 @@ class TestRuntimeTransitionEnforcement:
     async def test_invalid_transition_from_ready_raises(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """READY → BACKPRESSURED directly is not a valid transition
-        via _set_adapter_state (BACKPRESSURED is not in READY's targets
-        unless we check — actually it IS valid per the graph; let's
-        test a truly invalid one: READY → INITIALIZING)."""
+        """READY → INITIALIZING is invalid and must raise."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 

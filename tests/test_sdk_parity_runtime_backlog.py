@@ -805,7 +805,7 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
         ):
             try:
                 mod = importlib.import_module(modname)
-            except Exception:
+            except (ImportError, ModuleNotFoundError):
                 continue
             try:
                 source = inspect.getsource(mod)

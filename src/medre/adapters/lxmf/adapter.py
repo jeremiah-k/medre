@@ -525,6 +525,12 @@ class LxmfAdapter(AdapterContract):
                 f"call start() before simulate_inbound()"
             )
 
+        # Lifecycle guard: refuse post-stop calls.  ctx is retained
+        # after stop() but _started is cleared — a stale ctx must not
+        # be sufficient to publish lifecycle-stale inbound messages.
+        if not self._started:
+            return
+
         classification = self._classifier.classify(packet)
         if classification["category"] != "text":
             return

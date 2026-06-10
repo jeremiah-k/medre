@@ -1103,3 +1103,54 @@ class TestMeshCoreDeliveryMetadataJSONSafe:
         assert delivery.metadata["meshcore"]["local_acceptance"] is True
 
         await fake_session.stop()
+
+
+# ===================================================================
+# Lifecycle guard: _on_message_async refuses publish after stop
+# ===================================================================
+
+
+class TestMeshCoreLifecycleGuardOnMessageAsync:
+    """_on_message_async must not publish after stop() begins.
+
+    Oracle finding B: an already-scheduled async inbound handler
+    (created by _on_message via asyncio.create_task) must not
+    publish after stop() sets _started = False.
+    """
+
+    async def test_on_message_async_skips_publish_after_stop(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """_on_message_async does not publish when _started is False."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+
+        assert adapter._started is True
+
+        # Simulate stop() having begun — _started cleared but task
+        # already scheduled from _on_message.
+        adapter._started = False
+
+        # Construct a minimal canonical event and call _on_message_async.
+        event = CanonicalEvent(
+            event_id="evt-stale",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="meshcore-1",
+            source_transport_id="sender",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "stale"},
+            metadata=EventMetadata(),
+        )
+        await adapter._on_message_async(event)
+
+        # Must NOT have published — _started was False.
+        assert len(inbound_collector.events) == 0
+
+        await adapter.stop()
