@@ -70,30 +70,40 @@ def _load_json_caps(transport: str) -> dict[str, Any]:
 
 
 def _get_real_caps(transport: str) -> AdapterCapabilities | None:
-    """Return real adapter capabilities, or None when the SDK is unavailable."""
-    try:
-        if transport == "matrix":
+    """Return real adapter capabilities, or None when the SDK is unavailable.
+
+    Each branch catches ``ImportError`` narrowly so that MEDRE-internal
+    import bugs propagate loudly while genuinely missing optional SDKs
+    cause a graceful skip (returns ``None``).
+    """
+    if transport == "matrix":
+        try:
             from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
-
-            return _MATRIX_CAPABILITIES
-        if transport == "lxmf":
+        except ImportError:
+            return None
+        return _MATRIX_CAPABILITIES
+    if transport == "lxmf":
+        try:
             from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
-
-            return _LXMF_CAPABILITIES
-        if transport == "meshtastic":
+        except ImportError:
+            return None
+        return _LXMF_CAPABILITIES
+    if transport == "meshtastic":
+        try:
             from medre.adapters.meshtastic.adapter import MeshtasticAdapter
             from medre.config.adapters.meshtastic import MeshtasticConfig
-
-            config = MeshtasticConfig(adapter_id="audit_test")
-            return MeshtasticAdapter(config)._capabilities
-        if transport == "meshcore":
+        except ImportError:
+            return None
+        config = MeshtasticConfig(adapter_id="audit_test")
+        return MeshtasticAdapter(config)._capabilities
+    if transport == "meshcore":
+        try:
             from medre.adapters.meshcore.adapter import MeshCoreAdapter
             from medre.config.adapters.meshcore import MeshCoreConfig
-
-            config = MeshCoreConfig(adapter_id="audit_test")
-            return MeshCoreAdapter(config)._capabilities
-    except ImportError:
-        return None
+        except ImportError:
+            return None
+        config = MeshCoreConfig(adapter_id="audit_test")
+        return MeshCoreAdapter(config)._capabilities
     raise ValueError(f"Unknown transport: {transport}")
 
 

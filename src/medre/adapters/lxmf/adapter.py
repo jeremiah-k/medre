@@ -40,6 +40,7 @@ session owns raw transport; the adapter owns semantic conversion.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -88,6 +89,9 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     max_text_chars=16384,
 )
 
+# Maximum entries in the inbound dedup OrderedDict (LRU eviction).
+_DEDUP_MAX_SIZE = 1024
+
 
 class LxmfAdapter(AdapterContract):
     """Transport adapter for LXMF routers/nodes.
@@ -129,12 +133,13 @@ class LxmfAdapter(AdapterContract):
         # Cached health string from last health_check() call.
         self._last_health: str | None = None
 
-        # Inbound dedup set: keyed by (message_id, content).
+        # Inbound dedup: keyed by (message_id, content).
         # Prevents duplicate events from Reticulum redelivery.
         # Including content ensures distinct payloads sharing the same
         # message_id are both processed, while exact replays are suppressed.
-        # Cleared on stop/start boundaries.
-        self._inbound_dedup: set[tuple[str, str]] = set()
+        # Bounded OrderedDict — oldest entries evicted when full. Cleared on
+        # stop/start boundaries.
+        self._inbound_dedup: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -201,13 +206,16 @@ class LxmfAdapter(AdapterContract):
         if not self._started:
             return
 
+        # Gate callbacks immediately — prevents race between drain completing
+        # and session.stop() unsubscribing.
+        self._started = False
+
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
         # Stop the session (which tears down SDK objects).
         await self._session.stop(timeout=timeout)
 
-        self._started = False
         self._inbound_dedup.clear()
         if self.ctx is not None:
             self.ctx.logger.info("LxmfAdapter %s stopped", self.adapter_id)
@@ -427,12 +435,15 @@ class LxmfAdapter(AdapterContract):
                 return
 
             # Dedup: suppress exact duplicate messages by message_id + content.
+            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
             msg_id = packet.get("message_id")
             if msg_id is not None:
                 dedup_key = (str(msg_id), str(packet.get("content", "")))
                 if dedup_key in self._inbound_dedup:
                     return
-                self._inbound_dedup.add(dedup_key)
+                self._inbound_dedup[dedup_key] = None
+                if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                    self._inbound_dedup.popitem(last=False)
 
             canonical = self._codec.decode(packet)
             task = asyncio.create_task(self._on_packet_async(canonical))
@@ -524,7 +535,9 @@ class LxmfAdapter(AdapterContract):
             dedup_key = (str(msg_id), str(packet.get("content", "")))
             if dedup_key in self._inbound_dedup:
                 return
-            self._inbound_dedup.add(dedup_key)
+            self._inbound_dedup[dedup_key] = None
+            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                self._inbound_dedup.popitem(last=False)
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)

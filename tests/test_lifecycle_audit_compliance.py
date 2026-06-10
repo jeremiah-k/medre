@@ -79,7 +79,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(var, raising=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
     """Create a MedrePaths pointing at a temp directory."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -659,7 +659,7 @@ class TestAuditFollowUpIdentifiers:
     """The audit document contains all follow-up identifiers referenced
     in the task specification."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def audit_content(self) -> str:
         audit_path = Path("docs/dev/adapter-lifecycle-audit.md")
         if not audit_path.exists():

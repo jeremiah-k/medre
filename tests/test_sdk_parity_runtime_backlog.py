@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 from dataclasses import fields as dataclass_fields
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -355,25 +356,35 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
     """
 
     def test_send_real_ignores_suggested_timeout_in_source(self) -> None:
-        """_send_real source does not reference suggested_timeout for timing."""
+        """_send_real source does not reference suggested_timeout for timing.
+
+        Uses targeted regex to detect ``suggested_timeout`` in operational
+        contexts (assignment, function-call arguments, arithmetic) while
+        allowing benign occurrences (string-key extraction, docstrings,
+        comments).
+        """
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._send_real,
         )
-        # suggested_timeout appears in the docstring/comment about the
-        # return shape but is never used in a delay calculation.
-        # Count how many times it appears as a variable reference
-        # (not just in a comment).
-        lines_with_usage = [
-            line
+        # Detect suggested_timeout used as a bare variable reference
+        # (assignment target, function argument, arithmetic operand) but
+        # exclude string-key extraction (result["suggested_timeout"]) and
+        # pure documentation/comments.
+        usage_re = re.compile(r"\bsuggested_timeout\b")
+        key_re = re.compile(r'["\x27]suggested_timeout["\x27]')
+        active_usages = [
+            line.strip()
             for line in source.splitlines()
-            if "suggested_timeout" in line
+            if usage_re.search(line)
             and not line.strip().startswith("#")
-            and "expected_ack" not in line  # comment mentions both
+            and not line.strip().startswith('"""')
+            and not line.strip().startswith("'''")
+            and not key_re.search(line)  # string-key extraction is benign
         ]
-        # No line uses suggested_timeout as a variable for timing.
-        assert len(lines_with_usage) == 0, (
-            f"suggested_timeout appears in non-comment lines: "
-            f"{lines_with_usage}. "
+        # No line uses suggested_timeout as a bare variable for timing.
+        assert len(active_usages) == 0, (
+            f"suggested_timeout used as a variable in: "
+            f"{active_usages}. "
             "If parity was implemented, update this test."
         )
 
@@ -425,7 +436,7 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
                 patch(
                     "medre.adapters.meshcore.session.asyncio.sleep",
                     new_callable=AsyncMock,
-                ),
+                ) as mock_sleep,
             ):
                 callback = MagicMock()
                 await session.start(message_callback=callback)
@@ -434,10 +445,16 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
             # native_id should be extracted from expected_ack (hex of 4 bytes).
             assert native_id == "abcdef01"
             # suggested_timeout was available but ignored.
-            # The sleep mock was called with the pacing delay (config default)
-            # and the fixed retry backoff, never with suggested_timeout value.
+            # No sleep call received the suggested_timeout value (7 seconds).
+            for sleep_call in mock_sleep.call_args_list:
+                sleep_arg = sleep_call[0][0] if sleep_call[0] else None
+                assert sleep_arg != sdk_result["suggested_timeout"], (
+                    f"sleep() called with suggested_timeout value "
+                    f"({sdk_result['suggested_timeout']}): {sleep_call}. "
+                    "If parity was implemented, update this test."
+                )
+            # Verify send_msg was called correctly.
             for call in instance.commands.send_msg.call_args_list:
-                # Verify send_msg was called correctly.
                 assert call is not None
 
         finally:
@@ -641,31 +658,31 @@ class TestP07MatrixNoSyncLivenessWatchdog:
 
     def test_last_successful_sync_is_passive_diagnostic(self) -> None:
         """_last_successful_sync is set on sync success but never read
-        for liveness decisions."""
-        # It's set in the sync response handler.
+        for liveness decisions.
+
+        Positively flags conditional/operational uses (if, comparisons,
+        staleness/watchdog/restart/warn/error/raise patterns) rather than
+        excluding many benign lines.
+        """
         source = inspect.getsource(matrix_session_mod.MatrixSession)
-        # Find all lines that read _last_successful_sync.
-        reader_lines = [
+        # Patterns that indicate _last_successful_sync is read for an
+        # operational decision, not just recorded or exposed as diagnostic.
+        operational_re = re.compile(
+            r"\b(if|elif)\b.*_last_successful_sync"
+            r"|_last_successful_sync\s*(==|!=|<|>|<=|>=|is\b|is not\b)"
+            r"|_last_successful_sync.*\b(warn|error|raise|restart|watchdog|staleness|stale)\b",
+        )
+        operational_lines = [
             line.strip()
             for line in source.splitlines()
             if "_last_successful_sync" in line
-            and "self._last_successful_sync =" not in line  # assignment
-            and "last_successful_sync=" not in line  # diagnostics output
-            and '"_last_successful_sync"' not in line  # __slots__ entry
-            and "self._last_successful_sync:" not in line  # type annotation
+            and not line.strip().startswith("#")
+            and operational_re.search(line)
         ]
-        # Filter to lines that are not comments, docstrings, or property returns.
-        active_readers = [
-            line
-            for line in reader_lines
-            if not line.startswith("#")
-            and not line.startswith('"""')
-            and not line.startswith("'''")
-            and not line.startswith("return self._last_successful_sync")  # property
-        ]
-        # No active reads besides diagnostics output and property accessor.
-        assert len(active_readers) == 0, (
-            f"_last_successful_sync is actively read in: {active_readers}. "
+        # No operational reads — only assignment and diagnostic output.
+        assert len(operational_lines) == 0, (
+            f"_last_successful_sync used in operational context: "
+            f"{operational_lines}. "
             "If a watchdog was added, update this test."
         )
 
@@ -708,12 +725,32 @@ class TestP08MeshtasticReconnectParameters:
         )
 
     def test_session_gives_up_permanently_on_max_attempts(self) -> None:
-        """Reconnect loop returns permanently after max attempts."""
+        """Reconnect loop compares against _MAX_RECONNECT_ATTEMPTS and
+        returns permanently when exceeded."""
         source = inspect.getsource(
             meshtastic_session_mod.MeshtasticSession._reconnect_loop,
         )
-        # The loop returns (exits) when attempts exceed max.
-        assert "giving up" in source.lower() or "return" in source
+        # Must reference the constant for comparison.
+        assert "_MAX_RECONNECT_ATTEMPTS" in source, (
+            "_reconnect_loop does not reference _MAX_RECONNECT_ATTEMPTS. "
+            "If reconnect logic changed, update this test."
+        )
+        # Must have a giving-up branch: a comparison against the constant
+        # followed by return (not just continue/retry).
+        assert re.search(r"giving up", source, re.IGNORECASE), (
+            "_reconnect_loop does not log a 'giving up' message. "
+            "If reconnect logic changed, update this test."
+        )
+        # The giving-up branch must contain an explicit return (permanent exit).
+        giving_up_match = re.search(
+            r"giving up.*?\n(.*?)(?:return|continue|break)",
+            source,
+            re.IGNORECASE | re.DOTALL,
+        )
+        assert giving_up_match is not None and "return" in giving_up_match.group(0), (
+            "_reconnect_loop 'giving up' branch does not return permanently. "
+            "If reconnect logic changed, update this test."
+        )
 
 
 # ===================================================================
@@ -828,17 +865,36 @@ class TestP12MatrixKeyRequestRateLimiting:
     """
 
     def test_key_request_in_megolm_handler(self) -> None:
-        """Undecryptable event handler sends key request inline."""
-        # Check if there's a megolm/undecryptable handler.
+        """Undecryptable event handler sends key request inline without
+        rate limiting, throttling, or sleep gating around as_key_request."""
         source_text = inspect.getsource(matrix_session_mod.MatrixSession)
-        # The handler should exist but rate limiting is the gap.
-        if "as_key_request" in source_text:
-            # Key request exists — verify it's not rate-limited per event.
-            assert "as_key_request" in source_text
-        else:
-            # If the explicit key request was removed (relying on nio's
-            # built-in cycle), the gap may be closed.
-            pass
+        if "as_key_request" not in source_text:
+            pytest.skip("as_key_request not in current session source")
+        # Verify no rate-limit/throttle/queue/sleep gating around key
+        # requests.  Check lines within a window around as_key_request
+        # for gating patterns.
+        gating_re = re.compile(
+            r"rate.?limit|throttl|sleep|queue|Semaphore|cooldown|backoff",
+            re.IGNORECASE,
+        )
+        lines = source_text.splitlines()
+        gated_lines: list[str] = []
+        for i, line in enumerate(lines):
+            if "as_key_request" not in line:
+                continue
+            # Inspect a window around the key request (5 lines before, 5 after).
+            window = lines[max(0, i - 5) : i + 6]
+            for wline in window:
+                stripped = wline.strip()
+                if stripped.startswith("#"):
+                    continue
+                if gating_re.search(wline) and wline not in gated_lines:
+                    gated_lines.append(stripped)
+        assert len(gated_lines) == 0, (
+            f"Rate-limit/throttle gating found near as_key_request: "
+            f"{gated_lines}. "
+            "If key request rate limiting was implemented, update this test."
+        )
 
 
 # ===================================================================
@@ -938,7 +994,7 @@ class TestBacklogSummary:
         assert set(_BACKLOG_ITEMS.keys()) == expected_ids
 
     @pytest.mark.parametrize(
-        "item_id,expected_type",
+        ("item_id", "expected_type"),
         [
             ("P-01", "Behavioral"),
             ("P-02", "Behavioral"),

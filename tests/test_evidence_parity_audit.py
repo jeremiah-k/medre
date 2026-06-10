@@ -91,6 +91,49 @@ def _matrix_config(adapter_id: str = "epa-mx") -> Any:
     )
 
 
+def _make_matrix_mock_session(**diag_overrides: Any) -> MagicMock:
+    """Create a MagicMock Matrix session with sensible diagnostic defaults.
+
+    Returns a ``MagicMock`` whose ``diagnostics()`` returns a mock diag
+    object pre-populated with the common Matrix session diagnostic attrs.
+    Pass keyword overrides to customise specific diag attributes (e.g.
+    ``last_sync_error``, ``reconnecting``).
+    """
+    mock_session = MagicMock()
+    mock_diag = MagicMock()
+    # Sensible defaults matching a healthy, logged-in, plaintext session.
+    mock_diag.connected = True
+    mock_diag.logged_in = True
+    mock_diag.sync_task_running = True
+    mock_diag.last_sync_error = None
+    mock_diag.store_path_configured = False
+    mock_diag.device_id_configured = False
+    mock_diag.encryption_mode = "plaintext"
+    mock_diag.crypto_enabled = False
+    mock_diag.last_crypto_error = None
+    mock_diag.encrypted_room_seen = False
+    mock_diag.undecryptable_event_count = 0
+    mock_diag.sync_running = True
+    mock_diag.reconnecting = False
+    mock_diag.reconnect_attempts = 0
+    mock_diag.last_successful_sync = None
+    mock_diag.crypto_store_loaded = False
+    mock_diag.olm_loaded = False
+    mock_diag.store_loaded = False
+    mock_diag.device_keys_uploaded = False
+    mock_diag.key_query_needed = False
+    mock_diag.device_id_in_use = None
+    mock_diag.store_path_exists = False
+    mock_diag.initial_sync_completed = False
+    mock_diag.encrypted_room_count = 0
+    mock_diag.plaintext_room_count = 0
+    # Apply caller overrides.
+    for key, value in diag_overrides.items():
+        setattr(mock_diag, key, value)
+    mock_session.diagnostics.return_value = mock_diag
+    return mock_session
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -376,34 +419,9 @@ class TestMatrixDiagnostics:
 
     def test_last_error_alias_with_session_error(self, matrix_adapter) -> None:
         """When session has a sync error, both keys reflect it."""
-        mock_session = MagicMock()
-        mock_diag = MagicMock()
-        mock_diag.connected = True
-        mock_diag.logged_in = True
-        mock_diag.sync_task_running = True
-        mock_diag.last_sync_error = Exception("sync failed")
-        mock_diag.store_path_configured = False
-        mock_diag.device_id_configured = False
-        mock_diag.encryption_mode = "plaintext"
-        mock_diag.crypto_enabled = False
-        mock_diag.last_crypto_error = None
-        mock_diag.encrypted_room_seen = False
-        mock_diag.undecryptable_event_count = 0
-        mock_diag.sync_running = True
-        mock_diag.reconnecting = False
-        mock_diag.reconnect_attempts = 0
-        mock_diag.last_successful_sync = None
-        mock_diag.crypto_store_loaded = False
-        mock_diag.olm_loaded = False
-        mock_diag.store_loaded = False
-        mock_diag.device_keys_uploaded = False
-        mock_diag.key_query_needed = False
-        mock_diag.device_id_in_use = None
-        mock_diag.store_path_exists = False
-        mock_diag.initial_sync_completed = False
-        mock_diag.encrypted_room_count = 0
-        mock_diag.plaintext_room_count = 0
-        mock_session.diagnostics.return_value = mock_diag
+        mock_session = _make_matrix_mock_session(
+            last_sync_error=Exception("sync failed"),
+        )
         matrix_adapter._session = mock_session
 
         diag = matrix_adapter.diagnostics()
@@ -629,34 +647,11 @@ class TestMatrixLastErrorAlias:
         assert diag["last_sync_error"] is None
 
     def test_both_keys_match_with_error(self, matrix_adapter) -> None:
-        mock_session = MagicMock()
-        mock_diag = MagicMock()
-        mock_diag.connected = True
-        mock_diag.logged_in = True
-        mock_diag.sync_task_running = True
-        mock_diag.last_sync_error = RuntimeError("connection lost")
-        mock_diag.store_path_configured = False
-        mock_diag.device_id_configured = False
-        mock_diag.encryption_mode = "plaintext"
-        mock_diag.crypto_enabled = False
-        mock_diag.last_crypto_error = None
-        mock_diag.encrypted_room_seen = False
-        mock_diag.undecryptable_event_count = 0
-        mock_diag.sync_running = True
-        mock_diag.reconnecting = False
-        mock_diag.reconnect_attempts = 2
-        mock_diag.last_successful_sync = 1700000000.0
-        mock_diag.crypto_store_loaded = False
-        mock_diag.olm_loaded = False
-        mock_diag.store_loaded = False
-        mock_diag.device_keys_uploaded = False
-        mock_diag.key_query_needed = False
-        mock_diag.device_id_in_use = None
-        mock_diag.store_path_exists = False
-        mock_diag.initial_sync_completed = False
-        mock_diag.encrypted_room_count = 0
-        mock_diag.plaintext_room_count = 0
-        mock_session.diagnostics.return_value = mock_diag
+        mock_session = _make_matrix_mock_session(
+            last_sync_error=RuntimeError("connection lost"),
+            reconnect_attempts=2,
+            last_successful_sync=1700000000.0,
+        )
         matrix_adapter._session = mock_session
 
         diag = matrix_adapter.diagnostics()
@@ -666,34 +661,11 @@ class TestMatrixLastErrorAlias:
 
     def test_last_error_extracts_str_from_exception(self, matrix_adapter) -> None:
         """When last_sync_error is an Exception, last_error gets str(exception)."""
-        mock_session = MagicMock()
-        mock_diag = MagicMock()
-        mock_diag.connected = True
-        mock_diag.logged_in = True
-        mock_diag.sync_task_running = True
-        mock_diag.last_sync_error = TimeoutError("timed out after 30s")
-        mock_diag.store_path_configured = False
-        mock_diag.device_id_configured = False
-        mock_diag.encryption_mode = "plaintext"
-        mock_diag.crypto_enabled = False
-        mock_diag.last_crypto_error = None
-        mock_diag.encrypted_room_seen = False
-        mock_diag.undecryptable_event_count = 0
-        mock_diag.sync_running = True
-        mock_diag.reconnecting = True
-        mock_diag.reconnect_attempts = 5
-        mock_diag.last_successful_sync = None
-        mock_diag.crypto_store_loaded = False
-        mock_diag.olm_loaded = False
-        mock_diag.store_loaded = False
-        mock_diag.device_keys_uploaded = False
-        mock_diag.key_query_needed = False
-        mock_diag.device_id_in_use = None
-        mock_diag.store_path_exists = False
-        mock_diag.initial_sync_completed = False
-        mock_diag.encrypted_room_count = 0
-        mock_diag.plaintext_room_count = 0
-        mock_session.diagnostics.return_value = mock_diag
+        mock_session = _make_matrix_mock_session(
+            last_sync_error=TimeoutError("timed out after 30s"),
+            reconnecting=True,
+            reconnect_attempts=5,
+        )
         matrix_adapter._session = mock_session
 
         diag = matrix_adapter.diagnostics()

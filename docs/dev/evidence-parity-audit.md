@@ -266,7 +266,7 @@ Ranked by operational value — the value each fix provides to operators diagnos
 **Operational value:** Highest. When an adapter fails to start or crashes, operators need to see `connected: false`, `reconnecting: false`, `reconnect_attempts: 0`, etc. Without this, pre-start and post-failure diagnostics are nearly empty for Meshtastic, MeshCore, and LXMF. This is the single highest-impact evidence gap because it affects the scenarios where diagnostics matter most.
 **Implementation pattern (from Matrix):**
 
-```
+```python
 if session is None:
     return {
         "connected": False,

@@ -16,6 +16,7 @@ No network, no hardware, no Docker.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -37,13 +38,12 @@ from medre.core.rendering.renderer import RenderingResult
 # Helpers
 # ---------------------------------------------------------------------------
 
-_COUNT = 0
+
+_COUNT = itertools.count()
 
 
 def _unique_id(prefix: str = "id") -> str:
-    global _COUNT
-    _COUNT += 1
-    return f"{prefix}-{_COUNT}"
+    return f"{prefix}-{next(_COUNT)}"
 
 
 def _make_context(
@@ -564,7 +564,9 @@ async def test_meshcore_deliver_no_content_no_result():
     # FakeMeshCoreAdapter sends empty text, so it does produce a result.
     # The real MeshCoreAdapter also returns a result because send_text
     # doesn't check for empty text. This test documents the actual behavior.
-    assert result is not None or result is None  # documents whatever it does
+    assert (
+        result is not None
+    )  # FakeMeshCoreAdapter produces a result even with empty payload
 
     await adapter.stop()
 
@@ -575,7 +577,7 @@ async def test_lxmf_deliver_no_content_no_title_returns_none():
     ctx = _make_context(adapter_id=adapter.adapter_id)
     await adapter.start(ctx)
 
-    await adapter.deliver(
+    result = await adapter.deliver(
         _make_rendering_result(
             adapter_id=adapter.adapter_id,
             payload={"destination_hash": "ab" * 16},
@@ -583,8 +585,8 @@ async def test_lxmf_deliver_no_content_no_title_returns_none():
     )
 
     # FakeLxmfAdapter doesn't have the not content and not title guard
-    # that real LxmfAdapter has. Test documents the gap.
-    # Real adapter: assert result is None
+    # that real LxmfAdapter has, so it returns a result rather than None.
+    assert result is not None  # FakeLxmfAdapter lacks the empty-content guard
 
     await adapter.stop()
 
@@ -689,6 +691,7 @@ async def test_meshcore_on_message_async_checks_ctx_on_publish():
     assert len(adapter._background_tasks) == 1
 
     # Clear ctx before the async task runs.
+    original_ctx = adapter.ctx
     adapter.ctx = None
     await asyncio.sleep(0)
     await adapter._drain_background_tasks(timeout=1.0)
@@ -696,5 +699,189 @@ async def test_meshcore_on_message_async_checks_ctx_on_publish():
     # The async handler checks ctx, so nothing should publish.
     assert len(published) == 0, "_on_message_async must not publish when ctx is None"
 
-    # Cleanup
+    # Cleanup: restore ctx before stop so teardown is clean.
+    adapter.ctx = original_ctx
     await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# Bounded dedup eviction tests
+# ---------------------------------------------------------------------------
+
+
+async def test_meshcore_dedup_evicts_oldest_at_capacity():
+    """MeshCore dedup evicts the oldest entry when it exceeds capacity.
+
+    Fills the dedup beyond its max size and verifies that:
+    1. The oldest entry is evicted (replaying it succeeds).
+    2. Recent entries are still suppressed.
+    """
+    from medre.adapters.meshcore.adapter import _DEDUP_MAX_SIZE
+
+    config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
+    adapter = MeshCoreAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    first_packet = _meshcore_text_packet(
+        text="first",
+        pubkey_prefix="evict",
+        sender_timestamp=1,
+        channel_idx=0,
+    )
+    await adapter.simulate_inbound(first_packet)
+    assert len(published) == 1
+
+    # Fill with enough distinct packets to exceed capacity.
+    for i in range(_DEDUP_MAX_SIZE + 1):
+        await adapter.simulate_inbound(
+            _meshcore_text_packet(
+                text=f"fill-{i}",
+                pubkey_prefix="fill",
+                sender_timestamp=1000 + i,
+                channel_idx=0,
+            )
+        )
+
+    # The first packet's dedup entry should have been evicted, so it
+    # publishes again.
+    await adapter.simulate_inbound(first_packet)
+    assert (
+        len(published) >= 3
+    ), "first packet should publish again after eviction from bounded dedup"
+
+    # The most recent fill packet should still be deduped.
+    last_fill_packet = _meshcore_text_packet(
+        text=f"fill-{_DEDUP_MAX_SIZE}",
+        pubkey_prefix="fill",
+        sender_timestamp=1000 + _DEDUP_MAX_SIZE,
+        channel_idx=0,
+    )
+    count_before = len(published)
+    await adapter.simulate_inbound(last_fill_packet)
+    assert (
+        len(published) == count_before
+    ), "recent entry must still be deduped within capacity"
+
+    await adapter.stop()
+
+
+async def test_lxmf_dedup_evicts_oldest_at_capacity():
+    """LXMF dedup evicts the oldest entry when it exceeds capacity."""
+    from medre.adapters.lxmf.adapter import _DEDUP_MAX_SIZE
+
+    config = LxmfConfig(adapter_id=_unique_id("lx"), connection_type="fake")
+    adapter = LxmfAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    first_msg_id = "00" * 32
+    first_packet = _lxmf_text_packet(content="first", message_id=first_msg_id)
+    await adapter.simulate_inbound(first_packet)
+    assert len(published) == 1
+
+    # Fill with enough distinct packets to exceed capacity.
+    for i in range(_DEDUP_MAX_SIZE + 1):
+        await adapter.simulate_inbound(
+            _lxmf_text_packet(
+                content=f"fill-{i}",
+                message_id=f"{i:064x}",
+            )
+        )
+
+    # The first packet's dedup entry should have been evicted.
+    await adapter.simulate_inbound(first_packet)
+    assert (
+        len(published) >= 3
+    ), "first message should publish again after eviction from bounded dedup"
+
+    # The most recent fill packet should still be deduped.
+    last_fill_id = f"{_DEDUP_MAX_SIZE:064x}"
+    last_fill_packet = _lxmf_text_packet(
+        content=f"fill-{_DEDUP_MAX_SIZE}",
+        message_id=last_fill_id,
+    )
+    count_before = len(published)
+    await adapter.simulate_inbound(last_fill_packet)
+    assert (
+        len(published) == count_before
+    ), "recent entry must still be deduped within capacity"
+
+    await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# Early stop gating tests
+# ---------------------------------------------------------------------------
+
+
+async def test_meshcore_stop_gates_callbacks_before_drain():
+    """MeshCore stop() sets _started=False before draining tasks.
+
+    This means _on_message cannot create new tasks after stop() begins,
+    even before _drain_background_tasks completes.
+    """
+    config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
+    adapter = MeshCoreAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    # Inject a packet via _on_message to create a background task.
+    packet = _meshcore_text_packet()
+    adapter._on_message(packet)
+    assert len(adapter._background_tasks) == 1
+
+    # stop() should set _started=False first, then drain.
+    # After stop(), _started must be False.
+    await adapter.stop()
+    assert not adapter._started, "stop() must clear _started"
+
+    # A late callback after stop must not create tasks.
+    adapter._on_message(packet)
+    assert (
+        adapter._background_tasks == set()
+    ), "no new tasks from _on_message after stop()"
+
+
+async def test_lxmf_stop_gates_callbacks_before_drain():
+    """LXMF stop() sets _started=False before draining tasks."""
+    config = LxmfConfig(adapter_id=_unique_id("lx"), connection_type="fake")
+    adapter = LxmfAdapter(config)
+
+    published: list[object] = []
+
+    async def track_publish(event: object) -> None:
+        published.append(event)
+
+    ctx = _make_context(adapter_id=adapter.adapter_id, publish_inbound=track_publish)
+    await adapter.start(ctx)
+
+    packet = _lxmf_text_packet()
+    adapter._on_packet(packet)
+    assert len(adapter._background_tasks) == 1
+
+    await adapter.stop()
+    assert not adapter._started, "stop() must clear _started"
+
+    adapter._on_packet(packet)
+    assert (
+        adapter._background_tasks == set()
+    ), "no new tasks from _on_packet after stop()"

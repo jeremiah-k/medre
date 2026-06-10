@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections import OrderedDict
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -100,6 +101,9 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
     max_text_bytes=512,
     max_text_chars=None,
 )
+
+# Maximum entries in the inbound dedup OrderedDict (LRU eviction).
+_DEDUP_MAX_SIZE = 1024
 
 
 class _HasClassifierCounters(Protocol):
@@ -220,12 +224,15 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
-        # Inbound dedup set: keyed by (pubkey_prefix, sender_timestamp, channel_idx, text).
+        # Inbound dedup: keyed by (pubkey_prefix, sender_timestamp, channel_idx, text).
         # Prevents duplicate events from SDK redelivery (e.g., reconnect replay).
         # Including text ensures distinct payloads sharing the same packet_id are
         # both processed, while exact replays of the same packet are suppressed.
-        # Cleared on stop/start boundaries.
-        self._inbound_dedup: set[tuple[str, int, int | None, str]] = set()
+        # Bounded OrderedDict — oldest entries evicted when full. Cleared on
+        # stop/start boundaries.
+        self._inbound_dedup: OrderedDict[tuple[str, int, int | None, str], None] = (
+            OrderedDict()
+        )
 
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
@@ -308,6 +315,10 @@ class MeshCoreAdapter(AdapterContract):
         if not self._started:
             return
 
+        # Gate callbacks immediately — prevents race between drain completing
+        # and session.stop() unsubscribing.
+        self._started = False
+
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
@@ -316,7 +327,6 @@ class MeshCoreAdapter(AdapterContract):
             await self._session.stop()
             self._session = None
 
-        self._started = False
         if self.ctx is not None:
             self.ctx.logger.info("MeshCoreAdapter %s stopped", self.adapter_id)
 
@@ -497,6 +507,7 @@ class MeshCoreAdapter(AdapterContract):
             # Dedup: suppress exact duplicate packets by identity + content.
             # Text is included so distinct payloads with reused packet_id
             # are both processed while exact replays are suppressed.
+            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
             dedup_key = (
                 classification.sender_id or "",
                 classification.packet_id or 0,
@@ -505,7 +516,9 @@ class MeshCoreAdapter(AdapterContract):
             )
             if dedup_key in self._inbound_dedup:
                 return
-            self._inbound_dedup.add(dedup_key)
+            self._inbound_dedup[dedup_key] = None
+            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                self._inbound_dedup.popitem(last=False)
 
             canonical = self._codec.decode(packet)
             # Schedule the async publish — _on_message is synchronous
@@ -580,7 +593,9 @@ class MeshCoreAdapter(AdapterContract):
         )
         if dedup_key in self._inbound_dedup:
             return
-        self._inbound_dedup.add(dedup_key)
+        self._inbound_dedup[dedup_key] = None
+        if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+            self._inbound_dedup.popitem(last=False)
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
