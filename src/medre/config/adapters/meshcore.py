@@ -124,12 +124,28 @@ class MeshCoreConfig:
                 f"connection_type must be one of fake/tcp/serial/ble, "
                 f"got {self.connection_type!r}"
             )
+        # --- numeric fields ---
+        if isinstance(self.message_delay_seconds, bool):
+            raise MeshCoreConfigError(
+                "message_delay_seconds must be int or float, got bool"
+            )
+        if not isinstance(self.message_delay_seconds, (int, float)):
+            raise MeshCoreConfigError(
+                f"message_delay_seconds must be int or float, "
+                f"got {type(self.message_delay_seconds).__name__}"
+            )
         if not math.isfinite(self.message_delay_seconds):
             raise MeshCoreConfigError("message_delay_seconds must be finite")
         if self.message_delay_seconds < 0:
             raise MeshCoreConfigError(
                 f"message_delay_seconds must be >= 0, "
                 f"got {self.message_delay_seconds}"
+            )
+        if isinstance(self.default_channel, bool):
+            raise MeshCoreConfigError("default_channel must be an int, got bool")
+        if not isinstance(self.default_channel, int):
+            raise MeshCoreConfigError(
+                f"default_channel must be an int, got {type(self.default_channel).__name__}"
             )
         if self.default_channel < 0:
             raise MeshCoreConfigError(

@@ -655,13 +655,13 @@ class MeshCoreSession:
         elif isinstance(appstart_result, dict):
             payload = appstart_result
 
-        if payload is None:
-            return
-
         # Reset to avoid stale values across reconnects when payload is partial.
         self._diag.device_name = None
         self._diag.public_key_prefix = None
         self._diag.radio_freq = None
+
+        if payload is None:
+            return
 
         # Device name.
         name = payload.get("name")

@@ -41,6 +41,8 @@ Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics(
 
 **Meshtastic/MeshCore note:** Session-level diagnostics are exposed via a `session` sub-dict within the adapter-level diagnostics dict.
 
+**MeshCore exception:** MeshCore does not currently expose a `health` key in its diagnostics output. The `health` key is provided via `health_check()` returning `AdapterInfo`, not via the `diagnostics()` dict.
+
 **LXMF note:** Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top.
 
 These eight keys are contractual for the current version. They SHALL NOT be removed or have their types changed without a version bump.

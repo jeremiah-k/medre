@@ -145,12 +145,27 @@ class LxmfConfig:
             )
 
         # --- numeric fields ---
+        if isinstance(self.message_delay_seconds, bool):
+            raise LxmfConfigError(
+                "message_delay_seconds must be int or float, got bool"
+            )
+        if not isinstance(self.message_delay_seconds, (int, float)):
+            raise LxmfConfigError(
+                f"message_delay_seconds must be int or float, "
+                f"got {type(self.message_delay_seconds).__name__}"
+            )
         if not math.isfinite(self.message_delay_seconds):
             raise LxmfConfigError("message_delay_seconds must be finite")
         if self.message_delay_seconds < 0:
             raise LxmfConfigError(
                 f"message_delay_seconds must be >= 0, "
                 f"got {self.message_delay_seconds}"
+            )
+        if isinstance(self.default_channel, bool):
+            raise LxmfConfigError("default_channel must be an int, got bool")
+        if not isinstance(self.default_channel, int):
+            raise LxmfConfigError(
+                f"default_channel must be an int, got {type(self.default_channel).__name__}"
             )
         if self.default_channel < 0:
             raise LxmfConfigError(
