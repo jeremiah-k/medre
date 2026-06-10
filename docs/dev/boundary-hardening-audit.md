@@ -159,8 +159,8 @@ Do `diagnostics()` and `health_check()` return only JSON-safe primitives?
 
 Do adapters release all resources (SDK clients, tasks, futures) on `stop()`?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                         |
-| -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter        | Status                  | Evidence                                                                                                                                                                                                                                                                         |
+| -------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Matrix**     | **Bounded best-effort** | `stop()` calls `session.stop()` which cancels sync task and closes nio client. Adapter sets `_session = None`.                                                                                                                                                                   |
 | **Meshtastic** | **Bounded best-effort** | `stop()` clears `_started`, cancels drain task, drains background tasks (bounded timeout with detach observer), calls `session.stop()` which closes client and unsubscribes pubsub. `_session = None`.                                                                           |
 | **MeshCore**   | **Bounded best-effort** | `stop()` sets `_started = False` before drain, drains background tasks with `return_exceptions=True`, calls `session.stop()` which unsubscribes, stops auto-fetching, disconnects SDK client. `_session = None`.                                                                 |
@@ -183,21 +183,21 @@ Do adapters suppress reconnect attempts after `stop()` is called?
 
 ## Summary Matrix
 
-| Boundary Vector             | Matrix         | Meshtastic     | MeshCore       | LXMF           |
-| --------------------------- | -------------- | -------------- | -------------- | -------------- |
-| 1. Malformed SDK data       | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 2. Missing identifiers      | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 3. Duplicate inbound events | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 4. Stale callbacks          | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 5. Reconnect races          | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 6. Shutdown races           | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 7. Callback-after-stop      | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 8. Metadata namespace       | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 9. Delivery result contract | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 10. Exception normalization | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| 11. Diagnostics plain-data  | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| Boundary Vector             | Matrix                 | Meshtastic             | MeshCore               | LXMF                   |
+| --------------------------- | ---------------------- | ---------------------- | ---------------------- | ---------------------- |
+| 1. Malformed SDK data       | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 2. Missing identifiers      | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 3. Duplicate inbound events | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 4. Stale callbacks          | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 5. Reconnect races          | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 6. Shutdown races           | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 7. Callback-after-stop      | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 8. Metadata namespace       | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 9. Delivery result contract | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 10. Exception normalization | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
+| 11. Diagnostics plain-data  | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
 | 12. Resource release        | ✅ Bounded best-effort | ✅ Bounded best-effort | ✅ Bounded best-effort | ✅ Bounded best-effort |
-| 13. Reconnect suppression   | ✅ Implemented | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| 13. Reconnect suppression   | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         | ✅ Implemented         |
 
 **Overall**: Vectors 1 through 11 and 13 are fully implemented with test coverage (48 of 52 adapter-vector cells). Vector 12 (resource release) is scoped as bounded best-effort drain for normal background tasks; strict guaranteed release for cancellation-resistant tasks is future resilience work (see vector 12 note). All previously identified gaps (G1, G2, G3) have been resolved.
 

@@ -167,14 +167,14 @@ Shutdown evidence is runtime-level (`ShutdownEvidence` dataclass) and not adapte
 
 ### 5.6 Ingress Evidence
 
-| Aspect               | Matrix                 | Meshtastic                   | MeshCore    | LXMF    |
-| -------------------- | ---------------------- | ---------------------------- | ----------- | ------- |
-| Classifier counters  | N/A (not packet-based) | 12 counters                  | 10 counters | N/A     |
-| `inbound_published`  | Present                | Present                      | Present     | Present |
-| Suppression counters | 4 types                | 1 (startup backlog)          | None        | None    |
-| Startup backlog      | None                   | `startup_backlog_*` (3 keys) | None        | None    |
+| Aspect               | Matrix                 | Meshtastic                   | MeshCore    | LXMF       |
+| -------------------- | ---------------------- | ---------------------------- | ----------- | ---------- |
+| Classifier counters  | N/A (not packet-based) | 12 counters                  | 10 counters | N/A        |
+| `inbound_published`  | Present                | Present                      | Present     | **Absent** |
+| Suppression counters | 4 types                | 1 (startup backlog)          | None        | None       |
+| Startup backlog      | None                   | `startup_backlog_*` (3 keys) | None        | None       |
 
-**Gap:** MeshCore has classifier counters but no suppression breakdown. LXMF has only `inbound_published` with no classifier or suppression counters. This is expected given the different transport models (LXMF is not packet-classification-based in the same way).
+**Gap:** MeshCore has classifier counters but no suppression breakdown. LXMF does not expose an `inbound_published` counter — the adapter's `diagnostics()` output contains no ingress counting fields. This is expected given LXMF's different transport model (callback-driven message reception rather than packet classification), but the absence should be noted for operators comparing adapter diagnostics.
 
 ### 5.7 Adapter Health Evidence
 
@@ -316,23 +316,23 @@ This audit observes the following constraints, which any implementation work mus
 
 ## 9. Sources Examined
 
-| Source                                              | Purpose                                                                                       |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `docs/spec/diagnostics-evidence.md`                 | Normative contract for 8 common keys, evidence classification, observational caveat           |
-| `src/medre/core/evidence/adapter_status.py`         | `AdapterStatusEvidence` dataclass, operator status derivation                                 |
-| `src/medre/core/supervision/diagnostic_contract.py` | `normalize_diagnostics()`, `COMMON_DIAGNOSTIC_KEYS`, sanitization                             |
-| `docs/dev/runtime-evidence-completeness-audit.md`   | Runtime evidence surface inventory, event taxonomy                                            |
-| `docs/dev/testing.md`                               | Testing rules, file size limits, evidence honesty                                             |
-| `tests/test_adapter_health.py`                      | Health normalization tests, vocabulary coverage                                               |
-| `tests/test_adapter_status_evidence.py`             | Operator status derivation, lifecycle state mapping                                           |
-| `src/medre/adapters/matrix/adapter.py`              | Matrix diagnostics implementation (lines 806–896)                                             |
-| `src/medre/adapters/matrix/session.py`              | `MatrixSessionDiagnostics` dataclass (lines 105–139)                                          |
-| `src/medre/adapters/meshtastic/adapter.py`          | Meshtastic diagnostics implementation (lines 750–825)                                         |
-| `src/medre/adapters/meshtastic/session.py`          | `MeshtasticSessionDiagnostics` dataclass (lines 70–85)                                        |
-| `src/medre/adapters/meshcore/adapter.py`            | MeshCore diagnostics implementation (lines 559–584)                                           |
-| `src/medre/adapters/meshcore/session.py`            | MeshCore `_SessionDiagnostics` dataclass (lines 120–133), session diagnostics (lines 422–443) |
-| `src/medre/adapters/lxmf/adapter.py`                | LXMF diagnostics implementation (lines 229–259)                                               |
-| `src/medre/adapters/lxmf/session.py`                | `LxmfSessionDiagnostics` dataclass (lines 326–344)                                            |
+| Source                                              | Purpose                                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `docs/spec/diagnostics-evidence.md`                 | Normative contract for 8 common keys, evidence classification, observational caveat       |
+| `src/medre/core/evidence/adapter_status.py`         | `AdapterStatusEvidence` dataclass, operator status derivation                             |
+| `src/medre/core/supervision/diagnostic_contract.py` | `normalize_diagnostics()`, `COMMON_DIAGNOSTIC_KEYS`, sanitization                         |
+| `docs/dev/runtime-evidence-completeness-audit.md`   | Runtime evidence surface inventory, event taxonomy                                        |
+| `docs/dev/testing.md`                               | Testing rules, file size limits, evidence honesty                                         |
+| `tests/test_adapter_health.py`                      | Health normalization tests, vocabulary coverage                                           |
+| `tests/test_adapter_status_evidence.py`             | Operator status derivation, lifecycle state mapping                                       |
+| `src/medre/adapters/matrix/adapter.py`              | `MatrixAdapter.diagnostics()` method                                                      |
+| `src/medre/adapters/matrix/session.py`              | `MatrixSessionDiagnostics` dataclass, `MatrixSession.diagnostics()` method                |
+| `src/medre/adapters/meshtastic/adapter.py`          | `MeshtasticAdapter.diagnostics()` method                                                  |
+| `src/medre/adapters/meshtastic/session.py`          | `MeshtasticSessionDiagnostics` dataclass, `MeshtasticSession.diagnostics()` method        |
+| `src/medre/adapters/meshcore/adapter.py`            | `MeshCoreAdapter.diagnostics()` method                                                    |
+| `src/medre/adapters/meshcore/session.py`            | `_SessionDiagnostics` dataclass, `MeshCoreSession.diagnostics()` method                   |
+| `src/medre/adapters/lxmf/adapter.py`                | `LxmfAdapter.diagnostics()` method                                                        |
+| `src/medre/adapters/lxmf/session.py`                | `LxmfSessionDiagnostics` / `_SessionDiagnostics` dataclasses, `LxmfSession.diagnostics()` |
 
 ## 10. Validation Surfaces
 

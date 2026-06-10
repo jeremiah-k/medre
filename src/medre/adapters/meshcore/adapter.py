@@ -224,12 +224,12 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
-        # Inbound dedup: keyed by (pubkey_prefix, sender_timestamp, channel_idx, text).
-        # Prevents duplicate events from SDK redelivery (e.g., reconnect replay).
-        # Including text ensures distinct payloads sharing the same packet_id are
-        # both processed, while exact replays of the same packet are suppressed.
-        # Bounded OrderedDict — least-recently-seen entries evicted when full.
-        # Cleared on stop/start boundaries.
+        # Inbound dedup: keyed by (classification.sender_id, classification.packet_id,
+        # classification.channel_index, text). Prevents duplicate events from SDK
+        # redelivery (e.g., reconnect replay). Including text ensures distinct payloads
+        # sharing the same packet_id are both processed, while exact replays of the same
+        # packet are suppressed. Bounded OrderedDict — least-recently-seen entries
+        # evicted when full. Cleared on stop/start boundaries.
         self._inbound_dedup: OrderedDict[tuple[str, int, int | None, str], None] = (
             OrderedDict()
         )
