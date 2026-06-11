@@ -238,7 +238,16 @@ class MeshCoreAdapter(AdapterContract):
         self._session: MeshCoreSession | None = None
 
         # Cached health string from last health_check() call.
+        # None before the first health_check() in each lifecycle;
+        # cleared on start/stop so diagnostics never reports a stale
+        # health string from a previous session.
         self._last_health: str | None = None
+
+        # Monotonically increasing epoch counter bumped on each
+        # start/stop lifecycle transition.  Allows diagnostics consumers
+        # to detect that a health value belongs to a previous lifecycle
+        # even if _last_health is None (pre-start state after restart).
+        self._health_lifecycle_epoch: int = 0
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -283,6 +292,7 @@ class MeshCoreAdapter(AdapterContract):
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
         self._last_health = None
+        self._health_lifecycle_epoch += 1
 
         self._reset_inbound_counters()
 
@@ -325,6 +335,7 @@ class MeshCoreAdapter(AdapterContract):
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
+        self._health_lifecycle_epoch += 1
 
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
@@ -677,6 +688,7 @@ class MeshCoreAdapter(AdapterContract):
             "started": self._started,
             "mode": self._config.connection_type,
             "health": self._last_health,
+            "health_lifecycle_epoch": self._health_lifecycle_epoch,
             "classifier_packets_seen": self._classifier_packets_seen,
             "classifier_packets_relayed": self._classifier_packets_relayed,
             "classifier_packets_ignored": self._classifier_packets_ignored,
@@ -704,6 +716,9 @@ class MeshCoreAdapter(AdapterContract):
                 "public_key_prefix": None,
                 "radio_freq": None,
                 "mode": self._config.connection_type,
+                "sdk_suggested_timeouts_used": 0,
+                "known_contact_count": 0,
+                "last_contact_update_time": None,
             }
         return base
 

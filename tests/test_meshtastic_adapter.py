@@ -364,7 +364,7 @@ class TestMeshtasticAdapterPubsubSubscription:
     async def test_successful_subscription_calls_pub_subscribe(
         self, make_adapter_context, monkeypatch
     ) -> None:
-        """start() calls pub.subscribe on non-fake connection."""
+        """start() calls pub.subscribe for receive and connection.lost."""
         subscribed = []
 
         def fake_subscribe(callback, topic):
@@ -388,8 +388,10 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert len(subscribed) == 1
-        assert subscribed[0] == ("_on_receive", "meshtastic.receive")
+        assert len(subscribed) == 2
+        topics = [s[1] for s in subscribed]
+        assert "meshtastic.receive" in topics
+        assert "meshtastic.connection.lost" in topics
         await adapter.stop()
 
     async def test_subscription_failure_during_start_raises(self, monkeypatch) -> None:
@@ -1075,3 +1077,94 @@ class TestMeshtasticLastHealthLifecycleBoundary:
 
         await adapter.stop()
         assert adapter._last_health is None
+
+
+# ===================================================================
+# Diagnostics health key follows tranche lifecycle rule
+# ===================================================================
+
+
+async def test_diagnostics_health_none_before_first_health_check(
+    make_adapter_context,
+) -> None:
+    """diagnostics()['health'] is None before the first health_check() call."""
+    config = make_meshtastic_config(connection_type="fake")
+    adapter = MeshtasticAdapter(config)
+    ctx = make_adapter_context("mesh-1")
+
+    # Before start
+    assert adapter.diagnostics()["health"] is None
+
+    await adapter.start(ctx)
+
+    # After start but before health_check
+    assert adapter.diagnostics()["health"] is None
+
+    await adapter.stop()
+
+
+async def test_diagnostics_health_populated_after_health_check(
+    make_adapter_context,
+) -> None:
+    """diagnostics()['health'] reflects the last health_check() result."""
+    config = make_meshtastic_config(connection_type="fake")
+    adapter = MeshtasticAdapter(config)
+    ctx = make_adapter_context("mesh-1")
+    await adapter.start(ctx)
+
+    await adapter.health_check()
+    assert adapter.diagnostics()["health"] == "healthy"
+
+    await adapter.stop()
+
+
+async def test_diagnostics_health_cleared_on_stop(
+    make_adapter_context,
+) -> None:
+    """diagnostics()['health'] is None after stop (regardless of prior value)."""
+    config = make_meshtastic_config(connection_type="fake")
+    adapter = MeshtasticAdapter(config)
+    ctx = make_adapter_context("mesh-1")
+    await adapter.start(ctx)
+
+    await adapter.health_check()
+    assert adapter.diagnostics()["health"] == "healthy"
+
+    await adapter.stop()
+    assert adapter.diagnostics()["health"] is None
+
+
+async def test_diagnostics_health_cleared_on_restart(
+    make_adapter_context,
+) -> None:
+    """diagnostics()['health'] is None after stop->start cycle (before new health_check)."""
+    config = make_meshtastic_config(connection_type="fake")
+    adapter = MeshtasticAdapter(config)
+    ctx = make_adapter_context("mesh-1")
+
+    # Full cycle: start -> health_check -> stop -> start
+    await adapter.start(ctx)
+    await adapter.health_check()
+    assert adapter.diagnostics()["health"] == "healthy"
+    await adapter.stop()
+
+    # Restart with stale value injected to prove it's cleared
+    adapter._last_health = "degraded"
+    ctx2 = make_adapter_context("mesh-2")
+    await adapter.start(ctx2)
+
+    # Before health_check, diagnostics must show None
+    assert adapter.diagnostics()["health"] is None
+
+    # After health_check, it shows the correct value
+    await adapter.health_check()
+    assert adapter.diagnostics()["health"] == "healthy"
+
+    await adapter.stop()
+
+
+async def test_diagnostics_health_none_on_never_started() -> None:
+    """diagnostics()['health'] is None when adapter was never started."""
+    config = make_meshtastic_config(connection_type="fake")
+    adapter = MeshtasticAdapter(config)
+    assert adapter.diagnostics()["health"] is None

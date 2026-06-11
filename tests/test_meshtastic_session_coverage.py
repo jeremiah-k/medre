@@ -394,8 +394,7 @@ class TestRefreshNodeId:
 class TestUnsubscribeCallbacksExceptionPath:
     """_unsubscribe_callbacks swallows exceptions from pubsub import/unsub.
 
-    Covers session.py line 725: the ``pass`` in the ``except Exception``
-    block.  When ``from pubsub import pub`` fails or ``pub.unsubscribe``
+    When ``from pubsub import pub`` fails or ``pub.unsubscribe``
     raises, the method must not propagate the error.
     """
 
@@ -631,3 +630,308 @@ class TestOnReceiveLazyNodeIdRefresh:
         # Second packet: lazy refresh succeeds
         session._on_receive({"fromId": "!aabbccdd"})
         assert session._node_id == "!cafebabe"
+
+
+# ===================================================================
+# Connection-lost subscription
+# ===================================================================
+
+
+def _patch_pubsub_for_session(
+    monkeypatch: pytest.MonkeyPatch,
+    subscribe_fn=None,
+    unsubscribe_fn=None,
+) -> dict[str, list]:
+    """Patch pubsub module for session connection-lost tests.
+
+    Returns a dict with ``subscribe_calls`` and ``unsubscribe_calls``
+    lists for asserting subscription behavior.
+    """
+    calls: dict[str, list] = {"subscribe_calls": [], "unsubscribe_calls": []}
+
+    def tracking_subscribe(callback, topic):
+        calls["subscribe_calls"].append((callback, topic))
+
+    def tracking_unsubscribe(callback, topic):
+        calls["unsubscribe_calls"].append((callback, topic))
+
+    fake_pubsub = types.ModuleType("pubsub")
+    fake_pub = types.ModuleType("pubsub.pub")
+    fake_pub.subscribe = subscribe_fn or tracking_subscribe
+    fake_pub.unsubscribe = unsubscribe_fn or tracking_unsubscribe
+    fake_pubsub.pub = fake_pub
+    monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+    monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+    return calls
+
+
+class TestConnectionLostSubscription:
+    """Session subscribes to meshtastic.connection.lost for automatic reconnect."""
+
+    async def test_subscribe_callbacks_subscribes_to_connection_lost(
+        self, monkeypatch
+    ) -> None:
+        """_subscribe_callbacks() subscribes to meshtastic.connection.lost."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        calls = _patch_pubsub_for_session(monkeypatch)
+
+        await session.start()
+        try:
+            # Both meshtastic.receive and meshtastic.connection.lost subscribed
+            topics = [c[1] for c in calls["subscribe_calls"]]
+            assert "meshtastic.receive" in topics
+            assert "meshtastic.connection.lost" in topics
+            assert session._subscribed_connection_lost is True
+        finally:
+            await session.stop()
+
+    async def test_connection_lost_subscription_failure_non_fatal(
+        self, monkeypatch
+    ) -> None:
+        """Failure to subscribe to connection.lost is non-fatal (session still usable)."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        subscribe_call_count = {"count": 0}
+
+        def selective_subscribe(callback, topic):
+            subscribe_call_count["count"] += 1
+            if topic == "meshtastic.connection.lost":
+                raise RuntimeError("connection.lost topic unavailable")
+
+        _patch_pubsub_for_session(monkeypatch, subscribe_fn=selective_subscribe)
+
+        # Should NOT raise — connection.lost failure is non-fatal
+        await session.start()
+        try:
+            assert session._started is True
+            assert session._subscribed is True
+            assert session._subscribed_connection_lost is False
+        finally:
+            await session.stop()
+
+    async def test_unsubscribe_cleans_up_connection_lost(self, monkeypatch) -> None:
+        """stop() unsubscribes from meshtastic.connection.lost."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        calls = _patch_pubsub_for_session(monkeypatch)
+
+        await session.start()
+        assert session._subscribed_connection_lost is True
+        await session.stop()
+
+        # Check unsubscribe was called for connection.lost
+        unsub_topics = [c[1] for c in calls["unsubscribe_calls"]]
+        assert "meshtastic.connection.lost" in unsub_topics
+        assert session._subscribed_connection_lost is False
+
+    async def test_on_connection_lost_guarded_after_stop(self, monkeypatch) -> None:
+        """_on_connection_lost is a no-op after stop() sets _stop_requested."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        _patch_pubsub_for_session(monkeypatch)
+
+        await session.start()
+        await session.stop()
+
+        # Simulate a late connection-lost event arriving after stop.
+        # Patch notify_connection_lost on the class (session uses __slots__
+        # so instance attribute assignment is not allowed).
+        notify_called = {"called": False}
+
+        def tracking_notify(_self):
+            notify_called["called"] = True
+
+        with patch.object(type(session), "notify_connection_lost", tracking_notify):
+            session._on_connection_lost()
+
+        # notify_connection_lost must NOT have been called (guarded by
+        # _stop_requested or not _started)
+        assert notify_called["called"] is False
+
+    async def test_on_connection_lost_delegates_to_notify(self, monkeypatch) -> None:
+        """_on_connection_lost calls notify_connection_lost when started."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        _patch_pubsub_for_session(monkeypatch)
+
+        await session.start()
+        try:
+            notify_called = {"called": False}
+
+            def tracking_notify(_self):
+                notify_called["called"] = True
+
+            with patch.object(type(session), "notify_connection_lost", tracking_notify):
+                session._on_connection_lost()
+
+            assert notify_called["called"] is True
+        finally:
+            await session.stop()
+
+    async def test_on_connection_lost_ignores_when_not_started(self) -> None:
+        """_on_connection_lost is a no-op when _started is False."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        assert session._started is False
+
+        notify_called = {"called": False}
+
+        def tracking_notify(_self):
+            notify_called["called"] = True
+
+        with patch.object(type(session), "notify_connection_lost", tracking_notify):
+            session._on_connection_lost()
+
+        assert notify_called["called"] is False
+
+
+class TestNotifyConnectionLostThreadSafety:
+    """notify_connection_lost uses call_soon_threadsafe for cross-thread scheduling."""
+
+    async def test_notify_connection_lost_schedules_via_loop(self, monkeypatch) -> None:
+        """notify_connection_lost uses loop.call_soon_threadsafe to schedule reconnect."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="tcp", host="1.2.3.4"
+        )
+        session = _make_session(config)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+
+        def fake_create_client(session_self):
+            return FakeClient()
+
+        monkeypatch.setattr(type(session), "_create_client", fake_create_client)
+
+        _patch_pubsub_for_session(monkeypatch)
+
+        await session.start()
+        try:
+            scheduled = {"called": False}
+            loop = session._loop
+            assert loop is not None
+
+            original_call_ssoon = loop.call_soon_threadsafe
+
+            def tracking_call_ssoon(callback, *args):
+                scheduled["called"] = True
+                original_call_ssoon(callback, *args)
+
+            loop.call_soon_threadsafe = tracking_call_ssoon  # type: ignore[assignment]
+
+            session.notify_connection_lost()
+
+            assert scheduled["called"] is True
+            assert session._last_error == "Connection lost"
+        finally:
+            # Ensure reconnect task doesn't run (it would fail without
+            # a real client to reconnect)
+            session._stop_requested = True
+            if (
+                session._reconnect_task is not None
+                and not session._reconnect_task.done()
+            ):
+                session._reconnect_task.cancel()
+                try:
+                    await asyncio.wait_for(session._reconnect_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            await session.stop()
+
+    async def test_notify_connection_lost_noop_when_no_loop(self) -> None:
+        """notify_connection_lost is a no-op when _loop is None."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._loop = None
+        session._started = True
+
+        # Should not raise
+        session.notify_connection_lost()
+        assert session._last_error == "Connection lost"
+
+    async def test_notify_connection_lost_noop_when_already_reconnecting(
+        self,
+    ) -> None:
+        """notify_connection_lost is a no-op when already reconnecting."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._reconnecting = True
+
+        # Should not schedule a reconnect
+        session.notify_connection_lost()
+        assert session._reconnect_task is None

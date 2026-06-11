@@ -15,8 +15,9 @@ import asyncio
 import hashlib
 import logging
 import random
+import time
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable
 
 import msgspec
 
@@ -64,6 +65,11 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
 _MAX_DELIVERY_RETRIES: int = 3
 _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
+
+# Stale-sync watchdog: health_check reports "degraded" when the last
+# successful sync is older than this threshold (seconds).  Configurable
+# via module constant so tests can patch it without reaching into internals.
+_SYNC_STALE_THRESHOLD_SECONDS: float = 300.0
 
 _PERMANENT_ERRCODES = frozenset(
     {
@@ -239,6 +245,7 @@ class MatrixAdapter(AdapterContract):
         "_session",
         "_sync_failure_stored",
         "_last_health",
+        "_clock",
         "_codec",
         "_relation_handler",
         "_envelope_handler",
@@ -266,6 +273,7 @@ class MatrixAdapter(AdapterContract):
         self._session: MatrixSession | None = None
         self._sync_failure_stored: Exception | None = None
         self._last_health: str | None = None
+        self._clock: Callable[[], float] = time.monotonic
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
@@ -428,6 +436,16 @@ class MatrixAdapter(AdapterContract):
             health = "healthy"
         else:
             health = "failed"
+
+        # Stale-sync watchdog: downgrade "healthy" to "degraded" when
+        # the last successful sync is older than the threshold or has
+        # never completed.  Uses a fakeable clock (``self._clock``) so
+        # tests can control time without fixed sleeps.
+        if health == "healthy" and self._session is not None:
+            last_sync = self._session.last_successful_sync
+            now = self._clock()
+            if last_sync is None or (now - last_sync) > _SYNC_STALE_THRESHOLD_SECONDS:
+                health = "degraded"
 
         self._last_health = health
         return AdapterInfo(

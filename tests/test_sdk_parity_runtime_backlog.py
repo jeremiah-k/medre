@@ -559,22 +559,21 @@ class TestP05MeshCoreNoContactListSubscriptions:
 
 
 # ===================================================================
-# P-06: LXMF — No periodic announce for mesh path discovery
-# Gap type: Behavioral
+# P-06: LXMF — Periodic announce for mesh path discovery
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP06LxmfNoPeriodicAnnounce:
-    """Characterize P-06: LxmfSession has announce task infrastructure
-    but never starts it.
+class TestP06LxmfPeriodicAnnounceImplemented:
+    """Verify P-06 resolution: LxmfSession now has a working periodic
+    announce loop.
 
-    The session defines ``_announce_task`` and cancellation logic in
-    ``stop()``, but no connect path creates the periodic announce task.
-    Without announces, remote peers cannot discover the MEDRE LXMF
-    instance via path propagation.
+    The session creates an ``_announce_task`` when started in non-fake
+    mode with ``announce_interval_seconds > 0`` and a valid delivery
+    destination hash.  Fake mode never creates network-visible announces.
     """
 
-    async def test_announce_task_is_none_after_fake_start(self) -> None:
+    async def test_announce_task_is_none_in_fake_mode(self) -> None:
         """_announce_task remains None after session start (fake mode)."""
         session = _make_lxmf_session(connection_type="fake")
         await session.start()
@@ -582,17 +581,72 @@ class TestP06LxmfNoPeriodicAnnounce:
         assert session._announce_task is None
         await session.stop()
 
-    async def test_announce_task_is_none_after_reticulum_start(self) -> None:
-        """_announce_task remains None after reticulum mode start.
+    async def test_announce_task_created_in_reticulum_mode(self) -> None:
+        """_announce_task is created after reticulum mode start.
 
-        The connect path sets up the router and delivery callback but
-        does not start any periodic announce task.
+        The connect path sets up the router, registers a delivery
+        identity, and starts the periodic announce task.
         """
-        session = _make_lxmf_session(connection_type="reticulum")
+        session = _make_lxmf_session(
+            connection_type="reticulum",
+            announce_interval_seconds=600,
+        )
+
+        mock_dest = MagicMock()
+        mock_dest.hash = b"\x01" * 16
+        mock_router = MagicMock()
+        mock_router.register_delivery_identity.return_value = mock_dest
+        mock_router.register_delivery_callback.return_value = None
 
         mock_rns = MagicMock()
         mock_lxmf = MagicMock()
+        mock_rns.Reticulum.get_instance.return_value = None
+        mock_rns.Reticulum.return_value = MagicMock()
+        mock_rns.Identity.return_value = MagicMock()
+        mock_lxmf.LXMRouter.return_value = mock_router
+
+        with (
+            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
+            patch(
+                "medre.adapters.lxmf.session._require_lxmf",
+                return_value=(mock_rns, mock_lxmf),
+            ),
+        ):
+            await session.start()
+
+        assert session._announce_task is not None
+        assert not session._announce_task.done()
+        await session.stop()
+
+    def test_config_has_announce_interval_seconds(self) -> None:
+        """LxmfConfig defines announce_interval_seconds."""
+        field_names = {f.name for f in dataclass_fields(LxmfConfig)}
+        assert "announce_interval_seconds" in field_names
+
+    def test_announce_task_slot_exists(self) -> None:
+        """Infrastructure for announce task exists (slot + cancel logic)."""
+        source = inspect.getsource(lxmf_session_mod.LxmfSession.stop)
+        assert "_announce_task" in source
+
+    def test_announce_loop_method_exists(self) -> None:
+        """LxmfSession has an _announce_loop method."""
+        assert hasattr(lxmf_session_mod.LxmfSession, "_announce_loop")
+
+    async def test_announce_disabled_when_interval_zero(self) -> None:
+        """_announce_task is None when announce_interval_seconds=0."""
+        session = _make_lxmf_session(
+            connection_type="reticulum",
+            announce_interval_seconds=0,
+        )
+
+        mock_dest = MagicMock()
+        mock_dest.hash = b"\x01" * 16
         mock_router = MagicMock()
+        mock_router.register_delivery_identity.return_value = mock_dest
+        mock_router.register_delivery_callback.return_value = None
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
         mock_rns.Reticulum.get_instance.return_value = None
         mock_rns.Reticulum.return_value = MagicMock()
         mock_rns.Identity.return_value = MagicMock()
@@ -609,54 +663,6 @@ class TestP06LxmfNoPeriodicAnnounce:
 
         assert session._announce_task is None
         await session.stop()
-
-    def test_config_has_no_announce_interval(self) -> None:
-        """LxmfConfig does not define an announce interval field."""
-        field_names = {f.name for f in dataclass_fields(LxmfConfig)}
-        assert "announce_interval_seconds" not in field_names
-        assert "announce_interval" not in field_names
-
-    def test_announce_task_slot_exists(self) -> None:
-        """Infrastructure for announce task exists (slot + cancel logic).
-
-        The field and teardown were added in a prior wave but the actual
-        periodic task was never implemented.  This test documents that
-        the infrastructure is ready for the parity implementation.
-        """
-        source = inspect.getsource(lxmf_session_mod.LxmfSession.stop)
-        assert "_announce_task" in source
-
-    def test_no_announce_call_in_connect_path(self) -> None:
-        """No direct .announce() call exists in any connect/start method.
-
-        Uses regex to detect ``.announce(`` method-call patterns (e.g.
-        ``router.announce(...)``, ``session.announce(...)``) while allowing
-        ``announce_task`` attribute references (no dot-call pattern).
-        The old check ``"announce" not in source or "announce_task" in source``
-        could false-pass when both ``router.announce(...)`` and
-        ``announce_task`` appeared in the same method.
-        """
-        announce_call_re = re.compile(r"\.\s*announce\s*\(")
-        for method_name in (
-            "_connect_fake",
-            "_connect_real",
-            "start",
-        ):
-            if not hasattr(lxmf_session_mod.LxmfSession, method_name):
-                continue
-            source = inspect.getsource(
-                getattr(lxmf_session_mod.LxmfSession, method_name),
-            )
-            matches = [
-                line.strip()
-                for line in source.splitlines()
-                if announce_call_re.search(line) and not line.strip().startswith("#")
-            ]
-            assert len(matches) == 0, (
-                f"Found direct .announce() call in {method_name}: "
-                f"{matches}. "
-                "If periodic announce was implemented, update this test."
-            )
 
 
 # ===================================================================

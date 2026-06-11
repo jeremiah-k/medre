@@ -4,10 +4,11 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has 13,500+ tests with zero network or hardware dependencies.
-Every transport has a fake adapter that exercises the full pipeline. The
-standard `pytest -q` run requires a generous timeout (the full suite can
-exceed 180 s on slower machines). See the [README](../../README.md) for project context and the
+The test suite has 14,000+ tests (14,279 collected at last count; 125
+deselected by the live/docker/hardware marker policy). Every transport has a
+fake adapter that exercises the full pipeline. The standard `pytest -q` run
+requires a generous timeout—the full suite can exceed 600 s on typical
+hardware. See the [README](../../README.md) for project context and the
 [Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
 commands.
 
@@ -425,9 +426,9 @@ edit makes unnecessary.
 
 ```bash
 PYTHONPATH=src pytest -q
-# Expected: 13,500+ collected, live and Docker tests skipped by default.
-# The full suite can take several minutes; use timeout 300 or run subsets
-# during development (see targeted runs below).
+# Expected: 14,279+ collected, ~125 deselected (live/docker/hardware).
+# The full suite takes 600–900 s on typical hardware; use prefix slices
+# during development (see slow-suite partition strategy below).
 ```
 
 This is the primary development command. It runs all unit and fake-pipeline
@@ -456,13 +457,28 @@ python -m compileall -q src tests
 
 ### Full verification
 
-Run all three test tiers plus the compile check before merging:
+Run all three test tiers plus the compile check before merging. Because the
+default suite exceeds 600 s, use the partition strategy from
+[Slow-suite partition strategy](#slow-suite-partition-strategy) to cover the
+full suite in slices:
 
 ```bash
-PYTHONPATH=src pytest -q
-PYTHONPATH=src pytest -m docker -v
-PYTHONPATH=src pytest -m live -v --tb=short
+# 1. Compile check (fast, catches syntax/import errors)
 python -m compileall -q src tests
+
+# 2. Collection check (fast, catches fixture/conftest errors)
+python -m pytest --collect-only -q
+
+# 3. Default suite in prefix slices (see partition commands above)
+PYTHONPATH=src pytest -q tests/test_trace*.py
+PYTHONPATH=src pytest -q tests/test_startup*.py
+# ... continue through all prefix groups ...
+
+# 4. Docker integration tests (requires Docker)
+PYTHONPATH=src pytest -m docker -v
+
+# 5. Live network tests (requires hardware/credentials)
+PYTHONPATH=src pytest -m live -v --tb=short
 ```
 
 ### Targeted runs during development
@@ -555,6 +571,157 @@ always re-run suspect files in isolation to confirm.
 10. **Do not use shell pipes to filter pytest output during debugging.**
     Pipes hide information. If you need specific lines, use the Grep or Read
     tool on saved output, not shell-level truncation.
+
+### Agent verification sequence
+
+> **Agent responsibility**: When verifying changes, follow this sequence. Do not
+> skip steps or escalate to broader runs before scoped validation passes.
+
+1. **Compile check** — catches syntax errors and import-time failures:
+
+   ```bash
+   python -m compileall -q src tests
+   ```
+
+   Expected: no output. Any output is a blocker.
+
+2. **Collection check** — catches collection errors (broken fixtures, bad
+   imports, conftest issues) without running any tests:
+
+   ```bash
+   python -m pytest --collect-only -q
+   ```
+
+   Expected: ~14,279 collected, ~125 deselected. Collection takes ~11 s.
+
+3. **Targeted files for changed modules** — run only the test files that
+   exercise the code you changed. Use file paths, not `-k` keyword filters,
+   for precision:
+
+   ```bash
+   # Example: changed src/medre/core/routing/
+   PYTHONPATH=src pytest tests/test_route*.py tests/test_routing.py tests/test_routes.py -q
+   ```
+
+4. **Do not run the full suite during scoped validation.** See rule 3 in the
+   [Test-execution discipline](#test-execution-discipline-for-agents) section.
+
+### Slow-suite partition strategy
+
+The full suite at 14,000+ tests cannot run within typical agent timeouts
+(300–600 s). Use directory/prefix slicing to partition the work. The groups
+below are ordered roughly from slowest to fastest per test; time your slices
+and stop after one hang.
+
+#### Test volume by prefix group
+
+| Prefix group                                                  | Files    | Collected   | Deselected | Estimated time      |
+| ------------------------------------------------------------- | -------- | ----------- | ---------- | ------------------- |
+| `test_meshtastic*.py`                                         | 47       | 1,063       | 16         | ~44 s               |
+| `test_runtime*.py`                                            | 55       | 952         | 12         | ~34 s               |
+| `test_matrix*.py`                                             | 38       | 832         | 29         | ~29 s               |
+| `test_docs*.py`                                               | 18       | 729         | 0          | unmeasured          |
+| `test_meshcore*.py`                                           | 25       | 572         | 11         | ~30 s               |
+| `test_lxmf*.py`                                               | 25       | 585         | 30         | ~21 s               |
+| `test_cli*.py`                                                | 25       | 524         | 0          | ~60 s               |
+| `test_adapter*.py`                                            | 11       | 448         | 0          | unmeasured          |
+| `test_replay*.py`                                             | 23       | 413         | 0          | ~53 s               |
+| `test_capability*.py`                                         | 6        | 391         | 0          | unmeasured          |
+| `test_evidence*.py`                                           | 14       | 373         | 0          | unmeasured          |
+| `test_storage*.py`                                            | 16       | 357         | 0          | ~40 s               |
+| `test_delivery*.py`                                           | 11       | 344         | 0          | unmeasured          |
+| `test_config*.py`                                             | 7        | 308         | 0          | unmeasured          |
+| `test_architecture*.py`                                       | 11       | 285         | 0          | unmeasured          |
+| `test_cross*.py`                                              | 6        | 253         | 0          | unmeasured          |
+| `test_retry*.py`                                              | 14       | 248         | 0          | ~27 s               |
+| `test_pipeline*.py`                                           | 17       | 247         | 0          | ~30 s               |
+| `test_route*.py`                                              | 10       | 242         | 0          | unmeasured          |
+| `test_soak*`, `test_longrun*`, `test_extended*`               | 8        | 149         | 6          | **~60 s**           |
+| `conformance/`                                                | 8        | 153         | 0          | unmeasured          |
+| `lifecycle/`                                                  | 9        | 113         | 0          | unmeasured          |
+| `operational/`                                                | 4        | 57          | 0          | unmeasured          |
+| Other (boundary, canonical, rendering, drill, snapshot, etc.) | ~80      | ~1,900      | varies     | unmeasured          |
+| **Total**                                                     | **~460** | **~14,279** | **~125**   | **~600–900 s est.** |
+
+#### Soak/longrun group — slowest per test
+
+The `test_soak*.py`, `test_longrun*.py`, and `test_extended_longrun*.py` files
+contain 149 tests that average ~0.4 s/test (60 s total). This is 10× slower
+than the runtime or matrix groups (~0.03 s/test). Run this group separately
+and only when soak/longrun stability is explicitly in scope.
+
+#### Partition commands
+
+Run prefix groups one at a time. Use `timeout` only for diagnostics, not for
+routine validation (see rule 1 in the discipline section above).
+
+```bash
+# Fast groups (under 30 s each)
+PYTHONPATH=src pytest -q tests/test_trace*.py
+PYTHONPATH=src pytest -q tests/test_startup*.py
+PYTHONPATH=src pytest -q tests/test_shutdown*.py
+PYTHONPATH=src pytest -q tests/test_retry*.py
+
+# Medium groups (30–60 s each)
+PYTHONPATH=src pytest -q tests/test_pipeline*.py
+PYTHONPATH=src pytest -q tests/test_storage*.py
+PYTHONPATH=src pytest -q tests/test_matrix*.py
+PYTHONPATH=src pytest -q tests/test_meshcore*.py
+PYTHONPATH=src pytest -q tests/test_lxmf*.py
+PYTHONPATH=src pytest -q tests/test_runtime*.py
+PYTHONPATH=src pytest -q tests/test_meshtastic*.py
+PYTHONPATH=src pytest -q tests/test_replay*.py
+PYTHONPATH=src pytest -q tests/test_cli*.py
+
+# Slow group (60 s)
+PYTHONPATH=src pytest -q tests/test_soak*.py tests/test_longrun*.py tests/test_extended_longrun*.py
+
+# Subdirectories
+PYTHONPATH=src pytest -q tests/conformance/
+PYTHONPATH=src pytest -q tests/lifecycle/
+PYTHONPATH=src pytest -q tests/operational/
+
+# Remaining "other" files (boundary, architecture, docs, etc.)
+PYTHONPATH=src pytest -q tests/test_architecture*.py tests/test_boundary*.py \
+  tests/test_docs*.py tests/test_capability*.py tests/test_evidence*.py \
+  tests/test_delivery*.py tests/test_config*.py tests/test_canonical*.py \
+  tests/test_rendering*.py tests/test_drill*.py tests/test_snapshot*.py \
+  tests/test_example*.py tests/test_scope*.py tests/test_failure*.py
+```
+
+### Identifying slow or hanging groups
+
+The per-file timeout loop in [Identifying hanging tests](#identifying-hanging-tests)
+above isolates individual hanging files. For broader diagnostics, use
+collection-based slicing and `pytest-timeout` per-test timeouts:
+
+```bash
+# Step 1: Confirm collection works (no test runs, ~11 s)
+python -m pytest --collect-only -q
+
+# Step 2: Run prefix groups with a per-test timeout to surface slow individual
+# tests without hanging the entire suite. Requires pytest-timeout (in dev deps).
+PYTHONPATH=src pytest -q --timeout=30 tests/test_soak*.py tests/test_longrun*.py
+
+# Step 3: If a prefix group hangs, bisect it. Run half the files:
+PYTHONPATH=src pytest -q tests/test_longrun_soak.py tests/test_longrun_stability_v3.py
+# If that passes, the hang is in the other half.
+```
+
+When the full suite hangs at low progress (e.g., 6 % at 600 s), the cause is
+typically one of:
+
+1. **A single test that deadlocks or loops** — isolated with the per-file
+   timeout loop or `--timeout=30` per-test cap.
+2. **Cumulative resource leaks** (unclosed sqlite connections, dangling event
+   loops) that slow later tests — detected by running groups in reverse
+   alphabetical order and comparing timings.
+3. **Fixture ordering pollution** — a test that leaves global state (env vars,
+   sys.modules patches, working directory) that poisons a later test. Run the
+   suspect file in isolation to confirm.
+
+Do not mask these with longer timeouts, `filterwarnings` suppressions, or
+`-x` (fail-fast). Diagnose the root cause.
 
 ### Failure interpretation
 

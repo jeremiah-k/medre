@@ -21,6 +21,8 @@ class MockEventType(Enum):
     MSG_SENT = "message_sent"
     OK = "command_ok"
     ERROR = "command_error"
+    CONTACTS = "contacts"
+    SELF_INFO = "self_info"
 
 
 class MockEvent:

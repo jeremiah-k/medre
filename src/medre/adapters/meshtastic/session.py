@@ -115,7 +115,9 @@ class MeshtasticSession:
         "_logger",
         "_started",
         "_subscribed",
+        "_subscribed_connection_lost",
         "_stop_requested",
+        "_loop",
         # Reconnect state
         "_reconnecting",
         "_reconnect_attempts",
@@ -145,7 +147,9 @@ class MeshtasticSession:
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._started: bool = False
         self._subscribed: bool = False
+        self._subscribed_connection_lost: bool = False
         self._stop_requested: bool = False
+        self._loop: asyncio.AbstractEventLoop | None = None
         # Reconnect state
         self._reconnecting: bool = False
         self._reconnect_attempts: int = 0
@@ -286,6 +290,7 @@ class MeshtasticSession:
         self._reconnecting = False
         self._last_error = None
         self._message_callback = message_callback
+        self._loop = asyncio.get_running_loop()
 
         conn = self._config.connection_type
 
@@ -360,6 +365,7 @@ class MeshtasticSession:
         self._client = None
         self._node_id = None
         self._started = False
+        self._loop = None
         self._logger.info("MeshtasticSession %s stopped", self._adapter_id)
 
     # -- Outbound send --------------------------------------------------------
@@ -702,6 +708,9 @@ class MeshtasticSession:
     def _subscribe_callbacks(self) -> None:
         """Subscribe to Meshtastic pubsub callbacks for inbound packets.
 
+        Subscribes to ``meshtastic.receive`` for inbound packets and
+        ``meshtastic.connection.lost`` for automatic reconnect triggering.
+
         Raises
         ------
         MeshtasticConnectionError
@@ -717,17 +726,42 @@ class MeshtasticSession:
             ) from exc
         self._subscribed = True
 
-    def _unsubscribe_callbacks(self) -> None:
-        """Unsubscribe from Meshtastic pubsub callbacks."""
-        if not self._subscribed:
-            return
         try:
             from pubsub import pub
 
-            pub.unsubscribe(self._on_receive, "meshtastic.receive")
-        except Exception:
-            pass
-        self._subscribed = False
+            pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
+        except Exception as exc:
+            self._logger.warning(
+                "MeshtasticSession %s: failed to subscribe to "
+                "meshtastic.connection.lost (reconnect auto-trigger disabled): %s",
+                self._adapter_id,
+                exc,
+            )
+            # Non-fatal: receive subscription already succeeded, session
+            # is usable.  Reconnect can still be triggered manually via
+            # notify_connection_lost().
+            return
+        self._subscribed_connection_lost = True
+
+    def _unsubscribe_callbacks(self) -> None:
+        """Unsubscribe from Meshtastic pubsub callbacks."""
+        if self._subscribed:
+            try:
+                from pubsub import pub
+
+                pub.unsubscribe(self._on_receive, "meshtastic.receive")
+            except Exception:
+                pass
+            self._subscribed = False
+
+        if self._subscribed_connection_lost:
+            try:
+                from pubsub import pub
+
+                pub.unsubscribe(self._on_connection_lost, "meshtastic.connection.lost")
+            except Exception:
+                pass
+            self._subscribed_connection_lost = False
 
     def _refresh_node_id(self) -> None:
         """Populate self._node_id from interface.myInfo.myNodeNum when available.
@@ -763,18 +797,66 @@ class MeshtasticSession:
 
     # -- Reconnection ---------------------------------------------------------
 
+    def _on_connection_lost(self, interface: Any = None, **kwargs: Any) -> None:
+        """Pubsub callback for ``meshtastic.connection.lost``.
+
+        Called from the Meshtastic SDK reader thread when the transport
+        detects a connection loss (e.g. TCP disconnect, serial unplug,
+        BLE gatt error).  Delegates to :meth:`notify_connection_lost`
+        which handles thread-safe reconnect scheduling.
+
+        Parameters
+        ----------
+        interface:
+            The Meshtastic interface that lost its connection (unused;
+            the session already holds a reference via ``_client``).
+        **kwargs:
+            Additional pubsub keyword arguments (ignored).
+        """
+        # Guard: ignore stale events after stop() cleared _started or
+        # set _stop_requested.  These checks run in the SDK reader thread,
+        # so they must be simple flag reads (no async operations).
+        if self._stop_requested or not self._started:
+            return
+        self.notify_connection_lost()
+
     def notify_connection_lost(self) -> None:
         """Called when a connection loss is detected.
 
-        Starts the bounded reconnect loop if not already reconnecting
-        and not stopping.
+        Schedules the bounded reconnect loop on the session's event loop.
+        Thread-safe: may be called from the SDK reader thread or from
+        any async context.
         """
         if self._stop_requested or self._reconnecting:
             return
         self._node_id = None
         self._last_error = "Connection lost"
         self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
-        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+        # Schedule the reconnect task on the session's event loop.
+        # The SDK calls this from its reader thread, so we must use
+        # call_soon_threadsafe to bridge to the async event loop.
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(self._start_reconnect_task)
+        else:
+            self._logger.warning(
+                "MeshtasticSession %s: cannot schedule reconnect; "
+                "event loop unavailable",
+                self._adapter_id,
+            )
+
+    def _start_reconnect_task(self) -> None:
+        """Create the reconnect task (must run on the event loop thread).
+
+        Separated from :meth:`notify_connection_lost` so that
+        ``call_soon_threadsafe`` can schedule just the task creation
+        (cheap, non-blocking) while the reconnect loop itself runs as
+        an async task.
+        """
+        if self._stop_requested or self._reconnecting:
+            return
+        self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
 
     async def _reconnect_loop(self) -> None:
         """Bounded exponential backoff reconnect loop.

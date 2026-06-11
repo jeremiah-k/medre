@@ -284,6 +284,9 @@ class LxmfAdapter(AdapterContract):
                 ),
                 "last_error": self._session.last_error,
                 "mode": self._config.connection_type,
+                "announces_sent": self._session.announces_sent,
+                "announce_failures": self._session.announce_failures,
+                "last_announce_error": self._session.last_announce_error,
             }
         return base
 

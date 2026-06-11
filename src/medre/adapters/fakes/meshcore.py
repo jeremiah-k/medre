@@ -213,6 +213,9 @@ class FakeMeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
+        # Health lifecycle epoch (mirrors real adapter).
+        self._health_lifecycle_epoch: int = 0
+
     @property
     def fake_client(self) -> FakeMeshCoreClient:
         """The underlying fake client for test inspection."""
@@ -248,6 +251,7 @@ class FakeMeshCoreAdapter(AdapterContract):
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
         self._reset_inbound_counters()
+        self._health_lifecycle_epoch += 1
         self.ctx = ctx
         self._mark_started(ctx)
         self._started = True
@@ -256,6 +260,7 @@ class FakeMeshCoreAdapter(AdapterContract):
     async def stop(self, timeout: float = 5.0) -> None:
         """Mark the adapter as stopped."""
         self._started = False
+        self._health_lifecycle_epoch += 1
         if self.ctx is not None:
             self.ctx.logger.info("FakeMeshCoreAdapter %s stopped", self.adapter_id)
 
@@ -280,6 +285,7 @@ class FakeMeshCoreAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": "fake",
+            "health_lifecycle_epoch": self._health_lifecycle_epoch,
             "delivered_count": len(self.delivered_payloads),
             "inbound_count": len(self.inbound_events),
             "classifier_packets_seen": self._classifier_packets_seen,

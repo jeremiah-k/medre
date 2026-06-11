@@ -290,6 +290,10 @@ class TestMatrixAdapterHealthCheck:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
+            # Yield to the event loop so the background sync task
+            # completes its first iteration and sets last_successful_sync.
+            for _ in range(5):
+                await asyncio.sleep(0)
             info = await adapter.health_check()
             assert info.health == "healthy"
         finally:
@@ -512,6 +516,10 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value = client
 
         await adapter.start(_make_context())
+        # Yield to the event loop so the background sync task
+        # completes its first iteration and sets last_successful_sync.
+        for _ in range(5):
+            await asyncio.sleep(0)
         info = await adapter.health_check()
         assert info.health == "healthy"
         await adapter.stop()
