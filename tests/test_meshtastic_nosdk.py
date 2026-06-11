@@ -226,8 +226,14 @@ class TestMeshtasticNoSdkLifecycle:
         assert "queue_total_failed" in diag
         assert "queue_total_rejected" in diag
         assert "background_tasks" in diag
-        # No session before start
-        assert "session" not in diag
+        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        assert isinstance(diag["session"], dict)
+        assert diag["session"]["connected"] is False
+        assert diag["session"]["reconnecting"] is False
+        assert diag["session"]["reconnect_attempts"] == 0
+        assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_non_fake_raises_without_mtjk(self):
         """Non-fake connection types raise MeshtasticConnectionError
@@ -304,8 +310,14 @@ class TestMeshtasticDiagnostics:
         assert isinstance(diag["queue_total_rejected"], int)
         assert isinstance(diag["background_tasks"], int)
 
-        # No session before start
-        assert "session" not in diag
+        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        assert isinstance(diag["session"], dict)
+        assert diag["session"]["connected"] is False
+        assert diag["session"]["reconnecting"] is False
+        assert diag["session"]["reconnect_attempts"] == 0
+        assert diag["session"]["last_error"] is None
+        assert diag["session"]["transient_delivery_failures"] == 0
+        assert diag["session"]["permanent_delivery_failures"] == 0
 
     async def test_diagnostics_no_secrets_after_start(self):
         """diagnostics() does NOT expose serial paths, host IPs, or secrets

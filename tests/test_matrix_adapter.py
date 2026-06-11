@@ -12,6 +12,7 @@ import pytest
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
@@ -1232,3 +1233,48 @@ class TestDisplayNameEnrichment:
             published[0].metadata.native.data["longname"] = "x"
         with pytest.raises(TypeError):
             published[1].metadata.native.data["longname"] = "x"
+
+
+# ===================================================================
+# Lifecycle guard: _last_health cleared at boundaries
+# ===================================================================
+
+
+class TestMatrixLastHealthLifecycleBoundary:
+    """_last_health is cleared at start/stop boundaries.
+
+    Oracle finding C: cached _last_health must be reset to None on
+    start() and stop() so diagnostics never reports a stale health
+    string from a previous session.
+    """
+
+    async def test_last_health_cleared_on_start(self, monkeypatch) -> None:
+        """start() clears _last_health so a stale value from a prior
+        session does not leak into diagnostics."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        # Simulate a stale _last_health from a prior session.
+        adapter._last_health = "failed"
+
+        # Force HAS_NIO=False so start() raises immediately after
+        # clearing _last_health (avoids real SDK connection attempt).
+        monkeypatch.setattr("medre.adapters.matrix.adapter.HAS_NIO", False)
+
+        _published, ctx = _make_adapter_context()
+        with pytest.raises(MatrixConnectionError):
+            await adapter.start(ctx)
+
+        assert adapter._last_health is None
+
+    async def test_last_health_cleared_on_stop(self) -> None:
+        """stop() clears _last_health so diagnostics shows None, not
+        the value from the just-stopped session."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        # Populate _last_health as if health_check was called.
+        adapter._last_health = "healthy"
+
+        # stop() without start (session is None) should still clear.
+        await adapter.stop()
+        assert adapter._last_health is None

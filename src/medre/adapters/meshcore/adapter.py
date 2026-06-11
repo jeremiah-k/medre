@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections import OrderedDict
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -100,6 +101,9 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
     max_text_bytes=512,
     max_text_chars=None,
 )
+
+# Maximum entries in the inbound dedup OrderedDict (LRU eviction).
+_DEDUP_MAX_SIZE = 1024
 
 
 class _HasClassifierCounters(Protocol):
@@ -220,8 +224,21 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
+        # Inbound dedup: keyed by (classification.sender_id, classification.packet_id,
+        # classification.channel_index, text). Prevents duplicate events from SDK
+        # redelivery (e.g., reconnect replay). Including text ensures distinct payloads
+        # sharing the same packet_id are both processed, while exact replays of the same
+        # packet are suppressed. Bounded OrderedDict — least-recently-seen entries
+        # evicted when full. Cleared on stop/start boundaries.
+        self._inbound_dedup: OrderedDict[tuple[str, int, int | None, str], None] = (
+            OrderedDict()
+        )
+
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
+
+        # Cached health string from last health_check() call.
+        self._last_health: str | None = None
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -242,6 +259,7 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_dm_relayed = 0
         self._classifier_packets_malformed = 0
         self._inbound_published = 0
+        self._inbound_dedup.clear()
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the MeshCore node and begin receiving events.
@@ -261,6 +279,10 @@ class MeshCoreAdapter(AdapterContract):
         """
         if self._started:
             return
+
+        # Clear cached health at lifecycle boundary so diagnostics
+        # never reports a stale health string from a previous session.
+        self._last_health = None
 
         self._reset_inbound_counters()
 
@@ -297,6 +319,13 @@ class MeshCoreAdapter(AdapterContract):
         if not self._started:
             return
 
+        # Gate callbacks immediately — prevents race between drain completing
+        # and session.stop() unsubscribing.
+        self._started = False
+
+        # Clear cached health at lifecycle boundary.
+        self._last_health = None
+
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
@@ -305,7 +334,7 @@ class MeshCoreAdapter(AdapterContract):
             await self._session.stop()
             self._session = None
 
-        self._started = False
+        self._inbound_dedup.clear()
         if self.ctx is not None:
             self.ctx.logger.info("MeshCoreAdapter %s stopped", self.adapter_id)
 
@@ -331,6 +360,7 @@ class MeshCoreAdapter(AdapterContract):
                 health = "degraded"
         else:
             health = "unknown"
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -466,6 +496,11 @@ class MeshCoreAdapter(AdapterContract):
         packet:
             Raw MeshCore event payload dict.
         """
+        # Guard: reject callbacks that arrive after stop() clears _started.
+        # This closes the race window between _drain_background_tasks
+        # completing and _session.stop() unsubscribing callbacks.
+        if not self._started:
+            return
         if self.ctx is None:
             return
 
@@ -477,10 +512,40 @@ class MeshCoreAdapter(AdapterContract):
             if classification.action != "relay":
                 return
 
+            # Dedup: suppress exact duplicate packets by identity + content.
+            # Text is included so distinct payloads with reused packet_id
+            # are both processed while exact replays are suppressed.
+            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
+            # When packet_id is None there is no reliable native identity,
+            # so adapter-level dedup is skipped entirely.
+            dedup_key: tuple[str, int, int | None, str] | None = None
+            if classification.packet_id is not None:
+                dedup_key = (
+                    classification.sender_id or "",
+                    classification.packet_id,
+                    classification.channel_index,
+                    str(packet.get("text", "")),
+                )
+                if dedup_key in self._inbound_dedup:
+                    self._inbound_dedup.move_to_end(dedup_key)
+                    return
+
+            # Decode before committing dedup key so that decode failures
+            # do not suppress redelivery of the same packet.
             canonical = self._codec.decode(packet)
+
+            # Commit dedup key only after successful decode.  The key
+            # guards the async publish window against concurrent
+            # duplicates.  If publish fails _on_message_async rolls it
+            # back so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup[dedup_key] = None
+                if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                    self._inbound_dedup.popitem(last=False)
+
             # Schedule the async publish — _on_message is synchronous
             # so we create a tracked task that is cleaned up on stop().
-            task = asyncio.create_task(self._on_message_async(canonical))
+            task = asyncio.create_task(self._on_message_async(canonical, dedup_key))
             task.add_done_callback(self._background_tasks.discard)
             self._background_tasks.add(task)
         except Exception:
@@ -490,22 +555,37 @@ class MeshCoreAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    async def _on_message_async(self, canonical: CanonicalEvent) -> None:
+    async def _on_message_async(
+        self,
+        canonical: CanonicalEvent,
+        dedup_key: tuple[str, int, int | None, str] | None = None,
+    ) -> None:
         """Async handler for messages received via :meth:`_on_message`.
 
         Publishes the canonical event and logs exceptions from the
         background task.
 
+        Re-checks ``_started`` before publishing to close the race
+        window where a task was scheduled by :meth:`_on_message` but
+        has not yet executed when :meth:`stop` sets ``_started = False``.
+
         Parameters
         ----------
         canonical:
             The decoded canonical event to publish.
+        dedup_key:
+            The dedup key committed by :meth:`_on_message` after
+            successful decode.  Rolled back on publish failure so that
+            redelivery is not suppressed.
         """
         try:
-            if self.ctx is not None:
+            if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
         except Exception:
+            # Roll back dedup key so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "MeshCoreAdapter %s: error in background publish",
@@ -534,6 +614,12 @@ class MeshCoreAdapter(AdapterContract):
                 "call start() before simulate_inbound()."
             )
 
+        # Lifecycle guard: refuse post-stop calls.  ctx is retained
+        # after stop() but _started is cleared — a stale ctx must not
+        # be sufficient to publish lifecycle-stale inbound messages.
+        if not self._started:
+            return
+
         classification = self._classifier.classify(packet)
         self._increment_classifier_counters(classification)
 
@@ -541,9 +627,32 @@ class MeshCoreAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
+        # Dedup: suppress exact duplicate packets by identity + content.
+        # When packet_id is None there is no reliable native identity,
+        # so adapter-level dedup is skipped entirely.
+        dedup_key: tuple[str, int, int | None, str] | None = None
+        if classification.packet_id is not None:
+            dedup_key = (
+                classification.sender_id or "",
+                classification.packet_id,
+                classification.channel_index,
+                str(packet.get("text", "")),
+            )
+            if dedup_key in self._inbound_dedup:
+                self._inbound_dedup.move_to_end(dedup_key)
+                return
+
+        # Decode and publish before committing dedup key so that
+        # failures do not suppress redelivery.
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
         self._inbound_published += 1
+
+        # Commit dedup key only after successful decode + publish.
+        if dedup_key is not None:
+            self._inbound_dedup[dedup_key] = None
+            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                self._inbound_dedup.popitem(last=False)
 
     # -- Diagnostics --------------------------------------------------------
 
@@ -567,6 +676,7 @@ class MeshCoreAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": self._config.connection_type,
+            "health": self._last_health,
             "classifier_packets_seen": self._classifier_packets_seen,
             "classifier_packets_relayed": self._classifier_packets_relayed,
             "classifier_packets_ignored": self._classifier_packets_ignored,
@@ -581,6 +691,20 @@ class MeshCoreAdapter(AdapterContract):
         }
         if self._session is not None:
             base["session"] = sanitize_diagnostic_mapping(self._session.diagnostics())
+        else:
+            base["session"] = {
+                "connected": False,
+                "reconnecting": False,
+                "reconnect_attempts": 0,
+                "last_message_time": None,
+                "last_error": None,
+                "transient_delivery_failures": 0,
+                "permanent_delivery_failures": 0,
+                "device_name": None,
+                "public_key_prefix": None,
+                "radio_freq": None,
+                "mode": self._config.connection_type,
+            }
         return base
 
     # -- Background task management -----------------------------------------

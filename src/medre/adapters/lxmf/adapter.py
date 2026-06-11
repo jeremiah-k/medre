@@ -40,6 +40,7 @@ session owns raw transport; the adapter owns semantic conversion.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -88,6 +89,9 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     max_text_chars=16384,
 )
 
+# Maximum entries in the inbound dedup OrderedDict (LRU eviction).
+_DEDUP_MAX_SIZE = 1024
+
 
 class LxmfAdapter(AdapterContract):
     """Transport adapter for LXMF routers/nodes.
@@ -126,6 +130,17 @@ class LxmfAdapter(AdapterContract):
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
+        # Cached health string from last health_check() call.
+        self._last_health: str | None = None
+
+        # Inbound dedup: keyed by (message_id, content).
+        # Prevents duplicate events from Reticulum redelivery.
+        # Including content ensures distinct payloads sharing the same
+        # message_id are both processed, while exact replays are suppressed.
+        # Bounded OrderedDict — least-recently-seen entries evicted when full.
+        # Cleared on stop/start boundaries.
+        self._inbound_dedup: OrderedDict[tuple[str, str], None] = OrderedDict()
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -147,6 +162,11 @@ class LxmfAdapter(AdapterContract):
         if self._started:
             return
 
+        # Clear cached health at lifecycle boundary so diagnostics
+        # never reports a stale health string from a previous session.
+        self._last_health = None
+
+        self._inbound_dedup.clear()
         self.ctx = ctx
         self._mark_started(ctx)
 
@@ -190,13 +210,20 @@ class LxmfAdapter(AdapterContract):
         if not self._started:
             return
 
+        # Gate callbacks immediately — prevents race between drain completing
+        # and session.stop() unsubscribing.
+        self._started = False
+
+        # Clear cached health at lifecycle boundary.
+        self._last_health = None
+
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
         # Stop the session (which tears down SDK objects).
         await self._session.stop(timeout=timeout)
 
-        self._started = False
+        self._inbound_dedup.clear()
         if self.ctx is not None:
             self.ctx.logger.info("LxmfAdapter %s stopped", self.adapter_id)
 
@@ -215,6 +242,7 @@ class LxmfAdapter(AdapterContract):
             health = "failed"
         else:
             health = "unknown"
+        self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -240,6 +268,7 @@ class LxmfAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": self._config.connection_type,
+            "health": self._last_health,
         }
         if self._session is not None:
             base["session"] = {
@@ -400,6 +429,8 @@ class LxmfAdapter(AdapterContract):
         packet:
             Normalised LXMF message payload dict.
         """
+        if not self._started:
+            return
         if self.ctx is None:
             return
 
@@ -410,8 +441,31 @@ class LxmfAdapter(AdapterContract):
             if classification["is_ack"]:
                 return
 
+            # Dedup: suppress exact duplicate messages by message_id + content.
+            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction):
+            # least-recently-seen entries evicted when full.
+            dedup_key: tuple[str, str] | None = None
+            msg_id = packet.get("message_id")
+            if msg_id is not None:
+                dedup_key = (str(msg_id), str(packet.get("content", "")))
+                if dedup_key in self._inbound_dedup:
+                    self._inbound_dedup.move_to_end(dedup_key)
+                    return
+
+            # Decode before committing dedup key so that decode failures
+            # do not suppress redelivery of the same packet.
             canonical = self._codec.decode(packet)
-            task = asyncio.create_task(self._on_packet_async(canonical))
+
+            # Commit dedup key only after successful decode.  The key
+            # guards the async publish window against concurrent
+            # duplicates.  If publish fails _on_packet_async rolls it
+            # back so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup[dedup_key] = None
+                if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                    self._inbound_dedup.popitem(last=False)
+
+            task = asyncio.create_task(self._on_packet_async(canonical, dedup_key))
             task.add_done_callback(self._background_tasks.discard)
             self._background_tasks.add(task)
         except Exception:
@@ -421,21 +475,36 @@ class LxmfAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    async def _on_packet_async(self, canonical: CanonicalEvent) -> None:
+    async def _on_packet_async(
+        self,
+        canonical: CanonicalEvent,
+        dedup_key: tuple[str, str] | None = None,
+    ) -> None:
         """Async handler for packets received via :meth:`_on_packet`.
 
         Publishes the canonical event and logs exceptions from the
         background task.
 
+        Re-checks ``_started`` before publishing to close the race
+        window where a task was scheduled by :meth:`_on_packet` but
+        has not yet executed when :meth:`stop` sets ``_started = False``.
+
         Parameters
         ----------
         canonical:
             The decoded canonical event to publish.
+        dedup_key:
+            The dedup key committed by :meth:`_on_packet` after
+            successful decode.  Rolled back on publish failure so that
+            redelivery is not suppressed.
         """
         try:
-            if self.ctx is not None:
+            if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
         except Exception:
+            # Roll back dedup key so redelivery is not suppressed.
+            if dedup_key is not None:
+                self._inbound_dedup.pop(dedup_key, None)
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "LxmfAdapter %s: error in background publish",
@@ -488,14 +557,37 @@ class LxmfAdapter(AdapterContract):
                 f"call start() before simulate_inbound()"
             )
 
+        # Lifecycle guard: refuse post-stop calls.  ctx is retained
+        # after stop() but _started is cleared — a stale ctx must not
+        # be sufficient to publish lifecycle-stale inbound messages.
+        if not self._started:
+            return
+
         classification = self._classifier.classify(packet)
         if classification["category"] != "text":
             return
         if classification["is_ack"]:
             return
 
+        # Dedup: suppress exact duplicate messages by message_id + content.
+        dedup_key: tuple[str, str] | None = None
+        msg_id = packet.get("message_id")
+        if msg_id is not None:
+            dedup_key = (str(msg_id), str(packet.get("content", "")))
+            if dedup_key in self._inbound_dedup:
+                self._inbound_dedup.move_to_end(dedup_key)
+                return
+
+        # Decode and publish before committing dedup key so that
+        # failures do not suppress redelivery.
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
+
+        # Commit dedup key only after successful decode + publish.
+        if dedup_key is not None:
+            self._inbound_dedup[dedup_key] = None
+            if len(self._inbound_dedup) > _DEDUP_MAX_SIZE:
+                self._inbound_dedup.popitem(last=False)
 
     # -- Codec access -------------------------------------------------------
 
