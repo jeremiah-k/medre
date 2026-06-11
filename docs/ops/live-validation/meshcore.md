@@ -64,7 +64,7 @@ Results:
 - Meshtastic to MeshCore: bidirectional routing observed where actually observed.
 - All messages routed on channel index 0.
 - Connection and reconnect bugs were observed during testing and are being tracked.
-- BLE connection required pre-scan and stale BlueZ device cleanup before connect (pattern sourced from mmrelay).
+- BLE connection required pre-scan and stale BlueZ device cleanup before connecting (pattern sourced from mmrelay).
 - BLE remains less reliable than serial or TCP on Linux BlueZ. Expect intermittent disconnects and reconnect cycles.
 
 Bidirectional routing was confirmed by observing messages arrive on the second MeshCore device independently. `send_text` is accepted by the local MeshCore SDK/node; remote receipt is only proven by observing the second device, not by any RF confirmation from the SDK.
@@ -87,7 +87,7 @@ pytest tests/test_meshcore_live.py -m live -v
 ## Known Gaps
 
 - No Docker setup for MeshCore. No containerized node for Docker SDK-boundary tests.
-- BLE live validation complete with known instability. Pre-scan and stale BlueZ cleanup required for reliable connect. Connection/reconnect bugs observed and tracked.
+- BLE live validation complete with known instability. Pre-scan and stale BlueZ cleanup required for a reliable connection. Connection/reconnect bugs observed and tracked.
 - Live hardware smoke test recorded (BLE, June 2026). BLE is the least reliable transport; prefer TCP or serial for stable deployments.
 - Real TCP/serial connections work via `MeshCoreSession` but have not been exercised in a full live smoke test.
 

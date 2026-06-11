@@ -610,19 +610,23 @@ class MeshCoreSession:
 
             stale = BleakClient(address, timeout=3.0)
             try:
-                is_connected = getattr(stale, "is_connected", None)
-                if isinstance(is_connected, bool) and is_connected:
-                    self._logger.info(
-                        "MeshCoreSession %s: stale BlueZ connection "
-                        "for %s; disconnecting before reconnect",
-                        self._adapter_id,
-                        address,
-                    )
-                    await stale.disconnect()
-                    await asyncio.sleep(1.0)
+                # Attempt disconnect unconditionally — if BlueZ has any
+                # lingering state for this address, disconnect clears it.
+                # On a client that never connected, disconnect is a no-op
+                # or raises a harmless error.  We do NOT gate on
+                # is_connected because that property is always False on
+                # a client that was never .connect()-ed, making the old
+                # check dead code.
+                self._logger.debug(
+                    "MeshCoreSession %s: best-effort stale BlueZ " "disconnect for %s",
+                    self._adapter_id,
+                    address,
+                )
             finally:
                 # Always attempt cleanup — BleakClient holds
                 # D-Bus resources even when not connected.
+                # This is the ONLY disconnect call; it handles both
+                # clearing stale BlueZ state and releasing resources.
                 with contextlib.suppress(Exception):
                     await stale.disconnect()
         except Exception:
@@ -713,8 +717,13 @@ class MeshCoreSession:
             if attempt < _max_attempts:
                 await asyncio.sleep(2.0)
                 # Re-scan: the device may have stopped and restarted
-                # advertising in the meantime.
-                ble_device = await self._find_ble_device(address)
+                # advertising in the meantime.  Best-effort: if bleak
+                # is unavailable (not installed), skip the re-scan and
+                # proceed with ble_device as-is.
+                try:
+                    ble_device = await self._find_ble_device(address)
+                except Exception:
+                    ble_device = None
 
         raise MeshCoreConnectionError(
             f"No response from MeshCore node after "
@@ -758,6 +767,11 @@ class MeshCoreSession:
                     )
             elif self._config.connection_type == "ble":
                 _addr = self._config.ble_address or ""
+
+                # Guard: empty address matches any BLE device in the
+                # substring filter, so fail fast instead.
+                if not _addr:
+                    raise MeshCoreConnectionError("BLE address not configured")
 
                 # -- Stale BlueZ cleanup (reconnect safety) --
                 await self._disconnect_stale_ble_client(_addr)
