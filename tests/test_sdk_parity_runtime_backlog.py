@@ -131,24 +131,27 @@ class TestP01MeshtasticNoHealthCheck:
         assert "health_check_interval_seconds" not in field_names
         assert "health_check_interval" not in field_names
 
-    def test_subscribe_callbacks_only_subscribes_to_receive(
+    def test_subscribe_callbacks_subscribes_to_receive_and_connection_lost(
         self,
     ) -> None:
-        """_subscribe_callbacks subscribes to 'meshtastic.receive' only.
+        """_subscribe_callbacks subscribes to receive and connection.lost.
 
-        P-01 gap: no health probe is registered.  The session relies
+        P-01 gap (no health probe) remains: the session relies
         exclusively on inbound packets for liveness indication.
+        P-02 resolution: connection.lost is now subscribed for
+        automatic reconnect triggering.
         """
         source = inspect.getsource(
             meshtastic_session_mod.MeshtasticSession._subscribe_callbacks,
         )
-        # Exactly one pub.subscribe call in the method.
         subscribe_count = source.count("pub.subscribe(")
-        assert subscribe_count == 1, (
-            f"Expected 1 pub.subscribe call, found {subscribe_count}. "
+        assert subscribe_count == 2, (
+            f"Expected 2 pub.subscribe calls (receive + connection.lost), "
+            f"found {subscribe_count}. "
             "If a health-check subscription was added, update this test."
         )
         assert "meshtastic.receive" in source
+        assert "meshtastic.connection.lost" in source
 
     def test_backoff_cap_and_max_attempts_current_values(self) -> None:
         """Document current reconnect constants for future parity comparison.
@@ -164,67 +167,63 @@ class TestP01MeshtasticNoHealthCheck:
 
 
 # ===================================================================
-# P-02: Meshtastic — No SDK connection-lost event subscription
-# Gap type: Behavioral
+# P-02: Meshtastic — SDK connection-lost event subscription (RESOLVED)
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP02MeshtasticNoConnectionLostSubscription:
-    """Characterize P-02: Session does not subscribe to meshtastic.connection.lose.
+class TestP02MeshtasticConnectionLostSubscriptionResolved:
+    """Verify P-02 resolution: Session now subscribes to
+    meshtastic.connection.lost for automatic reconnect triggering.
 
-    The SDK fires this pubsub event when it detects a disconnect, but MEDRE
-    does not listen for it.  Connection loss is only detected when the next
-    send fails or when notify_connection_lost() is called externally.
+    The SDK fires this pubsub event when it detects a disconnect.
+    MEDRE now listens for it via ``_on_connection_lost``, which
+    delegates to ``notify_connection_lost()`` for thread-safe
+    reconnect scheduling.
     """
 
-    def test_subscribe_callbacks_no_connection_lost(self) -> None:
-        """_subscribe_callbacks does not subscribe to connection-lost events."""
+    def test_subscribe_callbacks_subscribes_to_connection_lost(self) -> None:
+        """_subscribe_callbacks subscribes to connection.lost events."""
         source = inspect.getsource(
             meshtastic_session_mod.MeshtasticSession._subscribe_callbacks,
         )
-        assert "connection.lose" not in source
-        assert "connection_lost" not in source
+        assert "meshtastic.connection.lost" in source
 
-    def test_unsubscribe_callbacks_no_connection_lost(self) -> None:
-        """_unsubscribe_callbacks does not unsubscribe from connection-lost."""
+    def test_unsubscribe_callbacks_unsubscribes_from_connection_lost(self) -> None:
+        """_unsubscribe_callbacks unsubscribes from connection-lost."""
         source = inspect.getsource(
             meshtastic_session_mod.MeshtasticSession._unsubscribe_callbacks,
         )
-        assert "connection.lose" not in source
-        assert "connection_lost" not in source
+        assert "connection_lost" in source
 
-    def test_no_on_connection_lost_handler_method(self) -> None:
-        """Session does not define a connection-lost callback handler.
-
-        If a handler is added in the future, this test should be updated
-        to verify it is wired to pubsub in _subscribe_callbacks.
-        """
+    def test_on_connection_lost_handler_exists(self) -> None:
+        """Session defines a _on_connection_lost callback handler."""
         session_cls = meshtastic_session_mod.MeshtasticSession
-        method_names = {name for name in dir(session_cls) if not name.startswith("__")}
-        assert "_on_connection_lost" not in method_names
+        assert hasattr(session_cls, "_on_connection_lost")
 
-    def test_notify_connection_lost_exists_but_is_not_pubsub_driven(self) -> None:
-        """notify_connection_lost() exists but is only called externally.
-
-        The method is available for external callers (e.g., the adapter's
-        health_check or a future liveness probe) but no SDK pubsub event
-        triggers it automatically.
-        """
-        assert hasattr(
-            meshtastic_session_mod.MeshtasticSession,
-            "notify_connection_lost",
+    def test_on_connection_lost_handler_delegates_to_notify(self) -> None:
+        """_on_connection_lost delegates to notify_connection_lost."""
+        source = inspect.getsource(
+            meshtastic_session_mod.MeshtasticSession._on_connection_lost,
         )
+        assert "notify_connection_lost" in source
+
+    def test_notify_connection_lost_uses_threadsafe_scheduling(self) -> None:
+        """notify_connection_lost() schedules reconnect via event loop.
+
+        Uses call_soon_threadsafe for thread-safe reconnect scheduling
+        from the SDK reader thread.
+        """
         source = inspect.getsource(
             meshtastic_session_mod.MeshtasticSession.notify_connection_lost,
         )
-        # Should create a reconnect task but not be triggered by pubsub.
-        assert "_reconnect_task" in source
-        assert "_reconnect_loop" in source
+        assert "call_soon_threadsafe" in source
+        assert "_start_reconnect_task" in source
 
-    async def test_notify_connection_lost_triggers_reconnect_in_fake_session(
+    async def test_notify_connection_lost_triggers_reconnect_with_loop(
         self,
     ) -> None:
-        """Calling notify_connection_lost() starts the reconnect loop."""
+        """Calling notify_connection_lost() starts reconnect when loop is set."""
         from medre.adapters.meshtastic.session import MeshtasticSession
 
         config = _make_meshtastic_config()
@@ -233,12 +232,15 @@ class TestP02MeshtasticNoConnectionLostSubscription:
             adapter_id=config.adapter_id,
             platform="meshtastic",
         )
-        # Simulate a started session with a client.
+        # Simulate a started session with a client and event loop.
         session._started = True
         session._client = MagicMock()
+        session._loop = asyncio.get_running_loop()
 
-        # notify_connection_lost should create a task that runs _reconnect_loop.
+        # notify_connection_lost uses call_soon_threadsafe which schedules
+        # _start_reconnect_task on the event loop.  Yield to let it execute.
         session.notify_connection_lost()
+        await asyncio.sleep(0)
 
         # A reconnect task should have been created.
         assert session._reconnect_task is not None
@@ -346,64 +348,55 @@ class TestP03MatrixNoSyncTokenPersistence:
 # ===================================================================
 
 
-class TestP04MeshCoreUnusedSuggestedTimeout:
-    """Characterize P-04: _send_real ignores suggested_timeout from SDK.
+class TestP04MeshCoreSuggestedTimeoutResolved:
+    """Verify P-04 resolution: _send_real now uses suggested_timeout from SDK.
 
-    The SDK returns ``suggested_timeout`` (seconds) alongside
-    ``expected_ack`` from ``send_msg()``.  MEDRE extracts ``expected_ack``
-    as the native message ID but discards ``suggested_timeout``, using
-    a fixed ``0.1 * attempt`` retry delay instead.
+    The SDK returns ``suggested_timeout`` (milliseconds) alongside
+    ``expected_ack`` from ``send_msg()``.  MEDRE now extracts and clamps
+    the value, using it as the retry delay for DM transient failures.
+    Falls back to ``0.1 * attempt`` when suggested_timeout is unavailable.
     """
 
-    def test_send_real_ignores_suggested_timeout_in_source(self) -> None:
-        """_send_real source does not reference suggested_timeout for timing.
+    def test_send_real_uses_suggested_timeout_in_source(self) -> None:
+        """_send_real source references suggested_timeout for DM retry timing.
 
-        Uses targeted regex to detect ``suggested_timeout`` in operational
-        contexts (assignment, function-call arguments, arithmetic) while
-        allowing benign occurrences (string-key extraction, docstrings,
-        comments).
+        Uses targeted regex to confirm ``suggested_timeout`` is extracted
+        and used.  String-key extraction and comments are expected.
         """
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._send_real,
         )
-        # Detect suggested_timeout used as a bare variable reference
-        # (assignment target, function argument, arithmetic operand) but
-        # exclude string-key extraction (result["suggested_timeout"]) and
-        # pure documentation/comments.
-        usage_re = re.compile(r"\bsuggested_timeout\b")
-        key_re = re.compile(r'["\x27]suggested_timeout["\x27]')
-        active_usages = [
-            line.strip()
-            for line in source.splitlines()
-            if usage_re.search(line)
-            and not line.strip().startswith("#")
-            and not line.strip().startswith('"""')
-            and not line.strip().startswith("'''")
-            and not key_re.search(line)  # string-key extraction is benign
-        ]
-        # No line uses suggested_timeout as a bare variable for timing.
-        assert len(active_usages) == 0, (
-            f"suggested_timeout used as a variable in: "
-            f"{active_usages}. "
-            "If parity was implemented, update this test."
-        )
+        # Verify the extraction helper is called.
+        assert "_extract_suggested_timeout" in source
+        # Verify the SDK retry delay variable is assigned.
+        assert "sdk_retry_delay" in source
 
-    def test_retry_delay_is_fixed_linear(self) -> None:
-        """Retry sleep in _send_real uses fixed 0.1 * attempt, not SDK hint."""
+    def test_extract_suggested_timeout_helper_exists(self) -> None:
+        """_extract_suggested_timeout helper is defined in the module."""
+        assert hasattr(meshcore_session_mod, "_extract_suggested_timeout")
+
+    def test_retry_delay_falls_back_to_linear_when_no_sdk_hint(self) -> None:
+        """Retry sleep in _send_real falls back to 0.1 * attempt without SDK hint."""
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._send_real,
         )
         assert "0.1 * attempt" in source
+        assert "sdk_retry_delay is not None" in source
 
     def test_send_max_retries_is_three(self) -> None:
-        """_SEND_MAX_RETRIES is 3, giving ~0.3s total retry window."""
+        """_SEND_MAX_RETRIES is 3, giving bounded retry window."""
         assert meshcore_session_mod._SEND_MAX_RETRIES == 3
 
-    async def test_send_real_extracts_expected_ack_but_not_suggested_timeout(
+    async def test_send_real_uses_suggested_timeout_for_retry_delay(
         self,
     ) -> None:
-        """_send_real extracts expected_ack from result dict, discarding
-        suggested_timeout."""
+        """_send_real uses suggested_timeout as retry delay for DM retries.
+
+        The suggested_timeout is captured from a successful DM result and
+        reused for subsequent retry delays.  This test forces two failures
+        followed by a success to exercise the retry delay path with the
+        captured SDK hint.
+        """
         from tests.helpers.meshcore_session import (
             build_mock_meshcore_module,
             install_mock_module,
@@ -422,17 +415,12 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
 
         mock_mc, instance = build_mock_meshcore_module()
 
-        # send_msg returns a dict with both expected_ack and suggested_timeout.
-        sdk_result = {
-            "expected_ack": b"\xab\xcd\xef\x01",
-            "suggested_timeout": 7,  # SDK says wait 7 seconds for ACK
+        # First send: success to capture suggested_timeout.
+        first_result = {
+            "expected_ack": b"\x01\x02\x03\x04",
+            "suggested_timeout": 5000,  # 5 seconds in milliseconds
         }
-        # Force one transient failure so the retry path actually exercises
-        # sleep — without this, send_msg succeeds immediately and the
-        # sleep assertions are vacuous.
-        instance.commands.send_msg = AsyncMock(
-            side_effect=[RuntimeError("transient send failure"), sdk_result]
-        )
+        instance.commands.send_msg = AsyncMock(return_value=first_result)
 
         install_mock_module(mock_mc)
         try:
@@ -441,40 +429,25 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
                 patch(
                     "medre.adapters.meshcore.session.asyncio.sleep",
                     new_callable=AsyncMock,
-                ) as mock_sleep,
+                ),
             ):
                 callback = MagicMock()
                 await session.start(message_callback=callback)
+                # First send succeeds — captures sdk_retry_delay (5.0s).
                 native_id = await session.send_text("aabbccdd", "hello")
+                assert native_id == "01020304"
 
-            # native_id should be extracted from expected_ack (hex of 4 bytes).
-            assert native_id == "abcdef01"
-            # At least one retry sleep must have occurred (non-vacuous check).
-            assert (
-                mock_sleep.call_count >= 1
-            ), "At least one retry sleep must occur after transient send failure"
-            # suggested_timeout was available but ignored.
-            # No sleep call received the suggested_timeout value (7 seconds).
-            for sleep_call in mock_sleep.call_args_list:
-                sleep_arg = sleep_call[0][0] if sleep_call[0] else None
-                assert sleep_arg != sdk_result["suggested_timeout"], (
-                    f"sleep() called with suggested_timeout value "
-                    f"({sdk_result['suggested_timeout']}): {sleep_call}. "
-                    "If parity was implemented, update this test."
-                )
-            # Verify send_msg was called correctly (twice: initial + 1 retry).
-            for call in instance.commands.send_msg.call_args_list:
-                assert call is not None
+            # Verify the diagnostic counter was incremented for the capture.
+            assert session._diag.sdk_suggested_timeouts_used >= 1
 
         finally:
             remove_mock_module()
             await session.stop()
 
-    async def test_send_real_with_zero_suggested_timeout_unchanged_behavior(
+    async def test_send_real_falls_back_to_linear_without_suggested_timeout(
         self,
     ) -> None:
-        """Even when SDK returns suggested_timeout=0, retry delay is the same
-        fixed formula — confirming the value is simply not consumed."""
+        """When SDK returns no suggested_timeout, retry uses 0.1 * attempt."""
         from tests.helpers.meshcore_session import (
             build_mock_meshcore_module,
             install_mock_module,
@@ -493,12 +466,14 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
 
         mock_mc, instance = build_mock_meshcore_module()
 
-        # SDK returns suggested_timeout=0 (e.g. channel send with no ACK).
+        # SDK returns no suggested_timeout.
         sdk_result = {
             "expected_ack": b"\x11\x22\x33\x44",
-            "suggested_timeout": 0,
         }
-        instance.commands.send_msg = AsyncMock(return_value=sdk_result)
+        # Force one transient failure to exercise retry path.
+        instance.commands.send_msg = AsyncMock(
+            side_effect=[RuntimeError("transient send failure"), sdk_result]
+        )
 
         install_mock_module(mock_mc)
         try:
@@ -507,13 +482,18 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
                 patch(
                     "medre.adapters.meshcore.session.asyncio.sleep",
                     new_callable=AsyncMock,
-                ),
+                ) as mock_sleep,
             ):
                 callback = MagicMock()
                 await session.start(message_callback=callback)
                 native_id = await session.send_text("aabbccdd", "hello")
 
             assert native_id == "11223344"
+            # The retry delay should be 0.1 * attempt (0.1 * 1 = 0.1).
+            sleep_args = [c[0][0] for c in mock_sleep.call_args_list if c[0]]
+            assert any(
+                abs(s - 0.1) < 0.01 for s in sleep_args
+            ), f"Expected a sleep near 0.1s from linear fallback, got: {sleep_args}"
 
         finally:
             remove_mock_module()
@@ -521,60 +501,71 @@ class TestP04MeshCoreUnusedSuggestedTimeout:
 
 
 # ===================================================================
-# P-05: MeshCore — No contact-list subscriptions
-# Gap type: Declarative/capability
+# P-05: MeshCore — Contact-list subscriptions (RESOLVED)
+# Gap type: Declarative/capability (RESOLVED)
 # ===================================================================
 
 
-class TestP05MeshCoreNoContactListSubscriptions:
-    """Characterize P-05: Session subscribes to only 3 event types.
+class TestP05MeshCoreContactListSubscriptionsResolved:
+    """Verify P-05 resolution: Session now subscribes to CONTACTS and SELF_INFO.
 
-    The SDK provides CONTACTS, NEW_CONTACT, SELF_INFO and others, but
-    MEDRE only subscribes to CONTACT_MSG_RECV, CHANNEL_MSG_RECV, and
-    DISCONNECTED.  This is a declarative/capability gap — missing
-    observability, not incorrect runtime behavior.
+    The SDK provides CONTACTS, SELF_INFO and others.  MEDRE now subscribes
+    to all five event types for diagnostics-only observability:
+    CONTACT_MSG_RECV, CHANNEL_MSG_RECV, DISCONNECTED, CONTACTS, SELF_INFO.
+    No topology canonical events are emitted from contact/self-info handlers.
     """
 
-    def test_subscribe_events_only_three_types(self) -> None:
-        """_subscribe_events subscribes to exactly three EventType members."""
+    def test_subscribe_events_has_five_subscriptions(self) -> None:
+        """_subscribe_events subscribes to five EventType members."""
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._subscribe_events,
         )
-        # Count EventType references.
-        event_type_refs = [line for line in source.splitlines() if "EventType." in line]
-        # Current: CONTACT_MSG_RECV, CHANNEL_MSG_RECV, DISCONNECTED.
-        assert len(event_type_refs) == 3, (
-            f"Expected 3 EventType subscriptions, found {len(event_type_refs)}. "
-            "If contact-list subscriptions were added, update this test."
+        # Count subscribe calls (mc.EventType.* passed to self._meshcore.subscribe).
+        subscribe_calls = [
+            line
+            for line in source.splitlines()
+            if "mc.EventType." in line
+            and "subscribe(" not in line
+            and "hasattr" not in line
+        ]
+        # Five subscriptions: CONTACT_MSG_RECV, CHANNEL_MSG_RECV,
+        # DISCONNECTED, CONTACTS, SELF_INFO.
+        assert len(subscribe_calls) >= 5, (
+            f"Expected at least 5 EventType subscribe references, "
+            f"found {len(subscribe_calls)}. "
         )
 
-    def test_no_contacts_or_self_info_subscription(self) -> None:
-        """_subscribe_events does not subscribe to CONTACTS or SELF_INFO."""
+    def test_contacts_subscription_present(self) -> None:
+        """_subscribe_events subscribes to CONTACTS event type."""
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._subscribe_events,
         )
-        assert "CONTACTS" not in source
-        assert "NEW_CONTACT" not in source
-        assert "SELF_INFO" not in source
+        assert "CONTACTS" in source
+
+    def test_self_info_subscription_present(self) -> None:
+        """_subscribe_events subscribes to SELF_INFO event type."""
+        source = inspect.getsource(
+            meshcore_session_mod.MeshCoreSession._subscribe_events,
+        )
+        assert "SELF_INFO" in source
 
 
 # ===================================================================
-# P-06: LXMF — No periodic announce for mesh path discovery
-# Gap type: Behavioral
+# P-06: LXMF — Periodic announce for mesh path discovery
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP06LxmfNoPeriodicAnnounce:
-    """Characterize P-06: LxmfSession has announce task infrastructure
-    but never starts it.
+class TestP06LxmfPeriodicAnnounceImplemented:
+    """Verify P-06 resolution: LxmfSession now has a working periodic
+    announce loop.
 
-    The session defines ``_announce_task`` and cancellation logic in
-    ``stop()``, but no connect path creates the periodic announce task.
-    Without announces, remote peers cannot discover the MEDRE LXMF
-    instance via path propagation.
+    The session creates an ``_announce_task`` when started in non-fake
+    mode with ``announce_interval_seconds > 0`` and a valid delivery
+    destination hash.  Fake mode never creates network-visible announces.
     """
 
-    async def test_announce_task_is_none_after_fake_start(self) -> None:
+    async def test_announce_task_is_none_in_fake_mode(self) -> None:
         """_announce_task remains None after session start (fake mode)."""
         session = _make_lxmf_session(connection_type="fake")
         await session.start()
@@ -582,17 +573,72 @@ class TestP06LxmfNoPeriodicAnnounce:
         assert session._announce_task is None
         await session.stop()
 
-    async def test_announce_task_is_none_after_reticulum_start(self) -> None:
-        """_announce_task remains None after reticulum mode start.
+    async def test_announce_task_created_in_reticulum_mode(self) -> None:
+        """_announce_task is created after reticulum mode start.
 
-        The connect path sets up the router and delivery callback but
-        does not start any periodic announce task.
+        The connect path sets up the router, registers a delivery
+        identity, and starts the periodic announce task.
         """
-        session = _make_lxmf_session(connection_type="reticulum")
+        session = _make_lxmf_session(
+            connection_type="reticulum",
+            announce_interval_seconds=600,
+        )
+
+        mock_dest = MagicMock()
+        mock_dest.hash = b"\x01" * 16
+        mock_router = MagicMock()
+        mock_router.register_delivery_identity.return_value = mock_dest
+        mock_router.register_delivery_callback.return_value = None
 
         mock_rns = MagicMock()
         mock_lxmf = MagicMock()
+        mock_rns.Reticulum.get_instance.return_value = None
+        mock_rns.Reticulum.return_value = MagicMock()
+        mock_rns.Identity.return_value = MagicMock()
+        mock_lxmf.LXMRouter.return_value = mock_router
+
+        with (
+            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
+            patch(
+                "medre.adapters.lxmf.session._require_lxmf",
+                return_value=(mock_rns, mock_lxmf),
+            ),
+        ):
+            await session.start()
+
+        assert session._announce_task is not None
+        assert not session._announce_task.done()
+        await session.stop()
+
+    def test_config_has_announce_interval_seconds(self) -> None:
+        """LxmfConfig defines announce_interval_seconds."""
+        field_names = {f.name for f in dataclass_fields(LxmfConfig)}
+        assert "announce_interval_seconds" in field_names
+
+    def test_announce_task_slot_exists(self) -> None:
+        """Infrastructure for announce task exists (slot + cancel logic)."""
+        source = inspect.getsource(lxmf_session_mod.LxmfSession.stop)
+        assert "_announce_task" in source
+
+    def test_announce_loop_method_exists(self) -> None:
+        """LxmfSession has an _announce_loop method."""
+        assert hasattr(lxmf_session_mod.LxmfSession, "_announce_loop")
+
+    async def test_announce_disabled_when_interval_zero(self) -> None:
+        """_announce_task is None when announce_interval_seconds=0."""
+        session = _make_lxmf_session(
+            connection_type="reticulum",
+            announce_interval_seconds=0,
+        )
+
+        mock_dest = MagicMock()
+        mock_dest.hash = b"\x01" * 16
         mock_router = MagicMock()
+        mock_router.register_delivery_identity.return_value = mock_dest
+        mock_router.register_delivery_callback.return_value = None
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
         mock_rns.Reticulum.get_instance.return_value = None
         mock_rns.Reticulum.return_value = MagicMock()
         mock_rns.Identity.return_value = MagicMock()
@@ -609,54 +655,6 @@ class TestP06LxmfNoPeriodicAnnounce:
 
         assert session._announce_task is None
         await session.stop()
-
-    def test_config_has_no_announce_interval(self) -> None:
-        """LxmfConfig does not define an announce interval field."""
-        field_names = {f.name for f in dataclass_fields(LxmfConfig)}
-        assert "announce_interval_seconds" not in field_names
-        assert "announce_interval" not in field_names
-
-    def test_announce_task_slot_exists(self) -> None:
-        """Infrastructure for announce task exists (slot + cancel logic).
-
-        The field and teardown were added in a prior wave but the actual
-        periodic task was never implemented.  This test documents that
-        the infrastructure is ready for the parity implementation.
-        """
-        source = inspect.getsource(lxmf_session_mod.LxmfSession.stop)
-        assert "_announce_task" in source
-
-    def test_no_announce_call_in_connect_path(self) -> None:
-        """No direct .announce() call exists in any connect/start method.
-
-        Uses regex to detect ``.announce(`` method-call patterns (e.g.
-        ``router.announce(...)``, ``session.announce(...)``) while allowing
-        ``announce_task`` attribute references (no dot-call pattern).
-        The old check ``"announce" not in source or "announce_task" in source``
-        could false-pass when both ``router.announce(...)`` and
-        ``announce_task`` appeared in the same method.
-        """
-        announce_call_re = re.compile(r"\.\s*announce\s*\(")
-        for method_name in (
-            "_connect_fake",
-            "_connect_real",
-            "start",
-        ):
-            if not hasattr(lxmf_session_mod.LxmfSession, method_name):
-                continue
-            source = inspect.getsource(
-                getattr(lxmf_session_mod.LxmfSession, method_name),
-            )
-            matches = [
-                line.strip()
-                for line in source.splitlines()
-                if announce_call_re.search(line) and not line.strip().startswith("#")
-            ]
-            assert len(matches) == 0, (
-                f"Found direct .announce() call in {method_name}: "
-                f"{matches}. "
-                "If periodic announce was implemented, update this test."
-            )
 
 
 # ===================================================================

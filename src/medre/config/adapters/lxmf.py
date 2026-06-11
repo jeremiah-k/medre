@@ -98,6 +98,11 @@ class LxmfConfig:
         ``connection_type="reticulum"`` — LXMF 0.9.7 raises
         ``ValueError`` if ``storagepath`` is ``None``.  Ignored in
         fake mode.
+    announce_interval_seconds:
+        Interval in seconds between periodic LXMF announces for mesh
+        path discovery.  ``0`` disables periodic announce.  Default
+        ``600`` (10 minutes).  Only used in non-fake connection modes —
+        fake mode never creates network-visible announces.
     """
 
     adapter_id: str
@@ -111,6 +116,7 @@ class LxmfConfig:
     metadata_embedding: bool = True
     identity_path: str | None = None
     storage_path: str | None = None
+    announce_interval_seconds: float = 600.0
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -209,6 +215,24 @@ class LxmfConfig:
             raise LxmfConfigError(
                 "storage_path is required when connection_type='reticulum' "
                 "(LXMF 0.9.7 LXMRouter raises ValueError without it)"
+            )
+
+        # --- announce_interval_seconds ---
+        if isinstance(self.announce_interval_seconds, bool):
+            raise LxmfConfigError(
+                "announce_interval_seconds must be int or float, got bool"
+            )
+        if not isinstance(self.announce_interval_seconds, (int, float)):
+            raise LxmfConfigError(
+                f"announce_interval_seconds must be int or float, "
+                f"got {type(self.announce_interval_seconds).__name__}"
+            )
+        if not math.isfinite(self.announce_interval_seconds):
+            raise LxmfConfigError("announce_interval_seconds must be finite")
+        if self.announce_interval_seconds < 0:
+            raise LxmfConfigError(
+                f"announce_interval_seconds must be >= 0, "
+                f"got {self.announce_interval_seconds}"
             )
 
         # --- metadata_embedding safety ---

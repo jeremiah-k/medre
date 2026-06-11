@@ -111,6 +111,13 @@ _SEND_MAX_RETRIES: int = 3
 # Timeout for external SDK lifecycle calls (auto-fetch start/stop).
 _SDK_LIFECYCLE_TIMEOUT: float = 5.0  # seconds
 
+# suggested_timeout clamping bounds (seconds).
+# The firmware returns milliseconds; we convert to seconds and clamp.
+# Floor: never sleep less than 0.5 s even if firmware suggests very short.
+# Ceil: never sleep more than 30 s (matches reconnect max delay).
+_SUGGESTED_TIMEOUT_FLOOR: float = 0.5  # seconds
+_SUGGESTED_TIMEOUT_CEIL: float = 30.0  # seconds
+
 # Type alias for the inbound message callback.
 # The callback receives a plain dict (native payload), NOT an SDK Event object.
 # Both sync and async callables are accepted.
@@ -131,6 +138,11 @@ class _SessionDiagnostics:
     device_name: str | None = None
     public_key_prefix: str | None = None
     radio_freq: float | None = None
+    # suggested_timeout observability.
+    sdk_suggested_timeouts_used: int = 0
+    # Contact/self-info observability (diagnostics only).
+    known_contact_count: int = 0
+    last_contact_update_time: datetime | None = None
 
 
 class _MeshCoreModule(Protocol):
@@ -172,6 +184,37 @@ def _extract_expected_ack(raw: Any) -> str | None:
             return None
         return raw.hex()
     return None
+
+
+def _extract_suggested_timeout(source: Any) -> float | None:
+    """Extract and clamp suggested_timeout from SDK send result.
+
+    Per meshcore_py, ``suggested_timeout`` is a 4-byte little-endian
+    unsigned int in the MSG_SENT payload (units: milliseconds).
+
+    Returns the value in **seconds**, clamped to
+    ``[_SUGGESTED_TIMEOUT_FLOOR, _SUGGESTED_TIMEOUT_CEIL]``.  Returns
+    ``None`` when the value is absent or not a valid positive number.
+
+    Parameters
+    ----------
+    source:
+        A dict-like object that may contain ``"suggested_timeout"``.
+    """
+    if not isinstance(source, dict):
+        return None
+    raw = source.get("suggested_timeout")
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if not isinstance(raw, (int, float)):
+        return None
+    # The SDK returns milliseconds; convert to seconds.
+    val = float(raw) / 1000.0
+    if not math.isfinite(val) or val <= 0.0:
+        return None
+    return max(_SUGGESTED_TIMEOUT_FLOOR, min(val, _SUGGESTED_TIMEOUT_CEIL))
 
 
 class MeshCoreSession:
@@ -222,6 +265,12 @@ class MeshCoreSession:
         # capture a running loop reference — asyncio.Lock() lazy-binds on
         # first use in Python 3.10+.
         self._send_lock = asyncio.Lock()
+
+        # Cached SDK suggested_timeout for DM retry delays.
+        # Persisted across send_text() calls so that a successful DM that
+        # captures a timeout can inform the retry delay of a subsequent
+        # failing DM.  Cleared on stop().
+        self._sdk_retry_delay: float | None = None
 
         # Diagnostics.
         self._diag = _SessionDiagnostics()
@@ -368,6 +417,17 @@ class MeshCoreSession:
 
         self._diag.connected = False
         self._diag.reconnecting = False
+        # Reset observability counters on stop so they don't leak across
+        # lifecycles.  Contact/self-info data is per-session.
+        self._diag.sdk_suggested_timeouts_used = 0
+        self._diag.known_contact_count = 0
+        self._diag.last_contact_update_time = None
+        # Reset self-info diagnostics so stale values don't persist
+        # across lifecycle boundaries.
+        self._diag.device_name = None
+        self._diag.public_key_prefix = None
+        self._diag.radio_freq = None
+        self._sdk_retry_delay = None
         self._started = False
         self._logger.info("MeshCoreSession %s stopped", self._adapter_id)
 
@@ -440,6 +500,13 @@ class MeshCoreSession:
             "public_key_prefix": self._diag.public_key_prefix,
             "radio_freq": self._diag.radio_freq,
             "mode": self._config.connection_type,
+            "sdk_suggested_timeouts_used": self._diag.sdk_suggested_timeouts_used,
+            "known_contact_count": self._diag.known_contact_count,
+            "last_contact_update_time": (
+                self._diag.last_contact_update_time.isoformat()
+                if self._diag.last_contact_update_time
+                else None
+            ),
         }
 
     # ==================================================================
@@ -615,7 +682,20 @@ class MeshCoreSession:
         self._diag.connected = True
 
     def _subscribe_events(self, mc: Any) -> None:
-        """Subscribe to SDK event types for inbound messages + disconnects."""
+        """Subscribe to SDK event types for inbound messages + disconnects.
+
+        Subscriptions:
+          - ``CONTACT_MSG_RECV``: inbound DM messages
+          - ``CHANNEL_MSG_RECV``: inbound channel messages
+          - ``DISCONNECTED``: connection loss detection
+          - ``CONTACTS``: contact list updates (diagnostics only)
+          - ``SELF_INFO``: self-info updates (diagnostics only)
+
+        Contact/self-info subscriptions are **diagnostics-only** — no
+        topology canonical events are emitted, and contact lists are not
+        stored in canonical metadata.  Only aggregate counts and
+        timestamps are recorded.
+        """
         if self._meshcore is None:
             return
 
@@ -639,6 +719,27 @@ class MeshCoreSession:
             self._on_disconnect_event,
         )
         self._subscriptions.append(sub_disc)
+
+        # Contact list updates (diagnostics only).
+        # Per meshcore_py, EventType.CONTACTS fires when the contact list
+        # changes.  We record the count and timestamp for observability.
+        if hasattr(mc.EventType, "CONTACTS"):
+            sub_contacts = self._meshcore.subscribe(
+                mc.EventType.CONTACTS,
+                self._on_contacts_event,
+            )
+            self._subscriptions.append(sub_contacts)
+
+        # Self-info updates (diagnostics only).
+        # Per meshcore_py, EventType.SELF_INFO fires when the node's
+        # own info changes.  We update device_name / public_key_prefix
+        # for observability if the payload carries them.
+        if hasattr(mc.EventType, "SELF_INFO"):
+            sub_self = self._meshcore.subscribe(
+                mc.EventType.SELF_INFO,
+                self._on_self_info_event,
+            )
+            self._subscriptions.append(sub_self)
 
     def _capture_self_info(self, appstart_result: Any) -> None:
         """Extract device self_info from the send_appstart result payload.
@@ -760,6 +861,61 @@ class MeshCoreSession:
         if self._reconnect_task is None or self._reconnect_task.done():
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
+    async def _on_contacts_event(self, event: Any) -> None:
+        """Handle SDK CONTACTS event — diagnostics-only contact list update.
+
+        Per meshcore_py, the CONTACTS event payload contains a list/dict
+        of contacts.  We record the count and update timestamp for
+        observability.  **No** topology canonical events are emitted,
+        and contact lists are not stored in canonical metadata.
+        """
+        try:
+            payload: dict[str, Any]
+            if isinstance(event, dict):
+                payload = event
+            elif hasattr(event, "payload") and isinstance(event.payload, dict):
+                payload = event.payload
+            else:
+                payload = {}
+
+            # Extract contact count.  The SDK may return a list or a dict.
+            contacts_raw = payload.get("contacts")
+            if isinstance(contacts_raw, (list, tuple)):
+                self._diag.known_contact_count = len(contacts_raw)
+            elif isinstance(contacts_raw, dict):
+                self._diag.known_contact_count = len(contacts_raw)
+            # If neither, leave count unchanged.
+
+            self._diag.last_contact_update_time = datetime.now(timezone.utc)
+        except Exception as exc:
+            self._logger.debug(
+                "MeshCoreSession %s: error processing CONTACTS event: %s",
+                self._adapter_id,
+                exc,
+            )
+
+    async def _on_self_info_event(self, event: Any) -> None:
+        """Handle SDK SELF_INFO event — diagnostics-only self-info update.
+
+        Per meshcore_py, the SELF_INFO event payload contains fields like
+        ``name``, ``public_key``, and radio parameters.  We delegate to
+        :meth:`_capture_self_info` for safe extraction.
+        """
+        try:
+            payload: dict[str, Any] | None = None
+            if isinstance(event, dict):
+                payload = event
+            elif hasattr(event, "payload") and isinstance(event.payload, dict):
+                payload = event.payload
+            if payload is not None:
+                self._capture_self_info(payload)
+        except Exception as exc:
+            self._logger.debug(
+                "MeshCoreSession %s: error processing SELF_INFO event: %s",
+                self._adapter_id,
+                exc,
+            )
+
     # ------------------------------------------------------------------
     # Reconnect
     # ------------------------------------------------------------------
@@ -849,6 +1005,13 @@ class MeshCoreSession:
            **Duplicate-send risk.**  Retries may cause the same message
            to be delivered multiple times if the node received it but
            the ACK was lost.
+
+        For DM sends, the SDK ``suggested_timeout`` (milliseconds) is
+        extracted from the successful result and used as the retry delay
+        for transient failures on subsequent attempts.  It is clamped to
+        ``[_SUGGESTED_TIMEOUT_FLOOR, _SUGGESTED_TIMEOUT_CEIL]`` and
+        converted to seconds.  Channel sends have no ACK identity and do
+        not require or overclaim a suggested_timeout.
         """
         if self._meshcore is None:
             raise MeshCoreSendError("SDK client not initialised", transient=False)
@@ -887,7 +1050,7 @@ class MeshCoreSession:
                             transient=False,
                         )
 
-                    # Extract native message ID if available.
+                    # Extract native message ID and suggested_timeout if available.
                     # Per meshcore_py, MSG_SENT returns {'expected_ack': bytes(4),
                     # 'suggested_timeout': int}. Channel sends return OK with no ID.
                     # Use expected_ack as the native_id for DMs (channel sends
@@ -903,6 +1066,12 @@ class MeshCoreSession:
                                 native_id = raw_mid.hex()
                             elif raw_mid is not None:
                                 native_id = str(raw_mid)
+                        # Extract suggested_timeout for DM retry delay.
+                        if channel_index is None:
+                            st = _extract_suggested_timeout(result)
+                            if st is not None:
+                                self._sdk_retry_delay = st
+                                self._diag.sdk_suggested_timeouts_used += 1
                     else:
                         payload = getattr(result, "payload", None)
                         if isinstance(payload, dict):
@@ -914,6 +1083,12 @@ class MeshCoreSession:
                                     native_id = raw_mid.hex()
                                 elif raw_mid is not None:
                                     native_id = str(raw_mid)
+                            # Extract suggested_timeout for DM retry delay.
+                            if channel_index is None:
+                                st = _extract_suggested_timeout(payload)
+                                if st is not None:
+                                    self._sdk_retry_delay = st
+                                    self._diag.sdk_suggested_timeouts_used += 1
                         if native_id is None:
                             attrs = getattr(result, "attributes", None)
                             if isinstance(attrs, dict):
@@ -943,7 +1118,12 @@ class MeshCoreSession:
                         exc,
                     )
                     if attempt < _SEND_MAX_RETRIES:
-                        await asyncio.sleep(0.1 * attempt)
+                        # Use cached SDK suggested_timeout for DM retries
+                        # when available, otherwise fall back to linear backoff.
+                        if self._sdk_retry_delay is not None:
+                            await asyncio.sleep(self._sdk_retry_delay)
+                        else:
+                            await asyncio.sleep(0.1 * attempt)
 
             self._diag.permanent_delivery_failures += 1
             raise MeshCoreSendError(

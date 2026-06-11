@@ -206,6 +206,31 @@ class TestFakeMeshCoreAdapterLifecycle:
         assert info.adapter_id == "fake_meshcore"
         assert info.role == AdapterRole.TRANSPORT
 
+    async def test_duplicate_start_noop_epoch(self, make_adapter_context) -> None:
+        """Duplicate start() is a no-op — epoch increments only once."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-epoch-start")
+        epoch_before = adapter.diagnostics()["health_lifecycle_epoch"]
+        await adapter.start(ctx)
+        epoch_after_first = adapter.diagnostics()["health_lifecycle_epoch"]
+        assert epoch_after_first == epoch_before + 1
+        await adapter.start(ctx)  # duplicate — no-op
+        epoch_after_second = adapter.diagnostics()["health_lifecycle_epoch"]
+        assert epoch_after_second == epoch_after_first  # unchanged
+
+    async def test_duplicate_stop_noop_epoch(self, make_adapter_context) -> None:
+        """Duplicate stop() is a no-op — epoch increments only once."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-epoch-stop")
+        await adapter.start(ctx)
+        epoch_after_start = adapter.diagnostics()["health_lifecycle_epoch"]
+        await adapter.stop()
+        epoch_after_first = adapter.diagnostics()["health_lifecycle_epoch"]
+        assert epoch_after_first == epoch_after_start + 1
+        await adapter.stop()  # duplicate — no-op
+        epoch_after_second = adapter.diagnostics()["health_lifecycle_epoch"]
+        assert epoch_after_second == epoch_after_first  # unchanged
+
 
 class TestMeshCoreAdapterLifecycle:
     """MeshCoreAdapter lifecycle: idempotent start/stop, health states."""

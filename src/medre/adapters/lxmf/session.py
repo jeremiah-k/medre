@@ -320,6 +320,9 @@ class _SessionDiagnostics:
     permanent_delivery_failures: int = 0
     known_path_count: int | None = None
     propagation_enabled: bool | None = None
+    announces_sent: int = 0
+    announce_failures: int = 0
+    last_announce_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -342,6 +345,9 @@ class LxmfSessionDiagnostics:
     propagation_enabled: bool | None
     pending_delivery_count: int
     mode: str
+    announces_sent: int
+    announce_failures: int
+    last_announce_error: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +423,8 @@ class LxmfSession:
         "_delivery_insert_order",
         # Announce timer
         "_announce_task",
+        # Delivery destination hash (from register_delivery_identity)
+        "_delivery_destination_hash",
         # Send serialization
         "_send_lock",
     )
@@ -457,6 +465,7 @@ class LxmfSession:
         self._stop_requested: bool = False
         self._reconnect_task: asyncio.Task | None = None
         self._announce_task: asyncio.Task | None = None
+        self._delivery_destination_hash: bytes | None = None
 
         # Diagnostics.
         self._diag = _SessionDiagnostics()
@@ -573,6 +582,21 @@ class LxmfSession:
         """Count of permanent outbound delivery failures."""
         return self._diag.permanent_delivery_failures
 
+    @property
+    def announces_sent(self) -> int:
+        """Count of successful periodic announces."""
+        return self._diag.announces_sent
+
+    @property
+    def announce_failures(self) -> int:
+        """Count of failed periodic announce attempts."""
+        return self._diag.announce_failures
+
+    @property
+    def last_announce_error(self) -> str | None:
+        """Human-readable description of the last announce error."""
+        return self._diag.last_announce_error
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -630,6 +654,17 @@ class LxmfSession:
                 raise
 
         self._started = True
+
+        # Start periodic announce loop if interval > 0 and we have
+        # a delivery destination hash.  Only for real connection modes
+        # (fake mode never creates network-visible announces).
+        if (
+            self._config.connection_type != "fake"
+            and self._config.announce_interval_seconds > 0
+            and self._delivery_destination_hash is not None
+        ):
+            self._announce_task = asyncio.create_task(self._announce_loop())
+
         self._logger.info(
             "LxmfSession %s started (mode=%s, connected=%s)",
             self._adapter_id,
@@ -684,8 +719,13 @@ class LxmfSession:
         self._diag.connected = False
         self._diag.router_running = False
         self._diag.reconnecting = False
-        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        # Reset reconnect counter so diagnostics are truthful after stop.
         self._diag.reconnect_attempts = 0
+        # Reset announce counters on stop boundary.
+        self._diag.announces_sent = 0
+        self._diag.announce_failures = 0
+        self._diag.last_announce_error = None
+        self._delivery_destination_hash = None
         # Clear callback and loop references so late SDK callbacks
         # (fired on Reticulum threads after teardown) are dropped.
         self._message_callback = None
@@ -828,6 +868,9 @@ class LxmfSession:
             propagation_enabled=self._diag.propagation_enabled,
             pending_delivery_count=len(self._outbound_deliveries),
             mode=self._config.connection_type,
+            announces_sent=self._diag.announces_sent,
+            announce_failures=self._diag.announce_failures,
+            last_announce_error=self._diag.last_announce_error,
         )
 
     def delivery_state_counts(self) -> dict[str, int]:
@@ -904,6 +947,36 @@ class LxmfSession:
                 raise LxmfConnectionError(
                     f"Failed to register delivery callback on LXMRouter: {exc}"
                 ) from exc
+
+            # 6. Register delivery identity — creates the inbound
+            #    destination that remote peers can address.  Also
+            #    required for router.announce() to work (announce
+            #    looks up the hash in delivery_destinations).
+            #    Clear stale hash before each attempt so a None return
+            #    does not leave a previous lifecycle's value in place.
+            self._delivery_destination_hash = None
+            try:
+                delivery_dest = self._router.register_delivery_identity(
+                    self._identity,
+                    display_name=self._config.display_name or None,
+                )
+                if delivery_dest is not None:
+                    self._delivery_destination_hash = delivery_dest.hash
+                else:
+                    self._logger.warning(
+                        "LxmfSession %s: register_delivery_identity returned "
+                        "None (another identity may already be registered)",
+                        self._adapter_id,
+                    )
+            except (AttributeError, TypeError) as exc:
+                # Non-fatal: delivery and announce still work without
+                # a local delivery identity, but inbound direct
+                # messages will not be received.
+                self._logger.warning(
+                    "LxmfSession %s: register_delivery_identity failed: %s",
+                    self._adapter_id,
+                    exc,
+                )
 
         except LxmfConnectionError:
             raise
@@ -1502,6 +1575,57 @@ class LxmfSession:
             else:
                 self._diag.propagation_enabled = False
         except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Periodic announce
+    # ------------------------------------------------------------------
+
+    async def _announce_loop(self) -> None:
+        """Periodic LXMF announce loop for mesh path discovery.
+
+        Sleeps for ``announce_interval_seconds`` between announces.
+        Respects ``_stop_requested`` and handles cancellation cleanly.
+        Announce errors are counted in diagnostics but do not terminate
+        the loop.
+
+        The loop is only started for non-fake connection modes with a
+        valid ``_delivery_destination_hash`` and
+        ``announce_interval_seconds > 0``.
+        """
+        interval = self._config.announce_interval_seconds
+        assert interval > 0  # Guard: caller must check before starting
+
+        try:
+            while not self._stop_requested and self._started:
+                try:
+                    await asyncio.sleep(interval)
+                except asyncio.CancelledError:
+                    raise
+
+                if self._stop_requested or not self._started:
+                    break
+
+                if self._router is None or self._delivery_destination_hash is None:
+                    continue
+
+                try:
+                    self._router.announce(self._delivery_destination_hash)
+                    self._diag.announces_sent += 1
+                    self._logger.debug(
+                        "LxmfSession %s: announce sent for %s",
+                        self._adapter_id,
+                        self._delivery_destination_hash.hex()[:16],
+                    )
+                except Exception as exc:
+                    self._diag.announce_failures += 1
+                    self._diag.last_announce_error = str(exc)
+                    self._logger.warning(
+                        "LxmfSession %s: announce failed: %s",
+                        self._adapter_id,
+                        exc,
+                    )
+        except asyncio.CancelledError:
             pass
 
     # ------------------------------------------------------------------

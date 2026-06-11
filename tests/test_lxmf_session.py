@@ -400,6 +400,9 @@ class TestLxmfSessionDiagnostics:
         assert diag.permanent_delivery_failures == 0
         assert diag.last_error is None
         assert diag.pending_delivery_count == 0
+        assert diag.announces_sent == 0
+        assert diag.announce_failures == 0
+        assert diag.last_announce_error is None
 
     async def test_diagnostics_after_stop(self) -> None:
         session = _make_session(connection_type="fake")

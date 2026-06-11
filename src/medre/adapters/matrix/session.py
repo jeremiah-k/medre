@@ -416,7 +416,7 @@ class MatrixSession:
             unmet in ``e2ee_required`` mode, or the sync task cannot
             be created.
         """
-        # Track 3 — guard against double-start
+        # Guard against double-start.
         if self._client is not None and not self._closed:
             self._logger.warning("MatrixSession.start() called while already running")
             return
@@ -540,7 +540,7 @@ class MatrixSession:
         )
 
         if not getattr(self._client, "logged_in", False):
-            # Track 3 — partial startup cleanup
+            # Partial startup cleanup: close client on login failure.
             try:
                 await self._client.close()
             except Exception:
@@ -767,7 +767,7 @@ class MatrixSession:
     async def _finalize_start(self) -> None:
         """Common post-client-creation steps: validate login, register callbacks, start sync task."""
         if not getattr(self._client, "logged_in", False):
-            # Track 3 — partial startup cleanup
+            # Partial startup cleanup: close client on login failure.
             try:
                 await self._client.close()
             except Exception:
@@ -1314,7 +1314,7 @@ class MatrixSession:
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing, close the client.  Idempotent."""
-        # Track 3 — signal stop to prevent reconnect loops
+        # Signal stop to prevent reconnect loops.
         self._stop_requested = True
 
         # Cancel outstanding join tasks before closing the client.
@@ -1367,7 +1367,7 @@ class MatrixSession:
         self._closed = True
         self._reconnecting = False
         self._live_sync_started = False
-        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        # Reset reconnect counter so diagnostics are truthful after stop.
         self._reconnect_attempts = 0
 
     # -- Outbound send (per §31 §7.2 session owns all SDK interaction) -------
