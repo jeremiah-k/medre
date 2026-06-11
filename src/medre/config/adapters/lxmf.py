@@ -103,6 +103,15 @@ class LxmfConfig:
         path discovery.  ``0`` disables periodic announce.  Default
         ``600`` (10 minutes).  Only used in non-fake connection modes —
         fake mode never creates network-visible announces.
+    lxmf_relay_prefix:
+        Optional template string for human-readable relay attribution
+        prefix prepended to outbound LXMF message body text.  Uses
+        ``{placeholder}`` syntax resolved by the shared
+        :func:`~medre.core.rendering.attribution.format_relay_prefix`
+        formatter against extracted relay attribution data.  Default
+        ``""`` (no prefix).  The prefix is for human readability only;
+        the MEDRE metadata envelope remains the authoritative provenance
+        source.
     """
 
     adapter_id: str
@@ -117,6 +126,7 @@ class LxmfConfig:
     identity_path: str | None = None
     storage_path: str | None = None
     announce_interval_seconds: float = 600.0
+    lxmf_relay_prefix: str = ""
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -233,6 +243,15 @@ class LxmfConfig:
             raise LxmfConfigError(
                 f"announce_interval_seconds must be >= 0, "
                 f"got {self.announce_interval_seconds}"
+            )
+
+        # --- lxmf_relay_prefix ---
+        if isinstance(self.lxmf_relay_prefix, bool):
+            raise LxmfConfigError("lxmf_relay_prefix must be a string, not a boolean")
+        if not isinstance(self.lxmf_relay_prefix, str):
+            raise LxmfConfigError(
+                f"lxmf_relay_prefix must be a string, "
+                f"got {type(self.lxmf_relay_prefix).__name__}"
             )
 
         # --- metadata_embedding safety ---

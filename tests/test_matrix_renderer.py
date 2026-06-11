@@ -1418,3 +1418,398 @@ class TestMatrixMissingTargetFallback:
         assert "m.relates_to" not in result.payload
         # Body is clean relay text
         assert result.payload["body"] == "my reply"
+
+
+# ---------------------------------------------------------------------------
+# Core attribution integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_meshcore_event(
+    source_adapter: str = "meshcore-1",
+    payload: dict | None = None,
+    native_data: dict | None = None,
+) -> CanonicalEvent:
+    """Build a CanonicalEvent simulating a MeshCore source."""
+    metadata = EventMetadata()
+    if native_data:
+        metadata = EventMetadata(native=NativeMetadata(data=native_data))
+    return CanonicalEvent(
+        event_id="evt-mc-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="mc-node-1",
+        source_channel_id="ch-0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=payload or {"body": "hello meshcore"},
+        metadata=metadata,
+    )
+
+
+def _make_lxmf_event(
+    source_adapter: str = "lxmf-1",
+    payload: dict | None = None,
+    native_data: dict | None = None,
+) -> CanonicalEvent:
+    """Build a CanonicalEvent simulating an LXMF source."""
+    metadata = EventMetadata()
+    if native_data:
+        metadata = EventMetadata(native=NativeMetadata(data=native_data))
+    return CanonicalEvent(
+        event_id="evt-lxmf-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="lxmf-node-1",
+        source_channel_id="ch-0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=payload or {"body": "hello lxmf"},
+        metadata=metadata,
+    )
+
+
+class _StubMeshCoreConfig:
+    """Minimal duck-typed config for MeshCore source."""
+
+    def __init__(
+        self,
+        adapter_id: str = "meshcore-1",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
+
+class _StubLXMFConfig:
+    """Minimal duck-typed config for LXMF source."""
+
+    def __init__(
+        self,
+        adapter_id: str = "lxmf-1",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
+
+class TestMatrixCoreAttributionIntegration:
+    """MatrixRenderer uses core attribution helpers for all relay prefix
+    formatting.  Covers missing-variable safety, MeshCore/LXMF prefix
+    support, unknown placeholder policy, and reaction prefix integration.
+    """
+
+    # -- Missing variables: no 'None' in output --
+
+    async def test_missing_longname_no_none(self) -> None:
+        """Missing longname renders as empty, never the literal 'None'."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}]: ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"shortname": "A"},  # no longname
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body: str = result.payload["body"]
+        assert "None" not in body
+        # Prefix with empty longname → "[]: hello mesh"
+        assert body == "[]: hello mesh"
+
+    async def test_missing_shortname_no_none(self) -> None:
+        """Missing shortname renders as empty, never 'None'."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{shortname}]: ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},  # no shortname
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "None" not in body
+        assert body == "[]: hello mesh"
+
+    async def test_missing_all_vars_no_none(self) -> None:
+        """All prefix variables missing: no 'None' anywhere in body."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="<{longname}/{shortname}/{from_id}> ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={},  # nothing
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "None" not in body
+        assert body == "<//> hello mesh"
+
+    # -- MeshCore prefix: uses pubkey/from_id/source_sender_id --
+
+    async def test_meshcore_prefix_uses_pubkey(self) -> None:
+        """MeshCore event uses pubkey_prefix as source_sender_id in prefix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "meshcore-1": _StubMeshCoreConfig(
+                    adapter_id="meshcore-1",
+                    matrix_relay_prefix="[MC:{from_id}] ",
+                ),
+            },
+        )
+        event = _make_meshcore_event(
+            native_data={"pubkey_prefix": "a1b2c3"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "[MC:a1b2c3]" in body
+        assert "None" not in body
+
+    async def test_meshcore_prefix_source_sender_id_alias(self) -> None:
+        """MeshCore event can use source_sender_id canonical name."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "meshcore-1": _StubMeshCoreConfig(
+                    adapter_id="meshcore-1",
+                    matrix_relay_prefix="[MC:{source_sender_id}] ",
+                ),
+            },
+        )
+        event = _make_meshcore_event(
+            native_data={"pubkey_prefix": "deadbeef"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "[MC:deadbeef]" in body
+
+    # -- LXMF prefix: falls back to safe sender id --
+
+    async def test_lxmf_prefix_uses_source_hash(self) -> None:
+        """LXMF event uses source_hash as from_id in prefix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "lxmf-1": _StubLXMFConfig(
+                    adapter_id="lxmf-1",
+                    matrix_relay_prefix="[LXMF:{from_id}] ",
+                ),
+            },
+        )
+        event = _make_lxmf_event(
+            native_data={"source_hash": "feedface"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "[LXMF:feedface]" in body
+        assert "None" not in body
+
+    async def test_lxmf_prefix_no_sender_safe_empty(self) -> None:
+        """LXMF event without source_hash renders empty from_id, not None."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "lxmf-1": _StubLXMFConfig(
+                    adapter_id="lxmf-1",
+                    matrix_relay_prefix="[LXMF:{from_id}] ",
+                ),
+            },
+        )
+        event = _make_lxmf_event(native_data={})
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "None" not in body
+        assert body == "[LXMF:] hello lxmf"
+
+    # -- Unknown placeholder policy: left unchanged --
+
+    async def test_unknown_placeholder_left_unchanged(self) -> None:
+        """Unknown template variable {bogus} is left as {bogus} in output."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{bogus}] ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        # Unknown variable left unchanged in prefix
+        assert "{bogus}" in body
+        assert body == "[{bogus}] hello mesh"
+        # Metadata records the unknown variable
+        assert "prefix_formatter" in result.metadata
+        pf_meta = result.metadata["prefix_formatter"]
+        assert "bogus" in pf_meta["unknown_variables"]
+        assert pf_meta["formatting_error"] is not None
+
+    async def test_unknown_placeholder_mixed_with_known(self) -> None:
+        """Mixed known + unknown variables: known resolved, unknown left."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}/{weird}] ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "[Alice/{weird}]" in body
+
+    # -- Reaction prefix still uses core formatter --
+
+    async def test_reaction_prefix_missing_vars_no_none(self) -> None:
+        """Reaction prefix with missing variables never renders 'None'."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}] ",
+                    mmrelay_compatibility=True,
+                ),
+            },
+        )
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"shortname": "A"},  # no longname
+            payload={"body": "👍"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body = result.payload["body"]
+        assert "None" not in body
+        # Empty longname → "[]" prefix in reaction emote
+        assert "[]" in body
+
+    # -- Meshtastic prefix unchanged (regression guard) --
+
+    async def test_meshtastic_prefix_unchanged(self) -> None:
+        """Meshtastic → Matrix prefix output is unchanged after wiring."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    meshnet_name="AlphaNet",
+                    matrix_relay_prefix="[{longname}/AlphaNet]: ",
+                    mmrelay_compatibility=True,
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice", "shortname": "A", "packet_id": "42"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
+
+    # -- Metadata recorded in rendered result --
+
+    async def test_prefix_formatter_metadata_recorded(self) -> None:
+        """PrefixFormatterResult metadata is recorded in RenderingResult.metadata."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert "prefix_formatter" in result.metadata
+        pf = result.metadata["prefix_formatter"]
+        assert pf["template_used"] == "[{longname}] "
+        assert "longname" in pf["variables_used"]
+        assert pf["formatting_error"] is None
+        assert pf["unknown_variables"] == ()
+
+    async def test_no_prefix_metadata_when_no_template(self) -> None:
+        """No prefix_formatter metadata when no relay prefix template is configured."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert "prefix_formatter" not in result.metadata

@@ -1,5 +1,5 @@
 """Tests for LxmfRenderer: name, can_render dispatch, rendering output,
-title, fields envelope, and edge cases.
+title, fields envelope, relay prefix, and edge cases.
 """
 
 from __future__ import annotations
@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.core.events.metadata import EventMetadata as _EM
+from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
@@ -567,3 +569,255 @@ class TestLxmfTargetSelectionRules:
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert len(envelope["relations"]) == 1
         assert envelope["relations"][0]["relation_type"] == "reply"
+
+
+# ---------------------------------------------------------------------------
+# Relay prefix tests
+# ---------------------------------------------------------------------------
+
+
+def _make_event_with_native(
+    source_adapter: str = "matrix-1",
+    native_data: dict | None = None,
+    payload: dict | None = None,
+) -> CanonicalEvent:
+    """Create an event with native metadata for prefix extraction tests."""
+    metadata = _EM(native=NativeMetadata(data=native_data or {}))
+    return CanonicalEvent(
+        event_id="evt-prefix-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="ab" * 16,
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=payload or {"body": "hello world"},
+        metadata=metadata,
+    )
+
+
+class TestLxmfRelayPrefix:
+    """Relay prefix prepended to human-readable body text."""
+
+    async def test_empty_prefix_preserves_body(self) -> None:
+        """Default empty prefix leaves content unchanged."""
+        renderer = LxmfRenderer(relay_prefix="")
+        event = _make_event(payload={"body": "original text"})
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "original text"
+        assert "relay_prefix_template" not in result.metadata
+
+    async def test_matrix_prefix_with_display_name(self) -> None:
+        """Matrix -> LXMF prefix uses display name from native metadata."""
+        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@alice:example.com",
+                "displayname": "Alice",
+            },
+            payload={"body": "hello from matrix"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[Alice] hello from matrix"
+        assert result.metadata["relay_prefix_rendered"] == "[Alice] "
+
+    async def test_meshtastic_prefix_with_shortname(self) -> None:
+        """Meshtastic -> LXMF prefix uses shortname from native metadata."""
+        renderer = LxmfRenderer(relay_prefix="<{shortname}> ")
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "Base Station",
+                "shortname": "BASE",
+                "from_id": "!a1b2c3d4",
+            },
+            payload={"body": "radio check"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "<BASE> radio check"
+        assert result.metadata["relay_prefix_rendered"] == "<BASE> "
+
+    async def test_meshtastic_prefix_with_from_id(self) -> None:
+        """Meshtastic -> LXMF prefix uses from_id alias."""
+        renderer = LxmfRenderer(relay_prefix="({from_id}) ")
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "from_id": "!a1b2c3d4",
+            },
+            payload={"body": "ping"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "(!a1b2c3d4) ping"
+
+    async def test_meshcore_prefix_with_pubkey_fallback(self) -> None:
+        """MeshCore -> LXMF prefix uses pubkey as sender_id fallback."""
+        renderer = LxmfRenderer(relay_prefix="{source_sender_id}: ")
+        event = _make_event_with_native(
+            source_adapter="meshcore-node",
+            native_data={
+                "pubkey_prefix": "4a2f8c",
+            },
+            payload={"body": "mesh message"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "4a2f8c: mesh message"
+        assert result.metadata["relay_prefix_rendered"] == "4a2f8c: "
+
+    async def test_missing_vars_no_none_in_output(self) -> None:
+        """Missing attribution variables produce empty string, not 'None'."""
+        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        # Event with no native metadata — display_name will be empty
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data={},
+            payload={"body": "mystery msg"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        # Prefix resolves to empty since display_name is missing
+        assert result.payload["content"] == "[] mystery msg"
+        assert "None" not in result.payload["content"]
+
+    async def test_prefix_with_fallback_text_strategy(self) -> None:
+        """Prefix prepended before body; degraded relations appended after."""
+        renderer = LxmfRenderer(
+            metadata_embedding=True,
+            relay_prefix="[{source_display_name}] ",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-original",
+            target_native_ref=NativeRef(
+                adapter="lxmf-1",
+                native_channel_id=None,
+                native_message_id="abc123",
+            ),
+            key=None,
+            fallback_text="original text",
+        )
+        event = CanonicalEvent(
+            event_id="evt-prefix-fb",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-bridge",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "my reply"},
+            metadata=_EM(
+                native=NativeMetadata(
+                    data={"sender": "@bob:example.com", "displayname": "Bob"}
+                )
+            ),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        content = result.payload["content"]
+        # Prefix comes first, then body, then degraded relations
+        assert content.startswith("[Bob] my reply")
+        assert "[reply to:" in content
+        # Envelope still has empty relations (fallback_text contract)
+        envelope = result.payload["fields"][FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        assert envelope["relations"] == []
+
+    async def test_prefix_metadata_in_result(self) -> None:
+        """Result metadata records prefix template and rendered string."""
+        renderer = LxmfRenderer(relay_prefix="<{shortname}> ")
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={"shortname": "DEV"},
+            payload={"body": "test"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.metadata["relay_prefix_template"] == "<{shortname}> "
+        assert result.metadata["relay_prefix_rendered"] == "<DEV> "
+
+    async def test_prefix_metadata_absent_when_empty(self) -> None:
+        """No prefix metadata keys when prefix is empty (default)."""
+        renderer = LxmfRenderer()
+        event = _make_event()
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert "relay_prefix_template" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
+        assert "relay_prefix_formatting_error" not in result.metadata
+
+    async def test_prefix_formatting_error_recorded(self) -> None:
+        """Unknown placeholder triggers formatting_error in metadata."""
+        renderer = LxmfRenderer(relay_prefix="{bogus_var} ")
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"displayname": "Test"},
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert "relay_prefix_formatting_error" in result.metadata
+        assert "bogus_var" in str(result.metadata["relay_prefix_formatting_error"])
+        # Unknown placeholder left unchanged in rendered prefix
+        assert "{bogus_var}" in result.metadata["relay_prefix_rendered"]
+
+    async def test_prefix_does_not_duplicate_envelope(self) -> None:
+        """Prefix is human-readable only; metadata envelope is separate."""
+        renderer = LxmfRenderer(
+            metadata_embedding=True,
+            relay_prefix="[{source_display_name}] ",
+        )
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@carol:example.com",
+                "displayname": "Carol",
+            },
+            payload={"body": "test envelope"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        # Content has the prefix
+        assert result.payload["content"] == "[Carol] test envelope"
+        # Envelope still exists and has event_id
+        fields = result.payload["fields"]
+        assert FIELD_MEDRE_ENVELOPE in fields
+        envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        assert envelope["event_id"] == "evt-prefix-1"
+        # Envelope does NOT contain the prefix or rendered text
+        assert "relay_prefix" not in envelope

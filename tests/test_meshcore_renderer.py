@@ -10,7 +10,12 @@ import pytest
 
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation
+from medre.core.events import (
+    CanonicalEvent,
+    EventMetadata,
+    EventRelation,
+    NativeMetadata,
+)
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
@@ -20,12 +25,14 @@ def _make_config(
     max_text_bytes: int = 512,
     meshnet_name: str = "",
     default_channel: int = 0,
+    meshcore_relay_prefix: str = "",
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
         meshnet_name=meshnet_name,
         default_channel=default_channel,
+        meshcore_relay_prefix=meshcore_relay_prefix,
     )
 
 
@@ -1075,3 +1082,243 @@ class TestMeshCoreTargetSelectionRules:
         assert "emoji" not in result.payload
         # Just plain text (no degraded inline in direct mode)
         assert result.payload["text"] == "reply text"
+
+
+# ===================================================================
+# Relay prefix: outbound prefix formatting and truncation
+# ===================================================================
+
+
+def _make_event_with_native(
+    source_adapter: str = "matrix-bridge",
+    *,
+    payload: dict | None = None,
+    native_data: dict[str, object] | None = None,
+    source_channel_id: str = "!room:matrix.org",
+) -> CanonicalEvent:
+    """Build an event with optional native metadata for attribution extraction."""
+    native = NativeMetadata(data=native_data) if native_data else None
+    return CanonicalEvent(
+        event_id="evt-prefix-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="transport-abc",
+        source_channel_id=source_channel_id,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=payload or {"body": "hello world"},
+        metadata=EventMetadata(native=native),
+    )
+
+
+class TestMeshCoreRendererRelayPrefix:
+    """Relay prefix: prepended before truncation, counts toward budget.
+
+    These tests verify that:
+    - A non-empty ``meshcore_relay_prefix`` template triggers prefix
+      formatting via the shared attribution formatter.
+    - The rendered prefix is prepended to the body text before
+      byte-budget truncation, so the prefix counts toward
+      ``max_text_bytes``.
+    - Metadata records the template, rendered prefix, and formatting
+      errors when applicable.
+    - Default empty prefix preserves existing plain-text behaviour.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_matrix_prefix_with_display_name(self) -> None:
+        """Matrix source: prefix template resolves {source_display_name}."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "[Alice] hello world"
+        assert result.metadata["rendered_relay_prefix"] == "[Alice] "
+        assert result.metadata["relay_prefix_template"] == "[{source_display_name}] "
+
+    async def test_meshtastic_prefix_with_shortname(self) -> None:
+        """Meshtastic source: prefix template resolves {shortname} alias."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="<{shortname}> ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "Base Station",
+                "shortname": "BS",
+                "from_id": "!aabbcc",
+            },
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "<BS> hello world"
+        assert result.metadata["rendered_relay_prefix"] == "<BS> "
+
+    async def test_missing_vars_produce_empty_not_none(self) -> None:
+        """Missing attribution variables produce empty strings, not 'None'."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        # Event with no native data — display_name will be empty.
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data=None,
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "None" not in str(result.payload["text"])
+        assert result.payload["text"] == "[] hello world"
+        assert result.metadata["rendered_relay_prefix"] == "[] "
+
+    async def test_prefix_counts_toward_max_text_bytes(self) -> None:
+        """Prefix bytes count toward max_text_bytes — body is truncated."""
+        # Prefix "[Alice] " = 8 bytes, budget = 15 bytes.
+        # "hello world" = 11 bytes. Total = 19 > 15, so truncation occurs.
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=15,
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+            payload={"body": "hello world"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        text = str(result.payload["text"])
+        assert text.startswith("[Alice] ")
+        # 15 bytes total: "[Alice] " (8) + "hello wo" (8) -> only 15 bytes
+        assert len(text.encode("utf-8")) <= 15
+        assert result.truncated is True
+        assert result.metadata["truncated"] is True
+        assert result.metadata["original_text_bytes"] == len(
+            "[Alice] hello world".encode("utf-8")
+        )
+
+    async def test_metadata_includes_prefix_fields(self) -> None:
+        """Metadata records template and rendered prefix when configured."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{source_platform}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.metadata["relay_prefix_template"] == "[{source_platform}] "
+        assert result.metadata["rendered_relay_prefix"] == "[matrix] "
+        assert "prefix_formatting_error" not in result.metadata
+
+    async def test_metadata_records_formatting_error_for_unknown_placeholder(
+        self,
+    ) -> None:
+        """Unknown placeholder produces formatting_error in metadata."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{bogus_var}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.metadata["prefix_formatting_error"] is not None
+        assert "unknown placeholder" in str(result.metadata["prefix_formatting_error"])
+
+    async def test_default_empty_prefix_no_metadata_keys(self) -> None:
+        """Default empty prefix: no prefix metadata keys in output."""
+        cfg = _make_config("mc-relay")
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "relay_prefix_template" not in result.metadata
+        assert "rendered_relay_prefix" not in result.metadata
+        assert "prefix_formatting_error" not in result.metadata
+        assert result.payload["text"] == "hello world"
+
+    async def test_default_empty_prefix_preserves_current_behavior(self) -> None:
+        """Empty prefix preserves plain text output unchanged."""
+        cfg = _make_config("mc-relay", max_text_bytes=512)
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="meshcore-1",
+            payload={"body": "plain message"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "plain message"
+        assert result.truncated is False
+
+    async def test_prefix_with_zero_budget_produces_empty(self) -> None:
+        """Non-empty prefix with zero budget produces empty text."""
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=0,
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == ""
+        assert result.truncated is True
+        assert result.metadata["rendered_relay_prefix"] == "[Alice] "
+
+    async def test_prefix_exact_budget_fits(self) -> None:
+        """Prefix + body exactly at budget: not truncated."""
+        # "[A] " = 4 bytes, "hi" = 2 bytes, total = 6 bytes.
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=6,
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@a:matrix.org", "displayname": "A"},
+            payload={"body": "hi"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "[A] hi"
+        assert result.truncated is False

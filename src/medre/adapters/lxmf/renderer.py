@@ -35,6 +35,10 @@ from typing import Any
 
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
+from medre.core.rendering.attribution import (
+    extract_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.relations import degrade_relations_inline
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.rendering.text_helpers import truncate_text as _truncate_text
@@ -56,6 +60,11 @@ class LxmfRenderer:
     ----------
     metadata_embedding:
         Whether to embed MEDRE metadata envelopes in LXMF fields.
+    relay_prefix:
+        Optional template string for human-readable relay attribution
+        prefix.  When non-empty, the shared prefix formatter resolves
+        ``{placeholder}`` syntax against relay attribution extracted
+        from the event.  Default ``""`` (no prefix).
     """
 
     name: str = "lxmf"
@@ -67,8 +76,10 @@ class LxmfRenderer:
     def __init__(
         self,
         metadata_embedding: bool = True,
+        relay_prefix: str = "",
     ) -> None:
         self._metadata_embedding = metadata_embedding
+        self._relay_prefix = relay_prefix
 
     # ------------------------------------------------------------------
     # Capability check
@@ -154,6 +165,23 @@ class LxmfRenderer:
         if is_fallback:
             text = self._degrade_relations_inline(event, text)
 
+        # Optional human-readable relay prefix.  Extracted from event
+        # attribution and formatted via the shared prefix formatter.
+        # The prefix is for human readability only — the MEDRE metadata
+        # envelope in fields remains the authoritative provenance source.
+        prefix_meta: dict[str, object] = {}
+        if self._relay_prefix:
+            attr = extract_relay_attribution(event)
+            prefix_result = format_relay_prefix(self._relay_prefix, attr)
+            if prefix_result.rendered_prefix:
+                text = prefix_result.rendered_prefix + text
+            prefix_meta["relay_prefix_template"] = prefix_result.template_used
+            prefix_meta["relay_prefix_rendered"] = prefix_result.rendered_prefix
+            if prefix_result.formatting_error:
+                prefix_meta["relay_prefix_formatting_error"] = (
+                    prefix_result.formatting_error
+                )
+
         # Enforce character budget declared in adapter capabilities
         # (max_text_chars=16384 by default).  Record original length
         # in metadata for evidence without duplicating the payload.
@@ -173,6 +201,7 @@ class LxmfRenderer:
             "renderer": self.name,
             "original_length": original_length,
         }
+        metadata.update(prefix_meta)
 
         return RenderingResult(
             event_id=event.event_id,

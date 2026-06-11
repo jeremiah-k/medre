@@ -57,9 +57,15 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
+from medre.core.rendering.attribution import (
+    PrefixFormatterResult,
+    extract_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -162,19 +168,27 @@ class MeshtasticRenderer:
         meshnet_name: str,
         *,
         compact: bool = False,
-    ) -> str:
-        """Format a prefix template using event source metadata.
+    ) -> PrefixFormatterResult:
+        """Format a prefix template using shared attribution extraction.
 
-        Available template variables:
+        Delegates to :func:`~medre.core.rendering.attribution.extract_relay_attribution`
+        for data extraction and :func:`~medre.core.rendering.attribution.format_relay_prefix`
+        for safe template rendering.  Falls back to reading flat
+        Meshtastic-style keys (``longname``, ``shortname``, ``from_id``)
+        directly from native metadata when the platform-specific extractor
+        does not populate them.
 
-        * ``{longname}`` — sender long name from native metadata.
-        * ``{shortname}`` — sender short name from native metadata.
-        * ``{shortname5}`` — first 5 chars of shortname (or from_id if empty).
+        Available template variables (and their aliases):
+
+        * ``{longname}`` — sender long name.
+        * ``{shortname}`` — sender short name.
+        * ``{shortname5}`` — first 5 chars of shortname (or from_id).
         * ``{meshnet_name}`` — mesh network name from adapter config.
-        * ``{from_id}`` — sender node ID from native metadata.
+        * ``{from_id}`` — sender node ID.
+        * Plus all canonical ``source_*`` fields from :class:`RelayAttribution`.
 
         Falls back to empty strings for any unavailable variables.
-        If the template is invalid, returns the raw template unchanged.
+        Never renders the literal text ``"None"``.
 
         When *compact* is ``True``, spaces are stripped from display-name
         tokens (longname, shortname) before template substitution.
@@ -192,40 +206,65 @@ class MeshtasticRenderer:
 
         Returns
         -------
-        str
-            The formatted prefix string.
+        PrefixFormatterResult
+            Frozen result with rendered prefix string and diagnostic
+            metadata.
         """
         if not radio_relay_prefix:
-            return ""
+            return PrefixFormatterResult(
+                rendered_prefix="",
+                template_used=radio_relay_prefix,
+                variables_used=(),
+                missing_variables=(),
+                unknown_variables=(),
+                formatting_error=None,
+            )
 
+        attr = extract_relay_attribution(
+            event,
+            source_meshnet_name=meshnet_name or None,
+        )
+
+        # Flat-key fallback: the codec pipeline may store
+        # Meshtastic-style flat keys (longname, shortname, from_id)
+        # in native_data regardless of source platform.  Patch any
+        # attribution fields that the platform extractor left empty.
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        shortname_raw = str(native_data.get("shortname", ""))
-        from_id = str(native_data.get("from_id", event.source_transport_id or ""))
-        shortname5 = (shortname_raw or from_id)[:5]
+        patches: dict[str, str | None] = {}
+        if not attr.source_long_name:
+            ln = native_data.get("longname")
+            patches["source_long_name"] = str(ln) if ln is not None else None
+        if not attr.source_short_name:
+            sn = native_data.get("shortname")
+            patches["source_short_name"] = str(sn) if sn is not None else None
+        if not attr.source_sender_id:
+            fid = native_data.get("from_id", event.source_transport_id)
+            patches["source_sender_id"] = str(fid) if fid is not None else None
+        if patches.get("source_long_name") and not attr.source_display_name:
+            patches["source_display_name"] = patches["source_long_name"]
 
-        longname = str(native_data.get("longname", ""))
-        shortname = shortname_raw
+        if patches:
+            # Clear short_name_5 so it is re-derived from patched values.
+            if "source_short_name" in patches or "source_sender_id" in patches:
+                patches["source_short_name_5"] = None
+            attr = replace(attr, **patches)
 
         if compact:
-            longname = longname.replace(" ", "")
-            shortname = shortname.replace(" ", "")
-            shortname5 = shortname[:5] if shortname else from_id[:5]
+            long_compact = (attr.source_long_name or "").replace(" ", "") or None
+            short_compact = (attr.source_short_name or "").replace(" ", "") or None
+            display_compact = (attr.source_display_name or "").replace(" ", "") or None
+            attr = replace(
+                attr,
+                source_display_name=display_compact,
+                source_long_name=long_compact,
+                source_short_name=short_compact,
+                source_short_name_5=None,  # Force re-derivation
+            )
 
-        format_vars = {
-            "longname": longname,
-            "shortname": shortname,
-            "shortname5": shortname5,
-            "meshnet_name": meshnet_name,
-            "from_id": from_id,
-        }
-
-        try:
-            return radio_relay_prefix.format(**format_vars)
-        except (KeyError, IndexError, ValueError):
-            return radio_relay_prefix
+        return format_relay_prefix(radio_relay_prefix, attr)
 
     # ------------------------------------------------------------------
     # Rendering
@@ -390,12 +429,13 @@ class MeshtasticRenderer:
                     else:
                         # Cross-platform MMRelay-style descriptive reaction
                         orig_preview = self._abbreviated_original_text(event, rel)
-                        compact_prefix = self._format_prefix_for(
+                        compact_prefix_result = self._format_prefix_for(
                             event,
                             prefix,
                             meshnet_name,
                             compact=True,
                         )
+                        compact_prefix = compact_prefix_result.rendered_prefix
                         sep = ""
                         if compact_prefix and not compact_prefix[-1:].isspace():
                             sep = " "
@@ -414,15 +454,22 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        formatted_prefix = ""
+        prefix_result: PrefixFormatterResult = PrefixFormatterResult(
+            rendered_prefix="",
+            template_used="",
+            variables_used=(),
+            missing_variables=(),
+            unknown_variables=(),
+            formatting_error=None,
+        )
         if not is_structured_reaction and not is_descriptive_reaction:
-            formatted_prefix = self._format_prefix_for(
+            prefix_result = self._format_prefix_for(
                 event,
                 prefix,
                 meshnet_name,
             )
-            if formatted_prefix:
-                content["text"] = f"{formatted_prefix}{content['text']}"
+            if prefix_result.rendered_prefix:
+                content["text"] = f"{prefix_result.rendered_prefix}{content['text']}"
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         final_text = str(content.get("text", ""))
@@ -440,8 +487,12 @@ class MeshtasticRenderer:
             "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
+        formatted_prefix = prefix_result.rendered_prefix
         if formatted_prefix:
             metadata["radio_relay_prefix"] = formatted_prefix
+            metadata["prefix_template_used"] = prefix_result.template_used
+            metadata["prefix_variables_used"] = prefix_result.variables_used
+            metadata["prefix_missing_variables"] = prefix_result.missing_variables
         if is_descriptive_reaction:
             metadata["descriptive_reaction"] = True
         if is_fallback:
@@ -519,7 +570,7 @@ class MeshtasticRenderer:
                 prefix,
                 meshnet_name,
                 compact=True,
-            )
+            ).rendered_prefix
             sep = ""
             if compact_prefix and not compact_prefix[-1:].isspace():
                 sep = " "

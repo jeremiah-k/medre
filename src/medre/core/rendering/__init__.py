@@ -34,8 +34,22 @@ Exported names
   cap text at a character limit.
 * :func:`~medre.core.rendering.text_helpers.truncate_text_bytes` -
   cap text at a UTF-8 byte limit.
+* :class:`~medre.core.rendering.attribution.RelayAttribution` -
+  immutable cross-transport attribution snapshot.
+* :class:`~medre.core.rendering.attribution.PrefixFormatterResult` -
+  result of safe relay-prefix template formatting.
+* :func:`~medre.core.rendering.attribution.extract_relay_attribution` -
+  data-driven extraction from canonical events.
+* :func:`~medre.core.rendering.attribution.format_relay_prefix` -
+  safe, never-raises template formatter.
 """
 
+from medre.core.rendering.attribution import (
+    PrefixFormatterResult,
+    RelayAttribution,
+    extract_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import (
     CapabilityLevel,
@@ -57,13 +71,17 @@ __all__ = [
     "CapabilityLevel",
     "DeliveryStrategyMethod",
     "FallbackApplied",
+    "PrefixFormatterResult",
+    "RelayAttribution",
     "Renderer",
     "RenderingContext",
     "RenderingEvidence",
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
+    "extract_relay_attribution",
     "extract_relation_text",
+    "format_relay_prefix",
     "truncate_text",
     "truncate_text_bytes",
 ]

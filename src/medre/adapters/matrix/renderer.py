@@ -21,6 +21,10 @@ from typing import Any, Mapping
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
+from medre.core.rendering.attribution import (
+    extract_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -116,6 +120,34 @@ class MatrixRenderer:
             return getattr(cfg, "mmrelay_compatibility", False)
         return False
 
+    def _detect_source_platform(self, event: CanonicalEvent) -> str | None:
+        """Best-effort source platform detection for relay attribution.
+
+        First inspects ``event.source_adapter`` for known platform
+        fragments (mirrors the core heuristic).  When the adapter name
+        does not contain a recognisable fragment, falls back to inspecting
+        native metadata keys to identify the originating platform.
+        """
+        lowered = event.source_adapter.lower()
+        for fragment, platform in (
+            ("matrix", "matrix"),
+            ("meshtastic", "meshtastic"),
+            ("meshcore", "meshcore"),
+            ("lxmf", "lxmf"),
+        ):
+            if fragment in lowered:
+                return platform
+        # Fallback: detect from native metadata keys.
+        if event.metadata and event.metadata.native:
+            data = event.metadata.native.data
+            if any(k in data for k in ("longname", "shortname", "from_id")):
+                return "meshtastic"
+            if "pubkey_prefix" in data:
+                return "meshcore"
+            if "source_hash" in data:
+                return "lxmf"
+        return None
+
     # ------------------------------------------------------------------
     # Capability check
     # ------------------------------------------------------------------
@@ -207,7 +239,7 @@ class MatrixRenderer:
         body = str(event.payload.get("text", event.payload.get("body", "")))
 
         # Apply relay prefix for mesh→Matrix direction
-        body = self._apply_matrix_relay_prefix(event, body)
+        body, prefix_meta = self._apply_matrix_relay_prefix(event, body)
 
         content: dict[str, object] = {
             "msgtype": "m.text",
@@ -275,6 +307,7 @@ class MatrixRenderer:
         metadata: dict[str, object] = {
             "renderer": self.name,
         }
+        metadata.update(prefix_meta)
 
         return RenderingResult(
             event_id=event.event_id,
@@ -309,7 +342,7 @@ class MatrixRenderer:
 
         # Apply relay prefix for mesh→Matrix direction BEFORE truncation
         # so that the final body (prefix + text) respects the text budget.
-        body = self._apply_matrix_relay_prefix(event, degraded_text)
+        body, prefix_meta = self._apply_matrix_relay_prefix(event, degraded_text)
 
         # Truncate the final body (including relay prefix) when the
         # context imposes a text budget.
@@ -355,6 +388,7 @@ class MatrixRenderer:
         result_metadata: dict[str, object] = {
             "renderer": self.name,
         }
+        result_metadata.update(prefix_meta)
         if truncated:
             result_metadata["original_length"] = original_length
             result_metadata["original_text_bytes"] = original_text_bytes
@@ -466,34 +500,48 @@ class MatrixRenderer:
             return normalized[:max_len] + "..."
         return normalized
 
-    def _format_reaction_prefix(self, event: CanonicalEvent) -> str:
+    def _format_reaction_prefix(
+        self,
+        event: CanonicalEvent,
+    ) -> tuple[str, dict[str, object]]:
         """Format the configured relay prefix for a reaction emote body.
 
-        Returns the formatted prefix string (may be empty when no prefix
-        template is configured).  Longname / shortname are preserved
-        exactly as received — no truncation or case folding.
+        Uses the shared core attribution extractor and safe prefix formatter.
+
+        Returns a ``(prefix_str, formatter_meta)`` tuple.
+        ``prefix_str`` may be empty when no prefix template is configured.
+        ``formatter_meta`` contains diagnostic keys when a prefix was
+        formatted, empty dict otherwise.
         """
-        prefix = self._get_matrix_relay_prefix(event)
-        if not prefix:
-            return ""
-        native_data: dict[str, object] = {}
-        if event.metadata and event.metadata.native:
-            native_data = dict(event.metadata.native.data)
-        _longname = str(native_data.get("longname") or "")
-        _shortname = str(native_data.get("shortname") or "")
-        _from_id = str(native_data.get("from_id") or "")
-        _meshnet_name = self._get_meshnet_name(event)
-        _shortname5 = (_shortname or _from_id)[:5]
-        try:
-            return prefix.format(
-                longname=_longname,
-                shortname=_shortname,
-                shortname5=_shortname5,
-                meshnet_name=_meshnet_name,
-                from_id=_from_id,
-            )
-        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
-            return ""
+        template = self._get_matrix_relay_prefix(event)
+        if not template:
+            return "", {}
+
+        meshnet_name = self._get_meshnet_name(event) or None
+        source_platform = self._detect_source_platform(event)
+        attr = extract_relay_attribution(
+            event,
+            source_platform=source_platform,
+            source_meshnet_name=meshnet_name,
+        )
+        fmt_result = format_relay_prefix(template, attr)
+
+        # On internal exception, return empty prefix (preserve safety).
+        if fmt_result.formatting_error and fmt_result.formatting_error.startswith(
+            "formatting_exception:"
+        ):
+            return "", {}
+
+        formatter_meta: dict[str, object] = {
+            "prefix_formatter": {
+                "template_used": fmt_result.template_used,
+                "variables_used": fmt_result.variables_used,
+                "missing_variables": fmt_result.missing_variables,
+                "unknown_variables": fmt_result.unknown_variables,
+                "formatting_error": fmt_result.formatting_error,
+            },
+        }
+        return fmt_result.rendered_prefix, formatter_meta
 
     # ------------------------------------------------------------------
     # Reaction rendering
@@ -546,7 +594,7 @@ class MatrixRenderer:
             original_text = self._abbreviate_text(
                 self._extract_original_text(rel, event)
             )
-            prefix = self._format_reaction_prefix(event)
+            prefix, _reaction_prefix_meta = self._format_reaction_prefix(event)
 
             if not prefix or not prefix.strip():
                 emote_body = f'\n reacted {symbol} to "{original_text}"'
@@ -610,57 +658,53 @@ class MatrixRenderer:
     # Relay prefix
     # ------------------------------------------------------------------
 
-    def _apply_matrix_relay_prefix(self, event: CanonicalEvent, body: str) -> str:
+    def _apply_matrix_relay_prefix(
+        self,
+        event: CanonicalEvent,
+        body: str,
+    ) -> tuple[str, dict[str, object]]:
         """Prepend the configured relay prefix template to *body*.
 
-        When :attr:`_matrix_relay_prefix` is non-empty, the template is formatted
-        using variables extracted from the event's native metadata:
+        Uses the shared core attribution extractor and safe prefix formatter
+        from :mod:`medre.core.rendering.attribution`.  Variables available
+        in templates include all canonical ``source_*`` fields plus aliases
+        (``longname``, ``shortname``, ``shortname5``, ``from_id``,
+        ``meshnet_name``).
 
-        * ``{longname}`` — sender long name.
-        * ``{shortname}`` — sender short name.
-        * ``{shortname5}`` — first 5 characters of shortname or from_id.
-        * ``{meshnet_name}`` — mesh network name from config.
-        * ``{from_id}`` — sender node ID.
-
-        ``None`` values in native metadata are coalesced to empty strings
-        to avoid producing the literal text ``"None"`` in the prefix.
-
-        If the prefix is empty or formatting fails (unknown template
-        variable, malformed template), *body* is returned unchanged.
+        Returns a ``(prefixed_body, formatter_meta)`` tuple.
+        ``formatter_meta`` is empty when no prefix is configured or a
+        formatting exception occurred; otherwise it contains diagnostic
+        keys from :class:`PrefixFormatterResult`.
         """
-        prefix = self._get_matrix_relay_prefix(event)
-        if not prefix:
-            return body
+        template = self._get_matrix_relay_prefix(event)
+        if not template:
+            return body, {}
 
-        native_data: dict[str, object] = {}
-        if event.metadata and event.metadata.native:
-            native_data = dict(event.metadata.native.data)
+        meshnet_name = self._get_meshnet_name(event) or None
+        source_platform = self._detect_source_platform(event)
+        attr = extract_relay_attribution(
+            event,
+            source_platform=source_platform,
+            source_meshnet_name=meshnet_name,
+        )
+        fmt_result = format_relay_prefix(template, attr)
 
-        # Coalesce None values to empty strings — native metadata keys may
-        # exist with None values, which str.format() would render as the
-        # literal string "None".
-        _longname = str(native_data.get("longname") or "")
-        _shortname = str(native_data.get("shortname") or "")
-        _from_id = str(native_data.get("from_id") or "")
-        _meshnet_name = self._get_meshnet_name(event)
+        # On internal exception, return body unchanged (preserve safety).
+        if fmt_result.formatting_error and fmt_result.formatting_error.startswith(
+            "formatting_exception:"
+        ):
+            return body, {}
 
-        # shortname5: first 5 chars of shortname, falling back to from_id
-        # when shortname is empty.  Matches Meshtastic renderer convention.
-        _shortname5 = (_shortname or _from_id)[:5]
-
-        try:
-            formatted_prefix = prefix.format(
-                longname=_longname,
-                shortname=_shortname,
-                shortname5=_shortname5,
-                meshnet_name=_meshnet_name,
-                from_id=_from_id,
-            )
-        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
-            # Unknown template variable or malformed template — return
-            # body unchanged rather than crashing the render pipeline.
-            return body
-        return f"{formatted_prefix}{body}"
+        formatter_meta: dict[str, object] = {
+            "prefix_formatter": {
+                "template_used": fmt_result.template_used,
+                "variables_used": fmt_result.variables_used,
+                "missing_variables": fmt_result.missing_variables,
+                "unknown_variables": fmt_result.unknown_variables,
+                "formatting_error": fmt_result.formatting_error,
+            },
+        }
+        return f"{fmt_result.rendered_prefix}{body}", formatter_meta
 
     # ------------------------------------------------------------------
     # mmrelay compatibility

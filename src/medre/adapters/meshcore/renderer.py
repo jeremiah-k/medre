@@ -49,6 +49,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent
+from medre.core.rendering.attribution import (
+    extract_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.relations import degrade_relations_inline
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
@@ -201,6 +205,21 @@ class MeshCoreRenderer:
         if is_fallback:
             text = self._degrade_relations_inline(event, text)
 
+        # -- Optional relay prefix (prepended before truncation) ---------
+        prefix_template = adapter_config.meshcore_relay_prefix
+        rendered_prefix = ""
+        prefix_formatting_error: str | None = None
+
+        if prefix_template:
+            attr = extract_relay_attribution(
+                event,
+                source_meshnet_name=adapter_config.meshnet_name or None,
+            )
+            prefix_result = format_relay_prefix(prefix_template, attr)
+            rendered_prefix = prefix_result.rendered_prefix
+            prefix_formatting_error = prefix_result.formatting_error
+            text = rendered_prefix + text
+
         # -- UTF-8 byte-budget truncation after final rendering ------
         truncated_text, was_truncated, original_bytes, rendered_bytes = (
             self._truncate_utf8_bytes(text, max_text_bytes)
@@ -221,6 +240,13 @@ class MeshCoreRenderer:
             "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
+
+        # Prefix-specific metadata (only when prefix is configured).
+        if prefix_template:
+            metadata["relay_prefix_template"] = prefix_template
+            metadata["rendered_relay_prefix"] = rendered_prefix
+            if prefix_formatting_error is not None:
+                metadata["prefix_formatting_error"] = prefix_formatting_error
 
         return RenderingResult(
             event_id=event.event_id,

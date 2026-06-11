@@ -693,3 +693,71 @@ def test_ble_pin_bool_true_raises() -> None:
     config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin=True)  # type: ignore[arg-type]
     with pytest.raises(MeshCoreConfigError, match="ble_pin"):
         config.validate()
+
+
+# --- meshcore_relay_prefix validation: str, default "", bool rejected ---
+
+
+class TestMeshCoreConfigRelayPrefix:
+    """meshcore_relay_prefix validation: type, default, and edge cases."""
+
+    def test_default_is_empty_string(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.meshcore_relay_prefix == ""
+
+    def test_default_validates(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.validate().meshcore_relay_prefix == ""
+
+    def test_non_empty_string_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            meshcore_relay_prefix="[{source_display_name}] ",
+        )
+        assert config.validate().meshcore_relay_prefix == "[{source_display_name}] "
+
+    def test_empty_string_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix="")
+        assert config.validate().meshcore_relay_prefix == ""
+
+    def test_bool_true_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=True)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="meshcore_relay_prefix must be a str, got bool",
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=False)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="meshcore_relay_prefix must be a str, got bool",
+        ):
+            config.validate()
+
+    def test_int_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=42)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="meshcore_relay_prefix must be a str, got int",
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=None)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="meshcore_relay_prefix must be a str, got NoneType",
+        ):
+            config.validate()
+
+    def test_template_with_multiple_placeholders(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            meshcore_relay_prefix="<{source_platform}:{shortname}> ",
+        )
+        assert (
+            config.validate().meshcore_relay_prefix
+            == "<{source_platform}:{shortname}> "
+        )

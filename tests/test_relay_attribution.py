@@ -1,0 +1,705 @@
+"""Focused unit tests for relay attribution model, extraction, and prefix
+formatting.
+
+Covers:
+- RelayAttribution immutability and default construction.
+- All variable substitutions (canonical names + aliases).
+- None coalescing to empty string.
+- Unknown-placeholder policy (leave unchanged, set error).
+- Brace / format edge cases (unmatched braces, empty template).
+- Deterministic output.
+- Extraction for Matrix, Meshtastic, MeshCore, LXMF shaped native metadata.
+- Missing fields do not crash extraction or formatting.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from medre.core.events import (
+    CanonicalEvent,
+    EventMetadata,
+    NativeMetadata,
+    NativeRef,
+    RoutingMetadata,
+)
+from medre.core.rendering.attribution import (
+    RelayAttribution,
+    extract_relay_attribution,
+    format_relay_prefix,
+)
+
+# ===================================================================
+# Helpers
+# ===================================================================
+
+
+def _make_event(
+    source_adapter: str = "source-adapter",
+    source_channel_id: str | None = "ch-0",
+    native_data: dict[str, object] | None = None,
+    source_native_ref: NativeRef | None = None,
+    route_trace: tuple[str, ...] = (),
+    source_transport_id: str = "transport-1",
+) -> CanonicalEvent:
+    """Create a minimal canonical event for attribution tests."""
+    metadata = EventMetadata(
+        native=NativeMetadata(data=native_data) if native_data else None,
+        routing=RoutingMetadata(route_trace=route_trace) if route_trace else None,
+    )
+    return CanonicalEvent(
+        event_id="evt-attrib-001",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime(2025, 6, 11, 12, 0, 0, tzinfo=timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id=source_transport_id,
+        source_channel_id=source_channel_id,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "test message"},
+        metadata=metadata,
+        source_native_ref=source_native_ref,
+    )
+
+
+# ===================================================================
+# RelayAttribution model tests
+# ===================================================================
+
+
+class TestRelayAttributionModel:
+    """RelayAttribution is a frozen dataclass with sensible defaults."""
+
+    def test_default_construction_all_none(self) -> None:
+        attr = RelayAttribution()
+        assert attr.source_adapter_id is None
+        assert attr.source_platform is None
+        assert attr.source_sender_id is None
+        assert attr.source_meshnet_name is None
+        assert attr.route_id is None
+
+    def test_frozen_immutability(self) -> None:
+        attr = RelayAttribution(source_adapter_id="test")
+        with pytest.raises(AttributeError):
+            attr.source_adapter_id = "changed"  # type: ignore[misc]
+
+    def test_full_construction(self) -> None:
+        attr = RelayAttribution(
+            source_adapter_id="matrix-1",
+            source_platform="matrix",
+            source_transport="transport-x",
+            source_sender_id="@alice:matrix.org",
+            source_display_name="Alice",
+            source_long_name="Alice",
+            source_short_name="alice",
+            source_short_name_5="alice",
+            source_room_or_channel="!room:matrix.org",
+            source_meshnet_name=None,
+            source_native_message_id="$msg1",
+            source_native_channel_id="!room:matrix.org",
+            route_id="route-1",
+        )
+        assert attr.source_adapter_id == "matrix-1"
+        assert attr.source_platform == "matrix"
+        assert attr.source_sender_id == "@alice:matrix.org"
+
+    def test_equality(self) -> None:
+        a = RelayAttribution(source_adapter_id="x", source_platform="matrix")
+        b = RelayAttribution(source_adapter_id="x", source_platform="matrix")
+        assert a == b
+
+    def test_inequality(self) -> None:
+        a = RelayAttribution(source_adapter_id="x")
+        b = RelayAttribution(source_adapter_id="y")
+        assert a != b
+
+
+# ===================================================================
+# Safe prefix formatter: all supported variables
+# ===================================================================
+
+
+class TestFormatRelayPrefixAllVariables:
+    """Every canonical variable and alias renders correctly."""
+
+    def _full_attr(self) -> RelayAttribution:
+        return RelayAttribution(
+            source_adapter_id="matrix-1",
+            source_platform="matrix",
+            source_transport="transport-x",
+            source_sender_id="@alice:matrix.org",
+            source_display_name="Alice",
+            source_long_name="Alice Wonderland",
+            source_short_name="alice",
+            source_short_name_5="alice",
+            source_room_or_channel="!room:matrix.org",
+            source_meshnet_name="testnet",
+            source_native_message_id="$msg1",
+            source_native_channel_id="!room:matrix.org",
+            route_id="route-42",
+        )
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("source_adapter_id", "matrix-1"),
+            ("source_platform", "matrix"),
+            ("source_transport", "transport-x"),
+            ("source_sender_id", "@alice:matrix.org"),
+            ("source_display_name", "Alice"),
+            ("source_long_name", "Alice Wonderland"),
+            ("source_short_name", "alice"),
+            ("source_short_name_5", "alice"),
+            ("source_room_or_channel", "!room:matrix.org"),
+            ("source_meshnet_name", "testnet"),
+            ("source_native_message_id", "$msg1"),
+            ("source_native_channel_id", "!room:matrix.org"),
+            ("route_id", "route-42"),
+            # Aliases
+            ("longname", "Alice Wonderland"),
+            ("shortname", "alice"),
+            ("shortname5", "alice"),
+            ("from_id", "@alice:matrix.org"),
+            ("meshnet_name", "testnet"),
+        ],
+    )
+    def test_single_variable(self, name: str, expected: str) -> None:
+        result = format_relay_prefix("{" + name + "}", self._full_attr())
+        assert result.rendered_prefix == expected
+        assert result.variables_used == (name,)
+        assert not result.missing_variables
+        assert not result.unknown_variables
+        assert result.formatting_error is None
+
+    def test_multiple_variables(self) -> None:
+        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", self._full_attr())
+        assert result.rendered_prefix == "[Alice Wonderland/testnet]: "
+        assert "longname" in result.variables_used
+        assert "meshnet_name" in result.variables_used
+
+    def test_shortname5_convention(self) -> None:
+        """shortname5 is first 5 chars of shortname, falling back to from_id."""
+        attr = RelayAttribution(
+            source_short_name="abcdefgh",
+            source_sender_id="!1234567890",
+        )
+        result = format_relay_prefix("{shortname5}", attr)
+        assert result.rendered_prefix == "abcde"
+
+    def test_shortname5_fallback_to_sender_id(self) -> None:
+        attr = RelayAttribution(
+            source_short_name=None,
+            source_sender_id="node-42",
+        )
+        result = format_relay_prefix("{shortname5}", attr)
+        assert result.rendered_prefix == "node-"
+
+
+# ===================================================================
+# None coalescing
+# ===================================================================
+
+
+class TestNoneCoalescing:
+    """None values format as empty string, never the literal 'None'."""
+
+    def test_none_renders_empty(self) -> None:
+        attr = RelayAttribution(source_long_name=None)
+        result = format_relay_prefix("[{longname}]", attr)
+        assert result.rendered_prefix == "[]"
+        assert "None" not in result.rendered_prefix
+
+    def test_all_none_renders_empty(self) -> None:
+        attr = RelayAttribution()
+        result = format_relay_prefix("{source_sender_id}", attr)
+        assert result.rendered_prefix == ""
+        assert "source_sender_id" in result.missing_variables
+
+    def test_partial_none(self) -> None:
+        attr = RelayAttribution(
+            source_long_name="Bob",
+            source_meshnet_name=None,
+        )
+        result = format_relay_prefix("[{longname}/{meshnet_name}]", attr)
+        assert result.rendered_prefix == "[Bob/]"
+        assert "meshnet_name" in result.missing_variables
+        assert "longname" not in result.missing_variables
+
+
+# ===================================================================
+# Existing templates
+# ===================================================================
+
+
+class TestExistingTemplates:
+    """Existing adapter templates must work without modification."""
+
+    def test_longname_meshnet(self) -> None:
+        attr = RelayAttribution(
+            source_long_name="Meshtastic User",
+            source_meshnet_name="mynet",
+        )
+        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[Meshtastic User/mynet]: "
+
+    def test_shortname5_bracket_m(self) -> None:
+        attr = RelayAttribution(
+            source_short_name_5="Short",
+        )
+        result = format_relay_prefix("{shortname5}[M]: ", attr)
+        assert result.rendered_prefix == "Short[M]: "
+
+    def test_shortname_bracket_meshnet(self) -> None:
+        attr = RelayAttribution(
+            source_short_name="SN",
+            source_meshnet_name="net1",
+        )
+        result = format_relay_prefix("{shortname}[{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "SN[net1]: "
+
+
+# ===================================================================
+# Unknown placeholder policy
+# ===================================================================
+
+
+class TestUnknownPlaceholderPolicy:
+    """Unknown placeholders are left unchanged and recorded with error."""
+
+    def test_unknown_left_unchanged(self) -> None:
+        attr = RelayAttribution(source_long_name="Alice")
+        result = format_relay_prefix("[{longname}/{bogus}]", attr)
+        assert result.rendered_prefix == "[Alice/{bogus}]"
+        assert result.unknown_variables == ("bogus",)
+        assert result.formatting_error is not None
+        assert "bogus" in result.formatting_error
+
+    def test_multiple_unknowns(self) -> None:
+        attr = RelayAttribution()
+        result = format_relay_prefix("{foo}{bar}", attr)
+        assert result.rendered_prefix == "{foo}{bar}"
+        assert "foo" in result.unknown_variables
+        assert "bar" in result.unknown_variables
+
+    def test_known_and_unknown_mix(self) -> None:
+        attr = RelayAttribution(source_long_name="Bob")
+        result = format_relay_prefix("{longname}-{unknown}", attr)
+        assert result.rendered_prefix == "Bob-{unknown}"
+        assert "longname" in result.variables_used
+        assert "unknown" in result.unknown_variables
+
+    def test_unknown_no_error_when_all_known(self) -> None:
+        attr = RelayAttribution(source_sender_id="user1")
+        result = format_relay_prefix("[{from_id}]", attr)
+        assert result.formatting_error is None
+
+
+# ===================================================================
+# Brace / format edge cases
+# ===================================================================
+
+
+class TestBraceEdgeCases:
+    """Unmatched braces, empty template, no placeholders."""
+
+    def test_empty_template(self) -> None:
+        result = format_relay_prefix("", RelayAttribution())
+        assert result.rendered_prefix == ""
+        assert not result.variables_used
+
+    def test_no_placeholders(self) -> None:
+        result = format_relay_prefix("[static]: ", RelayAttribution())
+        assert result.rendered_prefix == "[static]: "
+        assert not result.variables_used
+
+    def test_unmatched_open_brace(self) -> None:
+        """Unmatched braces that don't match the {name} pattern pass through."""
+        result = format_relay_prefix(
+            "{longname} [", RelayAttribution(source_long_name="A")
+        )
+        assert result.rendered_prefix == "A ["
+
+    def test_double_braces_not_special(self) -> None:
+        """Double braces are not escape sequences — they're just text."""
+        result = format_relay_prefix(
+            "{{longname}}", RelayAttribution(source_long_name="X")
+        )
+        # The regex only matches {word}, so {{longname}} has {longname} inside
+        # the outer braces. The outer braces remain.
+        assert "X" in result.rendered_prefix
+
+    def test_nested_braces_not_matched(self) -> None:
+        """{name{inner}} is not a valid placeholder."""
+        result = format_relay_prefix("{a{b}}", RelayAttribution())
+        # {b} would match as a placeholder name "b", but {a{ is just text
+        assert "b" in result.unknown_variables or result.rendered_prefix != "{a{b}}"
+
+    def test_template_with_literal_text(self) -> None:
+        attr = RelayAttribution(source_short_name="SN")
+        result = format_relay_prefix(">>{shortname}<<", attr)
+        assert result.rendered_prefix == ">>SN<<"
+
+
+# ===================================================================
+# Determinism
+# ===================================================================
+
+
+class TestDeterminism:
+    """Same inputs always produce the same output."""
+
+    def test_deterministic_repeated(self) -> None:
+        attr = RelayAttribution(
+            source_long_name="User1",
+            source_meshnet_name="net",
+        )
+        template = "[{longname}/{meshnet_name}]: "
+        r1 = format_relay_prefix(template, attr)
+        r2 = format_relay_prefix(template, attr)
+        assert r1.rendered_prefix == r2.rendered_prefix
+        assert r1.variables_used == r2.variables_used
+        assert r1.missing_variables == r2.missing_variables
+        assert r1.formatting_error == r2.formatting_error
+
+    def test_different_attrs_different_output(self) -> None:
+        a1 = RelayAttribution(source_long_name="Alice")
+        a2 = RelayAttribution(source_long_name="Bob")
+        r1 = format_relay_prefix("{longname}", a1)
+        r2 = format_relay_prefix("{longname}", a2)
+        assert r1.rendered_prefix != r2.rendered_prefix
+
+
+# ===================================================================
+# PrefixFormatterResult structure
+# ===================================================================
+
+
+class TestPrefixFormatterResult:
+    """PrefixFormatterResult is frozen and well-structured."""
+
+    def test_frozen(self) -> None:
+        result = format_relay_prefix("", RelayAttribution())
+        with pytest.raises(AttributeError):
+            result.rendered_prefix = "changed"  # type: ignore[misc]
+
+    def test_template_used_recorded(self) -> None:
+        template = "[{longname}]: "
+        result = format_relay_prefix(template, RelayAttribution())
+        assert result.template_used == template
+
+    def test_missing_variables_tracked(self) -> None:
+        attr = RelayAttribution(source_long_name=None, source_sender_id=None)
+        result = format_relay_prefix("{longname}-{from_id}", attr)
+        assert "longname" in result.missing_variables
+        assert "from_id" in result.missing_variables
+
+    def test_empty_value_is_missing(self) -> None:
+        attr = RelayAttribution(source_long_name="")
+        result = format_relay_prefix("{longname}", attr)
+        assert "longname" in result.missing_variables
+
+
+# ===================================================================
+# Extraction: Matrix
+# ===================================================================
+
+
+class TestExtractionMatrix:
+    """Matrix event extraction produces correct attribution fields."""
+
+    def test_basic_matrix_extraction(self) -> None:
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@alice:matrix.org",
+                "displayname": "Alice",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "matrix"
+        assert attr.source_sender_id == "@alice:matrix.org"
+        assert attr.source_display_name == "Alice"
+        assert attr.source_long_name == "Alice"
+        assert attr.source_short_name == "alice"
+
+    def test_mxid_localpart_fallback(self) -> None:
+        """When no displayname, short_name falls back to MXID localpart."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@bob:matrix.org",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_short_name == "bob"
+        assert attr.source_display_name is None
+
+    def test_sender_id_fallback_from_id(self) -> None:
+        """from_id alias resolves to the Matrix sender MXID."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@carol:example.com"},
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("{from_id}", attr)
+        assert result.rendered_prefix == "@carol:example.com"
+
+
+# ===================================================================
+# Extraction: Meshtastic
+# ===================================================================
+
+
+class TestExtractionMeshtastic:
+    """Meshtastic event extraction produces correct attribution fields."""
+
+    def test_basic_meshtastic_extraction(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "Radio User",
+                "shortname": "RU",
+                "from_id": "!aabbccdd",
+                "meshnet_name": "my-mesh",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshtastic"
+        assert attr.source_sender_id == "!aabbccdd"
+        assert attr.source_long_name == "Radio User"
+        assert attr.source_short_name == "RU"
+        assert attr.source_meshnet_name == "my-mesh"
+
+    def test_shortname5_from_shortname(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "shortname": "LongName",
+                "from_id": "!1234",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_short_name_5 == "LongN"
+
+    def test_shortname5_fallback_from_id(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "from_id": "!abcdef123456",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_short_name_5 == "!abcd"
+
+    def test_missing_longname(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={"from_id": "!node1"},
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_long_name is None
+        assert attr.source_sender_id == "!node1"
+
+    def test_template_longname_meshnet(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "TestUser",
+                "shortname": "TU",
+                "from_id": "!abcd",
+                "meshnet_name": "testnet",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[TestUser/testnet]: "
+
+
+# ===================================================================
+# Extraction: MeshCore
+# ===================================================================
+
+
+class TestExtractionMeshCore:
+    """MeshCore event extraction produces correct attribution fields."""
+
+    def test_basic_meshcore_extraction(self) -> None:
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "pubkey_prefix": "a1b2c3",
+                "channel_idx": "2",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshcore"
+        assert attr.source_sender_id == "a1b2c3"
+        assert attr.source_native_channel_id == "2"
+
+    def test_no_display_name(self) -> None:
+        """MeshCore has no display name by default."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={"pubkey_prefix": "deadbeef"},
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_display_name is None
+        assert attr.source_long_name is None
+
+
+# ===================================================================
+# Extraction: LXMF
+# ===================================================================
+
+
+class TestExtractionLxmf:
+    """LXMF event extraction produces correct attribution fields."""
+
+    def test_basic_lxmf_extraction(self) -> None:
+        event = _make_event(
+            source_adapter="lxmf-node",
+            native_data={
+                "source_hash": "abc123def",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "lxmf"
+        assert attr.source_sender_id == "abc123def"
+
+    def test_no_display_name(self) -> None:
+        event = _make_event(
+            source_adapter="lxmf-node",
+            native_data={"source_hash": "xyz789"},
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_display_name is None
+
+
+# ===================================================================
+# Extraction: common fields
+# ===================================================================
+
+
+class TestExtractionCommon:
+    """Common fields are populated regardless of platform."""
+
+    def test_source_adapter_id(self) -> None:
+        event = _make_event(source_adapter="my-adapter")
+        attr = extract_relay_attribution(event)
+        assert attr.source_adapter_id == "my-adapter"
+
+    def test_source_transport(self) -> None:
+        event = _make_event(source_transport_id="tcp-conn-1")
+        attr = extract_relay_attribution(event)
+        assert attr.source_transport == "tcp-conn-1"
+
+    def test_source_room_or_channel(self) -> None:
+        event = _make_event(source_channel_id="!room:server")
+        attr = extract_relay_attribution(event)
+        assert attr.source_room_or_channel == "!room:server"
+
+    def test_source_native_ref(self) -> None:
+        ref = NativeRef(
+            adapter="matrix-1",
+            native_channel_id="!room:server",
+            native_message_id="$event123",
+        )
+        event = _make_event(source_native_ref=ref)
+        attr = extract_relay_attribution(event)
+        assert attr.source_native_message_id == "$event123"
+        assert attr.source_native_channel_id == "!room:server"
+
+    def test_route_id_from_route_trace(self) -> None:
+        event = _make_event(route_trace=("route-1", "route-2"))
+        attr = extract_relay_attribution(event)
+        assert attr.route_id == "route-1"
+
+    def test_route_id_explicit_overrides(self) -> None:
+        event = _make_event(route_trace=("route-1",))
+        attr = extract_relay_attribution(event, route_id="route-override")
+        assert attr.route_id == "route-override"
+
+    def test_meshnet_name_override(self) -> None:
+        event = _make_event(source_adapter="meshtastic-radio")
+        attr = extract_relay_attribution(event, source_meshnet_name="override-net")
+        assert attr.source_meshnet_name == "override-net"
+
+    def test_no_native_metadata(self) -> None:
+        event = _make_event(native_data=None)
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_id is None
+        assert attr.source_long_name is None
+
+    def test_empty_native_data(self) -> None:
+        event = _make_event(native_data={})
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_id is None
+
+    def test_unknown_platform(self) -> None:
+        event = _make_event(source_adapter="unknown-adapter", native_data={})
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform is None
+
+    def test_platform_explicit_override(self) -> None:
+        event = _make_event(source_adapter="custom-adapter")
+        attr = extract_relay_attribution(event, source_platform="matrix")
+        assert attr.source_platform == "matrix"
+
+
+# ===================================================================
+# Integration: extraction + formatting
+# ===================================================================
+
+
+class TestExtractionAndFormatting:
+    """End-to-end extraction then formatting produces expected output."""
+
+    def test_meshtastic_full_pipeline(self) -> None:
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "RadioOp",
+                "shortname": "RO",
+                "from_id": "!11223344",
+                "meshnet_name": "my-mesh",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[RadioOp/my-mesh]: "
+        assert not result.missing_variables
+        assert result.formatting_error is None
+
+    def test_meshcore_shortname5_template(self) -> None:
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={"pubkey_prefix": "aabbcc"},
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("{shortname5}[M]: ", attr)
+        # pubkey_prefix becomes source_sender_id, shortname5 derived from it
+        assert result.rendered_prefix == "aabbc[M]: "
+
+    def test_matrix_from_id_template(self) -> None:
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@dave:matrix.org"},
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("{from_id}: ", attr)
+        assert result.rendered_prefix == "@dave:matrix.org: "
+
+    def test_lxmf_missing_display_no_crash(self) -> None:
+        event = _make_event(
+            source_adapter="lxmf-node",
+            native_data={"source_hash": "hash1"},
+        )
+        attr = extract_relay_attribution(event)
+        # longname is None -> renders empty
+        result = format_relay_prefix("[{longname}]: ", attr)
+        assert result.rendered_prefix == "[]: "
+        assert "longname" in result.missing_variables
