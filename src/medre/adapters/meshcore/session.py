@@ -80,6 +80,7 @@ On unexpected disconnect the session attempts bounded exponential backoff:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import math
@@ -588,35 +589,51 @@ class MeshCoreSession:
                 # "connected" entry for the address.  Subsequent
                 # BleakClient(address) calls then hit
                 # "le-connection-abort-by-local" because BlueZ tries
-                # to reuse the stale entry.  Explicitly disconnect
-                # any lingering connection and let the adapter
-                # settle before creating a fresh one.
+                # to reuse the stale entry.
+                #
+                # Best-effort: if a BleakClient for this address
+                # reports is_connected, force a disconnect and let
+                # the adapter settle before creating a fresh one.
+                # IMPORTANT: we do NOT use `async with BleakClient`
+                # here because that would connect (and then
+                # disconnect), creating exactly the churn we want
+                # to avoid.
                 # Pattern adapted from mmrelay's
                 # _disconnect_ble_by_address().
                 try:
                     from bleak import BleakClient  # type: ignore[import-untyped]
 
-                    _stale = BleakClient(_addr, timeout=5.0)
-                    _connected = getattr(_stale, "is_connected", None)
-                    if _connected is True or (
-                        callable(_connected) and await _connected()
-                    ):
-                        self._logger.info(
-                            "MeshCoreSession %s: stale BlueZ connection "
-                            "detected for %s; disconnecting before reconnect",
-                            self._adapter_id,
-                            _addr,
-                        )
-                        await _stale.disconnect()
-                        await asyncio.sleep(1.0)  # let BlueZ release the adapter
+                    _stale = BleakClient(_addr, timeout=3.0)
+                    try:
+                        _connected = getattr(_stale, "is_connected", None)
+                        if isinstance(_connected, bool):
+                            _is_conn = bool(_connected)
+                        else:
+                            _is_conn = False
+                        if _is_conn:
+                            self._logger.info(
+                                "MeshCoreSession %s: stale BlueZ connection "
+                                "for %s; disconnecting before reconnect",
+                                self._adapter_id,
+                                _addr,
+                            )
+                            await _stale.disconnect()
+                            await asyncio.sleep(1.0)
+                    finally:
+                        # Always attempt cleanup — BleakClient holds
+                        # D-Bus resources even when not connected.
+                        with contextlib.suppress(Exception):
+                            await _stale.disconnect()
                 except Exception:
                     pass  # best-effort — proceed even if cleanup fails
 
-                # Pre-scan for the BLE device to obtain a BLEDevice object.
-                # On some Linux BlueZ stacks, BleakClient(address_string)
-                # fails with "le-connection-abort-by-local" while passing a
-                # BLEDevice from a scan succeeds.  The scan uses the same
-                # bleak library that is already a transitive dep of meshcore.
+                # Let the BLE adapter settle before scanning/connecting.
+                await asyncio.sleep(0.5)
+
+                # Pre-scan for the BLE device to obtain a BLEDevice.
+                # On some Linux BlueZ stacks, BleakClient(address)
+                # fails with "le-connection-abort-by-local" while
+                # passing a BLEDevice from a live scan succeeds.
                 ble_device = None
                 try:
                     from bleak import BleakScanner  # type: ignore[import-untyped]
@@ -636,13 +653,50 @@ class MeshCoreSession:
                 except Exception:
                     ble_device = None
 
-                self._meshcore = await mc.MeshCore.create_ble(
-                    address=_addr,
-                    device=ble_device,
-                )
+                # -- BLE connection attempt with retry --
+                # BLE device discovery is inherently racy: a device
+                # may be advertising one moment and gone the next.
+                # Give the initial connection a few attempts before
+                # declaring failure.  (Once connected, the reconnect
+                # loop handles unexpected drops with its own backoff.)
+                _ble_attempts = 3
+                _ble_last_error: Exception | None = None
+                for _ble_try in range(1, _ble_attempts + 1):
+                    try:
+                        self._meshcore = await mc.MeshCore.create_ble(
+                            address=_addr,
+                            device=ble_device,
+                        )
+                        if self._meshcore is not None:
+                            break
+                    except Exception as _ble_exc:
+                        _ble_last_error = _ble_exc
+                        if _ble_try < _ble_attempts:
+                            self._logger.debug(
+                                "MeshCoreSession %s: BLE connection "
+                                "attempt %d/%d failed (%s); retrying in 2s",
+                                self._adapter_id,
+                                _ble_try,
+                                _ble_attempts,
+                                _ble_exc,
+                            )
+                            await asyncio.sleep(2.0)
+                            # Re-scan: the device may have stopped and
+                            # restarted advertising in the meantime.
+                            try:
+                                ble_device = await BleakScanner.find_device_by_filter(
+                                    _meshcore_device_match, timeout=5.0
+                                )
+                            except Exception:
+                                ble_device = None
+                        else:
+                            raise
+
                 if self._meshcore is None:
+                    _reason = str(_ble_last_error) if _ble_last_error else "unknown"
                     raise MeshCoreConnectionError(
-                        "No response from MeshCore node (BLE)"
+                        f"No response from MeshCore node after "
+                        f"{_ble_attempts} BLE attempt(s): {_reason}"
                     )
             else:
                 raise MeshCoreConnectionError(
