@@ -533,7 +533,13 @@ class TestMockedSDKBLEStartup:
     """Verify BLE-mode startup wiring against mocked SDK 2.3.7 API."""
 
     async def test_ble_constructor_args(self) -> None:
-        """MeshCore.create_ble is called with address keyword arg."""
+        """MeshCore.create_ble is called with address + device keyword args.
+
+        The session pre-scans for a BLEDevice before calling
+        create_ble.  In the test environment bleak is not imported,
+        so device resolves to None.  The address must still match
+        the configured ble_address.
+        """
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         config = _make_config(
@@ -550,6 +556,7 @@ class TestMockedSDKBLEStartup:
 
         mock_mc.MeshCore.create_ble.assert_awaited_once_with(
             address="AA:BB:CC:DD:EE:FF",
+            device=None,
         )
         assert session.connected is True
 
