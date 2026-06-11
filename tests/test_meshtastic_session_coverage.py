@@ -1013,3 +1013,52 @@ class TestStartReconnectTaskIdempotency:
                 await session._reconnect_task
             except asyncio.CancelledError:
                 pass
+
+    async def test_duplicate_notify_connection_lost_no_race(self) -> None:
+        """Two notify_connection_lost calls before the event loop runs
+        _start_reconnect_task only create one reconnect task.
+
+        This exercises the race the Gemini review flagged: the SDK reader
+        thread can call notify_connection_lost() twice before the event
+        loop processes either call_soon_threadsafe callback.  Both
+        callbacks run sequentially on the event loop, so the second sees
+        _reconnecting=True from the first and returns immediately.
+        """
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        loop = asyncio.get_running_loop()
+        session._loop = loop
+        session._started = True
+
+        async def _blocked_reconnect_loop(self_inner):
+            await asyncio.sleep(10)
+
+        with patch.object(
+            MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop
+        ):
+            # Simulate two rapid notify_connection_lost calls from the
+            # SDK reader thread.  Both schedule _start_reconnect_task via
+            # call_soon_threadsafe before the event loop runs either.
+            session.notify_connection_lost()
+            session.notify_connection_lost()
+
+            # Let the event loop process both call_soon_threadsafe callbacks.
+            await asyncio.sleep(0)
+
+            # Only one task created; second call was a no-op.
+            assert session._reconnect_task is not None
+            assert session._reconnecting is True
+            first_task = session._reconnect_task
+
+            # Third call after the loop has run — also a no-op.
+            session.notify_connection_lost()
+            await asyncio.sleep(0)
+            assert session._reconnect_task is first_task
+
+        session._stop_requested = True
+        if session._reconnect_task and not session._reconnect_task.done():
+            session._reconnect_task.cancel()
+            try:
+                await session._reconnect_task
+            except asyncio.CancelledError:
+                pass
