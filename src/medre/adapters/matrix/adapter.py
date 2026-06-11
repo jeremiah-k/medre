@@ -361,6 +361,12 @@ class MatrixAdapter(AdapterContract):
         try:
             await self._session.start()
         except Exception:
+            try:
+                await self._session.stop()
+            except Exception:
+                pass  # best-effort cleanup
+            self._session = None
+            self._started = False
             raise
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)

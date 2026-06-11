@@ -1105,12 +1105,16 @@ class MeshCoreSession:
                                         native_id = raw_mid.hex()
                                     elif raw_mid is not None:
                                         native_id = str(raw_mid)
-                                # Extract suggested_timeout for DM retry delay.
-                                if not timeout_extracted and channel_index is None:
-                                    st = _extract_suggested_timeout(attrs)
-                                    if st is not None:
-                                        self._contact_retry_delays[contact_id] = st
-                                        self._diag.sdk_suggested_timeouts_used += 1
+
+                        # Always try attributes for timeout, even if native_id
+                        # was already found in payload.
+                        if not timeout_extracted and channel_index is None:
+                            attrs = getattr(result, "attributes", None)
+                            if isinstance(attrs, dict):
+                                st = _extract_suggested_timeout(attrs)
+                                if st is not None:
+                                    self._contact_retry_delays[contact_id] = st
+                                    self._diag.sdk_suggested_timeouts_used += 1
 
                     return str(native_id) if native_id is not None else None
 
