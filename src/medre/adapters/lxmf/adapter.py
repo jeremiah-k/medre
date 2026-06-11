@@ -207,10 +207,12 @@ class LxmfAdapter(AdapterContract):
 
         self._reset_inbound_evidence()
         self.ctx = ctx
-        self._mark_started(ctx)
+        # NOTE: _mark_started is deferred until after session.start succeeds.
+        # Early call would leak _start_time past a failed startup.
 
         if self._config.connection_type != "fake":
             if not HAS_LXMF:
+                self.ctx = None
                 raise LxmfConnectionError(
                     "lxmf/RNS not installed; pip install 'medre[lxmf]'. "
                     f"connection_type={self._config.connection_type!r}"
@@ -221,13 +223,28 @@ class LxmfAdapter(AdapterContract):
                 message_callback=self._on_packet,
             )
         except LxmfConnectionError:
+            # Best-effort cleanup of partially-started session.
+            try:
+                await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
+            self._started = False
+            self.ctx = None
             raise
         except Exception as exc:
+            # Best-effort cleanup of partially-started session.
+            try:
+                await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
+            self._started = False
+            self.ctx = None
             raise LxmfConnectionError(f"LXMF session failed to start: {exc}") from exc
 
         # Wire delivery state callback for terminal state notifications.
         self._session.set_delivery_state_callback(self._on_delivery_state)
 
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info(
             "LxmfAdapter %s started (mode=%s)",

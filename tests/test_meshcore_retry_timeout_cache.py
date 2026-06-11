@@ -263,3 +263,228 @@ async def test_channel_sends_never_consult_dm_timeout_cache() -> None:
 
     # DM cache is untouched — channel send did not read or write it.
     assert session._contact_retry_delays.get("contact-a") == 2.0
+
+
+# ===================================================================
+# Test 6: normalized key — lowercase match
+# ===================================================================
+
+
+async def test_normalized_key_lowercase_match() -> None:
+    """Send DM to 'AABBCC' that captures timeout, then verify retry to
+    'aabbcc' uses the cached timeout (not linear fallback)."""
+    session, mock_mc = _make_tcp_session()
+
+    # First send: captures suggested_timeout for "AABBCC".
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x01\x02",
+        "suggested_timeout": 2000,
+    }
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("AABBCC", "hello")
+
+    assert session._contact_retry_delays.get("aabbcc") == 2.0
+
+    # Second send: fail once to trigger retry path, using lowercase "aabbcc".
+    call_count = 0
+
+    async def _fail_once_then_ok(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient")
+        return {"expected_ack": b"\x03\x04"}
+
+    mock_mc.commands.send_msg.side_effect = _fail_once_then_ok
+
+    with patch(
+        "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        await session.send_text("aabbcc", "retry msg")
+        retry_sleeps = [
+            c
+            for c in mock_sleep.call_args_list
+            if c.args[0] != session._config.message_delay_seconds
+        ]
+        assert len(retry_sleeps) >= 1
+        # Should use cached 2.0, NOT linear fallback 0.1.
+        assert retry_sleeps[0].args[0] == 2.0
+
+
+# ===================================================================
+# Test 7: normalized key — whitespace stripped
+# ===================================================================
+
+
+async def test_normalized_key_whitespace_stripped() -> None:
+    """Send DM to '  AABBCC  ' that captures timeout, then verify retry
+    to 'AABBCC' (no whitespace) uses cached timeout."""
+    session, mock_mc = _make_tcp_session()
+
+    # First send: captures suggested_timeout for "  AABBCC  ".
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x01\x02",
+        "suggested_timeout": 3000,
+    }
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("  AABBCC  ", "hello")
+
+    # Normalized key should be "aabbcc" (stripped + lowercased).
+    assert session._contact_retry_delays.get("aabbcc") == 3.0
+
+    # Second send: fail once to trigger retry path with "AABBCC".
+    call_count = 0
+
+    async def _fail_once_then_ok(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient")
+        return {"expected_ack": b"\x03\x04"}
+
+    mock_mc.commands.send_msg.side_effect = _fail_once_then_ok
+
+    with patch(
+        "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        await session.send_text("AABBCC", "retry msg")
+        retry_sleeps = [
+            c
+            for c in mock_sleep.call_args_list
+            if c.args[0] != session._config.message_delay_seconds
+        ]
+        assert len(retry_sleeps) >= 1
+        # Should use cached 3.0, NOT linear fallback 0.1.
+        assert retry_sleeps[0].args[0] == 3.0
+
+
+# ===================================================================
+# Test 8: unrelated contact still isolated with normalization
+# ===================================================================
+
+
+async def test_unrelated_contact_still_isolated() -> None:
+    """Send DM to 'AABBCC' (captures timeout), then send to 'DDEEFF'
+    (no timeout).  Verify 'DDEEFF' retry uses linear fallback, not
+    'AABBCC's cached timeout."""
+    session, mock_mc = _make_tcp_session()
+
+    # Send to AABBCC — captures suggested_timeout.
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x01\x02",
+        "suggested_timeout": 2000,
+    }
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("AABBCC", "msg to A")
+
+    assert session.diagnostics()["sdk_contact_timeout_count"] == 1
+
+    # Send to DDEEFF — no suggested_timeout, then fail to trigger retry.
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x03\x04",
+    }
+    call_count = 0
+
+    async def _fail_once_then_ok(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient")
+        return {"expected_ack": b"\x05\x06"}
+
+    mock_mc.commands.send_msg.side_effect = _fail_once_then_ok
+
+    with patch(
+        "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        await session.send_text("DDEEFF", "msg to D")
+        retry_sleeps = [
+            c
+            for c in mock_sleep.call_args_list
+            if c.args[0] != session._config.message_delay_seconds
+        ]
+        assert len(retry_sleeps) >= 1
+        # DDEEFF should use linear fallback 0.1, NOT AABBCC's 2.0.
+        assert retry_sleeps[0].args[0] == 0.1
+
+    assert "ddeeff" not in session._contact_retry_delays
+
+
+# ===================================================================
+# Test 9: diagnostics exposes count, not keys — normalization dedupes
+# ===================================================================
+
+
+async def test_diagnostics_still_exposes_only_count() -> None:
+    """Send DM to 'AABBCC' and 'aabbcc' (same normalized key).  Verify
+    sdk_contact_timeout_count == 1 (normalization deduplicates keys)."""
+    session, mock_mc = _make_tcp_session()
+
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x01\x02",
+        "suggested_timeout": 2000,
+    }
+
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("AABBCC", "msg 1")
+
+    # Second send to the same normalized key overwrites, not adds.
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x03\x04",
+        "suggested_timeout": 3000,
+    }
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("aabbcc", "msg 2")
+
+    # Both normalize to "aabbcc" — single entry, latest value.
+    assert session.diagnostics()["sdk_contact_timeout_count"] == 1
+    assert session._contact_retry_delays.get("aabbcc") == 3.0
+
+
+# ===================================================================
+# Test 10: channel sends still never consult cache (with normalization)
+# ===================================================================
+
+
+async def test_channel_sends_still_never_consult_cache() -> None:
+    """Send channel message; even if a DM timeout is cached for same
+    contact, channel retry uses linear 0.1*attempt fallback."""
+    session, mock_mc = _make_tcp_session()
+
+    # Cache a DM timeout for "AABBCC" (normalizes to "aabbcc").
+    mock_mc.commands.send_msg.return_value = {
+        "expected_ack": b"\x01\x02",
+        "suggested_timeout": 2000,
+    }
+    with patch("medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock):
+        await session.send_text("AABBCC", "dm msg")
+
+    assert session._contact_retry_delays.get("aabbcc") == 2.0
+
+    # Send a channel message that fails once then succeeds.
+    call_count = 0
+
+    async def _fail_once_ok(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient")
+        return {"ok": True}
+
+    mock_mc.commands.send_chan_msg.side_effect = _fail_once_ok
+
+    with patch(
+        "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        await session.send_text("ignored", "chan msg", channel_index=0)
+        retry_sleeps = [
+            c
+            for c in mock_sleep.call_args_list
+            if c.args[0] != session._config.message_delay_seconds
+        ]
+        assert len(retry_sleeps) >= 1
+        # Should use fallback 0.1, NOT cached 2.0.
+        assert retry_sleeps[0].args[0] == 0.1
+
+    # DM cache untouched — channel send did not read or write it.
+    assert session._contact_retry_delays.get("aabbcc") == 2.0

@@ -233,7 +233,6 @@ class MeshtasticAdapter(AdapterContract):
         self._last_health = None
 
         self.ctx = ctx
-        self._mark_started(ctx)
 
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
@@ -247,8 +246,10 @@ class MeshtasticAdapter(AdapterContract):
         try:
             await self._session.start(message_callback=self._on_packet)
         except Exception:
-            # Clean up session on failure
+            # Clean up session and context on failure so no stale
+            # state survives a failed start attempt.
             self._session = None
+            self.ctx = None
             raise
 
         # Session-scoped startup backlog baseline — set AFTER session connects
@@ -259,6 +260,8 @@ class MeshtasticAdapter(AdapterContract):
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
 
+        # Record start time only after session and infrastructure are up.
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info(
             "MeshtasticAdapter %s started (mode=%s)",

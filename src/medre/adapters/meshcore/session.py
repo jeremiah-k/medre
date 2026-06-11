@@ -118,6 +118,18 @@ _SDK_LIFECYCLE_TIMEOUT: float = 5.0  # seconds
 _SUGGESTED_TIMEOUT_FLOOR: float = 0.5  # seconds
 _SUGGESTED_TIMEOUT_CEIL: float = 30.0  # seconds
 
+
+def _retry_delay_contact_key(contact_id: str) -> str:
+    """Normalize a contact_id for retry-delay cache lookups.
+
+    Strips leading/trailing whitespace and lowercases.
+    This prevents cached timeout hints from fragmenting when
+    equivalent contact IDs are passed with case or whitespace
+    differences (e.g. pubkey hex prefixes).
+    """
+    return contact_id.strip().lower()
+
+
 # Type alias for the inbound message callback.
 # The callback receives a plain dict (native payload), NOT an SDK Event object.
 # Both sync and async callables are accepted.
@@ -1075,7 +1087,9 @@ class MeshCoreSession:
                         if channel_index is None:
                             st = _extract_suggested_timeout(result)
                             if st is not None:
-                                self._contact_retry_delays[contact_id] = st
+                                self._contact_retry_delays[
+                                    _retry_delay_contact_key(contact_id)
+                                ] = st
                                 self._diag.sdk_suggested_timeouts_used += 1
                                 timeout_extracted = True
                     else:
@@ -1093,7 +1107,9 @@ class MeshCoreSession:
                             if channel_index is None:
                                 st = _extract_suggested_timeout(payload)
                                 if st is not None:
-                                    self._contact_retry_delays[contact_id] = st
+                                    self._contact_retry_delays[
+                                        _retry_delay_contact_key(contact_id)
+                                    ] = st
                                     self._diag.sdk_suggested_timeouts_used += 1
                                     timeout_extracted = True
                         if native_id is None:
@@ -1115,7 +1131,9 @@ class MeshCoreSession:
                             if isinstance(attrs, dict):
                                 st = _extract_suggested_timeout(attrs)
                                 if st is not None:
-                                    self._contact_retry_delays[contact_id] = st
+                                    self._contact_retry_delays[
+                                        _retry_delay_contact_key(contact_id)
+                                    ] = st
                                     self._diag.sdk_suggested_timeouts_used += 1
 
                     return str(native_id) if native_id is not None else None
@@ -1139,7 +1157,9 @@ class MeshCoreSession:
                         # when available, otherwise fall back to linear backoff.
                         # Only DM sends (channel_index is None) use cached delays.
                         if channel_index is None:
-                            cached = self._contact_retry_delays.get(contact_id)
+                            cached = self._contact_retry_delays.get(
+                                _retry_delay_contact_key(contact_id)
+                            )
                             if cached is not None:
                                 await asyncio.sleep(cached)
                             else:

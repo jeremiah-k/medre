@@ -101,17 +101,31 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 12 keys)
+### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 13 keys)
 
-**Common keys present:** `connected`, `reconnecting`, `reconnect_attempts`, `last_error`, `transient_delivery_failures`, `permanent_delivery_failures`, `mode` (7 of 8 common keys). The `health` key is not currently implemented for MeshCore.
+All 8 common keys are present. The `health` key is reported via the adapter-level diagnostics dict as well as via `health_check()`.
 
 Adapter-level keys:
 
-| Key          | Type  | Semantics                                 |
-| ------------ | ----- | ----------------------------------------- |
-| `adapter_id` | `str` | Adapter identifier                        |
-| `platform`   | `str` | Always `"meshcore"`                       |
-| `mode`       | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+| Key                                     | Type          | Semantics                                    |
+| --------------------------------------- | ------------- | -------------------------------------------- |
+| `adapter_id`                            | `str`         | Adapter identifier                           |
+| `platform`                              | `str`         | Always `"meshcore"`                          |
+| `started`                               | `bool`        | Adapter lifecycle state                      |
+| `mode`                                  | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`    |
+| `health`                                | `str or None` | One of the six health vocabulary strings     |
+| `health_lifecycle_epoch`                | `int`         | Monotonically incrementing lifecycle counter |
+| `classifier_packets_seen`               | `int`         | Total packets classified                     |
+| `classifier_packets_relayed`            | `int`         | Packets relayed (published inbound)          |
+| `classifier_packets_ignored`            | `int`         | Packets ignored (non-relay classification)   |
+| `classifier_packets_dropped`            | `int`         | Packets dropped (malformed, encrypted, etc.) |
+| `classifier_packets_deferred`           | `int`         | Packets deferred (unknown portnum, etc.)     |
+| `classifier_packets_ack_ignored`        | `int`         | ACK packets ignored                          |
+| `classifier_packets_empty_text_ignored` | `int`         | Empty-text packets ignored                   |
+| `classifier_packets_unknown_deferred`   | `int`         | Unknown-category packets deferred            |
+| `classifier_packets_dm_relayed`         | `int`         | DM packets relayed                           |
+| `classifier_packets_malformed`          | `int`         | Malformed packets seen                       |
+| `inbound_published`                     | `int`         | Inbound canonical events published           |
 
 Session sub-dict keys (`session.*`):
 
