@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -34,10 +34,26 @@ from tests.helpers.meshcore_session import (
 )
 
 
-def _make_config(**overrides) -> MeshCoreConfig:
-    defaults = dict(adapter_id="session-test")
-    defaults.update(overrides)
-    return MeshCoreConfig(**defaults)
+def _make_config(
+    *,
+    connection_type: Literal["fake", "tcp", "serial", "ble"] = "fake",
+    host: str | None = None,
+    port: int | None = None,
+    serial_port: str | None = None,
+    serial_baudrate: int = 115200,
+    ble_address: str | None = None,
+    ble_pin: str | None = None,
+) -> MeshCoreConfig:
+    return MeshCoreConfig(
+        adapter_id="session-test",
+        connection_type=connection_type,
+        host=host,
+        port=port,
+        serial_port=serial_port,
+        serial_baudrate=serial_baudrate,
+        ble_address=ble_address,
+        ble_pin=ble_pin,
+    )
 
 
 @contextmanager
