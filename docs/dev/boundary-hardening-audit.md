@@ -107,7 +107,7 @@ What prevents SDK callbacks from firing after `stop()` returns?
 | **Matrix**     | **Implemented** | Session `stop()` cancels sync task, clears `_closed = True`. Nio client is closed (`_client.close()`). Callback is registered on the client object which is discarded.                                                                                                                                       |
 | **Meshtastic** | **Implemented** | `_unsubscribe_callbacks` unsubscribes from pubsub. Session `_client = None` after close. `_started = False` gates `_on_packet`. Remaining inbound futures are cancelled in `_drain_background_tasks`.                                                                                                        |
 | **MeshCore**   | **Implemented** | `_unsubscribe_all` unsubscribes all SDK event subscriptions. `_meshcore = None` after disconnect. `_started = False` set before drain (at top of `stop()`).                                                                                                                                                  |
-| **LXMF**       | **Implemented** | `_teardown_sdk()` sets `_router = None`, `_identity = None`. `_message_callback = None` and `_loop = None` set in `stop()`. Late SDK callbacks on Reticulum thread hit `self._stop_requested` guard and `self._loop is None` check. `_delivery_state_callback = None` prevents terminal state notifications. |
+| **LXMF**       | **Implemented** | `_teardown_sdk()` sets `_router = None`, `_identity = None`. `_message_callback = None` and `_loop = None` set in `stop()`. Late SDK callbacks on Reticulum thread hit `self._stop_requested` guard and `self._loop is None` check. `_delivery_state_callback = None` prevents terminal state notifications; the adapter-level `_on_delivery_state` also returns when `_started` is `False`. |
 
 ### 8. Metadata Namespace Rules
 
@@ -259,13 +259,13 @@ Ranked by correctness risk (highest first). Gaps G1, G2, and G3 are resolved; th
 
 **Status**: Passing. Duplicate exact replays suppressed; same ID with different content allowed; LRU cap-bounded eviction verified.
 
-### P4 — Cross-adapter callback-after-stop verification (medium risk)
+### P4 — ~~Cross-adapter callback-after-stop verification~~ — IMPLEMENTED & TESTED
 
-**File**: `tests/test_adapter_boundary.py`
+**File**: `tests/test_adapter_post_stop_ingress.py`
 
-**Test**: For each adapter (fake mode), start, then stop, then attempt `simulate_inbound`. Assert it either raises `RuntimeError` or silently drops the event without publishing.
+**Tests**: `test_fake_adapters_drop_simulate_inbound_after_stop`, `test_meshtastic_adapter_drops_simulate_inbound_after_stop`, `test_matrix_adapter_drops_room_callback_after_stop`.
 
-**Current coverage**: Partial. Vector 7 (callback-after-stop) is implemented in all adapters, and individual adapter tests verify post-stop `simulate_inbound` behavior (e.g., `test_meshcore_lifecycle_boundaries.py`). However, a dedicated cross-adapter conformance test that starts, stops, then attempts `simulate_inbound` for all four adapters in one parametrized case does not yet exist. `test_adapter_conformance.py` covers `publish_inbound` wiring but not the post-stop guard. This test would harden the boundary with explicit cross-adapter coverage.
+**Status**: Passing. Fake Matrix, Meshtastic, MeshCore, and LXMF all retain `ctx` after `stop()` but silently drop post-stop `simulate_inbound` calls without publishing. Real Meshtastic `simulate_inbound` and Matrix room callback coverage verify the same boundary on production adapters.
 
 ### P5 — Meshtastic callback-after-stop with in-flight futures (medium risk)
 
@@ -283,13 +283,13 @@ Ranked by correctness risk (highest first). Gaps G1, G2, and G3 are resolved; th
 
 **Current coverage**: Transaction ID computation is tested in isolation but not verified across the retry path.
 
-### P7 — LXMF delivery-state callback after adapter stop (low risk)
+### P7 — ~~LXMF delivery-state callback after adapter stop~~ — IMPLEMENTED & TESTED
 
-**File**: `tests/test_lxmf_operational_boundaries.py`
+**File**: `tests/test_adapter_post_stop_ingress.py`
 
-**Test**: Start LxmfAdapter, send a message (fake mode), then call `stop()`. Directly invoke the adapter's `_on_delivery_state` handler with a terminal state update (`"delivered"`). Assert no crash occurs; after stop the handler performs at most bounded harmless behaviour (e.g. logging via `ctx.logger` if still attached). This tests the adapter-level handler directly, complementing the existing session-level `_on_delivery_state_update` coverage that verifies `_stop_requested` guards suppress processing at the session layer.
+**Test**: `test_lxmf_adapter_drops_delivery_state_callback_after_stop`.
 
-**Current coverage**: Session `_on_delivery_state_update` checks `_stop_requested` (tested), but the adapter-level handler (`_on_delivery_state`) is not independently tested after stop — its post-stop behaviour (logging, no-op, or side-effect-free) is the coverage gap.
+**Status**: Passing. `LxmfAdapter._on_delivery_state` returns immediately when `_started` is `False`, so terminal delivery callbacks after adapter stop produce no log or other side effect even though `ctx` is retained.
 
 ---
 

@@ -732,6 +732,8 @@ class MeshtasticAdapter(AdapterContract):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+        if not self._started:
+            return
 
         session = self._session
         classification = self._classifier.classify(
