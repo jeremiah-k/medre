@@ -11,7 +11,7 @@ Validation rules
 - ``connection_type`` must be one of ``"fake"``, ``"tcp"``, ``"serial"``,
   or ``"ble"``.
 - Non-fake connection types require their associated field:
-  ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``,   ``"ble"``
+  ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``, ``"ble"``
   → ``ble_address``.
 - ``port`` is optional; if provided must be ``int`` (not ``bool``)
   between 1 and 65535.
