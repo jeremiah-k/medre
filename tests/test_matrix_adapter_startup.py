@@ -29,6 +29,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Mock session with is_live = False
         mock_session = MagicMock(name="session")
@@ -48,6 +49,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Mock session with is_live = True
         mock_session = MagicMock(name="session")
@@ -69,6 +71,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
@@ -117,6 +120,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
@@ -136,6 +140,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
@@ -170,6 +175,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = True
@@ -189,6 +195,7 @@ class TestStartupHistorySuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = True

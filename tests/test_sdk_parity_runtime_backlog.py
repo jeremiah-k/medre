@@ -369,7 +369,7 @@ class TestP04MeshCoreSuggestedTimeoutResolved:
         # Verify the extraction helper is called.
         assert "_extract_suggested_timeout" in source
         # Verify the SDK retry delay variable is assigned.
-        assert "sdk_retry_delay" in source
+        assert "cached" in source
 
     def test_extract_suggested_timeout_helper_exists(self) -> None:
         """_extract_suggested_timeout helper is defined in the module."""
@@ -381,7 +381,7 @@ class TestP04MeshCoreSuggestedTimeoutResolved:
             meshcore_session_mod.MeshCoreSession._send_real,
         )
         assert "0.1 * attempt" in source
-        assert "sdk_retry_delay is not None" in source
+        assert "cached is not None" in source
 
     def test_send_max_retries_is_three(self) -> None:
         """_SEND_MAX_RETRIES is 3, giving bounded retry window."""

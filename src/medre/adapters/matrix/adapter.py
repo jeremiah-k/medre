@@ -320,7 +320,6 @@ class MatrixAdapter(AdapterContract):
             to connect, or E2EE preconditions are unmet.
         """
         self._sync_failure = None  # Reset from any previous failure
-        self._started = True
 
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
@@ -339,7 +338,6 @@ class MatrixAdapter(AdapterContract):
         self._mark_started(ctx)
 
         if not HAS_NIO:
-            self._started = False
             raise MatrixConnectionError(
                 "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
@@ -363,7 +361,6 @@ class MatrixAdapter(AdapterContract):
         try:
             await self._session.start()
         except Exception:
-            self._started = False
             raise
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
@@ -382,11 +379,9 @@ class MatrixAdapter(AdapterContract):
                     joined_count,
                     failed_count,
                 )
-            except Exception:
-                # Auto-join failed — clean up session and mark not started.
-                self._sync_failure_stored = (
-                    self._session.last_sync_error if self._session else None
-                )
+            except Exception as exc:
+                # Auto-join failed — capture actual exception, clean up.
+                self._sync_failure_stored = exc
                 try:
                     await self._session.stop()
                 except Exception:
@@ -395,11 +390,15 @@ class MatrixAdapter(AdapterContract):
                 self._started = False
                 raise
 
+        self._started = True
+
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
 
         Idempotent: safe to call multiple times or before start().
         """
+        self._started = False
+
         if self._session is not None:
             # Capture failure before stopping for health_check.
             self._sync_failure_stored = self._session.last_sync_error
@@ -408,7 +407,6 @@ class MatrixAdapter(AdapterContract):
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
-        self._started = False
 
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)

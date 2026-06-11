@@ -121,29 +121,32 @@ Items are ranked by **operational value** — the impact on real deployment reli
 
 **Rank**: 4
 
-> **Partially resolved** (development-1): `_send_real()` now extracts
-> `suggested_timeout` from dict results and `result.payload` dicts. Remaining
-> gap: `result.attributes` dict is not yet checked. The retry delay uses the
-> extracted timeout for DM retries with floor/ceiling clamping.
-> `sdk_suggested_timeouts_used` counter incremented on valid extraction.
+> **Resolved** (development-1): `_send_real()` now extracts
+> `suggested_timeout` from all three return shapes: top-level dict,
+> `result.payload` dict, and `result.attributes` dict. Extraction is
+> guarded by a `timeout_extracted` flag to prevent double-increment of
+> `sdk_suggested_timeouts_used` when timeout appears in multiple
+> sources. The retry delay uses the extracted timeout for DM retries
+> with floor/ceiling clamping. `sdk_suggested_timeouts_used` counter
+> incremented exactly once per valid extraction.
 
 | Field     | Value                                                 |
 | --------- | ----------------------------------------------------- |
 | Adapter   | MeshCore                                              |
-| Reference | meshcore_py v2.2.5 `MeshCore.send_msg()` return shape |
+| Reference | meshcore_py v2.3.7 `MeshCore.send_msg()` return shape |
 | Gap type  | Behavioral                                            |
 
 **Observed MEDRE behavior**: The session extracts `expected_ack` from the `send_msg()` result (used as `native_message_id`) but discards `suggested_timeout`. The send retry uses a fixed linear backoff (`0.1 * attempt`) regardless of what the SDK recommends.
 
 **Reference behavior**: meshcore_py's `send_msg()` returns an `Event` with `expected_ack` (4-byte hex) and `suggested_timeout` (integer, seconds). The `suggested_timeout` is the SDK's estimate of how long to wait for an ACK before considering the send failed. The firmware calculates this based on radio conditions and hop count.
 
-**Gap** (partially resolved): `suggested_timeout` is now extracted from the send result's top-level dict and `result.payload` dict, and used for DM retry delays with floor/ceiling clamping. The `sdk_suggested_timeouts_used` diagnostic counter is incremented on valid extraction. **Remaining**: the `result.attributes` dict is not yet checked as a third extraction source. If the SDK returns timeout information exclusively through `result.attributes`, it will still be missed.
+**Gap** (resolved): `suggested_timeout` is now extracted from all three known return shapes (top-level dict, `result.payload`, and `result.attributes`) and used for DM retry delays with floor/ceiling clamping. The `sdk_suggested_timeouts_used` diagnostic counter is incremented exactly once per valid extraction, guarded by a `timeout_extracted` flag to prevent double-counting.
 
 **Operational value**: **Medium–High**. On links with high latency (multi-hop MeshCore networks), MEDRE will incorrectly classify sends as transient failures and retry unnecessarily, generating duplicate messages. Using the SDK's timeout hint would eliminate false transient failures.
 
 **Risk**: **Low**. The `suggested_timeout` is an integer in the result dict. Passing it to the retry delay calculation is a small code change. The SDK already provides this value; MEDRE just needs to use it.
 
-**Proposed next action**: Extend `_send_real()` to also check `result.attributes` for `suggested_timeout`. With `result.payload` and top-level dict already covered, this completes the extraction across all known return shapes.
+**Proposed next action**: _Completed._ `suggested_timeout` extraction covers all three known return shapes (dict, `result.payload`, `result.attributes`). Double-increment prevention via `timeout_extracted` flag.
 
 ---
 
@@ -367,7 +370,7 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | 1    | P-01 | Meshtastic | No periodic connection health check                 | High     | Low–Med | Behavioral  | Open               |
 | 2    | P-02 | Meshtastic | No SDK connection-lost event subscription           | High     | Low     | Behavioral  | Resolved           |
 | 3    | P-03 | Matrix     | No sync token persistence across restarts           | High     | Low     | Behavioral  | Open               |
-| 4    | P-04 | MeshCore   | Partial `suggested_timeout` extraction              | Med–High | Low     | Behavioral  | Partially resolved |
+| 4    | P-04 | MeshCore   | Partial `suggested_timeout` extraction              | Med–High | Low     | Behavioral  | Resolved           |
 | 5    | P-05 | MeshCore   | No contact-list event subscriptions                 | Medium   | Low     | Declarative | Resolved (partial) |
 | 6    | P-06 | LXMF       | No periodic announce for path discovery             | Medium   | Medium  | Behavioral  | Resolved           |
 | 7    | P-07 | Matrix     | No sync liveness watchdog                           | Medium   | Low     | Behavioral  | Partially resolved |

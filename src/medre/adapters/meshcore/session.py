@@ -1058,6 +1058,7 @@ class MeshCoreSession:
                     # Use expected_ack as the native_id for DMs (channel sends
                     # honestly have no canonical identity from the SDK).
                     native_id: str | None = None
+                    timeout_extracted = False
                     if isinstance(result, dict):
                         raw_ack = result.get("expected_ack")
                         native_id = _extract_expected_ack(raw_ack)
@@ -1074,6 +1075,7 @@ class MeshCoreSession:
                             if st is not None:
                                 self._contact_retry_delays[contact_id] = st
                                 self._diag.sdk_suggested_timeouts_used += 1
+                                timeout_extracted = True
                     else:
                         payload = getattr(result, "payload", None)
                         if isinstance(payload, dict):
@@ -1091,6 +1093,7 @@ class MeshCoreSession:
                                 if st is not None:
                                     self._contact_retry_delays[contact_id] = st
                                     self._diag.sdk_suggested_timeouts_used += 1
+                                    timeout_extracted = True
                         if native_id is None:
                             attrs = getattr(result, "attributes", None)
                             if isinstance(attrs, dict):
@@ -1103,7 +1106,7 @@ class MeshCoreSession:
                                     elif raw_mid is not None:
                                         native_id = str(raw_mid)
                                 # Extract suggested_timeout for DM retry delay.
-                                if channel_index is None:
+                                if not timeout_extracted and channel_index is None:
                                     st = _extract_suggested_timeout(attrs)
                                     if st is not None:
                                         self._contact_retry_delays[contact_id] = st

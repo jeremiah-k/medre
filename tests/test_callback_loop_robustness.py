@@ -110,6 +110,7 @@ class TestMatrixCallbackIsolation:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-robust", collector)
+        adapter._started = True
 
         room = make_nio_room("!robust_room:example.com")
 
@@ -145,6 +146,7 @@ class TestMatrixCallbackIsolation:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-state", collector)
+        adapter._started = True
 
         room = make_nio_room("!state_room:example.com")
 
@@ -173,6 +175,7 @@ class TestMatrixCallbackIsolation:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-leak", collector)
+        adapter._started = True
 
         room = make_nio_room("!leak_room:example.com")
 
@@ -586,6 +589,7 @@ class TestDuplicateEventId:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-dup", collector)
+        adapter._started = True
         room = make_nio_room("!dup_room:example.com")
 
         evt1 = make_nio_event(
@@ -670,6 +674,7 @@ class TestEmptyPayload:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-empty", collector)
+        adapter._started = True
         room = make_nio_room("!empty_room:example.com")
 
         evt = make_nio_event(sender="@a:example.com", event_id="$empty-001", body="")
@@ -694,6 +699,7 @@ class TestMissingRequiredFields:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-missing", collector)
+        adapter._started = True
         room = make_nio_room("!missing_room:example.com")
 
         # Missing .source
@@ -1021,6 +1027,7 @@ class TestRapidFireBadGood:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-rapid", collector)
+        adapter._started = True
         room = make_nio_room("!rapid_room:example.com")
 
         # bad (no .source)
@@ -1160,6 +1167,7 @@ class TestNativeIdIsolation:
         adapter = MatrixAdapter(config)
         collector = _InboundCollector()
         adapter.ctx = _make_ctx("mx-native", collector)
+        adapter._started = True
         room = make_nio_room("!native_room:example.com")
 
         # Bad: no .source

@@ -142,6 +142,7 @@ async def test_matrix_adapter_drops_room_callback_after_stop(
         )
     )
     adapter.ctx = make_adapter_context("matrix-post-stop")
+    adapter._started = True
     await adapter.stop()
 
     await adapter._on_room_message(_matrix_room_event())
@@ -164,7 +165,7 @@ async def test_lxmf_adapter_drops_delivery_state_callback_after_stop(
     assert adapter.diagnostics()["started"] is False
 
     caplog.clear()
-    with caplog.at_level(logging.INFO, logger="test.lxmf-delivery-post-stop"):
+    with caplog.at_level(logging.INFO):
         adapter._on_delivery_state("ab" * 16, "delivered")
 
     assert all(

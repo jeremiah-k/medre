@@ -329,6 +329,7 @@ class TestSelfMessageSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
@@ -342,6 +343,7 @@ class TestSelfMessageSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
@@ -355,6 +357,7 @@ class TestSelfMessageSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         evt = SimpleNamespace(
             body="hello",
@@ -385,6 +388,7 @@ class TestMEDREOriginLoopSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         envelope = MatrixMetadataEnvelope(
             source_adapter="matrix-1",
@@ -410,6 +414,7 @@ class TestMEDREOriginLoopSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         envelope = MatrixMetadataEnvelope(
             source_adapter="matrix-2",
@@ -435,6 +440,7 @@ class TestMEDREOriginLoopSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(
             sender="@alice:example.com",
@@ -451,6 +457,7 @@ class TestMEDREOriginLoopSuppression:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         content = {
             "msgtype": "m.text",
@@ -482,6 +489,7 @@ class TestRoomAllowlist:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!any:server")
@@ -497,6 +505,7 @@ class TestRoomAllowlist:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!allowed:server")
@@ -512,6 +521,7 @@ class TestRoomAllowlist:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!denied:server")
@@ -527,6 +537,7 @@ class TestRoomAllowlist:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Test room1
         event1 = _make_fake_nio_event(
@@ -574,6 +585,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context(adapter_id="matrix-bridge")
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!test:server")
@@ -588,6 +600,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!test:server")
@@ -602,6 +615,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!room42:example.com")
@@ -616,6 +630,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(
             sender="@carol:example.com",
@@ -634,6 +649,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context(adapter_id="matrix-bridge")
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(
             sender="@carol:example.com",
@@ -655,6 +671,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room()
@@ -669,6 +686,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(
             sender="@carol:example.com",
@@ -688,6 +706,7 @@ class TestThirdPartyInboundCanonicalEventShape:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         content = {"msgtype": "m.notice", "body": "bot announcement"}
         event = _make_fake_nio_event(
@@ -719,6 +738,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         assert adapter._inbound_published == 0
 
@@ -735,6 +755,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         assert adapter._inbound_suppressed_self == 0
 
@@ -751,6 +772,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         assert adapter._inbound_suppressed_envelope == 0
 
@@ -781,6 +803,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         assert adapter._inbound_filtered_allowlist == 0
 
@@ -800,6 +823,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # 1 third-party message -> published
         await adapter._on_room_message(
@@ -867,6 +891,7 @@ class TestInboundDiagnosticsCounters:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Process a few events
         await adapter._on_room_message(
@@ -911,6 +936,7 @@ class TestReactionEventHandling:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_reaction_event(sender="@alice:example.com")
         room = _make_fake_room()
@@ -925,6 +951,7 @@ class TestReactionEventHandling:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_reaction_event(sender="@bot:example.com")
         room = _make_fake_room()
@@ -939,6 +966,7 @@ class TestReactionEventHandling:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         envelope = MatrixMetadataEnvelope(
             source_adapter="matrix-1",
@@ -979,6 +1007,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -998,6 +1027,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1015,6 +1045,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1032,6 +1063,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         content = {
             "msgtype": "m.text",
@@ -1059,6 +1091,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_reaction_event(sender="@bob:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1078,6 +1111,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@tad:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1095,6 +1129,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@tad:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1112,6 +1147,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@tad:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1127,6 +1163,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@tad:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1146,6 +1183,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         content = {
             "msgtype": "m.text",
@@ -1173,6 +1211,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!room:server")
@@ -1191,6 +1230,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Build a canonical event with transport metadata so we can verify
         # it survives the enrichment rebuild path.
@@ -1211,6 +1251,7 @@ class TestDisplayNameEnrichment:
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
+        adapter._started = True
 
         # Process the same sender twice — the second event must get its
         # own independent enrichment, proving no shared mutable state.
