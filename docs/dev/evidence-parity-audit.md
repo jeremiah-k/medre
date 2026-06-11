@@ -12,7 +12,7 @@
 
 This audit compares how the four MEDRE adapters produce evidence through their `diagnostics()` methods and `health_check()` APIs. The [Diagnostics and Evidence Specification](../spec/diagnostics-evidence.md) §2 defines eight contractual common keys that SHALL appear in every adapter's `diagnostics()` output. This audit measures actual production against that contract, identifies gaps, inconsistencies, and misleading evidence, and ranks implementation opportunities by operational value.
 
-**Key finding:** All four adapters now include both `health` and `mode` keys in their `diagnostics()` output. Meshtastic, MeshCore, and LXMF all report `health` via a cached `_last_health` value (set by `health_check()`), and `mode` via `self._config.connection_type`. Meshtastic and MeshCore provide a full fallback `session` sub-dict when no session is active. LXMF's `_session` is never set to `None` (created in `__init__`, retained through `stop()`), so the session sub-dict is always present in practice. The normalization layer (`diagnostic_contract.py`) resolves any remaining missing keys to `None`, preserving JSON-safety. Remaining gaps: LXMF session fallback is structurally absent (the `if self._session is not None` guard omits the key if `_session` were ever `None`); Meshtastic clears `_last_health` in `stop()` while MeshCore and LXMF do not; queue evidence for Matrix and MeshCore; LXMF adapter diagnostics completeness; ingress evidence for LXMF.
+**Key finding:** All four adapters now include both `health` and `mode` keys in their `diagnostics()` output. Meshtastic, MeshCore, and LXMF all report `health` via a cached `_last_health` value (set by `health_check()`), and `mode` via `self._config.connection_type`. Meshtastic and MeshCore provide a full fallback `session` sub-dict when no session is active. LXMF's `_session` is never set to `None` (created in `__init__`, retained through `stop()`), so the session sub-dict is always present in practice. The normalization layer (`diagnostic_contract.py`) resolves any remaining missing keys to `None`, preserving JSON-safety. Remaining gaps: LXMF session fallback is structurally absent (the `if self._session is not None` guard omits the key if `_session` were ever `None`); queue evidence for Matrix and MeshCore; LXMF adapter diagnostics completeness; ingress evidence for LXMF.
 
 ## 2. Relevant Testing Rules
 
@@ -79,25 +79,25 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 #### MeshCore
 
-| Key                           | Expected type | Value source                                            | Actual type   | Status      | Notes                                                   |
-| ----------------------------- | ------------- | ------------------------------------------------------- | ------------- | ----------- | ------------------------------------------------------- |
-| `connected`                   | `bool`        | `session.connected` (via `sanitize_diagnostic_mapping`) | `bool`        | **present** | In `session` sub-dict; fallback `False` when no session |
-| `health`                      | `str`         | `self._last_health` (cached health value)               | `str or None` | **present** | Cached from `health_check()`; not cleared in `stop()`   |
-| `mode`                        | `str`         | `self._config.connection_type`                          | `str`         | **present** | At adapter top level AND in session sub-dict            |
-| `reconnecting`                | `bool`        | `session.reconnecting`                                  | `bool`        | **present** | In `session` sub-dict; fallback `False` when no session |
-| `reconnect_attempts`          | `int`         | `session.reconnect_attempts`                            | `int`         | **present** | In `session` sub-dict; fallback `0` when no session     |
-| `last_error`                  | `str or None` | `session.last_error`                                    | `str or None` | **present** | In `session` sub-dict; fallback `None` when no session  |
-| `transient_delivery_failures` | `int`         | `session.transient_delivery_failures`                   | `int`         | **present** | In `session` sub-dict; fallback `0` when no session     |
-| `permanent_delivery_failures` | `int`         | `session.permanent_delivery_failures`                   | `int`         | **present** | In `session` sub-dict; fallback `0` when no session     |
+| Key                           | Expected type | Value source                                            | Actual type   | Status      | Notes                                                                     |
+| ----------------------------- | ------------- | ------------------------------------------------------- | ------------- | ----------- | ------------------------------------------------------------------------- |
+| `connected`                   | `bool`        | `session.connected` (via `sanitize_diagnostic_mapping`) | `bool`        | **present** | In `session` sub-dict; fallback `False` when no session                   |
+| `health`                      | `str`         | `self._last_health` (cached health value)               | `str or None` | **present** | Cached from `health_check()`; cleared to `None` in `start()` and `stop()` |
+| `mode`                        | `str`         | `self._config.connection_type`                          | `str`         | **present** | At adapter top level AND in session sub-dict                              |
+| `reconnecting`                | `bool`        | `session.reconnecting`                                  | `bool`        | **present** | In `session` sub-dict; fallback `False` when no session                   |
+| `reconnect_attempts`          | `int`         | `session.reconnect_attempts`                            | `int`         | **present** | In `session` sub-dict; fallback `0` when no session                       |
+| `last_error`                  | `str or None` | `session.last_error`                                    | `str or None` | **present** | In `session` sub-dict; fallback `None` when no session                    |
+| `transient_delivery_failures` | `int`         | `session.transient_delivery_failures`                   | `int`         | **present** | In `session` sub-dict; fallback `0` when no session                       |
+| `permanent_delivery_failures` | `int`         | `session.permanent_delivery_failures`                   | `int`         | **present** | In `session` sub-dict; fallback `0` when no session                       |
 
-**MeshCore assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict with full fallback when `self._session is None`. `_last_health` is not cleared in `stop()` (retains last known value across stop/start cycles). `_inbound_dedup` is cleared in both `start()` (via `_reset_inbound_counters()`) and `stop()` (via `self._inbound_dedup.clear()`).
+**MeshCore assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict with full fallback when `self._session is None`. `_last_health` is cleared to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional (no fresh health snapshot for the current lifecycle). `_inbound_dedup` is cleared in both `start()` (via `_reset_inbound_counters()`) and `stop()` (via `self._inbound_dedup.clear()`).
 
 #### LXMF
 
 | Key                           | Expected type | Value source                                | Actual type   | Status      | Notes                                                                      |
 | ----------------------------- | ------------- | ------------------------------------------- | ------------- | ----------- | -------------------------------------------------------------------------- |
 | `connected`                   | `bool`        | `self._session.connected`                   | `bool`        | **present** | In `session` sub-dict; `_session` never set to None, so key always present |
-| `health`                      | `str`         | `self._last_health` (cached health value)   | `str or None` | **present** | Cached from `health_check()`; not cleared in `stop()`                      |
+| `health`                      | `str`         | `self._last_health` (cached health value)   | `str or None` | **present** | Cached from `health_check()`; cleared to `None` in `start()` and `stop()`  |
 | `mode`                        | `str`         | `self._config.connection_type`              | `str`         | **present** | At adapter top level AND in session sub-dict                               |
 | `reconnecting`                | `bool`        | `self._session.reconnecting`                | `bool`        | **present** | In `session` sub-dict                                                      |
 | `reconnect_attempts`          | `int`         | `self._session.reconnect_attempts`          | `int`         | **present** | In `session` sub-dict                                                      |
@@ -105,7 +105,7 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 | `transient_delivery_failures` | `int`         | `self._session.transient_delivery_failures` | `int`         | **present** | In `session` sub-dict                                                      |
 | `permanent_delivery_failures` | `int`         | `self._session.permanent_delivery_failures` | `int`         | **present** | In `session` sub-dict                                                      |
 
-**LXMF assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict. `_session` is created in `__init__` and never set to `None`, so the session sub-dict is always present in practice. However, the code has a structural `if self._session is not None` guard that would omit the `session` key if `_session` were ever `None`; this is a defensive gap rather than an observed one. `_last_health` is not cleared in `stop()`. `_inbound_dedup` is cleared in `stop()` via `self._inbound_dedup.clear()`.
+**LXMF assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict. `_session` is created in `__init__` and never set to `None`, so the session sub-dict is always present in practice. However, the code has a structural `if self._session is not None` guard that would omit the `session` key if `_session` were ever `None`; this is a defensive gap rather than an observed one. `_last_health` is cleared to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional (no fresh health snapshot for the current lifecycle). `_inbound_dedup` is cleared in `stop()` via `self._inbound_dedup.clear()`.
 
 **LXMF spec/implementation discrepancy:** The spec (§3.4 LXMF note) states: "Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top." However, the actual `LxmfAdapter.diagnostics()` implementation layers an outer dict with `adapter_id`, `platform`, `started`, `mode`, and a `session` sub-dict. Additionally, `LxmfSessionDiagnostics` contains fields (`last_message_time`, `known_path_count`, `propagation_enabled`, `pending_delivery_count`) that are defined in the spec (§3.4) as top-level keys but are not surfaced in the adapter's diagnostics output at all. The adapter only exposes `connected`, `router_running`, `reconnecting`, `reconnect_attempts`, `transient_delivery_failures`, `permanent_delivery_failures`, `last_error`, and `mode` in its session sub-dict.
 
@@ -197,7 +197,7 @@ All adapters produce health through the same path:
 **Scope:** ~~Meshtastic, MeshCore, LXMF~~ All adapters
 **Status:** Resolved. All four adapters now include `health` in their `diagnostics()` output. Meshtastic, MeshCore, and LXMF use a cached `_last_health` value set by `health_check()`, matching Matrix's pattern.
 
-**Behavioral note:** Meshtastic clears `_last_health` to `None` in both `start()` and `stop()`. MeshCore and LXMF do not clear `_last_health` in `stop()`, so post-stop diagnostics retain the last known health value. This asymmetry is benign (stale health is observational, not invented) but worth noting for operators comparing adapter diagnostics across restart cycles.
+**Behavioral note:** All four adapters clear cached `_last_health` to `None` at start/stop lifecycle boundaries. `diagnostics().health` may be `None` until `health_check()` is called again. This is intentional: `None` means no fresh health snapshot has been taken for the current lifecycle.
 
 ### 6.2 ~~Session-less diagnostics fallback gap~~ — MOSTLY RESOLVED
 
@@ -257,7 +257,7 @@ Ranked by operational value — the value each fix provides to operators diagnos
 ### Priority 2 (P0): ~~`health` key in diagnostics output~~ — RESOLVED
 
 **Adapters:** ~~Meshtastic, MeshCore, LXMF~~ All adapters resolved.
-**Status:** Resolved. All four adapters now include `health` via cached `_last_health` in `diagnostics()`. Meshtastic clears it in both `start()` and `stop()`; MeshCore and LXMF retain it across stop/start cycles.
+**Status:** Resolved. All four adapters now include `health` via cached `_last_health` in `diagnostics()`. All four clear `_last_health` to `None` in both `start()` and `stop()`; `diagnostics().health` may be `None` until `health_check()` is called again.
 
 ### Priority 3 (P1): ~~`mode` key in real adapter diagnostics~~ — RESOLVED
 
@@ -298,12 +298,10 @@ Ranked by operational value — the value each fix provides to operators diagnos
 **Operational value:** Low. The normalization layer already handles this. Direct consumers of adapter `diagnostics()` see inconsistency, but the `RuntimeSnapshot` and evidence bundle normalize the view.
 **Estimated effort:** Low to medium, depending on approach.
 
-### Priority 9 (P3): `_last_health` clearing consistency
+### Priority 9 (P3): ~~`_last_health` clearing consistency~~ — RESOLVED
 
-**Adapters:** MeshCore, LXMF
-**Fix:** Optionally clear `_last_health` to `None` in `stop()`, matching Meshtastic's behavior.
-**Operational value:** Low. The retained value is observational and never invented. The asymmetry is benign but may surprise operators comparing post-stop diagnostics across adapters.
-**Estimated effort:** Trivial. One line per adapter.
+**Adapters:** ~~MeshCore, LXMF~~ All adapters
+**Status:** Resolved. All four adapters now clear `_last_health` to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional.
 
 ## 8. Constraints Observed
 
