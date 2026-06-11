@@ -15,6 +15,7 @@ that matches the PyPI meshcore 2.3.7 API surface. Covers:
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -37,6 +38,31 @@ def _make_config(**overrides) -> MeshCoreConfig:
     defaults = dict(adapter_id="session-test")
     defaults.update(overrides)
     return MeshCoreConfig(**defaults)
+
+
+@contextmanager
+def _patch_ble_helpers():
+    """Patch BLE helper methods that would import bleak / open D-Bus sockets.
+
+    ``_disconnect_stale_ble_client`` and ``_find_ble_device`` both import
+    ``bleak`` at call time.  In the test environment bleak may be installed
+    (it is a transitive dependency), causing real BlueZ/D-Bus socket opens
+    that leave ``ResourceWarning: unclosed socket`` artifacts.  Patching
+    them keeps BLE startup tests pure-mock with no hardware dependency.
+    """
+    with (
+        patch(
+            "medre.adapters.meshcore.session.MeshCoreSession"
+            "._disconnect_stale_ble_client",
+            new=AsyncMock(),
+        ),
+        patch(
+            "medre.adapters.meshcore.session.MeshCoreSession"
+            "._find_ble_device",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        yield
 
 
 # ===================================================================
@@ -522,11 +548,12 @@ async def test_ble_constructor_args() -> None:
     )
     session = MeshCoreSession(config, "ble-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-    ):
-        await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
 
     mock_mc.MeshCore.create_ble.assert_awaited_once_with(
         address="AA:BB:CC:DD:EE:FF",
@@ -547,11 +574,12 @@ async def test_ble_subscriptions_registered() -> None:
     )
     session = MeshCoreSession(config, "ble-sub-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-    ):
-        await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
 
     assert mock_inst.subscribe.call_count == 5
 
@@ -584,11 +612,12 @@ async def test_ble_pin_passed_to_create_ble() -> None:
     )
     session = MeshCoreSession(config, "ble-pin-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-    ):
-        await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
 
     mock_mc.MeshCore.create_ble.assert_awaited_once_with(
         address="AA:BB:CC:DD:EE:FF",
@@ -611,11 +640,12 @@ async def test_ble_pin_not_passed_when_none() -> None:
     )
     session = MeshCoreSession(config, "ble-no-pin-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-    ):
-        await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
 
     mock_mc.MeshCore.create_ble.assert_awaited_once_with(
         address="AA:BB:CC:DD:EE:FF",
@@ -637,11 +667,12 @@ async def test_ble_pin_not_in_diagnostics() -> None:
     )
     session = MeshCoreSession(config, "ble-pin-diag-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-    ):
-        await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
 
     diag = session.diagnostics()
     assert "ble_pin" not in diag
@@ -676,13 +707,14 @@ async def test_ble_connect_failure_pin_sanitized_from_raised_error() -> None:
     )
     session = MeshCoreSession(config, "ble-sanitize-err-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
-    ):
-        with pytest.raises(MeshCoreConnectionError) as exc_info:
-            await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(MeshCoreConnectionError) as exc_info:
+                await session.start(lambda _pkt: None)
 
     error_text = str(exc_info.value)
     assert _secret not in error_text
@@ -708,13 +740,14 @@ async def test_ble_connect_failure_pin_sanitized_from_diagnostics() -> None:
     )
     session = MeshCoreSession(config, "ble-sanitize-diag-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
-    ):
-        with pytest.raises(MeshCoreConnectionError):
-            await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(MeshCoreConnectionError):
+                await session.start(lambda _pkt: None)
 
     diag = session.diagnostics()
     assert _secret not in str(diag)
@@ -743,14 +776,15 @@ async def test_ble_connect_failure_pin_sanitized_from_logs(caplog: Any) -> None:
     )
     session = MeshCoreSession(config, "ble-sanitize-log-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
-        caplog.at_level(logging.DEBUG, logger="medre.adapters.meshcore.session"),
-    ):
-        with pytest.raises(MeshCoreConnectionError):
-            await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+            caplog.at_level(logging.DEBUG, logger="medre.adapters.meshcore.session"),
+        ):
+            with pytest.raises(MeshCoreConnectionError):
+                await session.start(lambda _pkt: None)
 
     for record in caplog.records:
         assert _secret not in record.getMessage()
@@ -922,13 +956,14 @@ async def test_ble_all_attempts_fail_sets_sanitized_last_error() -> None:
     )
     session = MeshCoreSession(config, "ble-lasterr-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
-    ):
-        with pytest.raises(MeshCoreConnectionError):
-            await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(MeshCoreConnectionError):
+                await session.start(lambda _pkt: None)
 
     # last_error must be set to a useful, sanitized message.
     assert session.last_error is not None
@@ -978,13 +1013,14 @@ async def test_meshcore_connection_error_not_double_wrapped() -> None:
     )
     session = MeshCoreSession(config, "no-double-wrap-test")
 
-    with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-        patch.dict(sys.modules, {"meshcore": mock_mc}),
-        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
-    ):
-        with pytest.raises(MeshCoreConnectionError) as exc_info:
-            await session.start(lambda _pkt: None)
+    with _patch_ble_helpers():
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(MeshCoreConnectionError) as exc_info:
+                await session.start(lambda _pkt: None)
 
     error_text = str(exc_info.value)
     # Must NOT contain the generic wrapper prefix from the
