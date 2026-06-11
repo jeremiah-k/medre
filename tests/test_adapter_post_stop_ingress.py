@@ -18,9 +18,11 @@ from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.events.canonical import CanonicalEvent
 from tests.helpers.bridge import make_meshcore_packet
 from tests.helpers.meshtastic import (
@@ -168,3 +170,50 @@ async def test_lxmf_adapter_drops_delivery_state_callback_after_stop(
     assert all(
         "delivery" not in record.getMessage().lower() for record in caplog.records
     )
+
+
+async def test_lxmf_adapter_drops_simulate_inbound_after_stop(
+    make_adapter_context,
+    inbound_collector,
+) -> None:
+    """Real LxmfAdapter simulate_inbound drops events after stop()."""
+    config = LxmfConfig(adapter_id="lxmf-sim-post-stop", connection_type="fake")
+    adapter = LxmfAdapter(config)
+    ctx = make_adapter_context("lxmf-sim-post-stop")
+    await adapter.start(ctx)
+    assert adapter._started
+    await adapter.stop()
+    assert not adapter._started
+    # ctx is retained but _started gates simulate_inbound
+    assert adapter.ctx is not None
+
+    packet = _lxmf_packet("post-stop-lxmf", "should be dropped")
+    await adapter.simulate_inbound(packet)
+
+    assert inbound_collector.events == []
+    assert adapter.diagnostics()["inbound_published"] == 0
+
+
+async def test_meshcore_adapter_drops_simulate_inbound_after_stop(
+    make_adapter_context,
+    inbound_collector,
+) -> None:
+    """Real MeshCoreAdapter simulate_inbound drops events after stop()."""
+    config = MeshCoreConfig(adapter_id="meshcore-sim-post-stop", connection_type="fake")
+    adapter = MeshCoreAdapter(config)
+    ctx = make_adapter_context("meshcore-sim-post-stop")
+    await adapter.start(ctx)
+    assert adapter._started
+    await adapter.stop()
+    assert not adapter._started
+    assert adapter.ctx is not None
+
+    packet = make_meshcore_packet(
+        text="should be dropped",
+        sender="test-sender",
+        packet_id=99,
+    )
+    await adapter.simulate_inbound(packet)
+
+    assert inbound_collector.events == []
+    assert adapter.diagnostics()["inbound_published"] == 0

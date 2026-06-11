@@ -266,11 +266,12 @@ class MeshCoreSession:
         # first use in Python 3.10+.
         self._send_lock = asyncio.Lock()
 
-        # Cached SDK suggested_timeout for DM retry delays.
-        # Persisted across send_text() calls so that a successful DM that
-        # captures a timeout can inform the retry delay of a subsequent
-        # failing DM.  Cleared on stop().
-        self._sdk_retry_delay: float | None = None
+        # Per-contact cached SDK suggested_timeout for DM retry delays.
+        # Keyed by contact_id so that each contact's timeout is tracked
+        # independently.  Persisted across send_text() calls so that a
+        # successful DM that captures a timeout can inform the retry delay
+        # of a subsequent failing DM to the same contact.  Cleared on stop().
+        self._contact_retry_delays: dict[str, float] = {}
 
         # Diagnostics.
         self._diag = _SessionDiagnostics()
@@ -427,7 +428,7 @@ class MeshCoreSession:
         self._diag.device_name = None
         self._diag.public_key_prefix = None
         self._diag.radio_freq = None
-        self._sdk_retry_delay = None
+        self._contact_retry_delays.clear()
         self._started = False
         self._logger.info("MeshCoreSession %s stopped", self._adapter_id)
 
@@ -501,6 +502,7 @@ class MeshCoreSession:
             "radio_freq": self._diag.radio_freq,
             "mode": self._config.connection_type,
             "sdk_suggested_timeouts_used": self._diag.sdk_suggested_timeouts_used,
+            "sdk_contact_timeout_count": len(self._contact_retry_delays),
             "known_contact_count": self._diag.known_contact_count,
             "last_contact_update_time": (
                 self._diag.last_contact_update_time.isoformat()
@@ -1070,7 +1072,7 @@ class MeshCoreSession:
                         if channel_index is None:
                             st = _extract_suggested_timeout(result)
                             if st is not None:
-                                self._sdk_retry_delay = st
+                                self._contact_retry_delays[contact_id] = st
                                 self._diag.sdk_suggested_timeouts_used += 1
                     else:
                         payload = getattr(result, "payload", None)
@@ -1087,7 +1089,7 @@ class MeshCoreSession:
                             if channel_index is None:
                                 st = _extract_suggested_timeout(payload)
                                 if st is not None:
-                                    self._sdk_retry_delay = st
+                                    self._contact_retry_delays[contact_id] = st
                                     self._diag.sdk_suggested_timeouts_used += 1
                         if native_id is None:
                             attrs = getattr(result, "attributes", None)
@@ -1100,6 +1102,12 @@ class MeshCoreSession:
                                         native_id = raw_mid.hex()
                                     elif raw_mid is not None:
                                         native_id = str(raw_mid)
+                                # Extract suggested_timeout for DM retry delay.
+                                if channel_index is None:
+                                    st = _extract_suggested_timeout(attrs)
+                                    if st is not None:
+                                        self._contact_retry_delays[contact_id] = st
+                                        self._diag.sdk_suggested_timeouts_used += 1
 
                     return str(native_id) if native_id is not None else None
 
@@ -1120,8 +1128,13 @@ class MeshCoreSession:
                     if attempt < _SEND_MAX_RETRIES:
                         # Use cached SDK suggested_timeout for DM retries
                         # when available, otherwise fall back to linear backoff.
-                        if self._sdk_retry_delay is not None:
-                            await asyncio.sleep(self._sdk_retry_delay)
+                        # Only DM sends (channel_index is None) use cached delays.
+                        if channel_index is None:
+                            cached = self._contact_retry_delays.get(contact_id)
+                            if cached is not None:
+                                await asyncio.sleep(cached)
+                            else:
+                                await asyncio.sleep(0.1 * attempt)
                         else:
                             await asyncio.sleep(0.1 * attempt)
 

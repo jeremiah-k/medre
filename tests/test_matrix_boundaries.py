@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -917,3 +917,127 @@ class TestMatrixCapabilitiesEditsDeletes:
         assert rendering.payload["body"] == "edited message"
         # No m.relates_to for edit (unsupported)
         assert "m.relates_to" not in rendering.payload
+
+
+# ---------------------------------------------------------------------------
+# start() failure-path cleanup tests
+# ---------------------------------------------------------------------------
+
+
+class TestStartFailureCleanup:
+    """Ensure ALL failure paths in MatrixAdapter.start() properly clean up
+    session state and set ``_started = False``.
+    """
+
+    @staticmethod
+    def _make_adapter(
+        *,
+        auto_join_rooms: tuple[str, ...] | None = None,
+    ) -> tuple[MatrixAdapter, MatrixConfig]:
+        from tests.helpers.matrix_adapter import make_matrix_config
+
+        overrides: dict[str, Any] = {}
+        if auto_join_rooms is not None:
+            overrides["auto_join_rooms"] = auto_join_rooms
+        config = make_matrix_config(**overrides)
+        return MatrixAdapter(config), config
+
+    async def test_session_start_raises_sets_started_false(
+        self, make_adapter_context: Any
+    ) -> None:
+        """If MatrixSession.start() raises, _started is False and _session
+        is stopped."""
+        import medre.adapters.matrix.adapter as _adapter_mod
+
+        adapter, _config = self._make_adapter()
+        ctx = make_adapter_context()
+
+        mock_session = MagicMock(name="MatrixSession")
+        mock_session.start = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_session.stop = AsyncMock()
+        mock_session.closed = True
+        mock_session.last_sync_error = None
+
+        with (
+            patch.object(_adapter_mod, "HAS_NIO", True),
+            patch.object(_adapter_mod, "MatrixSession", return_value=mock_session),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                await adapter.start(ctx)
+
+        assert adapter._started is False
+
+    async def test_auto_join_raises_stops_session_and_sets_started_false(
+        self, make_adapter_context: Any
+    ) -> None:
+        """If ensure_joined_rooms() raises after a successful session.start(),
+        the session is stopped, _session cleared, and _started set to False."""
+        import medre.adapters.matrix.adapter as _adapter_mod
+
+        rooms = ("!room1:example.com", "!room2:example.com")
+        adapter, _config = self._make_adapter(auto_join_rooms=rooms)
+        ctx = make_adapter_context()
+
+        mock_session = MagicMock(name="MatrixSession")
+        mock_session.start = AsyncMock()  # succeeds
+        mock_session.stop = AsyncMock()
+        mock_session.closed = False
+        mock_session.connected = True
+        mock_session.last_sync_error = None
+        mock_session.ensure_joined_rooms = AsyncMock(
+            side_effect=RuntimeError("join failed")
+        )
+
+        with (
+            patch.object(_adapter_mod, "HAS_NIO", True),
+            patch.object(_adapter_mod, "MatrixSession", return_value=mock_session),
+        ):
+            with pytest.raises(RuntimeError, match="join failed"):
+                await adapter.start(ctx)
+
+        assert adapter._started is False
+        assert adapter._session is None
+        mock_session.stop.assert_awaited_once()
+
+    async def test_post_failed_start_room_callback_does_not_publish(
+        self, make_adapter_context: Any, inbound_collector: Any
+    ) -> None:
+        """After start() fails, _on_room_message must not publish events."""
+        import medre.adapters.matrix.adapter as _adapter_mod
+
+        adapter, _config = self._make_adapter()
+        ctx = make_adapter_context()
+
+        mock_session = MagicMock(name="MatrixSession")
+        mock_session.start = AsyncMock(side_effect=RuntimeError("start died"))
+        mock_session.stop = AsyncMock()
+        mock_session.closed = True
+        mock_session.last_sync_error = None
+
+        with (
+            patch.object(_adapter_mod, "HAS_NIO", True),
+            patch.object(_adapter_mod, "MatrixSession", return_value=mock_session),
+        ):
+            with pytest.raises(RuntimeError, match="start died"):
+                await adapter.start(ctx)
+
+        assert adapter._started is False
+
+        # Simulate an inbound room message after the failed start.
+        event_dict: dict[str, Any] = {
+            "room_id": "!test:example.com",
+            "sender": "@alice:example.com",
+            "body": "hello",
+            "event_id": "$evt-1",
+            "source": {
+                "content": {"msgtype": "m.text", "body": "hello"},
+                "event_id": "$evt-1",
+                "sender": "@alice:example.com",
+                "type": "m.room.message",
+            },
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        }
+        await adapter._on_room_message(event_dict)
+
+        assert inbound_collector.events == []

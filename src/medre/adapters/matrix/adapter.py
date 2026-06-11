@@ -370,17 +370,30 @@ class MatrixAdapter(AdapterContract):
 
         # Part D — auto-join configured rooms after startup.
         if self._config.auto_join_rooms:
-            join_results = await self._session.ensure_joined_rooms(
-                self._config.auto_join_rooms
-            )
-            joined_count = sum(1 for v in join_results.values() if v)
-            failed_count = len(join_results) - joined_count
-            ctx.logger.info(
-                "Auto-join: %d configured, %d joined, %d failed",
-                len(self._config.auto_join_rooms),
-                joined_count,
-                failed_count,
-            )
+            try:
+                join_results = await self._session.ensure_joined_rooms(
+                    self._config.auto_join_rooms
+                )
+                joined_count = sum(1 for v in join_results.values() if v)
+                failed_count = len(join_results) - joined_count
+                ctx.logger.info(
+                    "Auto-join: %d configured, %d joined, %d failed",
+                    len(self._config.auto_join_rooms),
+                    joined_count,
+                    failed_count,
+                )
+            except Exception:
+                # Auto-join failed — clean up session and mark not started.
+                self._sync_failure_stored = (
+                    self._session.last_sync_error if self._session else None
+                )
+                try:
+                    await self._session.stop()
+                except Exception:
+                    pass  # best-effort cleanup
+                self._session = None
+                self._started = False
+                raise
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
