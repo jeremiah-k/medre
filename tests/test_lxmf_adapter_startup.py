@@ -272,7 +272,7 @@ class TestStartFailureCleanup:
         self,
     ) -> None:
         """After successful start→stop, a failed restart leaves _start_time None."""
-        config = _make_config(connection_type="reticulum")
+        config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
 
         # Phase 1: successful start in fake mode
@@ -290,8 +290,8 @@ class TestStartFailureCleanup:
         await adapter.stop()
         assert adapter._start_time is None
 
-        # Phase 3: failed restart (HAS_LXMF=False with reticulum mode)
-        with patch("medre.adapters.lxmf.adapter.HAS_LXMF", False):
-            with pytest.raises(LxmfConnectionError):
-                await adapter.start(ctx)
+        # Phase 3: failed restart — session.start raises
+        mock_session.start.side_effect = RuntimeError("start failed")
+        with pytest.raises(LxmfConnectionError, match="failed to start"):
+            await adapter.start(ctx)
         assert adapter._start_time is None
