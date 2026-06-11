@@ -67,12 +67,12 @@ when the node is not on a shared network and no USB cable is available.
 
 #### Requirements
 
-| Requirement | Details |
-| --- | --- |
-| Bluetooth adapter | BLE-capable hardware (most built-in laptop adapters work) |
-| BlueZ | Linux Bluetooth stack. Verify with `bluetoothctl --version` |
-| `bleak` | Python BLE library. Installed automatically with `meshcore` |
-| Permissions | User must be in the `bluetooth` group, or run with capabilities for BLE access |
+| Requirement       | Details                                                                        |
+| ----------------- | ------------------------------------------------------------------------------ |
+| Bluetooth adapter | BLE-capable hardware (most built-in laptop adapters work)                      |
+| BlueZ             | Linux Bluetooth stack. Verify with `bluetoothctl --version`                    |
+| `bleak`           | Python BLE library. Installed automatically with `meshcore`                    |
+| Permissions       | User must be in the `bluetooth` group, or run with capabilities for BLE access |
 
 ```bash
 # Verify BlueZ is running
