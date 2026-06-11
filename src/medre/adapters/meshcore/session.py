@@ -581,8 +581,34 @@ class MeshCoreSession:
                         "No response from MeshCore node (serial)"
                     )
             elif self._config.connection_type == "ble":
+                # Pre-scan for the BLE device to obtain a BLEDevice object.
+                # On some Linux BlueZ stacks, BleakClient(address_string)
+                # fails with "le-connection-abort-by-local" while passing a
+                # BLEDevice from a scan succeeds.  The scan uses the same
+                # bleak library that is already a transitive dep of meshcore.
+                ble_device = None
+                _addr = self._config.ble_address or ""
+                try:
+                    from bleak import BleakScanner  # type: ignore[import-untyped]
+
+                    def _meshcore_device_match(d: object, adv: object) -> bool:
+                        d_addr: str = getattr(d, "address", "")
+                        adv_name: str = getattr(adv, "local_name", "") or ""
+                        if d_addr and d_addr.lower() == _addr.lower():
+                            return True
+                        if adv_name and _addr.lower() in adv_name.lower():
+                            return True
+                        return False
+
+                    ble_device = await BleakScanner.find_device_by_filter(
+                        _meshcore_device_match, timeout=5.0
+                    )
+                except Exception:
+                    ble_device = None
+
                 self._meshcore = await mc.MeshCore.create_ble(
-                    address=self._config.ble_address or "",
+                    address=_addr,
+                    device=ble_device,
                 )
                 if self._meshcore is None:
                     raise MeshCoreConnectionError(
