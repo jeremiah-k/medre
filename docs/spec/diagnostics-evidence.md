@@ -101,7 +101,7 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 13 keys)
+### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 15 keys)
 
 All 8 common keys are present. The `health` key is reported via the adapter-level diagnostics dict as well as via `health_check()`.
 
@@ -142,7 +142,10 @@ Session sub-dict keys (`session.*`):
 | `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)                                                                               |
 | `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                                                                                                |
 | `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`)                                                                     |
+| `session.sdk_suggested_timeouts_used` | `int`           | Count of SDK `suggested_timeout` hints consumed                                                                                        |
 | `session.sdk_contact_timeout_count`   | `int`           | Aggregate-only count of contacts with cached SDK `suggested_timeout` hints. Never exposes contact IDs, public keys, or timeout values. |
+| `session.known_contact_count`         | `int`           | Known contacts from CONTACTS events (diagnostics only)                                                                                 |
+| `session.last_contact_update_time`    | `str or None`   | ISO 8601 timestamp of last CONTACTS event                                                                                              |
 
 ### 3.4 LXMF (6 keys)
 
