@@ -43,10 +43,12 @@ in each lifecycle, matching the protocol lifecycle rule.
 
 ### Stale-sync watchdog (implemented)
 
-`health_check()` now downgrades `"healthy"` to `"degraded"` when
+`health_check()` downgrades `"healthy"` to `"degraded"` when
 `last_successful_sync` is older than `_SYNC_STALE_THRESHOLD_SECONDS`
-(300 s by default) or has never completed (`None`). This uses a
-fakeable clock (`adapter._clock`) for deterministic testing.
+(300 s by default). A `None` timestamp (no sync completed yet) is
+intentionally **not** treated as stale — the adapter just started and
+has not had a chance to complete its first sync loop iteration. This
+uses a fakeable clock (`adapter._clock`) for deterministic testing.
 
 ## Design Decisions
 
@@ -83,6 +85,7 @@ if saved_token:
 **Mechanism**: `health_check()` compares `time.monotonic() - last_successful_sync`
 against `_SYNC_STALE_THRESHOLD_SECONDS` (300 s). Only downgrades
 `"healthy"` → `"degraded"`; does not override `"failed"` or `"unknown"`.
+A `None` timestamp (no sync yet) is intentionally not treated as stale.
 
 **Why 300 seconds**: Matrix long-polling uses 30 s timeouts. Five
 minutes represents 10 missed sync cycles, which is a clear signal that
@@ -146,7 +149,7 @@ read receipts (MSC2285 / `.m.read` private receipts).
 | `test_restart_clears_health`                      | `test_matrix_health_lifecycle.py` | Restart cycle clears health       |
 | `test_stale_sync_reports_degraded`                | `test_matrix_health_lifecycle.py` | Stale sync → degraded             |
 | `test_fresh_sync_reports_healthy`                 | `test_matrix_health_lifecycle.py` | Fresh sync → healthy              |
-| `test_no_sync_yet_reports_degraded`               | `test_matrix_health_lifecycle.py` | No sync yet → degraded            |
+| `test_no_sync_yet_preserves_healthy`              | `test_matrix_health_lifecycle.py` | None sync preserves healthy       |
 | `test_stale_does_not_override_failed`             | `test_matrix_health_lifecycle.py` | Failed takes priority             |
 | `test_stale_does_not_override_unknown`            | `test_matrix_health_lifecycle.py` | Unknown takes priority            |
 | `test_fakeable_clock_controls_degradation`        | `test_matrix_health_lifecycle.py` | Clock faking works                |

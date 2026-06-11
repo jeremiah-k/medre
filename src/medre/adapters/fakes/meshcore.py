@@ -289,6 +289,7 @@ class FakeMeshCoreAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": "fake",
+            "health": "healthy" if self._started else None,
             "health_lifecycle_epoch": self._health_lifecycle_epoch,
             "delivered_count": len(self.delivered_payloads),
             "inbound_count": len(self.inbound_events),

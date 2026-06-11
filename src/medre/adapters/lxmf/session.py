@@ -719,7 +719,7 @@ class LxmfSession:
         self._diag.connected = False
         self._diag.router_running = False
         self._diag.reconnecting = False
-        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        # Reset reconnect counter so diagnostics are truthful after stop.
         self._diag.reconnect_attempts = 0
         # Reset announce counters on stop boundary.
         self._diag.announces_sent = 0
@@ -872,15 +872,6 @@ class LxmfSession:
             announce_failures=self._diag.announce_failures,
             last_announce_error=self._diag.last_announce_error,
         )
-
-    @property
-    def announce_diagnostics(self) -> dict[str, Any]:
-        """Announce-specific diagnostic counters (JSON-safe)."""
-        return {
-            "announces_sent": self._diag.announces_sent,
-            "announce_failures": self._diag.announce_failures,
-            "last_announce_error": self._diag.last_announce_error,
-        }
 
     def delivery_state_counts(self) -> dict[str, int]:
         """Return counts of outbound deliveries per state.
