@@ -7,9 +7,10 @@ stale BlueZ state prevents reconnect.
 ## Changed
 
 - `src/medre/adapters/meshcore/session.py`: initial BLE connection now
-  pre-scans for a `BLEDevice` via `BleakScanner.find_device_by_address()`
-  before calling `BleakClient()`, avoiding le-connection-abort-by-local
-  on BlueZ stacks that reject unnamed LE connections.
+  pre-scans for a `BLEDevice` via `BleakScanner.find_device_by_filter()`
+  before calling `MeshCore.create_ble(device=...)`, avoiding
+  le-connection-abort-by-local on BlueZ stacks that reject unnamed
+  address-based LE connections.
 - `src/medre/adapters/meshcore/session.py`: reconnect path now clears any
   stale BlueZ connection via `client.disconnect()` before retrying, matching
   the cleanup pattern from mmrelay.
