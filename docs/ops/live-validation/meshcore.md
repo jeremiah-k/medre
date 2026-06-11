@@ -56,12 +56,12 @@ The adapter-wrapper callback bridge is proven at the fake-pipeline level:
 
 ## BLE Validation
 
-Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware. Live BLE validation was completed June 2026 against a MeshCore-92C8B4E7 node on Linux BlueZ. This was the first live 3-way bridge across Matrix, Meshtastic, and MeshCore BLE.
+Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware. Live BLE validation was completed June 2026 against a real MeshCore BLE node on Linux BlueZ. This was the first live 3-way bridge across Matrix, Meshtastic, and MeshCore BLE.
 
 Results:
 
-- Matrix to MeshCore: bidirectional routing observed where actually observed.
-- Meshtastic to MeshCore: bidirectional routing observed where actually observed.
+- Matrix to MeshCore: bidirectional routing observed.
+- Meshtastic to MeshCore: bidirectional routing observed.
 - All messages routed on channel index 0.
 - Connection and reconnect bugs were observed during testing and are being tracked.
 - BLE connection required pre-scan and stale BlueZ device cleanup before connecting (pattern sourced from mmrelay).

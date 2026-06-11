@@ -57,7 +57,12 @@ The session supports four connection types via
     Connects via serial using ``MeshCore.create_serial(port, baudrate)`` factory.
 
 ``"ble"``
-    Connects via BLE using ``MeshCore.create_ble(address)`` factory.
+    Pre-scans with ``BleakScanner.find_device_by_filter()`` for a
+    ``BLEDevice``, then calls ``MeshCore.create_ble(address=...,
+    device=..., pin=...)``.  When the scan returns ``None``,
+    ``device=None`` is passed for address-only fallback.  ``pin`` is
+    forwarded only when ``ble_pin`` is configured.  Between retry
+    attempts, stale BlueZ state is cleaned before re-scanning.
 
 Reconnect Policy
 ----------------
@@ -753,21 +758,25 @@ class MeshCoreSession:
 
             if attempt < _max_attempts:
                 await asyncio.sleep(2.0)
+
+                # Best-effort stale BlueZ cleanup BEFORE re-scan so
+                # BlueZ adapter state is clean when the scanner looks
+                # up the device.  Cleanup failure must not prevent the
+                # subsequent re-scan and retry.
+                try:
+                    await self._disconnect_stale_ble_client(address)
+                except Exception:
+                    pass  # best-effort — proceed with re-scan
+
                 # Re-scan: the device may have stopped and restarted
                 # advertising in the meantime.  Best-effort: if bleak
                 # is unavailable (not installed), skip the re-scan and
-                # proceed with ble_device as-is.
+                # fall through with ble_device = None for address-only
+                # fallback on the next create_ble().
                 try:
                     ble_device = await self._find_ble_device(address)
                 except Exception:
                     ble_device = None
-
-                # Best-effort stale BlueZ cleanup before retry so the
-                # next create_ble() hits a clean adapter state.
-                try:
-                    await self._disconnect_stale_ble_client(address)
-                except Exception:
-                    pass  # best-effort — proceed with retry
 
         raise MeshCoreConnectionError(
             f"No response from MeshCore node after "
@@ -838,7 +847,17 @@ class MeshCoreSession:
                     f"Unsupported connection_type: " f"{self._config.connection_type!r}"
                 )
 
-        except MeshCoreConnectionError:
+        except MeshCoreConnectionError as exc:
+            # Preserve safe error diagnostics before cleanup.  For BLE
+            # paths the exception text is already sanitized by
+            # _sanitize_ble_exc() in helper methods; do not reintroduce
+            # raw SDK exception text (no-secret discipline for ble_pin).
+            _safe_reason = (
+                self._sanitize_ble_exc(exc)
+                if self._config.connection_type == "ble"
+                else str(exc)
+            )
+            self._diag.last_error = _safe_reason
             # Clean up partially-initialised SDK client on failure.
             if self._meshcore is not None:
                 try:
@@ -852,21 +871,6 @@ class MeshCoreSession:
                 self._meshcore = None
             raise
         except Exception as exc:
-            # Avoid double-wrapping an existing MeshCoreConnectionError
-            # (e.g. from _create_ble_with_retries) into a less useful
-            # generic message.
-            if isinstance(exc, MeshCoreConnectionError):
-                if self._meshcore is not None:
-                    try:
-                        await self._meshcore.disconnect()
-                    except Exception as disconnect_exc:
-                        self._logger.debug(
-                            "MeshCoreSession %s: error during cleanup disconnect: %s",
-                            self._adapter_id,
-                            disconnect_exc,
-                        )
-                    self._meshcore = None
-                raise
             # Clean up partially-initialised SDK client on failure.
             if self._meshcore is not None:
                 try:

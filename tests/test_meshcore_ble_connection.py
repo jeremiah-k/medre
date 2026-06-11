@@ -4,9 +4,12 @@ stale SDK cleanup.
 Covers:
 - ``_create_ble_with_retries``: None returns are retried with sleep + re-scan
 - ``_create_ble_with_retries``: exceptions interleaved with None returns
+- ``_create_ble_with_retries``: final exception wrapping/chaining
 - ``_cleanup_stale_sdk``: unsubscription + disconnect before reconnect
 - ``_cleanup_stale_sdk``: cleanup failures don't block reconnect
 - ``_message_callback`` survives reconnect cleanup
+- Retry order: sleep → stale cleanup → re-scan between attempts
+- Diagnostics last_error set on BLE failure without leaking ble_pin
 - No fixed sleeps in tests (``asyncio.sleep`` is patched)
 """
 
@@ -167,7 +170,11 @@ async def test_exception_on_final_attempt_raises_meshcore_error() -> None:
         with pytest.raises(MeshCoreConnectionError, match="3 attempt") as exc_info:
             await session._create_ble_with_retries(mock_mc, "AA:BB:CC:DD:EE:FF", None)
 
-    assert "BLE adapter crashed" in str(exc_info.value)
+    msg = str(exc_info.value)
+    assert "BLE adapter crashed" in msg
+    # Wave 1: final exception is chained from the original OSError.
+    assert isinstance(exc_info.value.__cause__, OSError)
+    assert str(exc_info.value.__cause__) == "BLE adapter crashed"
 
 
 # ===================================================================
@@ -595,12 +602,71 @@ async def test_ble_pin_not_leaked_in_error() -> None:
     msg = str(exc_info.value)
     assert pin not in msg
     assert "redacted" in msg
+    # Original exception is chained (verify type without exposing secret).
+    assert isinstance(exc_info.value.__cause__, OSError)
 
 
-async def test_rescan_after_cleanup_receives_device() -> None:
+async def test_diagnostics_last_error_set_on_ble_failure() -> None:
+    """When all BLE attempts fail via start(), diagnostics.last_error is set
+    and does not leak ble_pin.
+    """
+    mock_mc, _ = build_mock_meshcore_module()
+    pin = "999999"
+
+    async def _create_ble(**kwargs):
+        raise OSError(f"Auth failed with pin={pin}")
+
+    mock_mc.MeshCore.create_ble = _create_ble
+
+    session = _make_ble_session(ble_pin=pin)
+
+    async def _noop_cb(pkt):
+        pass
+
+    with (
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.asyncio.sleep"),
+        patch.object(session, "_find_ble_device", return_value=None),
+        patch.object(session, "_disconnect_stale_ble_client"),
+    ):
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(_noop_cb)
+
+    assert session.last_error is not None
+    assert pin not in session.last_error
+    assert "redacted" in session.last_error
+
+
+async def test_diagnostics_last_error_non_pin_ble_failure() -> None:
+    """When BLE fails without a pin, diagnostics.last_error contains reason."""
+    mock_mc, _ = build_mock_meshcore_module()
+
+    async def _create_ble(**kwargs):
+        raise OSError("BLE adapter crashed")
+
+    mock_mc.MeshCore.create_ble = _create_ble
+
+    session = _make_ble_session()
+
+    async def _noop_cb(pkt):
+        pass
+
+    with (
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.asyncio.sleep"),
+        patch.object(session, "_find_ble_device", return_value=None),
+        patch.object(session, "_disconnect_stale_ble_client"),
+    ):
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(_noop_cb)
+
+    assert session.last_error is not None
+    assert "BLE adapter crashed" in session.last_error
     """After stale BlueZ cleanup, re-scanned device is passed to next create_ble.
 
-    Verifies the full between-attempt sequence: sleep → re-scan → cleanup.
+    Verifies the full between-attempt sequence: sleep → stale cleanup → re-scan.
     """
     mock_mc, mock_inst = build_mock_meshcore_module()
     call_count = 0
@@ -643,10 +709,10 @@ async def test_rescan_after_cleanup_receives_device() -> None:
     assert devices_seen[0] is None
     assert devices_seen[1] is rescanned_device
     assert devices_seen[2] is rescanned_device
-    # Between attempts, re-scan happens before stale cleanup.
+    # Between attempts, stale cleanup happens before re-scan.
     assert stale_call_order == [
-        "find",
         "stale_cleanup",
         "find",
         "stale_cleanup",
+        "find",
     ]

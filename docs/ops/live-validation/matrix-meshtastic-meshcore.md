@@ -2,7 +2,7 @@
 
 Serial-first bring-up procedure for a three-transport bridge between Matrix,
 Meshtastic, and MeshCore. This guide wires three real adapters with serial as
-the preferred connection method for MeshCore, validates all four routing
+the preferred connection method for MeshCore, validates all six routing
 directions, and records evidence at each step.
 
 ## Prerequisites
@@ -144,11 +144,16 @@ update `serial_port` to use the stable `/dev/serial/by-id/...` path instead of
 
 ## Step 6: Define routes
 
-Remove the existing single bidirectional route and replace it with four explicit
-one-way routes. This gives clear visibility into each direction and
-makes it easy to isolate failures.
+Preserve the existing Matrix↔Meshtastic route already present in the copied
+config. Below it, add four one-way MeshCore routes. This gives clear visibility
+into each MeshCore leg and makes it easy to isolate failures without disrupting
+the known-good Matrix↔Meshtastic bridge.
 
 ```toml
+# --- Preserved: existing Matrix ↔ Meshtastic route (do not remove) -----------
+# The bidirectional (or paired one-way) Matrix↔Meshtastic route from the
+# original 2-way config is already present above. Keep it unchanged.
+
 # Matrix room → MeshCore channel 0
 [routes.matrix_to_meshcore]
 source_adapters = ["matrix"]
@@ -195,28 +200,38 @@ enabled routes run concurrently.
 
 ## Step 7: Marker messages
 
-Send unique marker messages for each direction to make log analysis
-straightforward. Use a consistent prefix and a timestamp suffix.
+Send unique marker messages for each routing direction. Use a consistent prefix
+and a timestamp suffix.
 
 ```bash
 # Generate markers
 TS=$(date +%Y%m%d-%H%M%S)
-echo "Matrix → MeshCore:  MEDRE-LIVE-MATRIX-TO-MESHCORE-$TS"
-echo "MeshCore → Matrix:  MEDRE-LIVE-MESHCORE-TO-MATRIX-$TS"
-echo "Meshtastic → MeshCore:  MEDRE-LIVE-MESHTASTIC-TO-MESHCORE-$TS"
-echo "MeshCore → Meshtastic:  MEDRE-LIVE-MESHCORE-TO-MESHTASTIC-$TS"
+echo "Matrix → Meshtastic:   MEDRE-LIVE-MATRIX-TO-MESHTASTIC-$TS"
+echo "Meshtastic → Matrix:   MEDRE-LIVE-MESHTASTIC-TO-MATRIX-$TS"
+echo "Matrix → MeshCore:     MEDRE-LIVE-MATRIX-TO-MESHCORE-$TS"
+echo "MeshCore → Matrix:     MEDRE-LIVE-MESHCORE-TO-MATRIX-$TS"
+echo "Meshtastic → MeshCore: MEDRE-LIVE-MESHTASTIC-TO-MESHCORE-$TS"
+echo "MeshCore → Meshtastic: MEDRE-LIVE-MESHCORE-TO-MESHTASTIC-$TS"
 ```
 
-Send each marker from the appropriate source:
+Post or send each marker from the matching source:
 
-1. **Matrix to MeshCore**: Post `MEDRE-LIVE-MATRIX-TO-MESHCORE-<ts>` in the
+1. **Matrix to Meshtastic** (preserved route): Post
+   `MEDRE-LIVE-MATRIX-TO-MESHTASTIC-<ts>` in the Matrix room. Watch the
+   Meshtastic radio for the message.
+2. **Meshtastic to Matrix** (preserved route): Send
+   `MEDRE-LIVE-MESHTASTIC-TO-MATRIX-<ts>` from the Meshtastic radio. Watch the
+   Matrix room for the message.
+3. **Matrix to MeshCore**: Post `MEDRE-LIVE-MATRIX-TO-MESHCORE-<ts>` in the
    Matrix room. Watch the MeshCore device for the message.
-2. **MeshCore to Matrix**: Send `MEDRE-LIVE-MESHCORE-TO-MATRIX-<ts>` from the
+4. **MeshCore to Matrix**: Send `MEDRE-LIVE-MESHCORE-TO-MATRIX-<ts>` from the
    MeshCore device. Watch the Matrix room for the message.
-3. **Meshtastic to MeshCore**: Send `MEDRE-LIVE-MESHTASTIC-TO-MESHCORE-<ts>`
-   from the Meshtastic radio. Watch the MeshCore device for the message.
-4. **MeshCore to Meshtastic**: Send `MEDRE-LIVE-MESHCORE-TO-MESHTASTIC-<ts>`
-   from the MeshCore device. Watch the Meshtastic radio for the message.
+5. **Meshtastic to MeshCore**: Send
+   `MEDRE-LIVE-MESHTASTIC-TO-MESHCORE-<ts>` from the Meshtastic radio. Watch
+   the MeshCore device for the message.
+6. **MeshCore to Meshtastic**: Send
+   `MEDRE-LIVE-MESHCORE-TO-MESHTASTIC-<ts>` from the MeshCore device. Watch
+   the Meshtastic radio for the message.
 
 The unique markers make it easy to grep logs for a specific direction and
 timestamp, and to correlate across log files and storage records.
@@ -279,15 +294,19 @@ A complete serial-first 3-way bridge bring-up produces:
    Meshtastic and MeshCore devices.
 3. **Startup** - `medre run --config medre-3way.toml` starts without errors,
    all three adapters report healthy.
-4. **Matrix to MeshCore** - Marker message posted in Matrix room appears on
+4. **Matrix to Meshtastic** (preserved) - Marker message posted in Matrix room
+   appears on the Meshtastic radio.
+5. **Meshtastic to Matrix** (preserved) - Marker sent from the Meshtastic radio
+   appears in the Matrix room.
+6. **Matrix to MeshCore** - Marker message posted in Matrix room appears on
    MeshCore device.
-5. **MeshCore to Matrix** - Marker sent from MeshCore appears in Matrix room.
-6. **Meshtastic to MeshCore** - Marker sent from Meshtastic radio appears on
+7. **MeshCore to Matrix** - Marker sent from MeshCore appears in Matrix room.
+8. **Meshtastic to MeshCore** - Marker sent from Meshtastic radio appears on
    MeshCore device.
-7. **MeshCore to Meshtastic** - Marker sent from MeshCore appears on
+9. **MeshCore to Meshtastic** - Marker sent from MeshCore appears on
    Meshtastic radio.
-8. **Evidence** - `medre inspect receipts` shows records for all four markers
-   with `sent`/`success` status.
+10. **Evidence** - `medre inspect receipts` shows records for all six markers
+    with `sent`/`success` status.
 
 ### Sent/success caveats
 
@@ -320,7 +339,7 @@ and known issues.
 | MeshCore serial port not found        | `ls -l /dev/serial/by-id/`, try different USB port, check cable             |
 | Messages not appearing on MeshCore    | Check `default_channel` matches actual channel, verify route `dest_channel` |
 | MeshCore messages not reaching Matrix | Check route `dest_room` matches room in Matrix `room_allowlist`             |
-| Duplicate messages on MeshCore        | Review all four routes for overlapping source/dest pairs                    |
+| Duplicate messages on MeshCore        | Review all six routes for overlapping source/dest pairs                     |
 | BLE connection failures               | Pre-scan, clear stale BlueZ entries, verify MAC address                     |
 
 ## See Also

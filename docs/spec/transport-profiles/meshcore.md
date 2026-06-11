@@ -191,7 +191,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **Sender identity is a pubkey prefix.** 6-byte hex prefix is not human-readable; downstream consumers must map to display names externally.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.
 - **No outbound DM initiation in capabilities.** `direct_messages=False` means MEDRE does not model outbound DM targeting. Inbound PRIV messages are still relayed.
-- **BLE mode is validated against real hardware.** Tested June 2026 with a MeshCore-92C8B4E7 node on Linux BlueZ. BLE requires pre-pairing and is subject to BlueZ stack limitations.
+- **BLE mode is validated against real hardware.** Tested June 2026 with a real MeshCore BLE node on Linux BlueZ. BLE requires pre-pairing and is subject to BlueZ stack limitations.
 - **Radio metadata (SNR/RSSI) only in V3 protocol messages.** Not available for all packet types.
 
 ---

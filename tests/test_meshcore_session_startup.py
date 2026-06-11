@@ -895,3 +895,196 @@ async def test_appstart_disconnect_error_suppressed() -> None:
     # Despite disconnect error, cleanup still occurs.
     assert session._meshcore is None
     assert session.connected is False
+
+
+# ===================================================================
+# MeshCoreConnectionError last_error preservation
+# ===================================================================
+
+
+async def test_ble_all_attempts_fail_sets_sanitized_last_error() -> None:
+    """BLE all-attempts-fail sets last_error without leaking ble_pin.
+
+    When create_ble consistently raises (exhausting 3 retries),
+    _connect_real catches the resulting MeshCoreConnectionError and
+    stores a sanitized reason in _diag.last_error.
+    """
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    _secret = "S3cr3tPIN!"
+    mock_mc.MeshCore.create_ble.side_effect = OSError(
+        f"BLE link failure with pin={_secret}"
+    )
+
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        ble_pin=_secret,
+    )
+    session = MeshCoreSession(config, "ble-lasterr-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+    ):
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(lambda _pkt: None)
+
+    # last_error must be set to a useful, sanitized message.
+    assert session.last_error is not None
+    assert _secret not in session.last_error
+    assert session.connected is False
+
+
+async def test_tcp_create_returns_none_sets_useful_last_error() -> None:
+    """TCP create_tcp returning None sets a useful last_error.
+
+    When the SDK factory returns None (node unreachable), _connect_real
+    raises MeshCoreConnectionError and last_error captures the reason.
+    """
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    mock_mc.MeshCore.create_tcp.return_value = None
+
+    config = _make_config(connection_type="tcp", host="10.0.0.99")
+    session = MeshCoreSession(config, "tcp-none-lasterr-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        with pytest.raises(MeshCoreConnectionError, match="No response.*TCP"):
+            await session.start(lambda _pkt: None)
+
+    assert session.last_error is not None
+    assert "TCP" in session.last_error
+    assert session.connected is False
+
+
+async def test_meshcore_connection_error_not_double_wrapped() -> None:
+    """A raised MeshCoreConnectionError is not re-wrapped into a generic one.
+
+    When _create_ble_with_retries raises MeshCoreConnectionError (after
+    all attempts fail), _connect_real's ``except MeshCoreConnectionError``
+    handler re-raises it directly — it must NOT appear nested inside
+    another ``Failed to connect (ble): ...`` wrapper.
+    """
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    _inner_msg = "BLE connection failed after 3 attempt(s): timeout"
+    mock_mc.MeshCore.create_ble.side_effect = OSError("timeout")
+
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+    )
+    session = MeshCoreSession(config, "no-double-wrap-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+    ):
+        with pytest.raises(MeshCoreConnectionError) as exc_info:
+            await session.start(lambda _pkt: None)
+
+    error_text = str(exc_info.value)
+    # Must NOT contain the generic wrapper prefix from the
+    # ``except Exception`` branch (line 891-894).
+    assert not error_text.startswith("Failed to connect (ble):")
+    # The raised message should originate from _create_ble_with_retries.
+    assert "BLE" in error_text or "attempt" in error_text.lower()
+
+
+# ===================================================================
+# stop() lifecycle: stop_auto_message_fetching
+# ===================================================================
+
+
+async def test_stop_awaits_auto_message_fetching_before_disconnect() -> None:
+    """stop_auto_message_fetching is awaited before disconnect during stop().
+
+    The stop() method must call stop_auto_message_fetching first, then
+    disconnect — never skip the fetch-stop when the method exists.
+    """
+    mock_mc, mock_inst = build_mock_meshcore_module()
+
+    call_order: list[str] = []
+
+    async def _stop_fetch() -> None:
+        call_order.append("stop_fetch")
+
+    async def _disconnect() -> None:
+        call_order.append("disconnect")
+
+    mock_inst.stop_auto_message_fetching = AsyncMock(side_effect=_stop_fetch)
+    mock_inst.disconnect = AsyncMock(side_effect=_disconnect)
+
+    config = _make_config(connection_type="tcp", host="localhost")
+    session = MeshCoreSession(config, "stop-order-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        await session.start(lambda _pkt: None)
+
+    await session.stop()
+
+    assert call_order == ["stop_fetch", "disconnect"]
+    assert session._meshcore is None
+    assert session.connected is False
+
+
+async def test_stop_auto_fetch_timeout_does_not_block_disconnect() -> None:
+    """stop_auto_message_fetching timeout does not prevent disconnect.
+
+    If stop_auto_message_fetching times out (asyncio.TimeoutError),
+    stop() must still proceed to disconnect and clean up.
+    """
+    import asyncio
+
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    mock_inst.stop_auto_message_fetching = AsyncMock(side_effect=asyncio.TimeoutError)
+
+    config = _make_config(connection_type="tcp", host="localhost")
+    session = MeshCoreSession(config, "stop-fetch-timeout-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        await session.start(lambda _pkt: None)
+
+    # Should NOT raise despite the TimeoutError from stop_auto_message_fetching.
+    await session.stop()
+
+    mock_inst.disconnect.assert_awaited_once()
+    assert session._meshcore is None
+    assert session.connected is False
+
+
+async def test_stop_auto_fetch_error_does_not_block_disconnect() -> None:
+    """stop_auto_message_fetching generic error does not prevent disconnect.
+
+    If stop_auto_message_fetching raises an arbitrary exception,
+    stop() must still proceed to disconnect and clean up.
+    """
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    mock_inst.stop_auto_message_fetching = AsyncMock(
+        side_effect=RuntimeError("fetch thread crashed")
+    )
+
+    config = _make_config(connection_type="tcp", host="localhost")
+    session = MeshCoreSession(config, "stop-fetch-err-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        await session.start(lambda _pkt: None)
+
+    # Should NOT raise despite the RuntimeError from stop_auto_message_fetching.
+    await session.stop()
+
+    mock_inst.disconnect.assert_awaited_once()
+    assert session._meshcore is None
+    assert session.connected is False
