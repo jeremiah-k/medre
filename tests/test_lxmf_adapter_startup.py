@@ -9,6 +9,7 @@ session startup failure.
 from __future__ import annotations
 
 import logging
+import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -30,7 +31,7 @@ def _make_config(**overrides: object) -> LxmfConfig:
         defaults.get("connection_type") == "reticulum"
         and "storage_path" not in defaults
     ):
-        defaults["storage_path"] = "/tmp/medre-test-lxmf-router"
+        defaults["storage_path"] = tempfile.mkdtemp(prefix="medre-test-lxmf-")
     return LxmfConfig(**defaults)
 
 

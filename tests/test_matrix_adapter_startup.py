@@ -274,7 +274,7 @@ class TestStartLifecycleCleanup:
             auto_join_rooms=("!room1:server", "!room2:server"),
         )
         adapter = MatrixAdapter(config)
-        published, ctx = _make_adapter_context()
+        _published, ctx = _make_adapter_context()
 
         mock_session = MagicMock(name="session")
         mock_session.start = AsyncMock()

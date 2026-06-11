@@ -4,8 +4,8 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has 14k+ tests (~125 deselected by the live/docker/hardware
-deselected by the live/docker/hardware marker policy). Every transport has a
+The test suite has 14k+ tests (~125 deselected by the
+live/docker/hardware marker policy). Every transport has a
 fake adapter that exercises the full pipeline. The standard `pytest -q` run
 requires a generous timeout—the full suite can exceed 600 s on typical
 hardware. See the [README](../../README.md) for project context and the

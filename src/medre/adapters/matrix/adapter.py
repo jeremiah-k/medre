@@ -361,7 +361,20 @@ class MatrixAdapter(AdapterContract):
         )
         try:
             await self._session.start()
-        except Exception:
+        except asyncio.CancelledError:
+            # Synchronously clear adapter-owned fields before re-raising.
+            # Best-effort session cleanup — shielded so it can't be cancelled.
+            try:
+                await asyncio.shield(self._session.stop())
+            except Exception:
+                pass
+            self._session = None
+            self._started = False
+            self._start_time = None
+            self.ctx = None
+            raise
+        except Exception as exc:
+            self._sync_failure_stored = exc
             try:
                 await self._session.stop()
             except Exception:

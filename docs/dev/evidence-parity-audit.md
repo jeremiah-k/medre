@@ -103,7 +103,19 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 **MeshCore assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict with full fallback when `self._session is None`. `_last_health` is cleared to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional (no fresh health snapshot for the current lifecycle). `_inbound_dedup` is cleared in both `start()` (via `_reset_inbound_counters()`) and `stop()` (via `self._inbound_dedup.clear()`).
 
-**`sdk_contact_timeout_count` (MeshCore transport-specific key):** Integer count of contacts that have cached SDK `suggested_timeout` hints for DM retry delay calculation. This is an aggregate-only diagnostic — it exposes the _count_ of contacts in `_contact_retry_delays`, never the contact IDs (public key prefixes), timeout values, or any identifying information. The underlying `_contact_retry_delays` is `dict[str, float]` (keyed by contact ID, valued by timeout in seconds), but `diagnostics()` returns only `len(self._contact_retry_delays)`. This field is cleared on `stop()`, failed-start cleanup (`_cleanup_failed_start()`), and at successful reconnect boundaries. Operators can use this count to understand whether the SDK is providing timeout hints and how many contacts are affected, without any exposure of contact topology. This is a MeshCore-only transport-specific diagnostic key, not a common key.
+**`sdk_contact_timeout_count` (MeshCore transport-specific key):** Integer count
+of contacts that have cached SDK `suggested_timeout` hints for DM retry delay
+calculation. This is an aggregate-only diagnostic — it exposes the _count_ of
+contacts in `_contact_retry_delays`, never the contact IDs (public key
+prefixes), timeout values, or any identifying information. The underlying
+`_contact_retry_delays` is `dict[str, float]` (keyed by contact ID, valued by
+timeout in seconds), but `diagnostics()` returns only
+`len(self._contact_retry_delays)`. This field is cleared on `stop()`,
+failed-start cleanup (`_cleanup_failed_start()`), and at successful reconnect
+boundaries. Operators can use this count to understand whether the SDK is
+providing timeout hints and how many contacts are affected, without any
+exposure of contact topology. This is a MeshCore-only transport-specific
+diagnostic key, not a common key.
 
 #### LXMF
 
@@ -262,7 +274,9 @@ All adapters produce health through the same path:
 
 **Severity:** ~~Medium~~ Resolved
 **Scope:** LXMF only
-**Status:** Resolved. `LxmfAdapter.diagnostics()` now includes `last_message_time`, `known_path_count`, `propagation_enabled`, and `pending_delivery_count` in the `session` sub-dict.
+**Status:** Resolved. `LxmfAdapter.diagnostics()` now includes
+`last_message_time`, `known_path_count`, `propagation_enabled`,
+and `pending_delivery_count` in the `session` sub-dict.
 
 **Shape note:** The adapter still returns an outer diagnostics dict with a
 nested `session` sub-dict. This differs from the spec note that describes direct
@@ -301,7 +315,10 @@ Ranked by operational value — the value each fix provides to operators diagnos
 ### Priority 5 (P2): ~~LXMF adapter diagnostics completeness~~ — RESOLVED
 
 **Adapters:** LXMF
-**Status:** Resolved. `LxmfAdapter.diagnostics()` surfaces `last_message_time`, `known_path_count`, `propagation_enabled`, and `pending_delivery_count` from `LxmfSessionDiagnostics` in the adapter's `session` sub-dict.
+**Status:** Resolved. `LxmfAdapter.diagnostics()` surfaces
+`last_message_time`, `known_path_count`, `propagation_enabled`,
+and `pending_delivery_count` from `LxmfSessionDiagnostics` in the
+adapter's `session` sub-dict.
 **Tests:** `tests/test_lxmf_diagnostics_parity.py::test_lxmf_adapter_exposes_session_diagnostics_fields`.
 
 ### Priority 6 (P2): Queue evidence for MeshCore and Matrix
@@ -315,8 +332,12 @@ Ranked by operational value — the value each fix provides to operators diagnos
 ### Priority 7 (P2): ~~Ingress evidence parity for LXMF~~ — RESOLVED
 
 **Adapters:** LXMF
-**Status:** Resolved. LXMF exposes message-level ingress counters for seen, relayed, ignored, ACK ignored, non-text ignored, duplicate suppression, and published messages.
-**Tests:** `tests/test_lxmf_diagnostics_parity.py::test_lxmf_adapter_ingress_counters_are_auditable` and `tests/test_lxmf_diagnostics_parity.py::test_lxmf_ingress_counters_reset_on_start`.
+**Status:** Resolved. LXMF exposes message-level ingress counters for
+seen, relayed, ignored, ACK ignored, non-text ignored, duplicate
+suppression, and published messages.
+**Tests:** `tests/test_lxmf_diagnostics_parity.py::test_lxmf_adapter_ingress_counters_are_auditable`
+and
+`tests/test_lxmf_diagnostics_parity.py::test_lxmf_ingress_counters_reset_on_start`.
 
 ### Priority 8 (P3): Common-key location normalization
 

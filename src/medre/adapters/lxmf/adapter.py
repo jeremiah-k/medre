@@ -224,7 +224,12 @@ class LxmfAdapter(AdapterContract):
                 message_callback=self._on_packet,
             )
         except asyncio.CancelledError:
-            # Clear adapter-owned fields synchronously — no await.
+            # Best-effort cleanup of partially-started session.
+            try:
+                await asyncio.shield(self._session.stop(timeout=2.0))
+            except Exception:
+                pass
+            self._session = None
             self._started = False
             self._start_time = None
             self.ctx = None
@@ -273,6 +278,10 @@ class LxmfAdapter(AdapterContract):
             Maximum seconds to wait for a clean shutdown.
         """
         if not self._started:
+            # Still clean up any lingering session from a failed/cancelled start.
+            if self._session is not None:
+                await self._session.stop(timeout=timeout)
+                self._session = None
             return
 
         # Gate callbacks immediately — prevents race between drain completing

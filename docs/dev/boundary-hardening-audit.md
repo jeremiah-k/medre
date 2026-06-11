@@ -287,7 +287,10 @@ on production adapters.
 
 **Test**: `TestMatrixDeliveryNioResponseHardening::test_rate_limit_retry_reuses_transaction_id`.
 
-**Status**: Passing. A rate-limited `deliver()` call raises `AdapterSendError(transient=True)` for the pipeline retry worker. Retrying the same `RenderingResult` reuses the same Matrix `tx_id`, and the successful delivery metadata reports that same transaction ID.
+**Status**: Passing. A rate-limited `deliver()` call raises
+`AdapterSendError(transient=True)` for the pipeline retry worker.
+Retrying the same `RenderingResult` reuses the same Matrix `tx_id`,
+and the successful delivery metadata reports that same transaction ID.
 
 ### P7 — ~~LXMF delivery-state callback after adapter stop~~ — IMPLEMENTED & TESTED
 
@@ -295,7 +298,9 @@ on production adapters.
 
 **Test**: `test_lxmf_adapter_drops_delivery_state_callback_after_stop`.
 
-**Status**: Passing. `LxmfAdapter._on_delivery_state` returns immediately when `_started` is `False`, so terminal delivery callbacks after adapter stop produce no log or other side effect even though `ctx` is retained.
+**Status**: Passing. `LxmfAdapter._on_delivery_state` returns immediately
+when `_started` is `False`, so terminal delivery callbacks after adapter
+stop produce no log or other side effect even though `ctx` is retained.
 
 ---
 

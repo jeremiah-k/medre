@@ -79,7 +79,12 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | Reference | mmrelay `meshtastic_utils.py` lines 398–408 |
 | Gap type  | Behavioral                                  |
 
-**Historical MEDRE behavior before development-1**: The session previously subscribed to `meshtastic.receive` only and did not listen for any connection-lost or disconnect event from the SDK. The session now subscribes to both `meshtastic.receive` and `meshtastic.connection.lost` via `pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")` in `_subscribe_callbacks()`, with unsubscription in `_unsubscribe_callbacks()`.
+**Historical MEDRE behavior before development-1**: The session previously
+subscribed to `meshtastic.receive` only and did not listen for any
+connection-lost or disconnect event from the SDK. The session now subscribes
+to both `meshtastic.receive` and `meshtastic.connection.lost` via
+`pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")` in
+`_subscribe_callbacks()`, with unsubscription in `_unsubscribe_callbacks()`.
 
 **Reference behavior**: MMRelay subscribes to `meshtastic.connection.lost` via `pub.subscribe(on_lost_meshtastic_connection, "meshtastic.connection.lost")` and tracks subscription state with a `subscribed_to_connection_lost` flag.
 
@@ -136,7 +141,16 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | Reference | meshcore_py v2.3.7 `MeshCore.send_msg()` return shape |
 | Gap type  | Behavioral                                            |
 
-**Historical MEDRE behavior before development-1**: The session previously extracted `expected_ack` from the `send_msg()` result (used as `native_message_id`) but discarded `suggested_timeout`, using a fixed linear backoff (`0.1 * attempt`) regardless of what the SDK recommended. The session now extracts `suggested_timeout` from all three known return shapes (top-level dict, `result.payload`, and `result.attributes`) and uses it for DM retry delays with floor/ceiling clamping. A `timeout_extracted` flag prevents double-increment of the `sdk_suggested_timeouts_used` diagnostic counter. MEDRE converts the SDK's millisecond value to seconds in `_extract_suggested_timeout()` via `value / 1000.0`.
+**Historical MEDRE behavior before development-1**: The session previously
+extracted `expected_ack` from the `send_msg()` result (used as
+`native_message_id`) but discarded `suggested_timeout`, using a fixed linear
+backoff (`0.1 * attempt`) regardless of what the SDK recommended. The session
+now extracts `suggested_timeout` from all three known return shapes
+(top-level dict, `result.payload`, and `result.attributes`) and uses it for
+DM retry delays with floor/ceiling clamping. A `timeout_extracted` flag
+prevents double-increment of the `sdk_suggested_timeouts_used` diagnostic
+counter. MEDRE converts the SDK's millisecond value to seconds in
+`_extract_suggested_timeout()` via `value / 1000.0`.
 
 **Reference behavior**: meshcore_py's `send_msg()` returns an `Event` with `expected_ack` (4-byte hex) and `suggested_timeout` (integer, milliseconds). The `suggested_timeout` is the SDK's estimate of how long to wait for an ACK before considering the send failed. The firmware calculates this based on radio conditions and hop count.
 
@@ -167,7 +181,14 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | Reference | meshcore_py v2.2.5 `MeshCore.__init__` lines 322–327 |
 | Gap type  | Declarative/capability                               |
 
-**Historical MEDRE behavior before development-1**: The session previously subscribed only to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types, with no subscription to `CONTACTS`, `NEW_CONTACT`, `SELF_INFO`, `CURRENT_TIME`, `ADVERTISEMENT`, or `PATH_UPDATE`. The session now subscribes to `CONTACTS` and `SELF_INFO` event types (guarded by `hasattr` checks for forward compatibility), updating the `known_contact_count` diagnostic on each event. `NEW_CONTACT` subscription is intentionally deferred — not needed for current routing.
+**Historical MEDRE behavior before development-1**: The session previously
+subscribed only to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED`
+event types, with no subscription to `CONTACTS`, `NEW_CONTACT`, `SELF_INFO`,
+`CURRENT_TIME`, `ADVERTISEMENT`, or `PATH_UPDATE`. The session now subscribes
+to `CONTACTS` and `SELF_INFO` event types (guarded by `hasattr` checks for
+forward compatibility), updating the `known_contact_count` diagnostic on each
+event. `NEW_CONTACT` subscription is intentionally deferred — not needed for
+current routing.
 
 **Reference behavior**: The meshcore_py SDK itself subscribes to `CONTACTS`, `NEW_CONTACT`, `SELF_INFO`, `CURRENT_TIME`, `ADVERTISEMENT`, and `PATH_UPDATE` internally to maintain its own state. These events update the SDK's internal contact list, self-info, and path tables.
 
@@ -198,7 +219,14 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | Reference | LXMF v0.9.6 `LXMRouter.announce()`; RNS announce mechanism |
 | Gap type  | Behavioral                                                 |
 
-**Historical MEDRE behavior before development-1**: The session previously had no periodic announce mechanism — the announce callback handler was removed (R9 from adapter-reality-audit.md) and no `router.announce()` call was made. The session now runs a periodic `_announce_loop()` when `announce_interval_seconds > 0` (default 600 s, 0 = disabled), calling `router.announce()` with the delivery destination hash. Diagnostic counters track `announces_sent`, `announce_failures`, and `last_announce_error`. The task is cancelled on `stop()`.
+**Historical MEDRE behavior before development-1**: The session previously had
+no periodic announce mechanism — the announce callback handler was removed
+(R9 from adapter-reality-audit.md) and no `router.announce()` call was made.
+The session now runs a periodic `_announce_loop()` when
+`announce_interval_seconds > 0` (default 600 s, 0 = disabled), calling
+`router.announce()` with the delivery destination hash. Diagnostic counters
+track `announces_sent`, `announce_failures`, and `last_announce_error`. The
+task is cancelled on `stop()`.
 
 **Reference behavior**: LXMF/Reticulum mesh networks rely on announces for path discovery. `LXMRouter.announce()` sends an announce packet that propagates through the Reticulum network, allowing peers to discover the router's identity and establish paths. Without announces, remote peers cannot initiate contact with the MEDRE LXMF instance — messages can only flow outbound (MEDRE → peer) or from peers that already have a cached path.
 
@@ -229,7 +257,19 @@ Items are ranked by **operational value** — the impact on real deployment reli
 | Reference | mmrelay implicit (sync_forever provides built-in liveness); MEDRE's manual sync loop |
 | Gap type  | Behavioral                                                                           |
 
-**Historical MEDRE behavior before development-1**: The Matrix session used a manual sync loop (`_sync_with_reconnect`) instead of nio's `sync_forever`, and if a sync call hung indefinitely (e.g., the homeserver stopped responding but didn't close the TCP connection), the loop would never advance. The `_last_successful_sync` diagnostic was recorded but nothing acted on a stale value. `health_check()` now detects stale sync via `_SYNC_STALE_THRESHOLD_SECONDS` (default 300 s) and reports `"degraded"` health when the last successful sync exceeds that threshold. However, `MatrixSession` has no dedicated watchdog task that proactively cancels a stalled sync — the stale-sync detection is passive, exposed only when `health_check()` is called. The remaining gap is sync token persistence (P-03), which would prevent the full initial syncs on restart that trigger the stale condition.
+**Historical MEDRE behavior before development-1**: The Matrix session used a
+manual sync loop (`_sync_with_reconnect`) instead of nio's `sync_forever`,
+and if a sync call hung indefinitely (e.g., the homeserver stopped responding
+but didn't close the TCP connection), the loop would never advance. The
+`_last_successful_sync` diagnostic was recorded but nothing acted on a stale
+value. `health_check()` now detects stale sync via
+`_SYNC_STALE_THRESHOLD_SECONDS` (default 300 s) and reports `"degraded"`
+health when the last successful sync exceeds that threshold. However,
+`MatrixSession` has no dedicated watchdog task that proactively cancels a
+stalled sync — the stale-sync detection is passive, exposed only when
+`health_check()` is called. The remaining gap is sync token persistence
+(P-03), which would prevent the full initial syncs on restart that trigger
+the stale condition.
 
 **Reference behavior**: MMRelay uses nio's `sync_forever` with `sync_timeout_ms`, which sets a timeout on each long-poll cycle. If the sync times out, nio retries internally. MEDRE's manual loop does set `timeout=self._config.sync_timeout_ms` on each sync call, which should cause nio to return after the timeout — but there's no external watchdog that detects if the loop itself has stalled.
 

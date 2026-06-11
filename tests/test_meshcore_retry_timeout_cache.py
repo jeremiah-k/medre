@@ -144,7 +144,11 @@ async def test_timeout_cache_clears_on_successful_reconnect() -> None:
         session._contact_retry_delays["contact-x"] = 2.5
         session._contact_retry_delays["contact-y"] = 4.0
 
-        await session._reconnect_loop()
+        with patch(
+            "medre.adapters.meshcore.session.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            await session._reconnect_loop()
 
         # After successful reconnect, cache should be cleared.
         assert len(session._contact_retry_delays) == 0
