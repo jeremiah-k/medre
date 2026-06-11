@@ -27,7 +27,7 @@ Do not modify the working config in place. Create a separate copy so the
 existing Matrix + Meshtastic bridge stays untouched.
 
 ```bash
-cp /home/jeremiah/tmp/medre/medre.toml /home/jeremiah/tmp/medre/medre-3way.toml
+cp /path/to/medre.toml /path/to/medre-3way.toml
 ```
 
 All subsequent edits go into `medre-3way.toml`.
@@ -45,7 +45,7 @@ Typical output:
 
 ```text
 usb-Meshtastic_T-Beam-supreme_12345678 -> ../../ttyACM0
-usb-MeshCore_CDC_92C8B4E7 -> ../../ttyACM1
+usb-MeshCore_CDC_AABBCCDD -> ../../ttyACM1
 ```
 
 Record the `/dev/serial/by-id/...` paths. These are stable across reboots,
@@ -68,7 +68,7 @@ enabled = true
 adapter_kind = "real"
 adapter_id = "meshcore"
 connection_type = "serial"
-serial_port = "/dev/serial/by-id/usb-MeshCore_CDC_92C8B4E7"
+serial_port = "/dev/serial/by-id/usb-MeshCore_CDC_AABBCCDD"
 serial_baudrate = 115200
 default_channel = 0
 ```
@@ -80,7 +80,7 @@ diagnostics prove otherwise. To verify channel mapping after the runtime starts,
 check the MeshCore self-info output in the diagnostics report:
 
 ```bash
-medre diagnostics --refresh-health --config /home/jeremiah/tmp/medre/medre-3way.toml
+medre diagnostics --refresh-health --config /path/to/medre-3way.toml
 ```
 
 If the diagnostics show a different default channel, update `default_channel`
@@ -97,7 +97,7 @@ enabled = true
 adapter_kind = "real"
 adapter_id = "meshcore"
 connection_type = "ble"
-ble_address = "C4:4F:33:6A:B0:23"
+ble_address = "AA:BB:CC:DD:EE:FF"
 default_channel = 0
 ```
 
@@ -120,7 +120,7 @@ enabled = true
 homeserver = ""                        # existing value — do not change
 user_id = ""                           # existing value — do not change
 access_token = ""                      # existing value — do not change
-room_allowlist = ["!rnmyZMhUoraPwZUDPP:matrix.org", "!NrCTURbZDMWKMrTpFH:matrix.org"]
+room_allowlist = ["!exampleRoom1:example.org", "!exampleRoom2:example.org"]
 encryption_mode = "e2ee_optional"
 ```
 
@@ -145,7 +145,7 @@ update `serial_port` to use the stable `/dev/serial/by-id/...` path instead of
 ## Step 6: Define routes
 
 Remove the existing single bidirectional route and replace it with four explicit
-unidirectional routes. This gives clear visibility into each direction and
+one-way routes. This gives clear visibility into each direction and
 makes it easy to isolate failures.
 
 ```toml
@@ -153,25 +153,25 @@ makes it easy to isolate failures.
 [routes.matrix_to_meshcore]
 source_adapters = ["matrix"]
 dest_adapters = ["meshcore"]
-directionality = "unidirectional"
+directionality = "source_to_dest"
 enabled = true
-source_room = "!rnmyZMhUoraPwZUDPP:matrix.org"
+source_room = "!exampleRoom1:example.org"
 dest_channel = "0"
 
 # MeshCore channel 0 → Matrix room
 [routes.meshcore_to_matrix]
 source_adapters = ["meshcore"]
 dest_adapters = ["matrix"]
-directionality = "unidirectional"
+directionality = "source_to_dest"
 enabled = true
 source_channel = "0"
-dest_room = "!rnmyZMhUoraPwZUDPP:matrix.org"
+dest_room = "!exampleRoom1:example.org"
 
 # Meshtastic channel → MeshCore channel 0
 [routes.meshtastic_to_meshcore]
 source_adapters = ["radio"]
 dest_adapters = ["meshcore"]
-directionality = "unidirectional"
+directionality = "source_to_dest"
 enabled = true
 source_channel = "0"
 dest_channel = "0"
@@ -180,7 +180,7 @@ dest_channel = "0"
 [routes.meshcore_to_meshtastic]
 source_adapters = ["meshcore"]
 dest_adapters = ["radio"]
-directionality = "unidirectional"
+directionality = "source_to_dest"
 enabled = true
 source_channel = "0"
 dest_channel = "0"
@@ -223,15 +223,15 @@ timestamp, and to correlate across log files and storage records.
 
 ## Step 8: Record evidence
 
-After sending markers and confirming delivery, collect evidence from three
-sources.
+After sending markers and observing receipt on the destination side, collect
+evidence from three sources.
 
 ### Runtime logs
 
 Run the bridge with debug logging to capture full adapter activity:
 
 ```bash
-medre run --config /home/jeremiah/tmp/medre/medre-3way.toml
+medre run --config /path/to/medre-3way.toml
 ```
 
 Search the log output for marker strings to confirm each routing direction
@@ -257,7 +257,7 @@ medre inspect event <event-id>
 ### Diagnostics snapshot
 
 ```bash
-medre diagnostics --refresh-health --config /home/jeremiah/tmp/medre/medre-3way.toml
+medre diagnostics --refresh-health --config /path/to/medre-3way.toml
 ```
 
 This probes each adapter's health endpoint and prints a summary table. All
@@ -266,7 +266,7 @@ three adapters should report healthy.
 For a shutdown snapshot:
 
 ```bash
-medre run --config /home/jeremiah/tmp/medre/medre-3way.toml --snapshot-on-shutdown /tmp/medre-3way-snapshot.json
+medre run --config /path/to/medre-3way.toml --snapshot-on-shutdown /tmp/medre-3way-snapshot.json
 ```
 
 ## What Success Looks Like
@@ -308,7 +308,7 @@ If serial is not viable, BLE is the fallback path:
    section.
 5. Optionally set `ble_pin` if the device requires pairing.
 
-BLE live validation was completed June 2026 against a MeshCore-92C8B4E7 node
+BLE live validation was completed June 2026 against a MeshCore node
 on Linux BlueZ. See [meshcore.md](meshcore.md) for full BLE validation details
 and known issues.
 

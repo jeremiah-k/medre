@@ -577,6 +577,28 @@ class MeshCoreSession:
                 )
         self._subscriptions.clear()
 
+        # Stop auto message fetching if the stale client supports it.
+        # Uses the same SDK lifecycle timeout policy as stop().
+        if hasattr(self._meshcore, "stop_auto_message_fetching"):
+            try:
+                await asyncio.wait_for(
+                    self._meshcore.stop_auto_message_fetching(),
+                    timeout=_SDK_LIFECYCLE_TIMEOUT,
+                )
+            except TimeoutError:
+                self._logger.warning(
+                    "MeshCoreSession %s: timed out stopping "
+                    "auto_message_fetching during stale cleanup",
+                    self._adapter_id,
+                )
+            except Exception as exc:
+                self._logger.debug(
+                    "MeshCoreSession %s: error stopping "
+                    "auto_message_fetching during stale cleanup: %s",
+                    self._adapter_id,
+                    exc,
+                )
+
         # Disconnect the old client.
         try:
             await self._meshcore.disconnect()
@@ -631,6 +653,18 @@ class MeshCoreSession:
                     await stale.disconnect()
         except Exception:
             pass  # best-effort — proceed even if cleanup fails
+
+    def _sanitize_ble_exc(self, exc: BaseException) -> str:
+        """Return a safe string representation of *exc* for BLE paths.
+
+        When ``ble_pin`` is configured, raw exception text may include the
+        PIN in args or string representation.  This method replaces it with
+        the exception class name and a redaction notice so that logs,
+        diagnostics, and error messages never leak the PIN.
+        """
+        if self._config.ble_pin is not None:
+            return f"{type(exc).__name__}: [details redacted]"
+        return str(exc)
 
     async def _find_ble_device(self, address_or_name: str) -> object | None:
         """Pre-scan for a BLE device matching *address_or_name*.
@@ -702,16 +736,19 @@ class MeshCoreSession:
                     _max_attempts,
                 )
             except Exception as exc:
-                _last_reason = str(exc)
+                _last_reason = self._sanitize_ble_exc(exc)
                 if attempt == _max_attempts:
-                    raise
+                    raise MeshCoreConnectionError(
+                        f"BLE connection failed after {_max_attempts} "
+                        f"attempt(s): {_last_reason}"
+                    ) from exc
                 self._logger.debug(
                     "MeshCoreSession %s: BLE connection attempt %d/%d "
                     "failed (%s); retrying in 2s",
                     self._adapter_id,
                     attempt,
                     _max_attempts,
-                    exc,
+                    self._sanitize_ble_exc(exc),
                 )
 
             if attempt < _max_attempts:
@@ -724,6 +761,13 @@ class MeshCoreSession:
                     ble_device = await self._find_ble_device(address)
                 except Exception:
                     ble_device = None
+
+                # Best-effort stale BlueZ cleanup before retry so the
+                # next create_ble() hits a clean adapter state.
+                try:
+                    await self._disconnect_stale_ble_client(address)
+                except Exception:
+                    pass  # best-effort — proceed with retry
 
         raise MeshCoreConnectionError(
             f"No response from MeshCore node after "
@@ -808,6 +852,21 @@ class MeshCoreSession:
                 self._meshcore = None
             raise
         except Exception as exc:
+            # Avoid double-wrapping an existing MeshCoreConnectionError
+            # (e.g. from _create_ble_with_retries) into a less useful
+            # generic message.
+            if isinstance(exc, MeshCoreConnectionError):
+                if self._meshcore is not None:
+                    try:
+                        await self._meshcore.disconnect()
+                    except Exception as disconnect_exc:
+                        self._logger.debug(
+                            "MeshCoreSession %s: error during cleanup disconnect: %s",
+                            self._adapter_id,
+                            disconnect_exc,
+                        )
+                    self._meshcore = None
+                raise
             # Clean up partially-initialised SDK client on failure.
             if self._meshcore is not None:
                 try:
@@ -819,9 +878,15 @@ class MeshCoreSession:
                         disconnect_exc,
                     )
                 self._meshcore = None
-            self._diag.last_error = str(exc)
+            _safe_reason = (
+                self._sanitize_ble_exc(exc)
+                if self._config.connection_type == "ble"
+                else str(exc)
+            )
+            self._diag.last_error = _safe_reason
             raise MeshCoreConnectionError(
-                f"Failed to connect ({self._config.connection_type}): {exc}"
+                f"Failed to connect ({self._config.connection_type}): "
+                f"{_safe_reason}"
             ) from exc
 
         # Connection succeeded — now subscribe to events.

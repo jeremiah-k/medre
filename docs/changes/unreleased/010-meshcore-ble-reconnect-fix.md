@@ -21,4 +21,7 @@ stale BlueZ state prevents reconnect.
 ## Configuration
 
 Affects adapters with `connection_type = "ble"` and a configured
-`ble_address` in the MeshCore adapter block. No config changes required.
+`ble_address` in the MeshCore adapter block. Existing configs do not need
+changes. The optional `ble_pin` field is now available for BLE pairing
+when host-level pairing is not feasible (e.g. headless Pi, CI). `ble_pin`
+is sensitive and is not exposed in diagnostics or logs.

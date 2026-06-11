@@ -71,12 +71,12 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 ### 2.3 MeshCore
 
-- SDK findings are based on source extraction (version 2.3.7), not hardware
-  testing.
-- BLE is implemented at the session layer; validated June 2026 against a real
-  MeshCore node (firmware MeshCore-92C8B4E7) on Linux BlueZ. BLE requires
-  pre-pairing and is subject to BlueZ stack limitations (stale device cleanup
-  and pre-scan before connect).
+- SDK findings are based on source extraction (version 2.3.7). BLE
+  session-layer behavior was live-validated June 2026 against a MeshCore
+  node on Linux BlueZ. TCP and serial transports are source-extracted
+  only; no live hardware test has been run against them. BLE requires
+  pre-pairing and is subject to BlueZ stack limitations (stale device
+  cleanup and pre-scan before connect).
 - No native reply mechanism. Relations are capability-gated via `CapabilityDecisionResolver`; unsupported relation types produce `capability_suppressed` delivery outcomes.
 - No startup backlog suppression (intentionally absent: MeshCore has no
   store-and-forward).

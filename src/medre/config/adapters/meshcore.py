@@ -224,11 +224,12 @@ class MeshCoreConfig:
                     f"got {self.pubkey!r}"
                 )
 
-        # ble_pin validation (optional, but non-empty if provided)
-        if self.ble_pin is not None and not self.ble_pin:
-            raise MeshCoreConfigError(
-                "ble_pin must be a non-empty string when provided"
-            )
+        # ble_pin validation (optional, but must be a non-empty string if provided)
+        if self.ble_pin is not None:
+            if not isinstance(self.ble_pin, str) or not self.ble_pin:
+                raise MeshCoreConfigError(
+                    "ble_pin must be a non-empty string when provided"
+                )
 
         # node_config: no embedded secrets
         _forbidden = _FORBIDDEN_SECRET_KEYS & self.node_config.keys()

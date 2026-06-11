@@ -71,7 +71,7 @@ Bidirectional routing was confirmed by observing messages arrive on the second M
 
 ```bash
 export MESHCORE_CONNECTION_TYPE="ble"
-export MESHCORE_BLE_ADDRESS="C4:4F:33:6A:B0:23"
+export MESHCORE_BLE_ADDRESS="AA:BB:CC:DD:EE:FF"
 pytest tests/test_meshcore_live.py -m live -v
 ```
 

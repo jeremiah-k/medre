@@ -272,17 +272,18 @@ config = MeshCoreConfig(
 )
 ```
 
-- Uses `await MeshCore.create_ble(address, pin=None)`. MEDRE pre-scans for a
-  `BLEDevice` and passes `device=` when one is found; the direct address-only
-  path is still supported as fallback.
+- MEDRE calls `MeshCore.create_ble(address=..., device=..., pin=...)` after
+  pre-scanning via `BleakScanner.find_device_by_filter()`. When a
+  `BLEDevice` is found, it is passed as `device=`; otherwise `device=None`
+  triggers the address-only fallback path. `pin=` is passed only when
+  `ble_pin` is configured.
 - Optional `ble_pin` config field enables BLE pairing authentication for
-  automated/headless deployments. When set, it is passed as the `pin`
-  keyword argument to `create_ble()`.
+  automated/headless deployments. When set, it is forwarded as the `pin=`
+  argument to `create_ble()`. `ble_pin` is a sensitive value — it is never
+  exposed in diagnostics, logs, or JSON output.
 - **Recommended:** pair the device with `bluetoothctl` first (see above).
-  The `ble_pin` config field is for programmatic pairing when host-level
-  pairing is not feasible (e.g. headless Pi, CI).
-- `ble_pin` is a sensitive value — it is never exposed in diagnostics,
-  logs, or JSON output.
+  Use `ble_pin` only when host-level pairing is not feasible (e.g. headless
+  Pi, CI). Serial connectivity is preferred for stable deployments.
 - Requires `bleak` (installed automatically with `meshcore`).
 - Operators only need to configure `ble_address`. The pre-scan and fallback
   logic runs automatically.
@@ -325,7 +326,7 @@ Additional rules:
 ```bash
 export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
 export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
-export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 # Optional: BLE pairing PIN for programmatic pairing
 # export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_PIN=123456
 ```
