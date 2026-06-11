@@ -335,9 +335,9 @@ class MatrixAdapter(AdapterContract):
         self._inbound_filtered_allowlist = 0
         self._inbound_suppressed_startup = 0
         self.ctx = ctx
-        self._mark_started(ctx)
 
         if not HAS_NIO:
+            self.ctx = None
             raise MatrixConnectionError(
                 "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
@@ -367,12 +367,12 @@ class MatrixAdapter(AdapterContract):
                 pass  # best-effort cleanup
             self._session = None
             self._started = False
+            self.ctx = None
             raise
-
-        ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
         # Part D — auto-join configured rooms after startup.
         if self._config.auto_join_rooms:
+            ctx.logger.debug("Matrix session connected; joining configured rooms")
             try:
                 join_results = await self._session.ensure_joined_rooms(
                     self._config.auto_join_rooms
@@ -394,9 +394,12 @@ class MatrixAdapter(AdapterContract):
                     pass  # best-effort cleanup
                 self._session = None
                 self._started = False
+                self.ctx = None
                 raise
 
         self._started = True
+        self._mark_started(ctx)
+        ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.

@@ -526,6 +526,7 @@ class MeshCoreSession:
         self._diag.connected = False
         self._diag.reconnecting = False
         self._subscriptions.clear()
+        self._contact_retry_delays.clear()
         if self._meshcore is not None:
             try:
                 await self._meshcore.disconnect()
@@ -960,6 +961,7 @@ class MeshCoreSession:
 
                 try:
                     await self._connect_real()
+                    self._contact_retry_delays.clear()
                     self._logger.info(
                         "MeshCoreSession %s: reconnected successfully",
                         self._adapter_id,

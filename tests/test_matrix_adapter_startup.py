@@ -5,9 +5,13 @@ Moved from test_matrix_adapter.py to keep that file under 1500 lines.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.session import MatrixSession
 from tests.helpers.matrix_adapter import make_adapter_context as _make_adapter_context
@@ -208,3 +212,241 @@ class TestStartupHistorySuppression:
         assert adapter._inbound_published == 1
         assert adapter._inbound_suppressed_startup == 0
         assert len(published) == 1
+
+
+class TestStartLifecycleCleanup:
+    """start() properly rolls back lifecycle state on failure."""
+
+    async def test_has_nio_false_leaves_no_stale_ctx(self) -> None:
+        """HAS_NIO=False → start() raises, ctx is None, _started is False."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+
+        with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
+            with pytest.raises(MatrixConnectionError, match="mindroom-nio"):
+                await adapter.start(ctx)
+
+        assert adapter.ctx is None
+        assert adapter._started is False
+        assert adapter._start_time is None
+
+        # _on_room_message drops events without publishing
+        event = _make_fake_nio_event()
+        room = _make_fake_room()
+        await adapter._on_room_message(_to_event_dict(room, event))
+        assert len(published) == 0
+
+    async def test_session_start_raises_clears_state(self) -> None:
+        """session.start() failure clears _session, _started, and ctx."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_session.stop = AsyncMock()
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                await adapter.start(ctx)
+
+        assert adapter._started is False
+        assert adapter._session is None
+        assert adapter.ctx is None
+        assert adapter._start_time is None
+
+        # _on_room_message drops events without publishing
+        event = _make_fake_nio_event()
+        room = _make_fake_room()
+        await adapter._on_room_message(_to_event_dict(room, event))
+        assert len(published) == 0
+
+    async def test_auto_join_raises_clears_state(self) -> None:
+        """auto-join failure stops session and clears all lifecycle state."""
+        config = _make_matrix_config(
+            auto_join_rooms=("!room1:server", "!room2:server"),
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.ensure_joined_rooms = AsyncMock(
+            side_effect=RuntimeError("join failed"),
+        )
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="join failed"):
+                await adapter.start(ctx)
+
+        mock_session.stop.assert_called_once()
+        assert adapter._session is None
+        assert adapter._started is False
+        assert adapter.ctx is None
+        assert adapter._start_time is None
+
+    async def test_auto_join_failure_no_started_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """'started' log must NOT be emitted when auto-join fails."""
+        config = _make_matrix_config(
+            auto_join_rooms=("!room1:server",),
+        )
+        adapter = MatrixAdapter(config)
+        _, ctx = _make_adapter_context()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.ensure_joined_rooms = AsyncMock(
+            side_effect=RuntimeError("join failed"),
+        )
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+            caplog.at_level(logging.INFO),
+        ):
+            with pytest.raises(RuntimeError):
+                await adapter.start(ctx)
+
+        started_logs = [
+            r
+            for r in caplog.records
+            if "MatrixAdapter" in r.message and "started" in r.message
+        ]
+        assert len(started_logs) == 0
+
+    async def test_successful_start_marks_started_after_all_steps(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Successful start sets _started, calls _mark_started, logs after
+        auto-join."""
+        config = _make_matrix_config(
+            auto_join_rooms=("!room1:server",),
+        )
+        adapter = MatrixAdapter(config)
+        _, ctx = _make_adapter_context()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.ensure_joined_rooms = AsyncMock(
+            return_value={"!room1:server": True},
+        )
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+            caplog.at_level(logging.DEBUG),
+        ):
+            await adapter.start(ctx)
+
+        assert adapter._started is True
+        assert adapter.ctx is ctx
+        assert adapter._start_time is not None
+
+        # Verify log ordering: debug "joining" before info "started"
+        debug_join_idx = None
+        info_started_idx = None
+        for i, record in enumerate(caplog.records):
+            if "Matrix session connected; joining configured rooms" in record.message:
+                debug_join_idx = i
+            if "MatrixAdapter matrix-1 started" in record.message:
+                info_started_idx = i
+
+        assert debug_join_idx is not None, "debug 'joining' log not found"
+        assert info_started_idx is not None, "info 'started' log not found"
+        assert (
+            debug_join_idx < info_started_idx
+        ), "'joining' log should appear before 'started' log"
+
+    async def test_post_failed_start_on_room_message_does_not_publish(self) -> None:
+        """After a failed start, _on_room_message drops events (guard fires)."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+
+        # Simulate a failed start: ctx=None, _started=False
+        with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
+            with pytest.raises(MatrixConnectionError):
+                await adapter.start(ctx)
+
+        assert adapter.ctx is None
+        assert adapter._started is False
+
+        # Now try to deliver a message — should be dropped silently
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+        await adapter._on_room_message(_to_event_dict(room, event))
+        assert len(published) == 0
+
+    async def test_start_time_only_set_on_full_success(self) -> None:
+        """_mark_started (and thus _start_time) is only set when start()
+        completes fully — not on partial failure paths."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        # Verify initial state
+        assert adapter._start_time is None
+
+        # HAS_NIO=False path — _mark_started not called
+        _, ctx = _make_adapter_context()
+        with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
+            with pytest.raises(MatrixConnectionError):
+                await adapter.start(ctx)
+        assert adapter._start_time is None
+
+        # session.start() failure path — _mark_started not called
+        adapter2 = MatrixAdapter(_make_matrix_config())
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock(side_effect=RuntimeError("fail"))
+        mock_session.stop = AsyncMock()
+        _, ctx2 = _make_adapter_context()
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+        ):
+            with pytest.raises(RuntimeError):
+                await adapter2.start(ctx2)
+        assert adapter2._start_time is None
+
+        # Successful path — _mark_started IS called
+        adapter3 = MatrixAdapter(_make_matrix_config())
+        mock_session3 = MagicMock(name="session")
+        mock_session3.start = AsyncMock()
+        mock_session3.stop = AsyncMock()
+        _, ctx3 = _make_adapter_context()
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session3,
+            ),
+        ):
+            await adapter3.start(ctx3)
+        assert adapter3._start_time is not None

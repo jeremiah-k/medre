@@ -103,6 +103,8 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 **MeshCore assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict with full fallback when `self._session is None`. `_last_health` is cleared to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional (no fresh health snapshot for the current lifecycle). `_inbound_dedup` is cleared in both `start()` (via `_reset_inbound_counters()`) and `stop()` (via `self._inbound_dedup.clear()`).
 
+**`sdk_contact_timeout_count` (MeshCore transport-specific key):** Integer count of contacts that have cached SDK `suggested_timeout` hints for DM retry delay calculation. This is an aggregate-only diagnostic — it exposes the _count_ of contacts in `_contact_retry_delays`, never the contact IDs (public key prefixes), timeout values, or any identifying information. The underlying `_contact_retry_delays` is `dict[str, float]` (keyed by contact ID, valued by timeout in seconds), but `diagnostics()` returns only `len(self._contact_retry_delays)`. This field is cleared on `stop()`, failed-start cleanup (`_cleanup_failed_start()`), and at successful reconnect boundaries. Operators can use this count to understand whether the SDK is providing timeout hints and how many contacts are affected, without any exposure of contact topology. This is a MeshCore-only transport-specific diagnostic key, not a common key.
+
 #### LXMF
 
 | Key                           | Expected type | Value source                                | Actual type   | Status      | Notes                                                                      |
@@ -137,7 +139,7 @@ missing-field gap.
 | Common keys at top level        | 8 (all present)    | 2 (`health`, `mode`)            | 2 (`health`, `mode`)                        | 2 (`health`, `mode`)            |
 | Common keys in session sub-dict | N/A (flat)         | 6 (all present)                 | 6 (all present)                             | 6 (all present)                 |
 | Session-less fallback           | Full fallback dict | Full fallback dict              | Full fallback dict                          | Always present\*                |
-| Transport-specific keys         | 21+                | 30+                             | 10+                                         | 3                               |
+| Transport-specific keys         | 21+                | 30+                             | 12+                                         | 3                               |
 | Diagnostics shape               | Flat dict          | Adapter dict + session sub-dict | Adapter dict + session sub-dict (sanitized) | Adapter dict + session sub-dict |
 
 \*LXMF `_session` is never set to `None` (created in `__init__`, retained through `stop()`), so the session sub-dict is always present in practice. The `if self._session is not None` guard is a structural defensive check, not an observed gap.

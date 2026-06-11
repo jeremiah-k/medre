@@ -658,29 +658,39 @@ class TestP06LxmfPeriodicAnnounceImplemented:
 
 
 # ===================================================================
-# P-07: Matrix — No sync liveness watchdog
+# P-07: Matrix — No session-level sync watchdog task
 # Gap type: Behavioral
 # ===================================================================
 
 
-class TestP07MatrixNoSyncLivenessWatchdog:
-    """Characterize P-07: No watchdog detects a stalled sync loop.
+class TestP07MatrixNoSessionWatchdogTask:
+    """Characterize P-07: MatrixSession has no dedicated watchdog task.
 
-    ``_last_successful_sync`` is recorded but nothing acts on a stale
-    value.  If the sync loop hangs, the adapter appears connected but
-    stops receiving events.
+    ``MatrixAdapter.health_check()`` now provides partial stale-sync
+    detection (reports ``'degraded'`` when last successful sync exceeds
+    ``_SYNC_STALE_THRESHOLD_SECONDS``).  The remaining gap is sync token
+    persistence (P-03) — the watchdog detects the symptom but the root
+    cause (full initial sync on restart) is unresolved.
     """
 
     def test_no_watchdog_task_in_session_slots(self) -> None:
-        """MatrixSession has no watchdog-related slots."""
+        """MatrixSession has no watchdog-related slots.
+
+        Stale-sync detection lives in
+        ``MatrixAdapter.health_check()``, not in the session.
+        """
         slots = set(matrix_session_mod.MatrixSession.__slots__)
         assert "_watchdog_task" not in slots
         assert "_sync_liveness_task" not in slots
         assert "_sync_watchdog_task" not in slots
 
     def test_last_successful_sync_is_passive_diagnostic(self) -> None:
-        """_last_successful_sync is set on sync success but never read
-        for liveness decisions.
+        """``_last_successful_sync`` is set on sync success but never read
+        for liveness decisions within the session.
+
+        The adapter-level ``health_check()`` reads it via the session
+        property for stale-sync detection — this is external to the
+        session.
 
         Positively flags conditional/operational uses (if, comparisons,
         staleness/watchdog/restart/warn/error/raise patterns) rather than
@@ -997,7 +1007,7 @@ _BACKLOG_ITEMS: dict[str, dict[str, str]] = {
     },
     "P-07": {
         "adapter": "Matrix",
-        "gap": "No sync liveness watchdog",
+        "gap": "No session-level sync watchdog task (adapter has partial stale-sync detection)",
         "type": "Behavioral",
         "value": "Medium",
     },

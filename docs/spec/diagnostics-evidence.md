@@ -101,7 +101,7 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 11 keys)
+### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 12 keys)
 
 **Common keys present:** `connected`, `reconnecting`, `reconnect_attempts`, `last_error`, `transient_delivery_failures`, `permanent_delivery_failures`, `mode` (7 of 8 common keys). The `health` key is not currently implemented for MeshCore.
 
@@ -115,19 +115,20 @@ Adapter-level keys:
 
 Session sub-dict keys (`session.*`):
 
-| Key                                   | Type            | Semantics                                                          |
-| ------------------------------------- | --------------- | ------------------------------------------------------------------ |
-| `session.connected`                   | `bool`          | Transport connection state                                         |
-| `session.reconnecting`                | `bool`          | Active reconnect loop in progress                                  |
-| `session.reconnect_attempts`          | `int`           | Current reconnect attempt count                                    |
-| `session.last_error`                  | `str or None`   | Last exception string                                              |
-| `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                             |
-| `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                             |
-| `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                 |
-| `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                         |
-| `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)           |
-| `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                            |
-| `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`) |
+| Key                                   | Type            | Semantics                                                                                                                              |
+| ------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.connected`                   | `bool`          | Transport connection state                                                                                                             |
+| `session.reconnecting`                | `bool`          | Active reconnect loop in progress                                                                                                      |
+| `session.reconnect_attempts`          | `int`           | Current reconnect attempt count                                                                                                        |
+| `session.last_error`                  | `str or None`   | Last exception string                                                                                                                  |
+| `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                                                                                                 |
+| `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                                                                                                 |
+| `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                                                                                     |
+| `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                                                                                             |
+| `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)                                                                               |
+| `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                                                                                                |
+| `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`)                                                                     |
+| `session.sdk_contact_timeout_count`   | `int`           | Aggregate-only count of contacts with cached SDK `suggested_timeout` hints. Never exposes contact IDs, public keys, or timeout values. |
 
 ### 3.4 LXMF (6 keys)
 
