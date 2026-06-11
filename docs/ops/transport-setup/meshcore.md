@@ -40,8 +40,8 @@ async def check():
     if mc is None:
         print("ERROR: create_tcp returned None (appstart failed)")
         return
-    print(f"Connected: {mc.is_connected}")
-    print(f"Self info: {mc.self_info}")
+    print("Connected: create_* returned a client")
+    # self_info is populated after appstart(); availability depends on SDK version
     await mc.disconnect()
 
 asyncio.run(check())
@@ -62,11 +62,146 @@ sudo usermod -aG dialout $USER
 
 ### BLE Connectivity
 
-BLE is implemented at the session layer. Hardware validation is pending.
+BLE connects to a MeshCore node over Bluetooth Low Energy. This mode is useful
+when the node is not on a shared network and no USB cable is available.
+
+#### Requirements
+
+| Requirement       | Details                                                                        |
+| ----------------- | ------------------------------------------------------------------------------ |
+| Bluetooth adapter | BLE-capable hardware (most built-in laptop adapters work)                      |
+| BlueZ             | Linux Bluetooth stack. Verify with `bluetoothctl --version`                    |
+| `bleak`           | Python BLE library. Installed automatically with `meshcore`                    |
+| Permissions       | User must be in the `bluetooth` group, or run with capabilities for BLE access |
 
 ```bash
+# Verify BlueZ is running
+bluetoothctl --version
+
+# Ensure BLE access permissions
+sudo usermod -aG bluetooth $USER
+# Log out and back in for group changes to take effect
+
+# Install the meshcore SDK (includes bleak)
+pip install meshcore==2.3.7
+```
+
+#### Pair the device first
+
+The MeshCore node must be paired with your host before MEDRE tries to connect.
+Unpaired BLE connections will fail or behave unpredictably.
+
+```bash
+bluetoothctl
+[bluetoothctl] scan on
+# Find your MeshCore node in the scan results and note its MAC address
+[bluetoothctl] pair AA:BB:CC:DD:EE:FF
+[bluetoothctl] trust AA:BB:CC:DD:EE:FF
+[bluetoothctl] scan off
+[bluetoothctl] exit
+```
+
+#### Configure the adapter
+
+The `ble_address` field in `MeshCoreConfig` tells MEDRE which device to connect
+to. Set it to the MAC address you recorded during pairing.
+
+```python
+config = MeshCoreConfig(
+    adapter_id="meshcore-ble",
+    connection_type="ble",
+    ble_address="AA:BB:CC:DD:EE:FF",
+)
+```
+
+Or via environment variables:
+
+```bash
+export MEDRE_ADAPTER__MESHCORE_BLE__TRANSPORT=meshcore
+export MEDRE_ADAPTER__MESHCORE_BLE__CONNECTION_TYPE=ble
+export MEDRE_ADAPTER__MESHCORE_BLE__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+```
+
+#### How MEDRE handles BLE connections
+
+The session layer performs several steps automatically before calling
+`MeshCore.create_ble()`:
+
+1. **Stale BlueZ cleanup.** After a BLE disconnect, BlueZ may keep a cached
+   connection entry for the device address. Subsequent connection attempts can
+   fail with `le-connection-abort-by-local` because BlueZ tries to reuse the
+   stale entry. MEDRE checks for a lingering `BleakClient` for the target
+   address and disconnects it before proceeding.
+2. **Pre-scan for BLEDevice.** On some BlueZ stacks, passing a raw MAC address
+   to `BleakClient` triggers the abort-by-local error, while passing a
+   `BLEDevice` object from a live scan succeeds. MEDRE runs a short scan
+   (5-second timeout) to find the device and obtain a `BLEDevice` before
+   connecting.
+3. **Retry with re-scan.** BLE device discovery is racy: a device may be
+   advertising one moment and gone the next. MEDRE makes up to 3 connection
+   attempts, re-scanning between each one, before declaring failure.
+
+Operators do not need to configure any of this. It runs automatically when
+`connection_type` is `ble`.
+
+#### Troubleshooting
+
+##### `le-connection-abort-by-local` on every connection attempt
+
+This is the most common BLE issue on Linux. It means BlueZ has a stale
+connection entry for the device address. MEDRE handles this automatically on
+reconnect, but if you hit it on a fresh start:
+
+```bash
+# Force-disconnect the device in BlueZ
+bluetoothctl disconnect AA:BB:CC:DD:EE:FF
+
+# Remove and re-pair if disconnect alone is not enough
+bluetoothctl remove AA:BB:CC:DD:EE:FF
 bluetoothctl scan on
-# Note the MAC address of your MeshCore node
+bluetoothctl pair AA:BB:CC:DD:EE:FF
+bluetoothctl trust AA:BB:CC:DD:EE:FF
+```
+
+Then restart MEDRE.
+
+##### Connection works but drops after a few minutes
+
+BLE connections are sensitive to distance and interference. Try these steps:
+
+1. Move closer to the MeshCore node. BLE range is typically 10 to 30 meters
+   depending on antenna and environment.
+2. Power cycle the node. Some BLE firmware accumulates state that a simple
+   disconnect does not clear.
+3. Check for 2.4 GHz interference (WiFi, microwaves, USB 3.0 devices).
+4. If the problem persists, switch to TCP or serial. BLE is the least reliable
+   transport mode and should only be used when wired or network connectivity is
+   not available.
+
+##### `bleak` import error
+
+The `meshcore` package depends on `bleak`, but if you installed MEDRE without
+the SDK:
+
+```bash
+pip install meshcore==2.3.7
+```
+
+##### `bluetoothctl scan on` does not show the node
+
+1. Confirm the node is powered on and in BLE advertising mode.
+2. Check that your Bluetooth adapter is not blocked:
+
+```bash
+rfkill list bluetooth
+# If blocked:
+sudo rfkill unblock bluetooth
+```
+
+3. Restart the Bluetooth service:
+
+```bash
+sudo systemctl restart bluetooth
 ```
 
 ### Firmware Compatibility
@@ -133,12 +268,25 @@ config = MeshCoreConfig(
     adapter_id="meshcore-alpha",
     connection_type="ble",
     ble_address="AA:BB:CC:DD:EE:FF",
+    # ble_pin="123456",  # Optional: BLE pairing PIN for programmatic pairing
 )
 ```
 
-- Uses `await MeshCore.create_ble(address, pin=None)`.
-- Optional `pin` enables BLE pairing authentication.
+- MEDRE calls `MeshCore.create_ble(address=..., device=..., pin=...)` after
+  pre-scanning via `BleakScanner.find_device_by_filter()`. When a
+  `BLEDevice` is found, it is passed as `device=`; otherwise `device=None`
+  triggers the address-only fallback path. `pin=` is passed only when
+  `ble_pin` is configured.
+- Optional `ble_pin` config field enables BLE pairing authentication for
+  automated/headless deployments. When set, it is forwarded as the `pin=`
+  argument to `create_ble()`. `ble_pin` is a sensitive value — it is never
+  exposed in diagnostics, logs, or JSON output.
+- **Recommended:** pair the device with `bluetoothctl` first (see above).
+  Use `ble_pin` only when host-level pairing is not feasible (e.g. headless
+  Pi, CI). Serial connectivity is preferred for stable deployments.
 - Requires `bleak` (installed automatically with `meshcore`).
+- Operators only need to configure `ble_address`. The pre-scan and fallback
+  logic runs automatically.
 
 ### Configuration Validation
 
@@ -153,6 +301,8 @@ config = MeshCoreConfig(
 
 Additional rules:
 
+- `ble_pin` (if provided) must be a non-empty string. Sensitive — never
+  exposed in diagnostics.
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
@@ -161,23 +311,24 @@ Additional rules:
 
 ## Environment Variables
 
-| Variable                   | Required for   | Default | Example             | Description                                 |
-| -------------------------- | -------------- | ------- | ------------------- | ------------------------------------------- |
-| `MESHCORE_CONNECTION_TYPE` | All            |         | `tcp`               | Connection mode                             |
-| `MESHCORE_HOST`            | TCP            |         | `192.168.1.100`     | Node hostname or IP                         |
-| `MESHCORE_PORT`            | TCP            | `4000`  | `4000`              | TCP port                                    |
-| `MESHCORE_SERIAL_PORT`     | Serial         |         | `/dev/ttyUSB0`      | Serial device path                          |
-| `MESHCORE_BLE_ADDRESS`     | BLE            |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
-| `MESHCORE_BLE_PIN`         | BLE (optional) |         | `123456`            | BLE pairing PIN                             |
-| `MESHCORE_CHANNEL_INDEX`   | All            | `0`     | `0`                 | Channel for test messages                   |
-| `MESHCORE_DESTINATION`     | DM tests       |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
+| Variable                   | Required for | Default | Example             | Description                                 |
+| -------------------------- | ------------ | ------- | ------------------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode                             |
+| `MESHCORE_HOST`            | TCP          |         | `192.168.1.100`     | Node hostname or IP                         |
+| `MESHCORE_PORT`            | TCP          | `4000`  | `4000`              | TCP port                                    |
+| `MESHCORE_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
+| `MESHCORE_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                   |
+| `MESHCORE_DESTINATION`     | DM tests     |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
 
 ### Env-First Adapter Creation
 
 ```bash
 export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
 export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
-export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+# Optional: BLE pairing PIN for programmatic pairing
+# export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_PIN=123456
 ```
 
 Legacy `MEDRE_MESHCORE_*` runtime config variables are unsupported. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
@@ -269,7 +420,7 @@ In fake mode, `deliver()` returns `None` — no real send occurs.
 ## Known Limitations
 
 1. **No Docker setup for MeshCore.** No containerized MeshCore node for Docker SDK-boundary tests.
-2. **BLE hardware validation pending.** BLE is implemented at session layer but not validated against real hardware.
+2. **BLE is the least reliable transport.** Connection quality depends heavily on distance, interference, and BlueZ behavior. Prefer TCP or serial for stable deployments. See BLE troubleshooting above.
 3. **Fire-and-forget delivery.** `sent` means local node acceptance. No remote receipt confirmation.
 4. **Auto-reconnect.** On unexpected disconnect, the session attempts bounded exponential backoff reconnection (1 s → 2 s → 4 s, capped at 30 s, ±25 % jitter, max 10 attempts).
 5. **Contact-based sender resolution is scaffold.** `source_transport_id` carries the raw pubkey prefix.

@@ -636,3 +636,60 @@ class TestMeshCoreConfigDefaultChannelType:
     def test_positive_int_is_valid(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1", default_channel=1)
         assert config.validate().default_channel == 1
+
+
+# --- ble_pin validation: optional, non-empty string if provided, sensitive ---
+
+
+def test_ble_pin_default_is_none() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1")
+    assert config.ble_pin is None
+
+
+def test_ble_pin_none_is_valid() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin=None)
+    assert config.validate().ble_pin is None
+
+
+def test_ble_pin_non_empty_string_is_valid() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin="190714")
+    assert config.validate().ble_pin == "190714"
+
+
+def test_ble_pin_empty_string_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin="")
+    with pytest.raises(MeshCoreConfigError, match="ble_pin"):
+        config.validate()
+
+
+def test_ble_pin_valid_with_ble_connection() -> None:
+    config = MeshCoreConfig(
+        adapter_id="meshcore-1",
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        ble_pin="123456",
+    )
+    assert config.validate().ble_pin == "123456"
+
+
+def test_ble_pin_not_required_for_ble() -> None:
+    config = MeshCoreConfig(
+        adapter_id="meshcore-1",
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+    )
+    assert config.validate().ble_pin is None
+
+
+def test_ble_pin_int_raises() -> None:
+    """Non-string truthy values must be rejected — int is not a valid PIN."""
+    config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin=123456)  # type: ignore[arg-type]
+    with pytest.raises(MeshCoreConfigError, match="ble_pin"):
+        config.validate()
+
+
+def test_ble_pin_bool_true_raises() -> None:
+    """Non-string truthy values must be rejected — bool is not a valid PIN."""
+    config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin=True)  # type: ignore[arg-type]
+    with pytest.raises(MeshCoreConfigError, match="ble_pin"):
+        config.validate()

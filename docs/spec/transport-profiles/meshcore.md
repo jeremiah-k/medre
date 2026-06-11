@@ -14,22 +14,23 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 ## Configuration Fields
 
-| Field                   | Type                                   | Default      | Description                                                   |
-| ----------------------- | -------------------------------------- | ------------ | ------------------------------------------------------------- |
-| `adapter_id`            | `str`                                  | _(required)_ | Unique adapter instance identifier                            |
-| `connection_type`       | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                               |
-| `host`                  | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)   |
-| `port`                  | `int \| None`                          | `4000`       | Port for TCP (defaults to 4000 when `connection_type="tcp"`)  |
-| `serial_port`           | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`) |
-| `serial_baudrate`       | `int`                                  | `115200`     | Baud rate for serial                                          |
-| `ble_address`           | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)       |
-| `meshnet_name`          | `str`                                  | `""`         | Human-readable meshnet name                                   |
-| `default_channel`       | `int`                                  | `0`          | Default channel index for outbound                            |
-| `message_delay_seconds` | `float`                                | `0.5`        | Minimum delay between outbound messages                       |
-| `identity`              | `str \| None`                          | `None`       | Optional node identity string                                 |
-| `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                              |
-| `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys            |
-| `max_text_bytes`        | `int`                                  | `512`        | UTF-8 byte budget for rendered radio text                     |
+| Field                   | Type                                   | Default      | Description                                                                                                                                                        |
+| ----------------------- | -------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `adapter_id`            | `str`                                  | _(required)_ | Unique adapter instance identifier                                                                                                                                 |
+| `connection_type`       | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                                                                                                                                    |
+| `host`                  | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)                                                                                                        |
+| `port`                  | `int \| None`                          | `4000`       | Port for TCP (defaults to 4000 when `connection_type="tcp"`)                                                                                                       |
+| `serial_port`           | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`)                                                                                                      |
+| `serial_baudrate`       | `int`                                  | `115200`     | Baud rate for serial                                                                                                                                               |
+| `ble_address`           | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)                                                                                                            |
+| `ble_pin`               | `str \| None`                          | `None`       | Optional BLE pairing PIN (used only for BLE); forwarded to MeshCore.create_ble(pin=...) only when configured; sensitive — never exposed in diagnostics/logs/errors |
+| `meshnet_name`          | `str`                                  | `""`         | Human-readable meshnet name                                                                                                                                        |
+| `default_channel`       | `int`                                  | `0`          | Default channel index for outbound                                                                                                                                 |
+| `message_delay_seconds` | `float`                                | `0.5`        | Minimum delay between outbound messages                                                                                                                            |
+| `identity`              | `str \| None`                          | `None`       | Optional node identity string                                                                                                                                      |
+| `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                                                                                                                                   |
+| `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys                                                                                                                 |
+| `max_text_bytes`        | `int`                                  | `512`        | UTF-8 byte budget for rendered radio text                                                                                                                          |
 
 ---
 
@@ -108,7 +109,7 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 ## Delivery Semantics
 
-**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session sends via the SDK with bounded retry (3 attempts, linear backoff 0.1 s × attempt). Success returns a `native_message_id` (if the SDK provides one). The `delivery_note` varies by send type: channel sends report `"MeshCore: channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore: DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
+**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session sends via the SDK with bounded retry (3 attempts). DM sends MAY use the `suggested_timeout` value returned by the meshcore_py SDK for the target contact; this value is in milliseconds from the SDK and is converted to seconds internally, then clamped. `suggested_timeout` hints are cached per normalized contact. Channel sends do not use DM `suggested_timeout` hints. Local acceptance does not constitute RF end-to-end delivery. Success returns a `native_message_id` (if the SDK provides one). The `delivery_note` varies by send type: channel sends report `"MeshCore: channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore: DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
 
 **No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `delivery_status="sent"` (the default adapter-level value) and carries `metadata["meshcore"]["local_acceptance"]=True` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
 
@@ -191,7 +192,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **Sender identity is a pubkey prefix.** 6-byte hex prefix is not human-readable; downstream consumers must map to display names externally.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.
 - **No outbound DM initiation in capabilities.** `direct_messages=False` means MEDRE does not model outbound DM targeting. Inbound PRIV messages are still relayed.
-- **BLE mode is future/not yet validated.** The `create_ble` factory is wired but not production-tested.
+- **BLE mode is validated against real hardware.** Tested June 2026 with a real MeshCore BLE node on Linux BlueZ. BLE requires pre-pairing and is subject to BlueZ stack limitations.
 - **Radio metadata (SNR/RSSI) only in V3 protocol messages.** Not available for all packet types.
 
 ---

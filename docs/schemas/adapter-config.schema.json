@@ -218,7 +218,7 @@
         "ble_address": {
           "type": ["string", "null"],
           "default": null,
-          "description": "BLE MAC address for BLE connections (future)."
+          "description": "BLE MAC address for BLE connections."
         },
         "meshnet_name": {
           "type": "string",
@@ -271,6 +271,11 @@
           "default": 512,
           "minimum": 0,
           "description": "Maximum UTF-8 byte budget for final radio text after rendering."
+        },
+        "ble_pin": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional BLE pairing PIN. Sensitive; forwarded only to the SDK create_ble call; never exposed in diagnostics or logs."
         }
       },
       "required": ["adapter_id"],

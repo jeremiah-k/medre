@@ -12,7 +12,7 @@ Validation rules
   or ``"ble"``.
 - Non-fake connection types require their associated field:
   ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``, ``"ble"``
-  (future: will require ``ble_address``).
+  → ``ble_address``.
 - ``port`` is optional; if provided must be ``int`` (not ``bool``)
   between 1 and 65535.
 - ``identity`` and ``pubkey`` are optional; if provided they must be
@@ -21,6 +21,9 @@ Validation rules
   It must not contain keys named ``"private_key"``, ``"secret"``, or
   ``"password"`` — secrets must be provisioned through a secure channel,
   never embedded in configuration metadata.
+- ``ble_pin`` is optional; if provided must be a non-empty string.
+  It is a potentially sensitive value and must never be exposed in
+  diagnostics, logs, or JSON output.
 - ``message_delay_seconds`` must be a non-negative finite number
   (≥ 0, finite), ``default_channel`` ≥ 0.
 - ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
@@ -69,7 +72,15 @@ class MeshCoreConfig:
         Baud rate for serial connections.  Defaults to 115200.
     ble_address:
         BLE MAC address for BLE connections.  Required when
-        *connection_type* is ``"ble"`` (future).
+        *connection_type* is ``"ble"``.
+    ble_pin:
+        Optional BLE pairing PIN.  If provided, must be a non-empty
+        string.  Passed to the SDK's ``create_ble(pin=...)`` for
+        programmatic pairing.  This is a sensitive value — it is
+        never exposed in diagnostics, logs, or JSON output.
+        Host-level pairing via ``bluetoothctl`` remains the
+        recommended path; this field exists for automated/headless
+        deployments.
     meshnet_name:
         Human-readable meshnet name (informational).
     default_channel:
@@ -101,6 +112,7 @@ class MeshCoreConfig:
     serial_port: str | None = None
     serial_baudrate: int = 115200
     ble_address: str | None = None
+    ble_pin: str | None = None
     meshnet_name: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
@@ -210,6 +222,13 @@ class MeshCoreConfig:
                 raise MeshCoreConfigError(
                     f"pubkey must contain only hexadecimal characters, "
                     f"got {self.pubkey!r}"
+                )
+
+        # ble_pin validation (optional, but must be a non-empty string if provided)
+        if self.ble_pin is not None:
+            if not isinstance(self.ble_pin, str) or not self.ble_pin:
+                raise MeshCoreConfigError(
+                    "ble_pin must be a non-empty string when provided"
                 )
 
         # node_config: no embedded secrets
