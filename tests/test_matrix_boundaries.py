@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -633,6 +634,45 @@ class TestMatrixDeliveryNioResponseHardening:
         with pytest.raises(AdapterPermanentError) as exc_info:
             await adapter.deliver(result)
         assert "M_DUPLICATE_ANNOTATION" in str(exc_info.value)
+
+    async def test_rate_limit_retry_reuses_transaction_id(self) -> None:
+        """Pipeline retry of the same RenderingResult reuses Matrix tx_id."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        rate_limited = SimpleNamespace(
+            errcode="M_LIMIT_EXCEEDED",
+            status_code=429,
+            retry_after_ms=250,
+        )
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            side_effect=[
+                rate_limited,
+                make_room_send_response("$rate-limit-retry-ok"),
+            ]
+        )
+        _wire_mock_session(adapter, mock_client, config=config)
+
+        result = RenderingResult(
+            event_id="evt-rate-limit-retry",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+        first_tx_id = mock_client.room_send.call_args.kwargs["tx_id"]
+
+        delivery = await adapter.deliver(result)
+        second_tx_id = mock_client.room_send.call_args.kwargs["tx_id"]
+
+        assert mock_client.room_send.await_count == 2
+        assert first_tx_id == second_tx_id
+        assert delivery is not None
+        assert delivery.metadata["matrix"]["txn_id"] == first_tx_id
 
 
 class TestMatrixDeliveryIgnoreUnverifiedDevices:

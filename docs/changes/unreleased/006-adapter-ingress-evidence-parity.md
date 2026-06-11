@@ -12,3 +12,4 @@ Harden post-stop ingress behavior and fill LXMF diagnostics evidence gaps.
 
 - `tests/test_adapter_post_stop_ingress.py`: cross-adapter post-stop ingress and LXMF delivery-state callback coverage.
 - `tests/test_lxmf_diagnostics_parity.py`: LXMF diagnostics field and ingress counter coverage.
+- `tests/test_matrix_boundaries.py`: Matrix rate-limit retry coverage proving stable `tx_id` reuse for the same rendered result.

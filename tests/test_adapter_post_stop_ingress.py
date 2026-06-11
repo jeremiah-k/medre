@@ -70,7 +70,9 @@ def _matrix_room_event() -> dict[str, Any]:
         (
             "meshtastic",
             lambda: FakeMeshtasticAdapter(adapter_id="fake-mesh-post-stop"),
-            lambda _adapter: make_meshtastic_text_packet(text="late mesh", packet_id=42),
+            lambda _adapter: make_meshtastic_text_packet(
+                text="late mesh", packet_id=42
+            ),
         ),
         (
             "meshcore",
@@ -115,7 +117,9 @@ async def test_meshtastic_adapter_drops_simulate_inbound_after_stop(
     await adapter.start(make_adapter_context("real-mesh-post-stop"))
     await adapter.stop()
 
-    await adapter.simulate_inbound(make_meshtastic_text_packet(text="late", packet_id=7))
+    await adapter.simulate_inbound(
+        make_meshtastic_text_packet(text="late", packet_id=7)
+    )
 
     assert inbound_collector.events == []
     assert adapter.diagnostics()["inbound_published"] == 0
@@ -160,4 +164,6 @@ async def test_lxmf_adapter_drops_delivery_state_callback_after_stop(
     with caplog.at_level(logging.INFO, logger="test.lxmf-delivery-post-stop"):
         adapter._on_delivery_state("ab" * 16, "delivered")
 
-    assert all("delivery" not in record.getMessage().lower() for record in caplog.records)
+    assert all(
+        "delivery" not in record.getMessage().lower() for record in caplog.records
+    )
