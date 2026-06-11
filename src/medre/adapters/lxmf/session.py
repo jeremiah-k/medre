@@ -961,6 +961,9 @@ class LxmfSession:
             #    destination that remote peers can address.  Also
             #    required for router.announce() to work (announce
             #    looks up the hash in delivery_destinations).
+            #    Clear stale hash before each attempt so a None return
+            #    does not leave a previous lifecycle's value in place.
+            self._delivery_destination_hash = None
             try:
                 delivery_dest = self._router.register_delivery_identity(
                     self._identity,

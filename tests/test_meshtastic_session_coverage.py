@@ -935,3 +935,81 @@ class TestNotifyConnectionLostThreadSafety:
         # Should not schedule a reconnect
         session.notify_connection_lost()
         assert session._reconnect_task is None
+
+
+# ===================================================================
+# _start_reconnect_task idempotency against duplicate notifications
+# ===================================================================
+
+
+class TestStartReconnectTaskIdempotency:
+    """Verify duplicate _start_reconnect_task calls only create one task."""
+
+    async def test_duplicate_start_reconnect_only_one_task(self) -> None:
+        """Two _start_reconnect_task calls with no running task only create one task."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._loop = asyncio.get_running_loop()
+        session._started = True
+
+        async def _blocked_reconnect_loop(self_inner):
+            await asyncio.sleep(10)
+
+        with patch.object(
+            MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop
+        ):
+            session._start_reconnect_task()
+            first_task = session._reconnect_task
+            assert first_task is not None
+            assert session._reconnecting is True
+
+            session._start_reconnect_task()
+            second_task = session._reconnect_task
+
+            # Same task — no new task created
+            assert second_task is first_task
+
+        # Cleanup
+        session._stop_requested = True
+        if session._reconnect_task and not session._reconnect_task.done():
+            session._reconnect_task.cancel()
+            try:
+                await session._reconnect_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_start_reconnect_noop_with_existing_running_task(self) -> None:
+        """_start_reconnect_task returns if existing task is not done,
+        even when _reconnecting was reset."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        session = _make_session(config)
+        session._loop = asyncio.get_running_loop()
+        session._started = True
+
+        async def _blocked_reconnect_loop(self_inner):
+            await asyncio.sleep(10)
+
+        with patch.object(
+            MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop
+        ):
+            session._start_reconnect_task()
+            first_task = session._reconnect_task
+            assert first_task is not None
+            assert not first_task.done()
+
+            # Reset _reconnecting to False (simulating race where loop
+            # hasn't set it yet) — should still guard on existing task.
+            session._reconnecting = False
+            session._start_reconnect_task()
+            second_task = session._reconnect_task
+
+            # Same task — no new task created (guarded by task-not-done check)
+            assert second_task is first_task
+
+        session._stop_requested = True
+        if session._reconnect_task and not session._reconnect_task.done():
+            session._reconnect_task.cancel()
+            try:
+                await session._reconnect_task
+            except asyncio.CancelledError:
+                pass

@@ -8,9 +8,10 @@ Tests the following lifecycle rules:
 3. ``stop()`` clears the cached health back to ``None``.
 4. ``start()`` clears the cached health back to ``None``.
 5. ``health_check()`` reports ``"degraded"`` when last successful sync
-   is older than ``_SYNC_STALE_THRESHOLD_SECONDS``.
+   is older than ``_SYNC_STALE_THRESHOLD_SECONDS`` (but ``None``,
+   meaning no sync completed yet, does **not** trigger degraded).
 6. ``health_check()`` reports ``"healthy"`` when last successful sync
-   is recent.
+   is recent, or when it is ``None`` (first sync not yet completed).
 7. The clock used for stale detection is fakeable via ``adapter._clock``.
 
 No network access, no nio dependency.  All tests use mock sessions.
@@ -267,8 +268,14 @@ async def test_fresh_sync_reports_healthy():
     assert info.health == "healthy"
 
 
-async def test_no_sync_yet_reports_degraded():
-    """health_check reports 'degraded' when last_successful_sync is None."""
+async def test_no_sync_yet_preserves_healthy():
+    """health_check preserves 'healthy' when last_successful_sync is None.
+
+    ``None`` means the first sync loop has not completed yet — the
+    adapter just started and is connected/logged-in, so it should not
+    be penalised as stale.  Only a real (non-None) timestamp older
+    than the threshold should trigger ``degraded``.
+    """
     config = _make_config()
     adapter = MatrixAdapter(config)
     adapter._clock = lambda: _MONO_BASE
@@ -278,7 +285,7 @@ async def test_no_sync_yet_reports_degraded():
         last_successful_sync=None,
     )
     info = await adapter.health_check()
-    assert info.health == "degraded"
+    assert info.health == "healthy"
 
 
 async def test_stale_does_not_override_failed():
@@ -342,19 +349,53 @@ async def test_fakeable_clock_controls_degradation():
 async def test_diagnostics_json_safe():
     """All diagnostics values are JSON-safe (no secrets, no non-serializable)."""
     import json
+    from types import SimpleNamespace
 
     config = _make_config()
     adapter = MatrixAdapter(config)
-    adapter._session = _make_mock_session(
+    # Build a mock session whose diagnostics() returns a proper
+    # SimpleNamespace with JSON-safe values (no MagicMock leakage).
+    mock_session = MagicMock()
+    mock_session.connected = True
+    mock_session.last_sync_error = None
+    mock_session.last_successful_sync = 100.0
+    mock_session.is_logged_in.return_value = True
+    mock_session.diagnostics.return_value = SimpleNamespace(
         connected=True,
         logged_in=True,
+        sync_task_running=True,
+        last_sync_error=None,
+        store_path_configured=False,
+        device_id_configured=False,
+        encryption_mode="plaintext",
+        crypto_enabled=False,
+        last_crypto_error=None,
+        encrypted_room_seen=False,
+        undecryptable_event_count=0,
+        sync_running=True,
+        reconnecting=False,
+        reconnect_attempts=0,
         last_successful_sync=100.0,
+        crypto_store_loaded=False,
+        olm_loaded=False,
+        store_loaded=False,
+        device_keys_uploaded=False,
+        key_query_needed=False,
+        device_id_in_use=None,
+        store_path_exists=False,
+        initial_sync_completed=False,
+        encrypted_room_count=0,
+        plaintext_room_count=0,
     )
+    adapter._session = mock_session
     # Trigger health_check so _last_health is set
     await adapter.health_check()
     diag = adapter.diagnostics()
-    # Must not raise on serialisation
-    serialized = json.dumps(diag, default=str)
+    # Must survive a real JSON round-trip without default=str fallback.
+    # This proves all values are genuinely JSON-serializable.
+    serialized = json.dumps(diag)
     assert isinstance(serialized, str)
+    round_tripped = json.loads(serialized)
+    assert isinstance(round_tripped, dict)
     # health must be a string or None (both JSON-safe)
     assert diag["health"] is None or isinstance(diag["health"], str)

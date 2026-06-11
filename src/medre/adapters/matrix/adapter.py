@@ -438,14 +438,18 @@ class MatrixAdapter(AdapterContract):
             health = "failed"
 
         # Stale-sync watchdog: downgrade "healthy" to "degraded" when
-        # the last successful sync is older than the threshold or has
-        # never completed.  Uses a fakeable clock (``self._clock``) so
-        # tests can control time without fixed sleeps.
+        # the last successful sync is older than the threshold.
+        # ``None`` (no sync completed yet) is intentionally *not*
+        # treated as stale — the adapter just started and has not had
+        # a chance to complete its first sync loop iteration.
+        # Uses a fakeable clock (``self._clock``) so tests can
+        # control time without fixed sleeps.
         if health == "healthy" and self._session is not None:
             last_sync = self._session.last_successful_sync
-            now = self._clock()
-            if last_sync is None or (now - last_sync) > _SYNC_STALE_THRESHOLD_SECONDS:
-                health = "degraded"
+            if last_sync is not None:
+                now = self._clock()
+                if (now - last_sync) > _SYNC_STALE_THRESHOLD_SECONDS:
+                    health = "degraded"
 
         self._last_health = health
         return AdapterInfo(

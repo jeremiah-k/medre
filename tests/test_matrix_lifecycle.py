@@ -38,6 +38,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
+from tests.helpers.async_utils import wait_until
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -290,10 +291,13 @@ class TestMatrixAdapterHealthCheck:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
-            # Yield to the event loop so the background sync task
-            # completes its first iteration and sets last_successful_sync.
-            for _ in range(5):
-                await asyncio.sleep(0)
+            # Wait for the background sync task to complete its first
+            # iteration and set last_successful_sync.
+            await wait_until(
+                lambda: adapter._session is not None
+                and adapter._session.last_successful_sync is not None,
+                timeout=2.0,
+            )
             info = await adapter.health_check()
             assert info.health == "healthy"
         finally:
@@ -516,10 +520,13 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value = client
 
         await adapter.start(_make_context())
-        # Yield to the event loop so the background sync task
-        # completes its first iteration and sets last_successful_sync.
-        for _ in range(5):
-            await asyncio.sleep(0)
+        # Wait for the background sync task to complete its first
+        # iteration and set last_successful_sync.
+        await wait_until(
+            lambda: adapter._session is not None
+            and adapter._session.last_successful_sync is not None,
+            timeout=2.0,
+        )
         info = await adapter.health_check()
         assert info.health == "healthy"
         await adapter.stop()

@@ -266,6 +266,12 @@ class MeshCoreSession:
         # first use in Python 3.10+.
         self._send_lock = asyncio.Lock()
 
+        # Cached SDK suggested_timeout for DM retry delays.
+        # Persisted across send_text() calls so that a successful DM that
+        # captures a timeout can inform the retry delay of a subsequent
+        # failing DM.  Cleared on stop().
+        self._sdk_retry_delay: float | None = None
+
         # Diagnostics.
         self._diag = _SessionDiagnostics()
 
@@ -416,6 +422,12 @@ class MeshCoreSession:
         self._diag.sdk_suggested_timeouts_used = 0
         self._diag.known_contact_count = 0
         self._diag.last_contact_update_time = None
+        # Reset self-info diagnostics so stale values don't persist
+        # across lifecycle boundaries.
+        self._diag.device_name = None
+        self._diag.public_key_prefix = None
+        self._diag.radio_freq = None
+        self._sdk_retry_delay = None
         self._started = False
         self._logger.info("MeshCoreSession %s stopped", self._adapter_id)
 
@@ -1014,9 +1026,6 @@ class MeshCoreSession:
                 await asyncio.sleep(self._config.message_delay_seconds)
 
             last_exc: Exception | None = None
-            # suggested_timeout captured from first successful DM result,
-            # reused for subsequent retry delays.  None until populated.
-            sdk_retry_delay: float | None = None
             for attempt in range(1, _SEND_MAX_RETRIES + 1):
                 try:
                     if channel_index is not None:
@@ -1061,7 +1070,7 @@ class MeshCoreSession:
                         if channel_index is None:
                             st = _extract_suggested_timeout(result)
                             if st is not None:
-                                sdk_retry_delay = st
+                                self._sdk_retry_delay = st
                                 self._diag.sdk_suggested_timeouts_used += 1
                     else:
                         payload = getattr(result, "payload", None)
@@ -1078,7 +1087,7 @@ class MeshCoreSession:
                             if channel_index is None:
                                 st = _extract_suggested_timeout(payload)
                                 if st is not None:
-                                    sdk_retry_delay = st
+                                    self._sdk_retry_delay = st
                                     self._diag.sdk_suggested_timeouts_used += 1
                         if native_id is None:
                             attrs = getattr(result, "attributes", None)
@@ -1109,10 +1118,10 @@ class MeshCoreSession:
                         exc,
                     )
                     if attempt < _SEND_MAX_RETRIES:
-                        # Use SDK suggested_timeout for DM retries when available,
-                        # otherwise fall back to linear backoff.
-                        if sdk_retry_delay is not None:
-                            await asyncio.sleep(sdk_retry_delay)
+                        # Use cached SDK suggested_timeout for DM retries
+                        # when available, otherwise fall back to linear backoff.
+                        if self._sdk_retry_delay is not None:
+                            await asyncio.sleep(self._sdk_retry_delay)
                         else:
                             await asyncio.sleep(0.1 * attempt)
 

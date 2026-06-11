@@ -250,6 +250,8 @@ class FakeMeshCoreAdapter(AdapterContract):
 
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
+        if self._started:
+            return
         self._reset_inbound_counters()
         self._health_lifecycle_epoch += 1
         self.ctx = ctx
@@ -259,6 +261,8 @@ class FakeMeshCoreAdapter(AdapterContract):
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Mark the adapter as stopped."""
+        if not self._started:
+            return
         self._started = False
         self._health_lifecycle_epoch += 1
         if self.ctx is not None:

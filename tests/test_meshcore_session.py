@@ -1006,3 +1006,184 @@ class TestSelfInfoCapture:
         finally:
             await session.stop()
             self._teardown_mock_module()
+
+
+# ===================================================================
+# SDK suggested_timeout caching for DM retry delays
+# ===================================================================
+
+
+class TestSdkRetryDelayCaching:
+    """Verify suggested_timeout is cached as instance attribute across
+    send_text() calls and cleared on stop().
+
+    The cached value (_sdk_retry_delay) persists so that a successful DM
+    that captures a timeout can inform the retry delay of a subsequent
+    failing DM within the same session lifecycle.
+    """
+
+    def _make_session_with_mock(self) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with connected=True and a mock _meshcore."""
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "retry-delay-test")
+        session._diag.connected = True
+
+        mock_meshcore = AsyncMock()
+        mock_meshcore.commands = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
+        session._meshcore = mock_meshcore
+
+        return session, mock_meshcore
+
+    async def test_successful_dm_captures_timeout(self) -> None:
+        """A successful DM with suggested_timeout caches the value."""
+        session, mock_mc = self._make_session_with_mock()
+        # 5000ms → 5.0s, clamped within [0.5, 30.0]
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\x01\x02\x03\x04",
+            "suggested_timeout": 5000,
+        }
+
+        await session.send_text("contact1", "test")
+        assert session._sdk_retry_delay == 5.0
+        assert session.diagnostics()["sdk_suggested_timeouts_used"] == 1
+
+    async def test_failing_dm_retries_with_cached_timeout(self) -> None:
+        """A failing DM retries using previously cached suggested_timeout."""
+        session, mock_mc = self._make_session_with_mock()
+
+        from unittest.mock import patch
+
+        # First call: succeed with timeout 3000ms → 3.0s
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\x01\x02\x03\x04",
+            "suggested_timeout": 3000,
+        }
+        await session.send_text("contact1", "first")
+        assert session._sdk_retry_delay == 3.0
+
+        # Second call: fail on attempt 1, succeed on attempt 2
+        call_count = 0
+
+        async def _fail_then_succeed(cid: str, text: str) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient failure")
+            return {"expected_ack": b"\x05\x06\x07\x08"}
+
+        mock_mc.commands.send_msg.side_effect = _fail_then_succeed
+
+        original_sleep = AsyncMock()
+
+        with patch("asyncio.sleep", original_sleep):
+            await session.send_text("contact1", "second")
+            # Verify retry sleep used the cached timeout (3.0s)
+            sleep_calls = [c.args[0] for c in original_sleep.call_args_list]
+            assert 3.0 in sleep_calls
+
+    async def test_sdk_retry_delay_cleared_on_stop(self) -> None:
+        """stop() clears the cached _sdk_retry_delay."""
+        session, mock_mc = self._make_session_with_mock()
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\x01\x02\x03\x04",
+            "suggested_timeout": 5000,
+        }
+
+        await session.send_text("contact1", "test")
+        assert session._sdk_retry_delay is not None
+
+        # Mark started so stop() actually runs cleanup
+        session._started = True
+        await session.stop()
+        assert session._sdk_retry_delay is None
+
+
+# ===================================================================
+# stop() resets self-info diagnostics
+# ===================================================================
+
+
+class TestStopResetsSelfInfoDiagnostics:
+    """Verify that stop() clears device_name, public_key_prefix, and
+    radio_freq so stale values don't persist across lifecycle boundaries."""
+
+    def _setup_real_session(
+        self,
+        appstart_payload: dict | None = None,
+    ) -> tuple[MeshCoreSession, AsyncMock]:
+        """Create a TCP session with mock meshcore returning given appstart payload."""
+        from unittest.mock import patch
+
+        from tests.helpers.meshcore_session import (
+            MockEvent,
+            MockEventType,
+            build_mock_meshcore_module,
+            install_mock_module,
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "stop-selfinfo-test")
+        mock_mc, instance = build_mock_meshcore_module()
+
+        payload = appstart_payload if appstart_payload is not None else {}
+        instance.commands.send_appstart = AsyncMock(
+            return_value=MockEvent(event_type=MockEventType.OK, payload=payload)
+        )
+
+        install_mock_module(mock_mc)
+        self._has_mc_patcher = patch(
+            "medre.adapters.meshcore.session.HAS_MESHCORE", True
+        )
+        self._has_mc_patcher.start()
+        return session, instance
+
+    def _teardown_mock_module(self) -> None:
+        from tests.helpers.meshcore_session import remove_mock_module
+
+        self._has_mc_patcher.stop()
+        remove_mock_module()
+
+    async def test_stop_clears_device_name(self) -> None:
+        """stop() resets device_name to None."""
+        session, _ = self._setup_real_session(
+            appstart_payload={"name": "TestNode", "public_key": "aabbccddeeff0011"}
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        await session.start(noop)
+        assert session.diagnostics()["device_name"] == "TestNode"
+        await session.stop()
+        assert session.diagnostics()["device_name"] is None
+        self._teardown_mock_module()
+
+    async def test_stop_clears_public_key_prefix(self) -> None:
+        """stop() resets public_key_prefix to None."""
+        session, _ = self._setup_real_session(
+            appstart_payload={"public_key": "aabbccddeeff001122334455"}
+        )
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        await session.start(noop)
+        assert session.diagnostics()["public_key_prefix"] == "aabbccddeeff"
+        await session.stop()
+        assert session.diagnostics()["public_key_prefix"] is None
+        self._teardown_mock_module()
+
+    async def test_stop_clears_radio_freq(self) -> None:
+        """stop() resets radio_freq to None."""
+        session, _ = self._setup_real_session(appstart_payload={"freq": 915.0})
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        await session.start(noop)
+        assert session.diagnostics()["radio_freq"] == 915.0
+        await session.stop()
+        assert session.diagnostics()["radio_freq"] is None
+        self._teardown_mock_module()

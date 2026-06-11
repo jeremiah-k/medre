@@ -853,9 +853,15 @@ class MeshtasticSession:
         ``call_soon_threadsafe`` can schedule just the task creation
         (cheap, non-blocking) while the reconnect loop itself runs as
         an async task.
+
+        Idempotent: if a reconnect task is already running or scheduled,
+        the duplicate notification is silently dropped.
         """
         if self._stop_requested or self._reconnecting:
             return
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
+        self._reconnecting = True
         self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
 
     async def _reconnect_loop(self) -> None:

@@ -281,6 +281,37 @@ async def test_no_delivery_identity_in_fake_mode() -> None:
     await session.stop()
 
 
+async def test_delivery_hash_cleared_before_register_attempt() -> None:
+    """_delivery_destination_hash is cleared before each register_delivery_identity
+    attempt so a None return does not leave stale state from a previous lifecycle."""
+    session = _make_session(
+        connection_type="reticulum",
+        announce_interval_seconds=0,
+    )
+    mock_rns, mock_lxmf, mock_router = _mock_reticulum_environment()
+
+    with _patch_lxmf_env(mock_rns, mock_lxmf):
+        await session.start()
+
+    # After first start, hash is set from mock_dest.hash
+    assert session._delivery_destination_hash == b"\xab" * 16
+
+    await session.stop()
+
+    # Simulate: second start where register_delivery_identity returns None
+    # (e.g. another identity already registered)
+    mock_router.register_delivery_identity.return_value = None
+
+    with _patch_lxmf_env(mock_rns, mock_lxmf):
+        await session.start()
+
+    # Hash must be None because we cleared it before the attempt and
+    # the new attempt returned None.
+    assert session._delivery_destination_hash is None
+
+    await session.stop()
+
+
 # ===================================================================
 # Diagnostics
 # ===================================================================
