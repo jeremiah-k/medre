@@ -172,10 +172,10 @@ class TestMockedSDKTCPStartup:
 
 class TestMockedSDKEventSubscription:
     """Verify subscribe is called for CONTACT_MSG_RECV, CHANNEL_MSG_RECV,
-    DISCONNECTED during startup."""
+    DISCONNECTED, CONTACTS, SELF_INFO during startup."""
 
     async def test_subscriptions_registered(self) -> None:
-        """Three subscriptions are registered on the SDK client."""
+        """Five subscriptions are registered on the SDK client."""
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         config = _make_config(
@@ -190,8 +190,9 @@ class TestMockedSDKEventSubscription:
         ):
             await session.start(lambda _pkt: None)
 
-        # subscribe should have been called 3 times.
-        assert mock_inst.subscribe.call_count == 3
+        # subscribe should have been called 5 times (3 messaging +
+        # CONTACTS and SELF_INFO for diagnostics-only observability).
+        assert mock_inst.subscribe.call_count == 5
 
         called_event_types = [
             call.args[0] for call in mock_inst.subscribe.call_args_list
@@ -199,6 +200,8 @@ class TestMockedSDKEventSubscription:
         assert MockEventType.CONTACT_MSG_RECV in called_event_types
         assert MockEventType.CHANNEL_MSG_RECV in called_event_types
         assert MockEventType.DISCONNECTED in called_event_types
+        assert MockEventType.CONTACTS in called_event_types
+        assert MockEventType.SELF_INFO in called_event_types
 
         await session.stop()
 
@@ -553,7 +556,7 @@ class TestMockedSDKBLEStartup:
         await session.stop()
 
     async def test_ble_subscriptions_registered(self) -> None:
-        """BLE mode registers the same 3 subscriptions as TCP/serial."""
+        """BLE mode registers the same 5 subscriptions as TCP/serial."""
         mock_mc, mock_inst = build_mock_meshcore_module()
 
         config = _make_config(
@@ -568,7 +571,7 @@ class TestMockedSDKBLEStartup:
         ):
             await session.start(lambda _pkt: None)
 
-        assert mock_inst.subscribe.call_count == 3
+        assert mock_inst.subscribe.call_count == 5
 
         # Verify exact event types subscribed (order-insensitive).
         subscribed_types = [call.args[0] for call in mock_inst.subscribe.call_args_list]
@@ -576,6 +579,8 @@ class TestMockedSDKBLEStartup:
             MockEventType.CONTACT_MSG_RECV,
             MockEventType.CHANNEL_MSG_RECV,
             MockEventType.DISCONNECTED,
+            MockEventType.CONTACTS,
+            MockEventType.SELF_INFO,
         }
 
         await session.stop()

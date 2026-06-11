@@ -345,6 +345,9 @@ class LxmfSessionDiagnostics:
     propagation_enabled: bool | None
     pending_delivery_count: int
     mode: str
+    announces_sent: int
+    announce_failures: int
+    last_announce_error: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +868,9 @@ class LxmfSession:
             propagation_enabled=self._diag.propagation_enabled,
             pending_delivery_count=len(self._outbound_deliveries),
             mode=self._config.connection_type,
+            announces_sent=self._diag.announces_sent,
+            announce_failures=self._diag.announce_failures,
+            last_announce_error=self._diag.last_announce_error,
         )
 
     @property

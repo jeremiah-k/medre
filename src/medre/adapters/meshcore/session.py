@@ -413,6 +413,7 @@ class MeshCoreSession:
         self._diag.reconnecting = False
         # Reset observability counters on stop so they don't leak across
         # lifecycles.  Contact/self-info data is per-session.
+        self._diag.sdk_suggested_timeouts_used = 0
         self._diag.known_contact_count = 0
         self._diag.last_contact_update_time = None
         self._started = False

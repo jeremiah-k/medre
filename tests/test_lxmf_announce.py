@@ -307,3 +307,57 @@ async def test_announce_diagnostics_in_adapter(
     assert diag["session"]["last_announce_error"] is None
 
     await adapter.stop()
+
+
+# ===================================================================
+# Session-level diagnostics parity
+# ===================================================================
+
+
+async def test_session_diagnostics_includes_announce_counters_fake() -> None:
+    """LxmfSession.diagnostics() returns announce counters in fake mode."""
+    from dataclasses import fields
+
+    from medre.adapters.lxmf.session import LxmfSessionDiagnostics
+
+    session = _make_session(
+        connection_type="fake",
+        announce_interval_seconds=600,
+    )
+    await session.start()
+    diag = session.diagnostics()
+    await session.stop()
+
+    assert isinstance(diag, LxmfSessionDiagnostics)
+    assert diag.announces_sent == 0
+    assert diag.announce_failures == 0
+    assert diag.last_announce_error is None
+
+    # Verify all diagnostic values are JSON-safe primitives.
+    for f in fields(LxmfSessionDiagnostics):
+        val = getattr(diag, f.name)
+        assert val is None or isinstance(
+            val, (bool, int, str)
+        ), f"Field {f.name!r} is not JSON-safe: {type(val).__name__}"
+
+
+async def test_session_diagnostics_includes_announce_counters_reticulum() -> None:
+    """LxmfSession.diagnostics() reflects announce counters in reticulum mode."""
+    session = _make_session(
+        connection_type="reticulum",
+        announce_interval_seconds=0.05,
+    )
+    mock_rns, mock_lxmf, mock_router = _mock_reticulum_environment(
+        announce_side_effect=RuntimeError("boom"),
+    )
+
+    with _patch_lxmf_env(mock_rns, mock_lxmf):
+        await session.start()
+        await asyncio.sleep(0.2)
+
+    diag = session.diagnostics()
+    assert diag.announce_failures >= 1
+    assert diag.last_announce_error is not None
+    assert "boom" in diag.last_announce_error
+
+    await session.stop()

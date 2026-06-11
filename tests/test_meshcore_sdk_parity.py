@@ -383,6 +383,25 @@ class TestSuggestedTimeoutInSend:
 
         assert session.diagnostics()["sdk_suggested_timeouts_used"] == 3
 
+    async def test_counter_resets_on_stop(self) -> None:
+        """sdk_suggested_timeouts_used resets to 0 on stop()."""
+        session, mock_mc = _make_session_with_mock()
+        session._started = True
+        mock_mc.commands.send_msg.return_value = {
+            "expected_ack": b"\x01\x02\x03\x04",
+            "suggested_timeout": 5000,
+        }
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await session.send_text("contact1", "msg1")
+            await session.send_text("contact1", "msg2")
+
+        assert session.diagnostics()["sdk_suggested_timeouts_used"] == 2
+
+        await session.stop()
+
+        assert session.diagnostics()["sdk_suggested_timeouts_used"] == 0
+
     async def test_counter_is_json_safe(self) -> None:
         """sdk_suggested_timeouts_used is a JSON-safe int."""
         session, mock_mc = _make_session_with_mock()
