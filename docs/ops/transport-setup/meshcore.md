@@ -146,7 +146,7 @@ Operators do not need to configure any of this. It runs automatically when
 
 #### Troubleshooting
 
-**`le-connection-abort-by-local` on every connection attempt**
+##### `le-connection-abort-by-local` on every connection attempt
 
 This is the most common BLE issue on Linux. It means BlueZ has a stale
 connection entry for the device address. MEDRE handles this automatically on
@@ -165,7 +165,7 @@ bluetoothctl trust AA:BB:CC:DD:EE:FF
 
 Then restart MEDRE.
 
-**Connection works but drops after a few minutes**
+##### Connection works but drops after a few minutes
 
 BLE connections are sensitive to distance and interference. Try these steps:
 
@@ -178,7 +178,7 @@ BLE connections are sensitive to distance and interference. Try these steps:
    transport mode and should only be used when wired or network connectivity is
    not available.
 
-**`bleak` import error**
+##### `bleak` import error
 
 The `meshcore` package depends on `bleak`, but if you installed MEDRE without
 the SDK:
@@ -187,7 +187,7 @@ the SDK:
 pip install meshcore==2.3.7
 ```
 
-**`bluetoothctl scan on` does not show the node**
+##### `bluetoothctl scan on` does not show the node
 
 1. Confirm the node is powered on and in BLE advertising mode.
 2. Check that your Bluetooth adapter is not blocked:
@@ -268,12 +268,24 @@ config = MeshCoreConfig(
     adapter_id="meshcore-alpha",
     connection_type="ble",
     ble_address="AA:BB:CC:DD:EE:FF",
+    # ble_pin="123456",  # Optional: BLE pairing PIN for programmatic pairing
 )
 ```
 
-- Uses `await MeshCore.create_ble(address, pin=None)`.
-- Optional `pin` enables BLE pairing authentication.
+- Uses `await MeshCore.create_ble(address, pin=None)`. MEDRE pre-scans for a
+  `BLEDevice` and passes `device=` when one is found; the direct address-only
+  path is still supported as fallback.
+- Optional `ble_pin` config field enables BLE pairing authentication for
+  automated/headless deployments. When set, it is passed as the `pin`
+  keyword argument to `create_ble()`.
+- **Recommended:** pair the device with `bluetoothctl` first (see above).
+  The `ble_pin` config field is for programmatic pairing when host-level
+  pairing is not feasible (e.g. headless Pi, CI).
+- `ble_pin` is a sensitive value — it is never exposed in diagnostics,
+  logs, or JSON output.
 - Requires `bleak` (installed automatically with `meshcore`).
+- Operators only need to configure `ble_address`. The pre-scan and fallback
+  logic runs automatically.
 
 ### Configuration Validation
 
@@ -288,6 +300,8 @@ config = MeshCoreConfig(
 
 Additional rules:
 
+- `ble_pin` (if provided) must be a non-empty string. Sensitive — never
+  exposed in diagnostics.
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
@@ -296,16 +310,15 @@ Additional rules:
 
 ## Environment Variables
 
-| Variable                   | Required for   | Default | Example             | Description                                 |
-| -------------------------- | -------------- | ------- | ------------------- | ------------------------------------------- |
-| `MESHCORE_CONNECTION_TYPE` | All            |         | `tcp`               | Connection mode                             |
-| `MESHCORE_HOST`            | TCP            |         | `192.168.1.100`     | Node hostname or IP                         |
-| `MESHCORE_PORT`            | TCP            | `4000`  | `4000`              | TCP port                                    |
-| `MESHCORE_SERIAL_PORT`     | Serial         |         | `/dev/ttyUSB0`      | Serial device path                          |
-| `MESHCORE_BLE_ADDRESS`     | BLE            |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
-| `MESHCORE_BLE_PIN`         | BLE (optional) |         | `123456`            | BLE pairing PIN                             |
-| `MESHCORE_CHANNEL_INDEX`   | All            | `0`     | `0`                 | Channel for test messages                   |
-| `MESHCORE_DESTINATION`     | DM tests       |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
+| Variable                   | Required for | Default | Example             | Description                                 |
+| -------------------------- | ------------ | ------- | ------------------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode                             |
+| `MESHCORE_HOST`            | TCP          |         | `192.168.1.100`     | Node hostname or IP                         |
+| `MESHCORE_PORT`            | TCP          | `4000`  | `4000`              | TCP port                                    |
+| `MESHCORE_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
+| `MESHCORE_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                   |
+| `MESHCORE_DESTINATION`     | DM tests     |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
 
 ### Env-First Adapter Creation
 
@@ -313,6 +326,8 @@ Additional rules:
 export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
 export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
 export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+# Optional: BLE pairing PIN for programmatic pairing
+# export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_PIN=123456
 ```
 
 Legacy `MEDRE_MESHCORE_*` runtime config variables are unsupported. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.

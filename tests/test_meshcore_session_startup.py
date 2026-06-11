@@ -594,6 +594,90 @@ class TestMockedSDKBLEStartup:
 
 
 # ===================================================================
+# BLE pin passthrough
+# ===================================================================
+
+
+class TestMockedSDKBLEPinPassthrough:
+    """Verify ble_pin is passed to create_ble when configured."""
+
+    async def test_ble_pin_passed_to_create_ble(self) -> None:
+        """When ble_pin is set, create_ble receives pin= kwarg."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+            ble_pin="190714",
+        )
+        session = MeshCoreSession(config, "ble-pin-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        mock_mc.MeshCore.create_ble.assert_awaited_once_with(
+            address="AA:BB:CC:DD:EE:FF",
+            device=None,
+            pin="190714",
+        )
+        assert session.connected is True
+
+        await session.stop()
+
+    async def test_ble_pin_not_passed_when_none(self) -> None:
+        """When ble_pin is None, create_ble does not receive pin= kwarg."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+            ble_pin=None,
+        )
+        session = MeshCoreSession(config, "ble-no-pin-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        mock_mc.MeshCore.create_ble.assert_awaited_once_with(
+            address="AA:BB:CC:DD:EE:FF",
+            device=None,
+        )
+        assert session.connected is True
+
+        await session.stop()
+
+    async def test_ble_pin_not_in_diagnostics(self) -> None:
+        """ble_pin must never appear in diagnostics output."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+            ble_pin="sensitive-pin-value",
+        )
+        session = MeshCoreSession(config, "ble-pin-diag-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        diag = session.diagnostics()
+        assert "ble_pin" not in diag
+        assert "pin" not in diag
+        assert "sensitive-pin-value" not in str(diag)
+
+        await session.stop()
+
+
+# ===================================================================
 # Send_text return value with message_id
 # ===================================================================
 

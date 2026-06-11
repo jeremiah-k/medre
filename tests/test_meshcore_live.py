@@ -588,6 +588,8 @@ class TestMeshCoreBLEValidation:
         mock_meshcore_module.EventType.CONTACT_MSG_RECV = "CONTACT_MSG_RECV"
         mock_meshcore_module.EventType.CHANNEL_MSG_RECV = "CHANNEL_MSG_RECV"
         mock_meshcore_module.EventType.DISCONNECTED = "DISCONNECTED"
+        mock_meshcore_module.EventType.CONTACTS = "CONTACTS"
+        mock_meshcore_module.EventType.SELF_INFO = "SELF_INFO"
 
         session = MeshCoreSession(
             config=config,
@@ -602,7 +604,9 @@ class TestMeshCoreBLEValidation:
 
         assert session.connected is True
         mock_import.assert_called_once_with("meshcore")
-        fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
+        fake_create_ble.assert_called_once_with(
+            address="C4:4F:33:6A:B0:23", device=None
+        )
 
         # Verify send_appstart was called during startup.
         mock_mc_instance.commands.send_appstart.assert_awaited_once()

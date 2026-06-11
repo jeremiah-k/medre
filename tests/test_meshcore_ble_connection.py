@@ -1,0 +1,408 @@
+"""Tests for MeshCoreSession BLE connection helpers, None-retry, and
+stale SDK cleanup.
+
+Covers:
+- ``_create_ble_with_retries``: None returns are retried with sleep + re-scan
+- ``_create_ble_with_retries``: exceptions interleaved with None returns
+- ``_cleanup_stale_sdk``: unsubscription + disconnect before reconnect
+- ``_cleanup_stale_sdk``: cleanup failures don't block reconnect
+- ``_message_callback`` survives reconnect cleanup
+- No fixed sleeps in tests (``asyncio.sleep`` is patched)
+"""
+
+from __future__ import annotations
+
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from medre.adapters.meshcore.errors import MeshCoreConnectionError
+from medre.adapters.meshcore.session import MeshCoreSession
+from medre.config.adapters.meshcore import MeshCoreConfig
+from tests.helpers.meshcore_session import (
+    build_mock_meshcore_module,
+)
+
+
+def _make_config(**overrides) -> MeshCoreConfig:
+    defaults = dict(adapter_id="ble-test")
+    defaults.update(overrides)
+    return MeshCoreConfig(**defaults)
+
+
+def _make_ble_session(**config_overrides) -> MeshCoreSession:
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        **config_overrides,
+    )
+    return MeshCoreSession(config, "ble-test-session")
+
+
+# ===================================================================
+# _create_ble_with_retries: None returns are retried
+# ===================================================================
+
+
+class TestCreateBleNoneRetry:
+    """create_ble returning None is treated as a retryable failure."""
+
+    async def test_none_twice_then_succeeds(self) -> None:
+        """create_ble returns None twice then succeeds on 3rd attempt.
+
+        Expect 3 create_ble calls, 2 sleeps, and 2 re-scans.
+        """
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        call_count = 0
+
+        async def _create_ble(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return None
+            return mock_inst
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+        sleep_calls: list[float] = []
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep") as mock_sleep,
+            patch.object(session, "_find_ble_device", return_value=None) as mock_find,
+        ):
+            mock_sleep.side_effect = lambda s: sleep_calls.append(s)
+
+            result = await session._create_ble_with_retries(
+                mock_mc, "AA:BB:CC:DD:EE:FF", None
+            )
+
+        assert result is mock_inst
+        assert call_count == 3
+        # 2 sleeps between 3 attempts.
+        assert len(sleep_calls) == 2
+        assert all(s == 2.0 for s in sleep_calls)
+        # 2 re-scans between attempts.
+        assert mock_find.call_count == 2
+
+    async def test_none_all_three_raises(self) -> None:
+        """create_ble returns None 3 times → MeshCoreConnectionError."""
+        mock_mc, _ = build_mock_meshcore_module()
+
+        async def _create_ble(**kwargs):
+            return None
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+            patch.object(session, "_find_ble_device", return_value=None),
+        ):
+            with pytest.raises(
+                MeshCoreConnectionError, match="3 BLE attempt"
+            ) as exc_info:
+                await session._create_ble_with_retries(
+                    mock_mc, "AA:BB:CC:DD:EE:FF", None
+                )
+
+        assert "create_ble returned None" in str(exc_info.value)
+
+    async def test_none_then_exception_then_succeeds(self) -> None:
+        """create_ble returns None, then raises, then succeeds.
+
+        All failure modes are retried; 3rd attempt succeeds.
+        """
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        call_count = 0
+
+        async def _create_ble(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            if call_count == 2:
+                raise OSError("BLE adapter busy")
+            return mock_inst
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+            patch.object(session, "_find_ble_device", return_value=None),
+        ):
+            result = await session._create_ble_with_retries(
+                mock_mc, "AA:BB:CC:DD:EE:FF", None
+            )
+
+        assert result is mock_inst
+        assert call_count == 3
+
+    async def test_exception_on_final_attempt_propagates(self) -> None:
+        """create_ble raises on final attempt → original exception propagates."""
+        mock_mc, _ = build_mock_meshcore_module()
+
+        call_count = 0
+
+        async def _create_ble(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return None
+            raise OSError("BLE adapter crashed")
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+            patch.object(session, "_find_ble_device", return_value=None),
+        ):
+            with pytest.raises(OSError, match="BLE adapter crashed"):
+                await session._create_ble_with_retries(
+                    mock_mc, "AA:BB:CC:DD:EE:FF", None
+                )
+
+
+# ===================================================================
+# _cleanup_stale_sdk: stale SDK cleanup before reconnect
+# ===================================================================
+
+
+class TestCleanupStaleSdk:
+    """Stale SDK client is unsubscribed/disconnected before reconnect."""
+
+    async def test_noop_when_meshcore_none(self) -> None:
+        """When _meshcore is None, cleanup is a no-op."""
+        session = _make_ble_session()
+        assert session._meshcore is None
+
+        await session._cleanup_stale_sdk()
+
+        assert session._meshcore is None
+        assert len(session._subscriptions) == 0
+
+    async def test_unsubscribes_and_disconnects(self) -> None:
+        """Existing subscriptions are unsubscribed, client disconnected."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        session = _make_ble_session()
+        session._meshcore = mock_inst
+
+        sub1 = MagicMock()
+        sub2 = MagicMock()
+        session._subscriptions = [sub1, sub2]
+
+        await session._cleanup_stale_sdk()
+
+        assert session._meshcore is None
+        assert len(session._subscriptions) == 0
+        mock_inst.unsubscribe.assert_any_call(sub1)
+        mock_inst.unsubscribe.assert_any_call(sub2)
+        assert mock_inst.unsubscribe.call_count == 2
+        mock_inst.disconnect.assert_awaited_once()
+
+    async def test_cleanup_failure_doesnt_prevent_reconnect(self) -> None:
+        """Unsubscribe/disconnect errors are logged but don't block."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        session = _make_ble_session()
+        session._meshcore = mock_inst
+
+        # unsubscribe and disconnect both raise.
+        mock_inst.unsubscribe.side_effect = RuntimeError("unsub failed")
+        mock_inst.disconnect.side_effect = OSError("disconnect failed")
+
+        session._subscriptions = [MagicMock()]
+
+        # Should NOT raise.
+        await session._cleanup_stale_sdk()
+
+        assert session._meshcore is None
+        assert len(session._subscriptions) == 0
+
+    async def test_message_callback_survives_cleanup(self) -> None:
+        """_cleanup_stale_sdk does NOT clear _message_callback."""
+        session = _make_ble_session()
+
+        def cb(pkt):
+            return None
+
+        session._message_callback = cb
+
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        session._meshcore = mock_inst
+        session._subscriptions = [MagicMock()]
+
+        await session._cleanup_stale_sdk()
+
+        assert session._message_callback is cb
+
+    async def test_stop_requested_not_set(self) -> None:
+        """_cleanup_stale_sdk does NOT set _stop_requested."""
+        session = _make_ble_session()
+
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        session._meshcore = mock_inst
+        session._subscriptions = []
+
+        await session._cleanup_stale_sdk()
+
+        assert session._stop_requested is False
+
+
+# ===================================================================
+# Full BLE reconnect flow: stale SDK cleaned up before _connect_real
+# ===================================================================
+
+
+class TestBleReconnectIntegration:
+    """End-to-end: stale SDK is cleaned before reconnect."""
+
+    async def test_reconnect_cleans_stale_then_connects(self) -> None:
+        """_connect_real cleans stale SDK before creating new BLE client."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        # First client (stale) — track its cleanup.
+        stale_inst = AsyncMock()
+        stale_inst.disconnect = AsyncMock()
+        stale_inst.unsubscribe = MagicMock()
+        stale_sub = MagicMock()
+
+        session = _make_ble_session()
+
+        # Simulate stale state.
+        session._meshcore = stale_inst
+        session._subscriptions = [stale_sub]
+
+        def cb(pkt):
+            return None
+
+        session._message_callback = cb
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.object(session, "_disconnect_stale_ble_client"),
+            patch.object(session, "_find_ble_device", return_value=None),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+        ):
+            await session._connect_real()
+
+        # Stale client was cleaned up.
+        stale_inst.unsubscribe.assert_called_with(stale_sub)
+        stale_inst.disconnect.assert_awaited_once()
+
+        # New client is in place.
+        assert session._meshcore is mock_inst
+        assert session.connected is True
+
+        # Callback survived.
+        assert session._message_callback is cb
+
+        await session.stop()
+
+    async def test_first_connect_skips_stale_cleanup(self) -> None:
+        """On first connect, _meshcore is None so _cleanup_stale_sdk is a no-op."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+
+        session = _make_ble_session()
+        assert session._meshcore is None
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.object(session, "_disconnect_stale_ble_client"),
+            patch.object(session, "_find_ble_device", return_value=None),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+        ):
+            await session._connect_real()
+
+        assert session._meshcore is mock_inst
+        assert session.connected is True
+
+        await session.stop()
+
+
+# ===================================================================
+# _create_ble_with_retries: re-scan between attempts
+# ===================================================================
+
+
+class TestCreateBleRescan:
+    """Verify re-scan is called between retry attempts."""
+
+    async def test_rescan_called_between_attempts(self) -> None:
+        """_find_ble_device is called between each retry attempt."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        call_count = 0
+
+        async def _create_ble(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return None
+            return mock_inst
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+
+        scan_results = [MagicMock(name="device1"), MagicMock(name="device2")]
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+            patch.object(
+                session, "_find_ble_device", side_effect=scan_results
+            ) as mock_find,
+        ):
+            result = await session._create_ble_with_retries(
+                mock_mc, "AA:BB:CC:DD:EE:FF", None
+            )
+
+        assert result is mock_inst
+        # 2 re-scans (between 3 attempts).
+        assert mock_find.call_count == 2
+        mock_find.assert_any_call("AA:BB:CC:DD:EE:FF")
+
+    async def test_rescan_passed_to_next_create_ble(self) -> None:
+        """Re-scanned BLEDevice is passed to subsequent create_ble calls."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        call_count = 0
+        devices_seen: list[object | None] = []
+
+        async def _create_ble(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            devices_seen.append(kwargs.get("device"))
+            if call_count < 2:
+                return None
+            return mock_inst
+
+        mock_mc.MeshCore.create_ble = _create_ble
+
+        session = _make_ble_session()
+        rescanned_device = MagicMock(name="rescanned_device")
+
+        with (
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+            patch("medre.adapters.meshcore.session.asyncio.sleep"),
+            patch.object(session, "_find_ble_device", return_value=rescanned_device),
+        ):
+            result = await session._create_ble_with_retries(
+                mock_mc, "AA:BB:CC:DD:EE:FF", None
+            )
+
+        assert result is mock_inst
+        # First call: device=None (original), Second call: device=rescanned_device.
+        assert devices_seen[0] is None
+        assert devices_seen[1] is rescanned_device
