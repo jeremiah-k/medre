@@ -246,10 +246,15 @@ class MeshtasticAdapter(AdapterContract):
         try:
             await self._session.start(message_callback=self._on_packet)
         except Exception:
-            # Clean up session and context on failure so no stale
-            # state survives a failed start attempt.
+            # Best-effort cleanup of partially-started session.
+            try:
+                if self._session is not None:
+                    await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
             self._session = None
             self.ctx = None
+            self._start_time = None
             raise
 
         # Session-scoped startup backlog baseline — set AFTER session connects
@@ -293,6 +298,7 @@ class MeshtasticAdapter(AdapterContract):
         # causes _on_packet to return early, preventing new
         # run_coroutine_threadsafe submissions.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None

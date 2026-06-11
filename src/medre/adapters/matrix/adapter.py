@@ -338,6 +338,7 @@ class MatrixAdapter(AdapterContract):
 
         if not HAS_NIO:
             self.ctx = None
+            self._start_time = None
             raise MatrixConnectionError(
                 "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
@@ -367,6 +368,7 @@ class MatrixAdapter(AdapterContract):
                 pass  # best-effort cleanup
             self._session = None
             self._started = False
+            self._start_time = None
             self.ctx = None
             raise
 
@@ -394,6 +396,7 @@ class MatrixAdapter(AdapterContract):
                     pass  # best-effort cleanup
                 self._session = None
                 self._started = False
+                self._start_time = None
                 self.ctx = None
                 raise
 
@@ -407,6 +410,7 @@ class MatrixAdapter(AdapterContract):
         Idempotent: safe to call multiple times or before start().
         """
         self._started = False
+        self._start_time = None
 
         if self._session is not None:
             # Capture failure before stopping for health_check.

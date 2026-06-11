@@ -450,3 +450,65 @@ class TestStartLifecycleCleanup:
         ):
             await adapter3.start(ctx3)
         assert adapter3._start_time is not None
+
+    async def test_stop_clears_start_time(self) -> None:
+        """stop() clears _start_time back to None."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        _, ctx = _make_adapter_context()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.last_sync_error = None
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session,
+            ),
+        ):
+            await adapter.start(ctx)
+
+        assert adapter._start_time is not None
+
+        await adapter.stop()
+
+        assert adapter._start_time is None
+        assert adapter._started is False
+
+    async def test_successful_start_stop_failed_restart_leaves_start_time_none(
+        self,
+    ) -> None:
+        """After successful start→stop, a failed restart leaves _start_time None."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        _, ctx = _make_adapter_context()
+
+        # Phase 1: successful start
+        mock_session1 = MagicMock(name="session")
+        mock_session1.start = AsyncMock()
+        mock_session1.stop = AsyncMock()
+        mock_session1.last_sync_error = None
+        mock_session1.closed = True
+
+        with (
+            patch("medre.adapters.matrix.adapter.HAS_NIO", True),
+            patch(
+                "medre.adapters.matrix.adapter.MatrixSession",
+                return_value=mock_session1,
+            ),
+        ):
+            await adapter.start(ctx)
+        assert adapter._start_time is not None
+
+        # Phase 2: stop
+        await adapter.stop()
+        assert adapter._start_time is None
+
+        # Phase 3: failed restart (HAS_NIO=False)
+        with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
+            with pytest.raises(MatrixConnectionError):
+                await adapter.start(ctx)
+        assert adapter._start_time is None

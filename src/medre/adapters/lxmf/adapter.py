@@ -213,6 +213,7 @@ class LxmfAdapter(AdapterContract):
         if self._config.connection_type != "fake":
             if not HAS_LXMF:
                 self.ctx = None
+                self._start_time = None
                 raise LxmfConnectionError(
                     "lxmf/RNS not installed; pip install 'medre[lxmf]'. "
                     f"connection_type={self._config.connection_type!r}"
@@ -229,6 +230,7 @@ class LxmfAdapter(AdapterContract):
             except Exception:
                 pass
             self._started = False
+            self._start_time = None
             self.ctx = None
             raise
         except Exception as exc:
@@ -238,6 +240,7 @@ class LxmfAdapter(AdapterContract):
             except Exception:
                 pass
             self._started = False
+            self._start_time = None
             self.ctx = None
             raise LxmfConnectionError(f"LXMF session failed to start: {exc}") from exc
 
@@ -269,6 +272,7 @@ class LxmfAdapter(AdapterContract):
         # Gate callbacks immediately — prevents race between drain completing
         # and session.stop() unsubscribing.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None

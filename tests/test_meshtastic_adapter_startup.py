@@ -167,3 +167,147 @@ class TestSuccessfulStartState:
         ), "_drain_task must be created after successful start"
 
         await adapter.stop()
+
+
+class TestStartTimeLifecycle:
+    """_start_time tracks the adapter's active lifecycle."""
+
+    async def test_successful_start_sets_start_time(self) -> None:
+        """_start_time is not None after a successful start."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        await adapter.start(ctx)
+
+        assert adapter._start_time is not None
+
+        await adapter.stop()
+
+    async def test_stop_clears_start_time(self) -> None:
+        """stop() clears _start_time back to None."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        await adapter.start(ctx)
+        assert adapter._start_time is not None
+
+        await adapter.stop()
+        assert adapter._start_time is None
+
+    async def test_successful_start_stop_failed_restart_leaves_start_time_none(
+        self,
+    ) -> None:
+        """After start→stop→failed restart, _start_time stays None."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        from medre.adapters.meshtastic.session import MeshtasticSession
+
+        # First: successful start then stop
+        await adapter.start(ctx)
+        assert adapter._start_time is not None
+        await adapter.stop()
+        assert adapter._start_time is None
+
+        # Second: make session.start raise
+        with patch.object(
+            MeshtasticSession, "start", side_effect=RuntimeError("restart boom")
+        ):
+            with pytest.raises(RuntimeError, match="restart boom"):
+                await adapter.start(ctx)
+
+        assert adapter._start_time is None
+
+    async def test_failed_fresh_start_leaves_start_time_none(self) -> None:
+        """_start_time is None after a failed start from fresh state."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        from medre.adapters.meshtastic.session import MeshtasticSession
+
+        with patch.object(
+            MeshtasticSession, "start", side_effect=RuntimeError("fresh boom")
+        ):
+            with pytest.raises(RuntimeError, match="fresh boom"):
+                await adapter.start(ctx)
+
+        assert adapter._start_time is None
+
+
+class TestBestEffortSessionStopOnFailedStart:
+    """Best-effort session.stop() is called on failed start."""
+
+    async def test_session_start_partial_calls_session_stop(self) -> None:
+        """session.stop() is called when session.start() raises."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        from medre.adapters.meshtastic.session import MeshtasticSession
+
+        with patch.object(
+            MeshtasticSession, "start", side_effect=RuntimeError("partial start")
+        ):
+            with patch.object(
+                MeshtasticSession, "stop", new_callable=AsyncMock
+            ) as mock_stop:
+                with pytest.raises(RuntimeError, match="partial start"):
+                    await adapter.start(ctx)
+
+        mock_stop.assert_awaited_once_with(timeout=5.0)
+
+    async def test_cleanup_stop_failure_does_not_mask_original_exception(
+        self,
+    ) -> None:
+        """When both session.start() and session.stop() raise, the original
+        start exception propagates."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        from medre.adapters.meshtastic.session import MeshtasticSession
+
+        with patch.object(
+            MeshtasticSession, "start", side_effect=RuntimeError("start failed")
+        ):
+            with patch.object(
+                MeshtasticSession,
+                "stop",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("stop also failed"),
+            ):
+                with pytest.raises(RuntimeError, match="start failed"):
+                    await adapter.start(ctx)
+
+    async def test_session_start_cancelled_error_propagates(self) -> None:
+        """CancelledError (BaseException, not Exception) propagates directly
+        without cleanup — cancellation should propagate fast.
+
+        The adapter's start() catches ``except Exception``, which does NOT
+        intercept asyncio.CancelledError (a BaseException subclass).  This
+        means CancelledError bypasses the best-effort cleanup path entirely
+        and propagates immediately.  This is intentional: cancellation should
+        not be delayed by cleanup attempts.
+        """
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_ctx()
+
+        from medre.adapters.meshtastic.session import MeshtasticSession
+
+        with patch.object(
+            MeshtasticSession, "start", side_effect=asyncio.CancelledError()
+        ):
+            with patch.object(
+                MeshtasticSession, "stop", new_callable=AsyncMock
+            ) as mock_stop:
+                with pytest.raises(asyncio.CancelledError):
+                    await adapter.start(ctx)
+
+        # session.stop() should NOT have been called because CancelledError
+        # is a BaseException, not an Exception — it bypasses the except block.
+        mock_stop.assert_not_awaited()

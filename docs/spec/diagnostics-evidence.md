@@ -41,11 +41,11 @@ Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics(
 
 **Meshtastic/MeshCore note:** Session-level diagnostics are exposed via a `session` sub-dict within the adapter-level diagnostics dict.
 
-**MeshCore exception:** MeshCore does not currently expose a `health` key in its diagnostics output. The `health` key is provided via `health_check()` returning `AdapterInfo`, not via the `diagnostics()` dict.
+**MeshCore note:** The `health` key appears in the adapter-level diagnostics dict (set by the last `health_check()` call) as well as in `health_check()` returning `AdapterInfo`. The `session.sdk_contact_timeout_count` key is aggregate-only — it exposes the number of contacts with cached SDK `suggested_timeout` hints, never contact IDs, public keys, or timeout values.
 
-**LXMF note:** Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top.
+**LXMF note:** Adapter-level diagnostics include classifier message counters and `inbound_published`. The `session` sub-dict exposes LXMF session fields (connected, router_running, known_path_count, propagation_enabled, pending_delivery_count, announce counters, delivery failures, and last error). All values are JSON-safe primitives.
 
-These eight keys are contractual for the current version. They SHALL NOT be removed or have their types changed without a version bump.
+These eight keys SHALL be present across all adapter implementations. Their location (adapter-level vs session sub-dict) varies by adapter. The current MeshCore and LXMF implementations satisfy this contract. Keys SHALL NOT be removed or have their types changed without a version bump.
 
 ## 3. Per-Adapter Diagnostic Keys
 

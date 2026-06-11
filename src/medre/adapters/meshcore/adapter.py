@@ -307,7 +307,14 @@ class MeshCoreAdapter(AdapterContract):
         )
         try:
             await self._session.start(message_callback=self._on_message)
-        except BaseException:
+        except asyncio.CancelledError:
+            # Clear adapter-owned fields synchronously before re-raise.
+            self._session = None
+            self._started = False
+            self.ctx = None
+            self._start_time = None
+            raise
+        except Exception:
             # Best-effort cleanup: stop session, clear all state, re-raise.
             try:
                 if self._session is not None:
@@ -317,6 +324,7 @@ class MeshCoreAdapter(AdapterContract):
             self._session = None
             self._started = False
             self.ctx = None
+            self._start_time = None
             raise
 
         self._mark_started(ctx)
@@ -344,6 +352,7 @@ class MeshCoreAdapter(AdapterContract):
         # Gate callbacks immediately — prevents race between drain completing
         # and session.stop() unsubscribing.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None

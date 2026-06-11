@@ -142,3 +142,110 @@ async def test_stop_after_failed_start_does_not_raise() -> None:
 
     # _started is False → stop() is a no-op, must not raise.
     await adapter.stop()
+
+
+# -- _start_time lifecycle tests -------------------------------------------
+
+
+async def test_stop_clears_start_time() -> None:
+    """After start→stop, _start_time must be None."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="fake"))
+    await adapter.start(_make_ctx())
+    assert adapter._start_time is not None
+
+    await adapter.stop()
+    assert adapter._start_time is None
+
+
+async def test_failed_fresh_start_leaves_start_time_none() -> None:
+    """If session.start raises on first start, _start_time stays None."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="tcp", host="127.0.0.1"))
+
+    with patch("medre.adapters.meshcore.adapter.MeshCoreSession") as MockSession:
+        mock_inst = AsyncMock()
+        mock_inst.start = AsyncMock(side_effect=ConnectionError("boom"))
+        mock_inst.stop = AsyncMock()
+        MockSession.return_value = mock_inst
+
+        with pytest.raises(ConnectionError, match="boom"):
+            await adapter.start(_make_ctx())
+
+    assert adapter._start_time is None
+
+
+async def test_successful_start_stop_failed_restart_leaves_start_time_none() -> None:
+    """start→stop→(session.start raises) must leave _start_time as None."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="fake"))
+
+    # First lifecycle: start → stop.
+    await adapter.start(_make_ctx())
+    assert adapter._start_time is not None
+    await adapter.stop()
+    assert adapter._start_time is None
+
+    # Second lifecycle: session.start raises.
+    with patch("medre.adapters.meshcore.adapter.MeshCoreSession") as MockSession:
+        mock_inst = AsyncMock()
+        mock_inst.start = AsyncMock(side_effect=RuntimeError("second fail"))
+        mock_inst.stop = AsyncMock()
+        MockSession.return_value = mock_inst
+
+        with pytest.raises(RuntimeError, match="second fail"):
+            await adapter.start(_make_ctx())
+
+    assert adapter._start_time is None
+
+
+# -- CancelledError / exception-split tests --------------------------------
+
+
+async def test_session_start_raises_runtime_error_preserved() -> None:
+    """RuntimeError from session.start propagates (not wrapped)."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="tcp", host="127.0.0.1"))
+
+    with patch("medre.adapters.meshcore.adapter.MeshCoreSession") as MockSession:
+        mock_inst = AsyncMock()
+        mock_inst.start = AsyncMock(side_effect=RuntimeError("rt-err"))
+        mock_inst.stop = AsyncMock()
+        MockSession.return_value = mock_inst
+
+        with pytest.raises(RuntimeError, match="rt-err"):
+            await adapter.start(_make_ctx())
+
+
+async def test_session_start_cancelled_error_propagates() -> None:
+    """CancelledError from session.start propagates and clears fields."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="tcp", host="127.0.0.1"))
+
+    with patch("medre.adapters.meshcore.adapter.MeshCoreSession") as MockSession:
+        mock_inst = AsyncMock()
+        mock_inst.start = AsyncMock(side_effect=asyncio.CancelledError())
+        MockSession.return_value = mock_inst
+
+        with pytest.raises(asyncio.CancelledError):
+            await adapter.start(_make_ctx())
+
+    assert adapter._session is None
+    assert adapter._started is False
+    assert adapter.ctx is None
+    assert adapter._start_time is None
+
+
+async def test_cleanup_stop_raises_on_runtime_error_path() -> None:
+    """When session.start raises RuntimeError and session.stop also raises,
+    the original RuntimeError propagates (not the cleanup exception)."""
+    adapter = MeshCoreAdapter(_make_config(connection_type="tcp", host="127.0.0.1"))
+
+    with patch("medre.adapters.meshcore.adapter.MeshCoreSession") as MockSession:
+        mock_inst = AsyncMock()
+        mock_inst.start = AsyncMock(side_effect=RuntimeError("original"))
+        mock_inst.stop = AsyncMock(side_effect=OSError("cleanup-fail"))
+        MockSession.return_value = mock_inst
+
+        with pytest.raises(RuntimeError, match="original"):
+            await adapter.start(_make_ctx())
+
+    assert adapter._session is None
+    assert adapter._started is False
+    assert adapter.ctx is None
+    assert adapter._start_time is None

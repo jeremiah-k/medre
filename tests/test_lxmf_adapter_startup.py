@@ -247,3 +247,51 @@ class TestStartFailureCleanup:
             if "LxmfAdapter" in r.message and "started" in r.message
         ]
         assert len(started_logs) == 0
+
+    async def test_stop_clears_start_time(self) -> None:
+        """stop() clears _start_time back to None."""
+        config = _make_config()  # fake mode
+        adapter = LxmfAdapter(config)
+        _, ctx = _make_ctx()
+
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.set_delivery_state_callback = MagicMock()
+        adapter._session = mock_session
+
+        await adapter.start(ctx)
+        assert adapter._start_time is not None
+
+        await adapter.stop()
+
+        assert adapter._start_time is None
+        assert adapter._started is False
+
+    async def test_successful_start_stop_failed_restart_leaves_start_time_none(
+        self,
+    ) -> None:
+        """After successful start→stop, a failed restart leaves _start_time None."""
+        config = _make_config(connection_type="reticulum")
+        adapter = LxmfAdapter(config)
+
+        # Phase 1: successful start in fake mode
+        mock_session = MagicMock(name="session")
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.set_delivery_state_callback = MagicMock()
+        adapter._session = mock_session
+
+        _, ctx = _make_ctx()
+        await adapter.start(ctx)
+        assert adapter._start_time is not None
+
+        # Phase 2: stop
+        await adapter.stop()
+        assert adapter._start_time is None
+
+        # Phase 3: failed restart (HAS_LXMF=False with reticulum mode)
+        with patch("medre.adapters.lxmf.adapter.HAS_LXMF", False):
+            with pytest.raises(LxmfConnectionError):
+                await adapter.start(ctx)
+        assert adapter._start_time is None
