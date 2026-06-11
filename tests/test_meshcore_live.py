@@ -59,15 +59,18 @@ with a descriptive reason.
 - **Radio traffic safety.**  When enabled, tests send a small number of
   text messages on the configured channel.  Messages will be prefixed
   with ``MEDRE live smoke`` for easy identification.
-- **Duplicate-send risk.**  The session retries transient failures up to
-  3 times; a message may be delivered more than once if the ACK was lost.
+- **Duplicate-accept risk.**  The session retries transient failures up to
+  3 times; the local SDK may accept the same message more than once if
+  the ACK was lost.
 
 **What this proves (when enabled):**
 
 - The MEDRE ``MeshCoreAdapter`` can ``start()`` against a real node.
 - ``health_check()`` reports ``"healthy"``.
 - ``stop()`` disconnects cleanly.
-- ``send_text()`` delivers a message to the mesh.
+- ``send_text()`` is accepted by the local MeshCore SDK/node without error.
+  Remote receipt / RF end-to-end delivery is **not** confirmed unless a
+  second MeshCore device independently observes the message.
 - Inbound messages are received with metadata preservation.
 
 **What this does NOT prove:**
@@ -75,6 +78,10 @@ with a descriptive reason.
 - Production-grade reconnection handling under sustained failure.
 - Multi-hop mesh delivery.
 - Encrypted channel support.
+- RF end-to-end delivery from local ``send_text()`` acceptance alone.  A
+  successful return only confirms the local SDK/node accepted the message;
+  remote receipt requires independent observation by a second MeshCore
+  device.
 """
 
 import asyncio
@@ -100,7 +107,7 @@ from tests.helpers.live_harness import assert_no_secret_leak, bounded
 # ---------------------------------------------------------------------------
 _ADAPTER_START_TIMEOUT: float = 30.0
 _ADAPTER_STOP_TIMEOUT: float = 10.0
-_DELIVER_TIMEOUT: float = 15.0
+_DELIVER_TIMEOUT: float = 15.0  # local SDK/node acceptance, not RF delivery
 
 # ---------------------------------------------------------------------------
 # Environment variable gate
@@ -165,11 +172,12 @@ require_live = pytest.mark.skipif(
     ),
 )
 
-# Additional gate for tests that actually send/transmit on the radio.
-# These tests are opt-in: MESHCORE_LIVE_SEND=1 must be set explicitly.
+# Additional gate for tests that actually send messages via the local
+# MeshCore node.  These tests are opt-in: MESHCORE_LIVE_SEND=1 must be
+# set explicitly.
 require_live_send = pytest.mark.skipif(
     not MESHCORE_LIVE_SEND,
-    reason=("Set MESHCORE_LIVE_SEND=1 to enable live send/transmit tests"),
+    reason=("Set MESHCORE_LIVE_SEND=1 to enable live send tests"),
 )
 
 
@@ -386,9 +394,11 @@ class TestMeshCoreLiveSmoke:
 
     @require_live_send
     async def test_send_channel_message(self):
-        """Send a channel message and verify no error is raised.
+        """Send a channel message and verify the local SDK accepts it.
 
-        Requires MESHCORE_LIVE_SEND=1 to actually transmit on the radio.
+        Requires MESHCORE_LIVE_SEND=1 to actually send through the local
+        MeshCore SDK/node.  Success confirms local acceptance only; it does
+        not prove RF end-to-end delivery.
         """
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
 
@@ -421,8 +431,8 @@ class TestMeshCoreLiveSmoke:
         This test waits up to 30 seconds for an inbound message.
         It will pass if any message is received during the wait period.
 
-        Requires MESHCORE_LIVE_SEND=1 because it depends on active radio
-        traffic.
+        Requires MESHCORE_LIVE_SEND=1 because it needs active radio
+        traffic to observe inbound messages on the local node.
         """
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
 
@@ -663,10 +673,10 @@ class TestMeshCoreBLEValidation:
     # -- d) Send requires live send -------------------------------------------
 
     async def test_ble_send_requires_live_send(self):
-        """Document: MESHCORE_LIVE_SEND gates real radio transmission.
+        """Document: MESHCORE_LIVE_SEND gates live send() calls to the node.
 
         The @require_live_send marker (used in TestMeshCoreLiveSmoke)
-        gates real transmit tests. This test documents the gate pattern.
+        gates live send tests. This test documents the gate pattern.
         When MESHCORE_LIVE_SEND is unset, live-send tests skip.
         Fake-mode deliver() does not check LIVE_SEND.
         """

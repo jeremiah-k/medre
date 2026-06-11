@@ -9,12 +9,14 @@ that matches the PyPI meshcore 2.3.7 API surface. Covers:
 - SDK error responses and startup failure cleanup
 - Disconnect idempotency
 - Send_text return values (message_id / expected_ack)
+- BLE PIN sanitization on connect failure (logs, diagnostics, raised errors)
 """
 
 from __future__ import annotations
 
 import sys
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -647,6 +649,111 @@ async def test_ble_pin_not_in_diagnostics() -> None:
     assert "sensitive-pin-value" not in str(diag)
 
     await session.stop()
+
+
+# ===================================================================
+# BLE PIN sanitization on connect failure
+# ===================================================================
+
+
+async def test_ble_connect_failure_pin_sanitized_from_raised_error() -> None:
+    """PIN must not leak into the raised MeshCoreConnectionError on BLE failure.
+
+    When create_ble raises an exception whose text contains the configured
+    ble_pin, _sanitize_ble_exc replaces the message with a redacted form.
+    The raised MeshCoreConnectionError must not contain the raw PIN.
+    """
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    _secret = "TopSecr3tPIN!"
+    mock_mc.MeshCore.create_ble.side_effect = OSError(
+        f"BLE auth failed with pin={_secret}"
+    )
+
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        ble_pin=_secret,
+    )
+    session = MeshCoreSession(config, "ble-sanitize-err-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+    ):
+        with pytest.raises(MeshCoreConnectionError) as exc_info:
+            await session.start(lambda _pkt: None)
+
+    error_text = str(exc_info.value)
+    assert _secret not in error_text
+    assert "[details redacted]" in error_text
+
+
+async def test_ble_connect_failure_pin_sanitized_from_diagnostics() -> None:
+    """PIN must not appear in session diagnostics after BLE connect failure.
+
+    After a BLE connection failure, diagnostics() and last_error must not
+    expose the raw ble_pin value.
+    """
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    _secret = "TopSecr3tPIN!"
+    mock_mc.MeshCore.create_ble.side_effect = RuntimeError(
+        f"pairing rejected pin={_secret}"
+    )
+
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        ble_pin=_secret,
+    )
+    session = MeshCoreSession(config, "ble-sanitize-diag-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+    ):
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(lambda _pkt: None)
+
+    diag = session.diagnostics()
+    assert _secret not in str(diag)
+    if session.last_error is not None:
+        assert _secret not in session.last_error
+
+
+async def test_ble_connect_failure_pin_sanitized_from_logs(caplog: Any) -> None:
+    """PIN must not appear in captured log records during BLE connect failure.
+
+    The _create_ble_with_retries debug logs and any error logs must use
+    the sanitized exception text instead of the raw exception string.
+    """
+    import logging
+
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    _secret = "TopSecr3tPIN!"
+    mock_mc.MeshCore.create_ble.side_effect = OSError(
+        f"authentication error: pin {_secret} rejected"
+    )
+
+    config = _make_config(
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+        ble_pin=_secret,
+    )
+    session = MeshCoreSession(config, "ble-sanitize-log-test")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+        patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
+        caplog.at_level(logging.DEBUG, logger="medre.adapters.meshcore.session"),
+    ):
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(lambda _pkt: None)
+
+    for record in caplog.records:
+        assert _secret not in record.getMessage()
 
 
 # ===================================================================
