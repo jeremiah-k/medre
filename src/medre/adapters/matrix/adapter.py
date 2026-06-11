@@ -249,7 +249,7 @@ class MatrixAdapter(AdapterContract):
         "_codec",
         "_relation_handler",
         "_envelope_handler",
-        "_stopped",
+        "_started",
         "ctx",
         # Track 5 — delivery retry stats
         "_transient_delivery_failures",
@@ -278,7 +278,7 @@ class MatrixAdapter(AdapterContract):
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
-        self._stopped: bool = False
+        self._started: bool = False
         self.ctx: AdapterContext | None = None
         # Track 5
         self._transient_delivery_failures: int = 0
@@ -320,7 +320,7 @@ class MatrixAdapter(AdapterContract):
             to connect, or E2EE preconditions are unmet.
         """
         self._sync_failure = None  # Reset from any previous failure
-        self._stopped = False
+        self._started = True
 
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
@@ -339,7 +339,7 @@ class MatrixAdapter(AdapterContract):
         self._mark_started(ctx)
 
         if not HAS_NIO:
-            self._stopped = True
+            self._started = False
             raise MatrixConnectionError(
                 "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
@@ -363,7 +363,7 @@ class MatrixAdapter(AdapterContract):
         try:
             await self._session.start()
         except Exception:
-            self._stopped = True
+            self._started = False
             raise
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
@@ -395,7 +395,7 @@ class MatrixAdapter(AdapterContract):
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
-        self._stopped = True
+        self._started = False
 
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)
@@ -720,7 +720,7 @@ class MatrixAdapter(AdapterContract):
             ``body``, ``event_id``, ``source``, ``msgtype``,
             ``server_timestamp``, ``sender_display_name``.
         """
-        if self.ctx is None or self._stopped:
+        if self.ctx is None or not self._started:
             return
 
         room_id = str(event.get("room_id", "") or "")

@@ -102,12 +102,12 @@ What happens when `stop()` is called while inbound events are being processed?
 
 What prevents SDK callbacks from firing after `stop()` returns?
 
-| Adapter        | Status          | Evidence                                                                                                                                                                                                                                                                                                             |
-| -------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | **Implemented** | Session `stop()` cancels sync task, clears `_closed = True`. Nio client is closed (`_client.close()`). Callback is registered on the client object which is discarded.                                                                                                                                               |
-| **Meshtastic** | **Implemented** | `_unsubscribe_callbacks` unsubscribes from pubsub. Session `_client = None` after close. `_started = False` gates `_on_packet`. Remaining inbound futures are cancelled in `_drain_background_tasks`.                                                                                                                |
-| **MeshCore**   | **Implemented** | `_unsubscribe_all` unsubscribes all SDK event subscriptions. `_meshcore = None` after disconnect. `_started = False` set before drain (at top of `stop()`).                                                                                                                                                          |
-| **LXMF**       | **Implemented** | `stop()` / `_teardown_sdk` clear `_router` and `_identity`. `stop()` sets `_message_callback = None` and `_loop = None` so late Reticulum callbacks see `_stop_requested` or `_loop is None`. `_delivery_state_callback = None` and the adapter-level `_on_delivery_state` returns early when `_started` is `False`. |
+| Adapter        | Status          | Evidence                                                                                                                                                                                                |
+| -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | **Implemented** | Session `stop()` cancels sync task, clears `_closed = True`. Nio client is closed (`_client.close()`). Callback is registered on the client object which is discarded.                                  |
+| **Meshtastic** | **Implemented** | `_unsubscribe_callbacks` unsubscribes from pubsub. Session `_client = None` after close. `_started = False` gates `_on_packet`. Remaining inbound futures are cancelled in `_drain_background_tasks`.   |
+| **MeshCore**   | **Implemented** | `_unsubscribe_all` unsubscribes all SDK event subscriptions. `_meshcore = None` after disconnect. `_started = False` set before drain (at top of `stop()`).                                             |
+| **LXMF**       | **Implemented** | `stop()` clears `_router`, `_identity`, `_message_callback`, and `_loop`. Late Reticulum callbacks see `_stop_requested` or `None` refs. `_on_delivery_state` returns early when `_started` is `False`. |
 
 ### 8. Metadata Namespace Rules
 
