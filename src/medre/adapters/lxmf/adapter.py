@@ -223,6 +223,12 @@ class LxmfAdapter(AdapterContract):
             await self._session.start(
                 message_callback=self._on_packet,
             )
+        except asyncio.CancelledError:
+            # Clear adapter-owned fields synchronously — no await.
+            self._started = False
+            self._start_time = None
+            self.ctx = None
+            raise
         except LxmfConnectionError:
             # Best-effort cleanup of partially-started session.
             try:

@@ -245,6 +245,12 @@ class MeshtasticAdapter(AdapterContract):
         # Register our inbound packet callback with the session
         try:
             await self._session.start(message_callback=self._on_packet)
+        except asyncio.CancelledError:
+            # Clear adapter-owned fields synchronously — no await.
+            self._session = None
+            self.ctx = None
+            self._start_time = None
+            raise
         except Exception:
             # Best-effort cleanup of partially-started session.
             try:
