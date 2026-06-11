@@ -623,9 +623,14 @@ class MeshCoreSession:
         ``le-connection-abort-by-local`` because BlueZ tries to reuse
         the stale entry.
 
-        Best-effort: if a ``BleakClient`` for *address* reports
-        ``is_connected``, force a disconnect and let the adapter settle
-        before creating a fresh one.
+        Unconditionally constructs a ``BleakClient`` for *address* and
+        calls ``disconnect()`` without consulting a stale-client
+        connection-state flag.  That flag is unreliable for a client that
+        was never ``.connect()``-ed (it always reports disconnected), so
+        gating on it would make this method a no-op in the exact scenario
+        it is meant to handle.  Instead we call ``disconnect()`` directly
+        — on a truly disconnected client it is a no-op or raises a
+        harmless error, both of which are suppressed.
 
         IMPORTANT: we do NOT use ``async with BleakClient`` here
         because that would connect (and then disconnect), creating
@@ -636,26 +641,16 @@ class MeshCoreSession:
             from bleak import BleakClient  # type: ignore[import-untyped]
 
             stale = BleakClient(address, timeout=3.0)
-            try:
-                # Attempt disconnect unconditionally — if BlueZ has any
-                # lingering state for this address, disconnect clears it.
-                # On a client that never connected, disconnect is a no-op
-                # or raises a harmless error.  We do NOT gate on
-                # is_connected because that property is always False on
-                # a client that was never .connect()-ed, making the old
-                # check dead code.
-                self._logger.debug(
-                    "MeshCoreSession %s: best-effort stale BlueZ " "disconnect for %s",
-                    self._adapter_id,
-                    address,
-                )
-            finally:
-                # Always attempt cleanup — BleakClient holds
-                # D-Bus resources even when not connected.
-                # This is the ONLY disconnect call; it handles both
-                # clearing stale BlueZ state and releasing resources.
-                with contextlib.suppress(Exception):
-                    await stale.disconnect()
+            self._logger.debug(
+                "MeshCoreSession %s: best-effort stale BlueZ " "disconnect for %s",
+                self._adapter_id,
+                address,
+            )
+            # Unconditionally call disconnect() to clear any lingering
+            # BlueZ state for this address.  On a client that was never
+            # .connect()-ed this is a no-op or raises a harmless error.
+            with contextlib.suppress(Exception):
+                await stale.disconnect()
         except Exception:
             pass  # best-effort — proceed even if cleanup fails
 

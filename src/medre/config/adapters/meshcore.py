@@ -11,8 +11,8 @@ Validation rules
 - ``connection_type`` must be one of ``"fake"``, ``"tcp"``, ``"serial"``,
   or ``"ble"``.
 - Non-fake connection types require their associated field:
-  ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``, ``"ble"``
-  (future: will require ``ble_address``).
+  ``"tcp"`` → ``host``, ``"serial"`` → ``serial_port``,   ``"ble"``
+  → ``ble_address``.
 - ``port`` is optional; if provided must be ``int`` (not ``bool``)
   between 1 and 65535.
 - ``identity`` and ``pubkey`` are optional; if provided they must be
@@ -72,7 +72,7 @@ class MeshCoreConfig:
         Baud rate for serial connections.  Defaults to 115200.
     ble_address:
         BLE MAC address for BLE connections.  Required when
-        *connection_type* is ``"ble"`` (future).
+        *connection_type* is ``"ble"``.
     ble_pin:
         Optional BLE pairing PIN.  If provided, must be a non-empty
         string.  Passed to the SDK's ``create_ble(pin=...)`` for

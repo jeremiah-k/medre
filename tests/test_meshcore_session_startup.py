@@ -57,8 +57,7 @@ def _patch_ble_helpers():
             new=AsyncMock(),
         ),
         patch(
-            "medre.adapters.meshcore.session.MeshCoreSession"
-            "._find_ble_device",
+            "medre.adapters.meshcore.session.MeshCoreSession" "._find_ble_device",
             new=AsyncMock(return_value=None),
         ),
     ):

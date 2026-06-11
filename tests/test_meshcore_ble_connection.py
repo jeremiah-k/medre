@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,17 +30,29 @@ from tests.helpers.meshcore_session import (
 )
 
 
-def _make_config(**overrides) -> MeshCoreConfig:
-    defaults = dict(adapter_id="ble-test")
-    defaults.update(overrides)
-    return MeshCoreConfig(**defaults)
+def _make_config(
+    *,
+    adapter_id: str = "ble-test",
+    connection_type: Literal["fake", "tcp", "serial", "ble"] = "fake",
+    ble_address: str | None = None,
+    ble_pin: str | None = None,
+) -> MeshCoreConfig:
+    return MeshCoreConfig(
+        adapter_id=adapter_id,
+        connection_type=connection_type,
+        ble_address=ble_address,
+        ble_pin=ble_pin,
+    )
 
 
-def _make_ble_session(**config_overrides) -> MeshCoreSession:
+def _make_ble_session(
+    *,
+    ble_pin: str | None = None,
+) -> MeshCoreSession:
     config = _make_config(
         connection_type="ble",
         ble_address="AA:BB:CC:DD:EE:FF",
-        **config_overrides,
+        ble_pin=ble_pin,
     )
     return MeshCoreSession(config, "ble-test-session")
 
@@ -664,7 +677,10 @@ async def test_diagnostics_last_error_non_pin_ble_failure() -> None:
 
     assert session.last_error is not None
     assert "BLE adapter crashed" in session.last_error
-    """After stale BlueZ cleanup, re-scanned device is passed to next create_ble.
+
+
+async def test_stale_cleanup_before_rescan_order() -> None:
+    """Between retry attempts, stale cleanup runs before re-scan.
 
     Verifies the full between-attempt sequence: sleep → stale cleanup → re-scan.
     """
