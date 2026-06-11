@@ -57,7 +57,12 @@ The adapter-wrapper callback bridge is proven at the fake-pipeline level:
 
 ## BLE Validation
 
-Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware. Hardware validation against a real BLE node is pending.
+Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware. Live BLE validation was completed June 2026 against a MeshCore-92C8B4E7 node on Linux BlueZ with the following results:
+
+- Matrix to MeshCore: bidirectional relay working, 0 failures.
+- Meshtastic to MeshCore: bidirectional relay working, 0 failures.
+- All messages routed on channel index 0.
+- BLE connection required pre-scan and stale BlueZ device cleanup before connect (pattern sourced from mmrelay).
 
 ```bash
 export MESHCORE_CONNECTION_TYPE="ble"
@@ -67,18 +72,18 @@ pytest tests/test_meshcore_live.py -m live -v
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class           | Date | Result                                                                         |
-| ---- | ------------------- | ---- | ------------------------------------------------------------------------------ |
-| S    | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound                    |
-| S    | Wrapper callback    | —    | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound |
-| —    | Docker SDK-boundary | —    | Not proven (no containerized MeshCore node)                                    |
-| —    | Live network/radio  | —    | Not proven                                                                     |
+| Tier | Sub-class           | Date       | Result                                                                         |
+| ---- | ------------------- | ---------- | ------------------------------------------------------------------------------ |
+| S    | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                    |
+| S    | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound |
+| —    | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                    |
+| L    | Live network/radio  | 2026-06-11 | Proven: 3-way bridge (Matrix + Meshtastic + MeshCore BLE) bidirectional, 0 failures |
 
 ## Known Gaps
 
 - No Docker setup for MeshCore. No containerized node for Docker SDK-boundary tests.
-- BLE hardware validation pending (mock tests pass).
-- No live hardware smoke test recorded.
+- BLE live validation complete. Pre-scan and stale BlueZ cleanup required for reliable connect.
+- Live hardware smoke test recorded (BLE, June 2026).
 - Real TCP/serial connections work via `MeshCoreSession` but have not been exercised in a full live smoke test.
 
 ## See Also
