@@ -581,13 +581,43 @@ class MeshCoreSession:
                         "No response from MeshCore node (serial)"
                     )
             elif self._config.connection_type == "ble":
+                _addr = self._config.ble_address or ""
+
+                # -- Stale BlueZ cleanup (reconnect safety) --
+                # After a BLE disconnect, BlueZ may retain a cached
+                # "connected" entry for the address.  Subsequent
+                # BleakClient(address) calls then hit
+                # "le-connection-abort-by-local" because BlueZ tries
+                # to reuse the stale entry.  Explicitly disconnect
+                # any lingering connection and let the adapter
+                # settle before creating a fresh one.
+                # Pattern adapted from mmrelay's
+                # _disconnect_ble_by_address().
+                try:
+                    from bleak import BleakClient  # type: ignore[import-untyped]
+
+                    _stale = BleakClient(_addr, timeout=5.0)
+                    _connected = getattr(_stale, "is_connected", None)
+                    if _connected is True or (
+                        callable(_connected) and await _connected()
+                    ):
+                        self._logger.info(
+                            "MeshCoreSession %s: stale BlueZ connection "
+                            "detected for %s; disconnecting before reconnect",
+                            self._adapter_id,
+                            _addr,
+                        )
+                        await _stale.disconnect()
+                        await asyncio.sleep(1.0)  # let BlueZ release the adapter
+                except Exception:
+                    pass  # best-effort — proceed even if cleanup fails
+
                 # Pre-scan for the BLE device to obtain a BLEDevice object.
                 # On some Linux BlueZ stacks, BleakClient(address_string)
                 # fails with "le-connection-abort-by-local" while passing a
                 # BLEDevice from a scan succeeds.  The scan uses the same
                 # bleak library that is already a transitive dep of meshcore.
                 ble_device = None
-                _addr = self._config.ble_address or ""
                 try:
                     from bleak import BleakScanner  # type: ignore[import-untyped]
 
