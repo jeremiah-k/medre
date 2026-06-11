@@ -1017,9 +1017,10 @@ class TestSdkRetryDelayCaching:
     """Verify suggested_timeout is cached as instance attribute across
     send_text() calls and cleared on stop().
 
-    The cached value (_sdk_retry_delay) persists so that a successful DM
-    that captures a timeout can inform the retry delay of a subsequent
-    failing DM within the same session lifecycle.
+    The per-contact cached values (_contact_retry_delays) persist so that a
+    successful DM that captures a timeout can inform the retry delay of a
+    subsequent failing DM to the same contact within the same session
+    lifecycle.
     """
 
     def _make_session_with_mock(self) -> tuple[MeshCoreSession, AsyncMock]:
@@ -1046,7 +1047,7 @@ class TestSdkRetryDelayCaching:
         }
 
         await session.send_text("contact1", "test")
-        assert session._sdk_retry_delay == 5.0
+        assert session._contact_retry_delays.get("contact1") == 5.0
         assert session.diagnostics()["sdk_suggested_timeouts_used"] == 1
 
     async def test_failing_dm_retries_with_cached_timeout(self) -> None:
@@ -1061,7 +1062,7 @@ class TestSdkRetryDelayCaching:
             "suggested_timeout": 3000,
         }
         await session.send_text("contact1", "first")
-        assert session._sdk_retry_delay == 3.0
+        assert session._contact_retry_delays.get("contact1") == 3.0
 
         # Second call: fail on attempt 1, succeed on attempt 2
         call_count = 0
@@ -1084,7 +1085,7 @@ class TestSdkRetryDelayCaching:
             assert 3.0 in sleep_calls
 
     async def test_sdk_retry_delay_cleared_on_stop(self) -> None:
-        """stop() clears the cached _sdk_retry_delay."""
+        """stop() clears the per-contact retry delay cache."""
         session, mock_mc = self._make_session_with_mock()
         mock_mc.commands.send_msg.return_value = {
             "expected_ack": b"\x01\x02\x03\x04",
@@ -1092,12 +1093,12 @@ class TestSdkRetryDelayCaching:
         }
 
         await session.send_text("contact1", "test")
-        assert session._sdk_retry_delay is not None
+        assert len(session._contact_retry_delays) > 0
 
         # Mark started so stop() actually runs cleanup
         session._started = True
         await session.stop()
-        assert session._sdk_retry_delay is None
+        assert len(session._contact_retry_delays) == 0
 
 
 # ===================================================================

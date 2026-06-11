@@ -133,6 +133,16 @@ class LxmfAdapter(AdapterContract):
         # Cached health string from last health_check() call.
         self._last_health: str | None = None
 
+        # Inbound evidence counters.  LXMF does not expose packet classes
+        # like Meshtastic, so these count normalized message decisions.
+        self._classifier_messages_seen: int = 0
+        self._classifier_messages_relayed: int = 0
+        self._classifier_messages_ignored: int = 0
+        self._classifier_messages_ack_ignored: int = 0
+        self._classifier_messages_non_text_ignored: int = 0
+        self._inbound_duplicates_suppressed: int = 0
+        self._inbound_published: int = 0
+
         # Inbound dedup: keyed by (message_id, content).
         # Prevents duplicate events from Reticulum redelivery.
         # Including content ensures distinct payloads sharing the same
@@ -142,6 +152,35 @@ class LxmfAdapter(AdapterContract):
         self._inbound_dedup: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # -- Lifecycle ----------------------------------------------------------
+
+    def _reset_inbound_evidence(self) -> None:
+        """Reset per-session inbound counters and dedup state."""
+        self._classifier_messages_seen = 0
+        self._classifier_messages_relayed = 0
+        self._classifier_messages_ignored = 0
+        self._classifier_messages_ack_ignored = 0
+        self._classifier_messages_non_text_ignored = 0
+        self._inbound_duplicates_suppressed = 0
+        self._inbound_published = 0
+        self._inbound_dedup.clear()
+
+    def _classification_allows_relay(self, classification: dict[str, Any]) -> bool:
+        """Record a classifier decision and return whether it should relay."""
+        self._classifier_messages_seen += 1
+        if classification["category"] != "text":
+            self._classifier_messages_ignored += 1
+            self._classifier_messages_non_text_ignored += 1
+            return False
+        if classification["is_ack"]:
+            self._classifier_messages_ignored += 1
+            self._classifier_messages_ack_ignored += 1
+            return False
+        return True
+
+    def _record_duplicate_suppressed(self) -> None:
+        """Record an inbound duplicate suppressed before publish."""
+        self._classifier_messages_ignored += 1
+        self._inbound_duplicates_suppressed += 1
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the LXMF router/node and begin receiving events.
@@ -166,12 +205,15 @@ class LxmfAdapter(AdapterContract):
         # never reports a stale health string from a previous session.
         self._last_health = None
 
-        self._inbound_dedup.clear()
+        self._reset_inbound_evidence()
         self.ctx = ctx
-        self._mark_started(ctx)
+        # NOTE: _mark_started is deferred until after session.start succeeds.
+        # Early call would leak _start_time past a failed startup.
 
         if self._config.connection_type != "fake":
             if not HAS_LXMF:
+                self.ctx = None
+                self._start_time = None
                 raise LxmfConnectionError(
                     "lxmf/RNS not installed; pip install 'medre[lxmf]'. "
                     f"connection_type={self._config.connection_type!r}"
@@ -181,14 +223,42 @@ class LxmfAdapter(AdapterContract):
             await self._session.start(
                 message_callback=self._on_packet,
             )
+        except asyncio.CancelledError:
+            # Best-effort cleanup of partially-started session.
+            try:
+                await asyncio.shield(self._session.stop(timeout=2.0))
+            except Exception:
+                pass
+            self._session = None
+            self._started = False
+            self._start_time = None
+            self.ctx = None
+            raise
         except LxmfConnectionError:
+            # Best-effort cleanup of partially-started session.
+            try:
+                await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
+            self._started = False
+            self._start_time = None
+            self.ctx = None
             raise
         except Exception as exc:
+            # Best-effort cleanup of partially-started session.
+            try:
+                await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
+            self._started = False
+            self._start_time = None
+            self.ctx = None
             raise LxmfConnectionError(f"LXMF session failed to start: {exc}") from exc
 
         # Wire delivery state callback for terminal state notifications.
         self._session.set_delivery_state_callback(self._on_delivery_state)
 
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info(
             "LxmfAdapter %s started (mode=%s)",
@@ -208,11 +278,16 @@ class LxmfAdapter(AdapterContract):
             Maximum seconds to wait for a clean shutdown.
         """
         if not self._started:
+            # Still clean up any lingering session from a failed/cancelled start.
+            if self._session is not None:
+                await self._session.stop(timeout=timeout)
+                self._session = None
             return
 
         # Gate callbacks immediately — prevents race between drain completing
         # and session.stop() unsubscribing.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
@@ -238,7 +313,7 @@ class LxmfAdapter(AdapterContract):
         """
         if self._started:
             health = "healthy"
-        elif self._session.connected and not self._started:
+        elif self._session is not None and self._session.connected and not self._started:
             health = "failed"
         else:
             health = "unknown"
@@ -269,24 +344,34 @@ class LxmfAdapter(AdapterContract):
             "started": self._started,
             "mode": self._config.connection_type,
             "health": self._last_health,
+            "classifier_messages_seen": self._classifier_messages_seen,
+            "classifier_messages_relayed": self._classifier_messages_relayed,
+            "classifier_messages_ignored": self._classifier_messages_ignored,
+            "classifier_messages_ack_ignored": self._classifier_messages_ack_ignored,
+            "classifier_messages_non_text_ignored": (
+                self._classifier_messages_non_text_ignored
+            ),
+            "inbound_duplicates_suppressed": self._inbound_duplicates_suppressed,
+            "inbound_published": self._inbound_published,
         }
         if self._session is not None:
+            session_diag = self._session.diagnostics()
             base["session"] = {
-                "connected": self._session.connected,
-                "router_running": self._session.router_running,
-                "reconnecting": self._session.reconnecting,
-                "reconnect_attempts": self._session.reconnect_attempts,
-                "transient_delivery_failures": (
-                    self._session.transient_delivery_failures
-                ),
-                "permanent_delivery_failures": (
-                    self._session.permanent_delivery_failures
-                ),
-                "last_error": self._session.last_error,
-                "mode": self._config.connection_type,
-                "announces_sent": self._session.announces_sent,
-                "announce_failures": self._session.announce_failures,
-                "last_announce_error": self._session.last_announce_error,
+                "connected": session_diag.connected,
+                "router_running": session_diag.router_running,
+                "reconnecting": session_diag.reconnecting,
+                "reconnect_attempts": session_diag.reconnect_attempts,
+                "last_message_time": session_diag.last_message_time,
+                "transient_delivery_failures": session_diag.transient_delivery_failures,
+                "permanent_delivery_failures": session_diag.permanent_delivery_failures,
+                "last_error": session_diag.last_error,
+                "known_path_count": session_diag.known_path_count,
+                "propagation_enabled": session_diag.propagation_enabled,
+                "pending_delivery_count": session_diag.pending_delivery_count,
+                "mode": session_diag.mode,
+                "announces_sent": session_diag.announces_sent,
+                "announce_failures": session_diag.announce_failures,
+                "last_announce_error": session_diag.last_announce_error,
             }
         return base
 
@@ -439,9 +524,7 @@ class LxmfAdapter(AdapterContract):
 
         try:
             classification = self._classifier.classify(packet)
-            if classification["category"] != "text":
-                return
-            if classification["is_ack"]:
+            if not self._classification_allows_relay(classification):
                 return
 
             # Dedup: suppress exact duplicate messages by message_id + content.
@@ -453,7 +536,10 @@ class LxmfAdapter(AdapterContract):
                 dedup_key = (str(msg_id), str(packet.get("content", "")))
                 if dedup_key in self._inbound_dedup:
                     self._inbound_dedup.move_to_end(dedup_key)
+                    self._record_duplicate_suppressed()
                     return
+
+            self._classifier_messages_relayed += 1
 
             # Decode before committing dedup key so that decode failures
             # do not suppress redelivery of the same packet.
@@ -503,7 +589,10 @@ class LxmfAdapter(AdapterContract):
         """
         try:
             if self.ctx is not None and self._started:
+                is_stale = self._is_stale_event(canonical)
                 await self.publish_inbound(canonical)
+                if not is_stale:
+                    self._inbound_published += 1
         except Exception:
             # Roll back dedup key so redelivery is not suppressed.
             if dedup_key is not None:
@@ -530,6 +619,8 @@ class LxmfAdapter(AdapterContract):
         state:
             Lowercase terminal state string.
         """
+        if not self._started:
+            return
         if self.ctx is not None:
             self.ctx.logger.info(
                 "LxmfAdapter %s: delivery %s → %s",
@@ -567,9 +658,7 @@ class LxmfAdapter(AdapterContract):
             return
 
         classification = self._classifier.classify(packet)
-        if classification["category"] != "text":
-            return
-        if classification["is_ack"]:
+        if not self._classification_allows_relay(classification):
             return
 
         # Dedup: suppress exact duplicate messages by message_id + content.
@@ -579,12 +668,18 @@ class LxmfAdapter(AdapterContract):
             dedup_key = (str(msg_id), str(packet.get("content", "")))
             if dedup_key in self._inbound_dedup:
                 self._inbound_dedup.move_to_end(dedup_key)
+                self._record_duplicate_suppressed()
                 return
+
+        self._classifier_messages_relayed += 1
 
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.
         canonical = self._codec.decode(packet)
+        is_stale = self._is_stale_event(canonical)
         await self.publish_inbound(canonical)
+        if not is_stale:
+            self._inbound_published += 1
 
         # Commit dedup key only after successful decode + publish.
         if dedup_key is not None:

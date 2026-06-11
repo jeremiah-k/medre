@@ -249,6 +249,7 @@ class MatrixAdapter(AdapterContract):
         "_codec",
         "_relation_handler",
         "_envelope_handler",
+        "_started",
         "ctx",
         # Track 5 — delivery retry stats
         "_transient_delivery_failures",
@@ -277,6 +278,7 @@ class MatrixAdapter(AdapterContract):
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
+        self._started: bool = False
         self.ctx: AdapterContext | None = None
         # Track 5
         self._transient_delivery_failures: int = 0
@@ -333,9 +335,10 @@ class MatrixAdapter(AdapterContract):
         self._inbound_filtered_allowlist = 0
         self._inbound_suppressed_startup = 0
         self.ctx = ctx
-        self._mark_started(ctx)
 
         if not HAS_NIO:
+            self.ctx = None
+            self._start_time = None
             raise MatrixConnectionError(
                 "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
@@ -356,29 +359,72 @@ class MatrixAdapter(AdapterContract):
             logger=session_logger,
             auto_join_rooms=self._config.auto_join_rooms,
         )
-        await self._session.start()
-
-        ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
+        try:
+            await self._session.start()
+        except asyncio.CancelledError:
+            # Synchronously clear adapter-owned fields before re-raising.
+            # Best-effort session cleanup — shielded so it can't be cancelled.
+            try:
+                await asyncio.shield(self._session.stop())
+            except Exception:
+                pass
+            self._session = None
+            self._started = False
+            self._start_time = None
+            self.ctx = None
+            raise
+        except Exception as exc:
+            self._sync_failure_stored = exc
+            try:
+                await self._session.stop()
+            except Exception:
+                pass  # best-effort cleanup
+            self._session = None
+            self._started = False
+            self._start_time = None
+            self.ctx = None
+            raise
 
         # Part D — auto-join configured rooms after startup.
         if self._config.auto_join_rooms:
-            join_results = await self._session.ensure_joined_rooms(
-                self._config.auto_join_rooms
-            )
-            joined_count = sum(1 for v in join_results.values() if v)
-            failed_count = len(join_results) - joined_count
-            ctx.logger.info(
-                "Auto-join: %d configured, %d joined, %d failed",
-                len(self._config.auto_join_rooms),
-                joined_count,
-                failed_count,
-            )
+            ctx.logger.debug("Matrix session connected; joining configured rooms")
+            try:
+                join_results = await self._session.ensure_joined_rooms(
+                    self._config.auto_join_rooms
+                )
+                joined_count = sum(1 for v in join_results.values() if v)
+                failed_count = len(join_results) - joined_count
+                ctx.logger.info(
+                    "Auto-join: %d configured, %d joined, %d failed",
+                    len(self._config.auto_join_rooms),
+                    joined_count,
+                    failed_count,
+                )
+            except Exception as exc:
+                # Auto-join failed — capture actual exception, clean up.
+                self._sync_failure_stored = exc
+                try:
+                    await self._session.stop()
+                except Exception:
+                    pass  # best-effort cleanup
+                self._session = None
+                self._started = False
+                self._start_time = None
+                self.ctx = None
+                raise
+
+        self._started = True
+        self._mark_started(ctx)
+        ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
 
         Idempotent: safe to call multiple times or before start().
         """
+        self._started = False
+        self._start_time = None
+
         if self._session is not None:
             # Capture failure before stopping for health_check.
             self._sync_failure_stored = self._session.last_sync_error
@@ -711,7 +757,7 @@ class MatrixAdapter(AdapterContract):
             ``body``, ``event_id``, ``source``, ``msgtype``,
             ``server_timestamp``, ``sender_display_name``.
         """
-        if self.ctx is None:
+        if self.ctx is None or not self._started:
             return
 
         room_id = str(event.get("room_id", "") or "")

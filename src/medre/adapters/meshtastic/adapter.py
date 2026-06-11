@@ -233,7 +233,6 @@ class MeshtasticAdapter(AdapterContract):
         self._last_health = None
 
         self.ctx = ctx
-        self._mark_started(ctx)
 
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
@@ -246,9 +245,22 @@ class MeshtasticAdapter(AdapterContract):
         # Register our inbound packet callback with the session
         try:
             await self._session.start(message_callback=self._on_packet)
-        except Exception:
-            # Clean up session on failure
+        except asyncio.CancelledError:
+            # Clear adapter-owned fields synchronously — no await.
             self._session = None
+            self.ctx = None
+            self._start_time = None
+            raise
+        except Exception:
+            # Best-effort cleanup of partially-started session.
+            try:
+                if self._session is not None:
+                    await self._session.stop(timeout=5.0)
+            except Exception:
+                pass
+            self._session = None
+            self.ctx = None
+            self._start_time = None
             raise
 
         # Session-scoped startup backlog baseline — set AFTER session connects
@@ -259,6 +271,8 @@ class MeshtasticAdapter(AdapterContract):
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
 
+        # Record start time only after session and infrastructure are up.
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info(
             "MeshtasticAdapter %s started (mode=%s)",
@@ -290,6 +304,7 @@ class MeshtasticAdapter(AdapterContract):
         # causes _on_packet to return early, preventing new
         # run_coroutine_threadsafe submissions.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
@@ -725,13 +740,21 @@ class MeshtasticAdapter(AdapterContract):
         Raises
         ------
         RuntimeError
-            If the adapter has not been started yet.
+            If the adapter has never been started in this lifecycle
+            (no runtime context is available).
+
+        Notes
+        -----
+        If the adapter was started and later stopped, this method
+        returns without publishing.
         """
         if self.ctx is None:
             raise RuntimeError(
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+        if not self._started:
+            return
 
         session = self._session
         classification = self._classifier.classify(

@@ -238,6 +238,8 @@ class FakeMatrixAdapter(AdapterContract):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+        if not self._started:
+            return
         await self.publish_inbound(event)
         self.inbound_events.append(event)
         _trim(self.inbound_events)

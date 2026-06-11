@@ -331,7 +331,7 @@ class TestSuggestedTimeoutInSend:
                 raise RuntimeError("transient failure")
             return {
                 "expected_ack": b"\x01\x02\x03\x04",
-                "suggested_timeout": 2000,  # 2.0 s, but clamped to 0.5 floor
+                "suggested_timeout": 2000,  # 2.0 s, within floor/ceil range
             }
 
         mock_mc.commands.send_msg.side_effect = _fail_then_succeed
@@ -417,6 +417,90 @@ class TestSuggestedTimeoutInSend:
         assert isinstance(diag["sdk_suggested_timeouts_used"], int)
         # Verify JSON round-trip.
         json.dumps(diag["sdk_suggested_timeouts_used"])
+
+
+# ===================================================================
+# Module-level suggested timeout attribute tests
+# ===================================================================
+
+
+async def test_attributes_suggested_timeout_valid() -> None:
+    """Object result with .attributes dict extracts suggested_timeout."""
+    from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+    session, mock_mc = _make_session_with_mock()
+    # Result where payload is not a dict but attributes is, with
+    # both expected_ack and suggested_timeout.
+    mock_mc.commands.send_msg.return_value = MockEvent(
+        event_type=MockEventType.MSG_SENT,
+        payload=None,
+        attributes={
+            "expected_ack": b"\xab\x12\x00\x00",
+            "suggested_timeout": 3000,
+        },
+    )
+
+    result = await session.send_text("contact1", "test")
+    assert result == "ab120000"
+    assert session.diagnostics()["sdk_suggested_timeouts_used"] == 1
+    assert session._contact_retry_delays.get("contact1") == 3.0
+
+
+async def test_attributes_suggested_timeout_invalid() -> None:
+    """Invalid suggested_timeout in .attributes does not increment counter."""
+    from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+    session, mock_mc = _make_session_with_mock()
+    mock_mc.commands.send_msg.return_value = MockEvent(
+        event_type=MockEventType.MSG_SENT,
+        payload=None,
+        attributes={
+            "expected_ack": b"\xab\x12\x00\x00",
+            "suggested_timeout": "not_a_number",
+        },
+    )
+
+    result = await session.send_text("contact1", "test")
+    assert result == "ab120000"
+    assert session.diagnostics()["sdk_suggested_timeouts_used"] == 0
+    assert "contact1" not in session._contact_retry_delays
+
+
+async def test_attributes_expected_ack_and_suggested_timeout_together() -> None:
+    """Both native_message_id and suggested_timeout extracted from .attributes."""
+    from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+    session, mock_mc = _make_session_with_mock()
+    mock_mc.commands.send_msg.return_value = MockEvent(
+        event_type=MockEventType.MSG_SENT,
+        payload=None,
+        attributes={
+            "expected_ack": b"\xcd\x34\x00\x00",
+            "suggested_timeout": 5000,
+        },
+    )
+
+    result = await session.send_text("contact1", "test")
+    assert result == "cd340000"
+    assert session.diagnostics()["sdk_suggested_timeouts_used"] == 1
+    assert session._contact_retry_delays.get("contact1") == 5.0
+
+
+async def test_channel_send_with_attributes_suggested_timeout_no_increment() -> None:
+    """Channel sends with attributes suggested_timeout do NOT increment counter."""
+    from tests.helpers.meshcore_session import MockEvent, MockEventType
+
+    session, mock_mc = _make_session_with_mock()
+    mock_mc.commands.send_chan_msg.return_value = MockEvent(
+        event_type=MockEventType.MSG_SENT,
+        payload=None,
+        attributes={
+            "suggested_timeout": 2000,
+        },
+    )
+
+    await session.send_text("ignored", "test", channel_index=0)
+    assert session.diagnostics()["sdk_suggested_timeouts_used"] == 0
 
 
 # ===================================================================

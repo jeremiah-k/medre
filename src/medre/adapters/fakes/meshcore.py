@@ -405,6 +405,8 @@ class FakeMeshCoreAdapter(AdapterContract):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+        if not self._started:
+            return
 
         classification = self._classifier.classify(packet)
         increment_classifier_counters(self, classification)

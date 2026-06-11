@@ -186,9 +186,8 @@ class TestMatrixAdapterStart:
         adapter = MatrixAdapter(config)
         with pytest.raises(MatrixConnectionError, match="failed to authenticate"):
             await adapter.start(_make_context())
-        # Session exists but the underlying client was cleaned up
-        assert adapter._session is not None
-        assert adapter._session._client is None
+        # Session was cleaned up after failed start
+        assert adapter._session is None
 
     async def test_start_sync_failure_raises(self, mock_nio):
         """start() raises when asyncio.create_task fails."""
@@ -200,9 +199,8 @@ class TestMatrixAdapterStart:
         ):
             with pytest.raises(MatrixConnectionError, match="failed to start sync"):
                 await adapter.start(_make_context())
-        # Session exists but the underlying client was cleaned up
-        assert adapter._session is not None
-        assert adapter._session._client is None
+        # Session was cleaned up after failed start
+        assert adapter._session is None
 
     async def test_start_passes_configured_store_path_to_async_client(self, mock_nio):
         """start() forwards config.store_path to nio.AsyncClient."""

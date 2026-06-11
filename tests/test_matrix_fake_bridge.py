@@ -441,6 +441,7 @@ class TestMatrixInboundToFakeOutbound:
 
         ctx = _make_context(adapter_id="matrix-channel", publish_inbound=_capture)
         matrix_adapter.ctx = ctx
+        matrix_adapter._started = True
 
         room = _make_nio_room("!channel_room:example.com")
         event = _make_nio_event(

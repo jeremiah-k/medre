@@ -297,7 +297,6 @@ class MeshCoreAdapter(AdapterContract):
         self._reset_inbound_counters()
 
         self.ctx = ctx
-        self._mark_started(ctx)
 
         # Create and start the session.
         self._session = MeshCoreSession(
@@ -306,8 +305,29 @@ class MeshCoreAdapter(AdapterContract):
             platform=self.platform,
             logger=ctx.logger,
         )
-        await self._session.start(message_callback=self._on_message)
+        try:
+            await self._session.start(message_callback=self._on_message)
+        except asyncio.CancelledError:
+            # Clear adapter-owned fields synchronously before re-raise.
+            self._session = None
+            self._started = False
+            self.ctx = None
+            self._start_time = None
+            raise
+        except Exception:
+            # Best-effort cleanup: stop session, clear all state, re-raise.
+            try:
+                if self._session is not None:
+                    await self._session.stop()
+            except Exception:
+                pass
+            self._session = None
+            self._started = False
+            self.ctx = None
+            self._start_time = None
+            raise
 
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info(
             "MeshCoreAdapter %s started (mode=%s)",
@@ -332,6 +352,7 @@ class MeshCoreAdapter(AdapterContract):
         # Gate callbacks immediately — prevents race between drain completing
         # and session.stop() unsubscribing.
         self._started = False
+        self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
@@ -717,6 +738,7 @@ class MeshCoreAdapter(AdapterContract):
                 "radio_freq": None,
                 "mode": self._config.connection_type,
                 "sdk_suggested_timeouts_used": 0,
+                "sdk_contact_timeout_count": 0,
                 "known_contact_count": 0,
                 "last_contact_update_time": None,
             }

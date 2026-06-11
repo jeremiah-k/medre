@@ -41,11 +41,22 @@ Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics(
 
 **Meshtastic/MeshCore note:** Session-level diagnostics are exposed via a `session` sub-dict within the adapter-level diagnostics dict.
 
-**MeshCore exception:** MeshCore does not currently expose a `health` key in its diagnostics output. The `health` key is provided via `health_check()` returning `AdapterInfo`, not via the `diagnostics()` dict.
+**MeshCore note:** The `health` key appears in the adapter-level diagnostics
+dict (set by the last `health_check()` call) as well as in `health_check()`
+returning `AdapterInfo`. The `session.sdk_contact_timeout_count` key is
+aggregate-only — it exposes the number of contacts with cached SDK
+`suggested_timeout` hints, never contact IDs, public keys, or timeout values.
 
-**LXMF note:** Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top.
+**LXMF note:** Adapter-level diagnostics include classifier message counters
+and `inbound_published`. The `session` sub-dict exposes LXMF session fields
+(connected, router_running, known_path_count, propagation_enabled,
+pending_delivery_count, announce counters, delivery failures, and last error).
+All values are JSON-safe primitives.
 
-These eight keys are contractual for the current version. They SHALL NOT be removed or have their types changed without a version bump.
+These eight keys SHALL be present across all adapter implementations. Their
+location (adapter-level vs session sub-dict) varies by adapter. The current
+MeshCore and LXMF implementations satisfy this contract. Keys SHALL NOT be
+removed or have their types changed without a version bump.
 
 ## 3. Per-Adapter Diagnostic Keys
 
@@ -101,33 +112,51 @@ Session sub-dict keys (`session.*`):
 | `session.channel_count`    | `int`           | Configured channels           |
 | `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
-### 3.3 MeshCore (adapter-level: 3 keys; session sub-dict: 11 keys)
+### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 15 keys)
 
-**Common keys present:** `connected`, `reconnecting`, `reconnect_attempts`, `last_error`, `transient_delivery_failures`, `permanent_delivery_failures`, `mode` (7 of 8 common keys). The `health` key is not currently implemented for MeshCore.
+All 8 common keys are present. The `health` key is reported via the adapter-level diagnostics dict as well as via `health_check()`.
 
 Adapter-level keys:
 
-| Key          | Type  | Semantics                                 |
-| ------------ | ----- | ----------------------------------------- |
-| `adapter_id` | `str` | Adapter identifier                        |
-| `platform`   | `str` | Always `"meshcore"`                       |
-| `mode`       | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+| Key                                     | Type          | Semantics                                    |
+| --------------------------------------- | ------------- | -------------------------------------------- |
+| `adapter_id`                            | `str`         | Adapter identifier                           |
+| `platform`                              | `str`         | Always `"meshcore"`                          |
+| `started`                               | `bool`        | Adapter lifecycle state                      |
+| `mode`                                  | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`    |
+| `health`                                | `str or None` | One of the six health vocabulary strings     |
+| `health_lifecycle_epoch`                | `int`         | Monotonically incrementing lifecycle counter |
+| `classifier_packets_seen`               | `int`         | Total packets classified                     |
+| `classifier_packets_relayed`            | `int`         | Packets relayed (published inbound)          |
+| `classifier_packets_ignored`            | `int`         | Packets ignored (non-relay classification)   |
+| `classifier_packets_dropped`            | `int`         | Packets dropped (malformed, encrypted, etc.) |
+| `classifier_packets_deferred`           | `int`         | Packets deferred (unknown portnum, etc.)     |
+| `classifier_packets_ack_ignored`        | `int`         | ACK packets ignored                          |
+| `classifier_packets_empty_text_ignored` | `int`         | Empty-text packets ignored                   |
+| `classifier_packets_unknown_deferred`   | `int`         | Unknown-category packets deferred            |
+| `classifier_packets_dm_relayed`         | `int`         | DM packets relayed                           |
+| `classifier_packets_malformed`          | `int`         | Malformed packets seen                       |
+| `inbound_published`                     | `int`         | Inbound canonical events published           |
 
 Session sub-dict keys (`session.*`):
 
-| Key                                   | Type            | Semantics                                                          |
-| ------------------------------------- | --------------- | ------------------------------------------------------------------ |
-| `session.connected`                   | `bool`          | Transport connection state                                         |
-| `session.reconnecting`                | `bool`          | Active reconnect loop in progress                                  |
-| `session.reconnect_attempts`          | `int`           | Current reconnect attempt count                                    |
-| `session.last_error`                  | `str or None`   | Last exception string                                              |
-| `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                             |
-| `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                             |
-| `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                 |
-| `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                         |
-| `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)           |
-| `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                            |
-| `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`) |
+| Key                                   | Type            | Semantics                                                                                                                              |
+| ------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.connected`                   | `bool`          | Transport connection state                                                                                                             |
+| `session.reconnecting`                | `bool`          | Active reconnect loop in progress                                                                                                      |
+| `session.reconnect_attempts`          | `int`           | Current reconnect attempt count                                                                                                        |
+| `session.last_error`                  | `str or None`   | Last exception string                                                                                                                  |
+| `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                                                                                                 |
+| `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                                                                                                 |
+| `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                                                                                     |
+| `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                                                                                             |
+| `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)                                                                               |
+| `session.radio_freq`                  | `float or None` | Radio frequency in MHz (default `None`)                                                                                                |
+| `session.mode`                        | `str`           | Config connection type (`"fake"`, `"tcp"`, `"serial"`, or `"ble"`)                                                                     |
+| `session.sdk_suggested_timeouts_used` | `int`           | Count of SDK `suggested_timeout` hints consumed                                                                                        |
+| `session.sdk_contact_timeout_count`   | `int`           | Aggregate-only count of contacts with cached SDK `suggested_timeout` hints. Never exposes contact IDs, public keys, or timeout values. |
+| `session.known_contact_count`         | `int`           | Known contacts from CONTACTS events (diagnostics only)                                                                                 |
+| `session.last_contact_update_time`    | `str or None`   | ISO 8601 timestamp of last CONTACTS event                                                                                              |
 
 ### 3.4 LXMF (6 keys)
 

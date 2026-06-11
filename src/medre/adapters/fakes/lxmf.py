@@ -356,13 +356,22 @@ class FakeLxmfAdapter(AdapterContract):
         Raises
         ------
         RuntimeError
-            If the adapter has not been started yet.
+            If the adapter has not been started yet (``ctx`` is ``None``).
+
+        Notes
+        -----
+        After :meth:`stop` has been called, ``_started`` is ``False`` and
+        this method becomes a silent no-op — it returns immediately without
+        processing or publishing the packet.  This mirrors the lifecycle
+        behaviour of the real LXMF adapter.
         """
         if self.ctx is None:
             raise RuntimeError(
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
+        if not self._started:
+            return
 
         classification = self._classifier.classify(packet)
         if classification["category"] != "text":
