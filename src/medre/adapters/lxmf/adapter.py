@@ -313,7 +313,7 @@ class LxmfAdapter(AdapterContract):
         """
         if self._started:
             health = "healthy"
-        elif self._session.connected and not self._started:
+        elif self._session is not None and self._session.connected and not self._started:
             health = "failed"
         else:
             health = "unknown"
