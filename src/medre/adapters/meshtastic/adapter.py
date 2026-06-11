@@ -725,7 +725,13 @@ class MeshtasticAdapter(AdapterContract):
         Raises
         ------
         RuntimeError
-            If the adapter has not been started yet.
+            If the adapter has never been started in this lifecycle
+            (no runtime context is available).
+
+        Notes
+        -----
+        If the adapter was started and later stopped, this method
+        returns without publishing.
         """
         if self.ctx is None:
             raise RuntimeError(

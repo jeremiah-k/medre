@@ -21,6 +21,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
+from medre.core.events.canonical import CanonicalEvent
 from tests.helpers.bridge import make_meshcore_packet
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
@@ -42,7 +43,7 @@ def _lxmf_packet(content: str = "hello", message_id: str = "cd" * 32) -> dict[st
     }
 
 
-def _matrix_event(adapter: FakeMatrixAdapter) -> Any:
+def _matrix_event(adapter: FakeMatrixAdapter) -> CanonicalEvent:
     return adapter.make_event(text="late matrix")
 
 
@@ -60,7 +61,7 @@ def _matrix_room_event() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "name,adapter_factory,payload_factory",
+    ("name", "adapter_factory", "payload_factory"),
     [
         (
             "matrix",

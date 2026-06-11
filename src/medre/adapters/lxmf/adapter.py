@@ -553,8 +553,10 @@ class LxmfAdapter(AdapterContract):
         """
         try:
             if self.ctx is not None and self._started:
+                is_stale = self._is_stale_event(canonical)
                 await self.publish_inbound(canonical)
-                self._inbound_published += 1
+                if not is_stale:
+                    self._inbound_published += 1
         except Exception:
             # Roll back dedup key so redelivery is not suppressed.
             if dedup_key is not None:
@@ -638,8 +640,10 @@ class LxmfAdapter(AdapterContract):
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.
         canonical = self._codec.decode(packet)
+        is_stale = self._is_stale_event(canonical)
         await self.publish_inbound(canonical)
-        self._inbound_published += 1
+        if not is_stale:
+            self._inbound_published += 1
 
         # Commit dedup key only after successful decode + publish.
         if dedup_key is not None:

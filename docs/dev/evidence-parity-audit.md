@@ -12,7 +12,18 @@
 
 This audit compares how the four MEDRE adapters produce evidence through their `diagnostics()` methods and `health_check()` APIs. The [Diagnostics and Evidence Specification](../spec/diagnostics-evidence.md) §2 defines eight contractual common keys that SHALL appear in every adapter's `diagnostics()` output. This audit measures actual production against that contract, identifies gaps, inconsistencies, and misleading evidence, and ranks implementation opportunities by operational value.
 
-**Key finding:** All four adapters now include both `health` and `mode` keys in their `diagnostics()` output. Meshtastic, MeshCore, and LXMF all report `health` via a cached `_last_health` value (set by `health_check()`), and `mode` via their configured connection mode where applicable. Meshtastic and MeshCore provide a full fallback `session` sub-dict when no session is active. LXMF's `_session` is never set to `None` (created in `__init__`, retained through `stop()`), so the session sub-dict is always present in practice. The normalization layer (`diagnostic_contract.py`) resolves any remaining missing keys to `None`, preserving JSON-safety. Remaining gaps: LXMF session fallback is structurally absent (the `if self._session is not None` guard omits the key if `_session` were ever `None`); queue evidence for Matrix and MeshCore; common-key location normalization.
+**Key finding:** All four adapters now include both `health` and `mode` keys in
+their `diagnostics()` output. Meshtastic, MeshCore, and LXMF all report `health`
+via a cached `_last_health` value (set by `health_check()`), and `mode` via
+their configured connection mode where applicable. Meshtastic and MeshCore
+provide a full fallback `session` sub-dict when no session is active. LXMF's
+`_session` is never set to `None` (created in `__init__`, retained through
+`stop()`), so the session sub-dict is always present in practice. The
+normalization layer (`diagnostic_contract.py`) resolves any remaining missing
+keys to `None`, preserving JSON-safety. Remaining gaps: LXMF session fallback is
+structurally absent (the `if self._session is not None` guard omits the key if
+`_session` were ever `None`); queue evidence for Matrix and MeshCore; common-key
+location normalization.
 
 ## 2. Relevant Testing Rules
 
@@ -107,7 +118,15 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 
 **LXMF assessment:** 8/8 common keys present. `health` and `mode` at adapter top level. Six remaining common keys in `session` sub-dict. `_session` is created in `__init__` and never set to `None`, so the session sub-dict is always present in practice. However, the code has a structural `if self._session is not None` guard that would omit the `session` key if `_session` were ever `None`; this is a defensive gap rather than an observed one. `_last_health` is cleared to `None` in both `start()` and `stop()`. `diagnostics().health` may be `None` until `health_check()` is called again; this is intentional (no fresh health snapshot for the current lifecycle). `_inbound_dedup` is cleared in `stop()` via `self._inbound_dedup.clear()`.
 
-**LXMF spec/implementation note:** The spec (§3.4 LXMF note) states: "Session diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen dataclass. The LXMF adapter does not layer its own outer diagnostics dict on top." The actual `LxmfAdapter.diagnostics()` implementation layers an outer dict with `adapter_id`, `platform`, `started`, `mode`, and a `session` sub-dict. The adapter now surfaces the spec-defined session fields (`last_message_time`, `known_path_count`, `propagation_enabled`, `pending_delivery_count`) inside that session sub-dict, preserving the current adapter-dict shape while closing the missing-field gap.
+**LXMF spec/implementation note:** The spec (§3.4 LXMF note) states: "Session
+diagnostics are exposed directly via the `LxmfSessionDiagnostics` frozen
+dataclass. The LXMF adapter does not layer its own outer diagnostics dict on
+top." The actual `LxmfAdapter.diagnostics()` implementation layers an outer dict
+with `adapter_id`, `platform`, `started`, `mode`, and a `session` sub-dict. The
+adapter now surfaces the spec-defined session fields (`last_message_time`,
+`known_path_count`, `propagation_enabled`, `pending_delivery_count`) inside that
+session sub-dict, preserving the current adapter-dict shape while closing the
+missing-field gap.
 
 ## 5. Evidence Category Parity by Adapter
 
@@ -132,7 +151,10 @@ The spec (§2) requires eight keys in every adapter's `diagnostics()` output. Th
 | Queue health | None   | `queue` dict (utilization, timing)             | None     | None                               |
 | Parity       | None   | **Reference implementation**                   | None     | Minimal                            |
 
-**Gap:** MeshCore and Matrix produce zero queue evidence. Operators running MeshCore or Matrix adapters have no visibility into outbound queue depth, send throughput, or queue health. LXMF has minimal queue evidence through `session.pending_delivery_count`.
+**Gap:** MeshCore and Matrix produce zero queue evidence. Operators running
+MeshCore or Matrix adapters have no visibility into outbound queue depth, send
+throughput, or queue health. LXMF has minimal queue evidence through
+`session.pending_delivery_count`.
 
 ### 5.3 Retry Evidence
 
@@ -176,7 +198,12 @@ Shutdown evidence is runtime-level (`ShutdownEvidence` dataclass) and not adapte
 | Suppression counters | 4 types                | 1 (startup backlog)          | None        | 3 counters |
 | Startup backlog      | None                   | `startup_backlog_*` (3 keys) | None        | None       |
 
-**Gap:** MeshCore has classifier counters but no suppression breakdown. LXMF now exposes message-level ingress counters (`classifier_messages_seen`, `classifier_messages_relayed`, `classifier_messages_ignored`, `classifier_messages_ack_ignored`, `classifier_messages_non_text_ignored`, `inbound_duplicates_suppressed`, `inbound_published`) rather than packet-class counters.
+**Gap:** MeshCore has classifier counters but no suppression breakdown. LXMF now
+exposes message-level ingress counters (`classifier_messages_seen`,
+`classifier_messages_relayed`, `classifier_messages_ignored`,
+`classifier_messages_ack_ignored`, `classifier_messages_non_text_ignored`,
+`inbound_duplicates_suppressed`, `inbound_published`) rather than packet-class
+counters.
 
 ### 5.7 Adapter Health Evidence
 
@@ -235,7 +262,9 @@ All adapters produce health through the same path:
 **Scope:** LXMF only
 **Status:** Resolved. `LxmfAdapter.diagnostics()` now includes `last_message_time`, `known_path_count`, `propagation_enabled`, and `pending_delivery_count` in the `session` sub-dict.
 
-**Shape note:** The adapter still returns an outer diagnostics dict with a nested `session` sub-dict. This differs from the spec note that describes direct dataclass exposure, but the missing operational fields are now visible.
+**Shape note:** The adapter still returns an outer diagnostics dict with a
+nested `session` sub-dict. This differs from the spec note that describes direct
+dataclass exposure, but the missing operational fields are now visible.
 
 ### 6.7 Misleading evidence: `connected: true` does not guarantee next-operation success
 
