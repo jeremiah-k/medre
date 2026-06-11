@@ -27,8 +27,8 @@ async def check():
     if mc is None:
         print("ERROR: create_tcp returned None (appstart failed)")
         return
-    print(f"Connected: {mc.is_connected}")
-    print(f"Self info: {mc.self_info}")
+    print("Connected: create_* returned a client")
+    # self_info is populated after appstart(); availability depends on SDK version
     await mc.disconnect()
 
 asyncio.run(check())
@@ -60,8 +60,8 @@ Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshC
 
 Results:
 
-- Matrix to MeshCore: bidirectional routing observed.
-- Meshtastic to MeshCore: bidirectional routing observed.
+- Matrix ↔ MeshCore: bidirectional routing observed.
+- Meshtastic ↔ MeshCore: bidirectional routing observed.
 - All messages routed on channel index 0.
 - Connection and reconnect bugs were observed during testing and are being tracked.
 - BLE connection required pre-scan and stale BlueZ device cleanup before connecting (pattern sourced from mmrelay).
@@ -94,7 +94,7 @@ pytest tests/test_meshcore_live.py -m live -v
 ## Serial-First Three-Transport Bridge
 
 For a serial-first bring-up procedure that wires Matrix, Meshtastic, and
-MeshCore together with four unidirectional routes, see
+MeshCore together with four additional one-way MeshCore routes, see
 [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md).
 
 ## See Also

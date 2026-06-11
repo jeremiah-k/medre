@@ -646,9 +646,7 @@ class MeshCoreSession:
                 self._adapter_id,
                 address,
             )
-            # Unconditionally call disconnect() to clear any lingering
-            # BlueZ state for this address.  On a client that was never
-            # .connect()-ed this is a no-op or raises a harmless error.
+            # Unconditional disconnect — see docstring rationale.
             with contextlib.suppress(Exception):
                 await stale.disconnect()
         except Exception:

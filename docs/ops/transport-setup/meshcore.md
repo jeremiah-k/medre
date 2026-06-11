@@ -40,8 +40,8 @@ async def check():
     if mc is None:
         print("ERROR: create_tcp returned None (appstart failed)")
         return
-    print(f"Connected: {mc.is_connected}")
-    print(f"Self info: {mc.self_info}")
+    print("Connected: create_* returned a client")
+    # self_info is populated after appstart(); availability depends on SDK version
     await mc.disconnect()
 
 asyncio.run(check())
