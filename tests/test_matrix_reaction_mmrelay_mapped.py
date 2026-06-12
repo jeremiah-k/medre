@@ -253,7 +253,7 @@ class TestMeshtasticToMatrixMappedReaction:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     meshnet_name="testnet",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )

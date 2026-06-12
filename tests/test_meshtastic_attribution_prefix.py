@@ -6,6 +6,7 @@ Split from test_meshtastic_renderer_extra.py to stay under the 1500-line cap.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
@@ -162,18 +163,12 @@ def _make_renderer_with_attribution(
     )
 
 
+@dataclass
 class _StubSourceAttribution:
     """Minimal duck-typed SourceAttributionConfig for tests."""
 
-    def __init__(
-        self,
-        adapter_id: str = "",
-        origin_label: str = "",
-        meshnet_name: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-        self.meshnet_name = meshnet_name
+    adapter_id: str = ""
+    origin_label: str = ""
 
 
 class TestSourceOriginLabel:
@@ -259,12 +254,10 @@ class TestSourceOriginLabel:
                 "radio-alpha": _StubSourceAttribution(
                     adapter_id="radio-alpha",
                     origin_label="East Radio",
-                    meshnet_name="AlphaNet",
                 ),
                 "radio-bravo": _StubSourceAttribution(
                     adapter_id="radio-bravo",
                     origin_label="West Radio",
-                    meshnet_name="BravoNet",
                 ),
             },
         )

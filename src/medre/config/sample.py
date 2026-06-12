@@ -193,7 +193,7 @@ allowed_event_types = ["message.created"]
 # connection_type = "tcp"
 # host = "192.168.1.50"
 # port = 4403
-# origin_label = "MyMesh"
+# origin_label = "MyMeshFanout"
 
 # [routes.matrix_fanout]
 # source_adapters = ["main"]

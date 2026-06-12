@@ -864,3 +864,71 @@ class TestSourceAttributionRegistry:
         assert "mx_only" in sa
         assert sa["mx_only"].platform == "matrix"
         assert sa["mx_only"].origin_label == "Standalone Matrix"
+
+    def test_mixed_real_and_configless_meshtastic_both_in_source_attribution(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """One Meshtastic adapter with a real config and one config-less fake
+        adapter both appear in source_attribution after builder synthesis.
+
+        Regression: the old code only synthesized fallback MeshtasticConfigs
+        when the *entire* ``meshtastic_configs`` map was empty, so a mixed
+        scenario would omit the config-less adapter.  The fix mirrors the
+        per-adapter fallback pattern already used by MeshCore/LXMF.
+        """
+        # Adapter with a full real config (has origin_label).
+        real_cfg = MeshtasticConfig(
+            adapter_id="radio_real",
+            connection_type="fake",
+            origin_label="RealRadio",
+        ).validate()
+        rt_real = MeshtasticRuntimeConfig(
+            adapter_id="radio_real",
+            enabled=True,
+            adapter_kind="fake",
+            config=real_cfg,
+        )
+
+        # Config-less fake adapter (config=None).
+        rt_fake = MeshtasticRuntimeConfig(
+            adapter_id="radio_fake",
+            enabled=True,
+            adapter_kind="fake",
+            config=None,
+        )
+
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                meshtastic={
+                    "radio_real": rt_real,
+                    "radio_fake": rt_fake,
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = _find_renderer_by_name(app, "meshtastic")
+        assert renderer is not None, "MeshtasticRenderer must be registered"
+        sa = renderer._source_attribution
+
+        # Both adapters must be present in source_attribution.
+        assert (
+            "radio_real" in sa
+        ), "Configured Meshtastic adapter missing from source_attribution"
+        assert (
+            "radio_fake" in sa
+        ), "Config-less fake Meshtastic adapter missing from source_attribution"
+
+        # Real adapter preserves its origin_label.
+        assert sa["radio_real"].platform == "meshtastic"
+        assert sa["radio_real"].origin_label == "RealRadio"
+
+        # Fake adapter gets empty origin_label (no config to read from).
+        assert sa["radio_fake"].platform == "meshtastic"
+        assert sa["radio_fake"].origin_label == ""
+
+        # Both adapter configs wired into renderer for target-aware rendering.
+        assert "radio_real" in renderer._configs
+        assert "radio_fake" in renderer._configs

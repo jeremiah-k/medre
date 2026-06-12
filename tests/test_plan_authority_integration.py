@@ -67,6 +67,7 @@ class _RecordingPipeline:
         max_text_bytes: int | None = None,
         delivery_strategy: str | None = None,
         capability_level: str | None = None,
+        source_origin_label: str | None = None,
     ) -> RenderingResult:
         self.recorded_capability_level = capability_level
         self.recorded_delivery_strategy = delivery_strategy

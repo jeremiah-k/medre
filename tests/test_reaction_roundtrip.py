@@ -321,7 +321,7 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET,
-                        matrix_relay_prefix="[{longname}] ",
+                        matrix_relay_prefix="[{sender}] ",
                     ),
                 },
             ),
@@ -436,7 +436,7 @@ class TestMatrixReactionToMeshtasticRoundtrip:
         # -- Setup adapters and pipeline -----------------------------------
         radio_config = MeshtasticConfig(
             adapter_id=_RADIO_ALPHA,
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
         )
         radio_adapter = FakeMeshtasticAdapter(radio_config)
 
@@ -647,7 +647,7 @@ class TestMultiRadioReactionRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET,
-                        matrix_relay_prefix="[{longname}] ",
+                        matrix_relay_prefix="[{sender}] ",
                     ),
                 },
             ),

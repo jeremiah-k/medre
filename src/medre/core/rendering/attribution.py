@@ -426,6 +426,7 @@ def _extract_matrix_fields(
         # Generic fields.
         "source_sender_label": display_str,
         "source_sender_short_label": short_label,
+        "source_sender_handle": sender_str,
     }
 
 

@@ -281,21 +281,21 @@ def _register_adapter_renderers(
                 meshcore_configs[_adapter_id] = rtc.config
             if _transport == "lxmf" and getattr(rtc, "config", None) is not None:
                 lxmf_configs[_adapter_id] = rtc.config
-        # Fallback: if no real configs but Meshtastic adapters exist (e.g.
-        # adapter_kind="fake" where rtc.config is None), synthesize defaults
-        # so the renderer is registered and target-aware rendering works.
-        if not meshtastic_configs and config.adapters.meshtastic:
-            import importlib
-
-            _meshtastic_mod = importlib.import_module(
-                "medre.config.adapters.meshtastic"
-            )
-            _MConfig = _meshtastic_mod.MeshtasticConfig
+        # Fallback: synthesize default MeshtasticConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.meshtastic:
             for adapter_id in config.adapters.meshtastic:
-                meshtastic_configs[adapter_id] = _MConfig(
-                    adapter_id=adapter_id,
-                    radio_relay_prefix="",
-                )
+                if adapter_id not in meshtastic_configs:
+                    import importlib
+
+                    _meshtastic_mod = importlib.import_module(
+                        "medre.config.adapters.meshtastic"
+                    )
+                    _MConfig = _meshtastic_mod.MeshtasticConfig
+                    meshtastic_configs[adapter_id] = _MConfig(
+                        adapter_id=adapter_id,
+                        radio_relay_prefix="",
+                    )
         # Fallback: synthesize default MeshCoreConfigs for adapters that
         # lack a real config (e.g. fake adapters in mixed configs).
         if config.adapters.meshcore:

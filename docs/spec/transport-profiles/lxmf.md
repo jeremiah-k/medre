@@ -12,21 +12,21 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 ## Configuration Fields
 
-| Field                       | Type                                                     | Default      | Description                                                                                                                    |
-| --------------------------- | -------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `adapter_id`                | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                                             |
-| `connection_type`           | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                                                |
-| `display_name`              | `str`                                                    | `""`         | Display name for LXMF announces                                                                                                |
-| `stamp_cost`                | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                                               |
-| `default_delivery_method`   | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                                                   |
-| `origin_label`              | `str`                                                    | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                              |
-| `default_channel`           | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                                             |
-| `message_delay_seconds`     | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                                               |
-| `metadata_embedding`        | `bool`                                                   | `True`       | Embed MEDRE metadata envelopes in LXMF fields                                                                                  |
-| `identity_path`             | `str \| None`                                            | `None`       | Path to Reticulum identity file; auto-generated if `None`                                                                      |
-| `storage_path`              | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — LXMF `LXMRouter` raises `ValueError` without it in the validated SDK version |
-| `announce_interval_seconds` | `float`                                                  | `600.0`      | Interval in seconds between periodic LXMF announces; `0` disables                                                              |
-| `lxmf_relay_prefix`         | `str`                                                    | `""`         | Relay prefix template for outbound body text (empty = no prefix; see §Relay Attribution Prefix)                                |
+| Field                       | Type                                                     | Default      | Description                                                                                                                                         |
+| --------------------------- | -------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`                | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                                                                  |
+| `connection_type`           | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                                                                     |
+| `display_name`              | `str`                                                    | `""`         | Display name for LXMF announces                                                                                                                     |
+| `stamp_cost`                | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                                                                    |
+| `default_delivery_method`   | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                                                                        |
+| `origin_label`              | `str`                                                    | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                                                   |
+| `default_channel`           | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                                                                  |
+| `message_delay_seconds`     | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                                                                    |
+| `metadata_embedding`        | `bool`                                                   | `True`       | Embed MEDRE metadata envelopes in LXMF fields                                                                                                       |
+| `identity_path`             | `str \| None`                                            | `None`       | Path to Reticulum identity file; auto-generated if `None`                                                                                           |
+| `storage_path`              | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — config validation raises `LxmfConfigError`; session start raises `LxmfConnectionError` without it |
+| `announce_interval_seconds` | `float`                                                  | `600.0`      | Interval in seconds between periodic LXMF announces; `0` disables                                                                                   |
+| `lxmf_relay_prefix`         | `str`                                                    | `""`         | Relay prefix template for outbound body text (empty = no prefix; see §Relay Attribution Prefix)                                                     |
 
 ---
 
@@ -116,9 +116,11 @@ identity hash — templates referencing `{sender}` or `{sender_short}` resolve
 to empty strings for LXMF-origin events. Operators SHOULD prefer
 `{origin_label}` or `{sender_id}` for LXMF-bound prefixes.
 
-**Truncation:** The prefix is prepended to the content body before
-character-budget truncation (`max_text_chars`, default 16384) and before
-envelope handling. The rendered prefix counts toward the character budget.
+**Order of operations:** The MEDRE metadata envelope is embedded in the
+LXMF `fields` dict first; the relay prefix is then prepended to the
+content body text; character-budget truncation (`max_text_chars`,
+default 16384) is applied last. The rendered prefix counts toward the
+character budget.
 
 **Metadata keys** (conditional, only when prefix is configured):
 

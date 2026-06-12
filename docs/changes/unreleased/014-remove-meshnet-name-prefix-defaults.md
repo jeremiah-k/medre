@@ -57,6 +57,9 @@ MEDRE-generic source label for cross-platform prefix templates.
 - `meshnet_name`: Removed from transport profile config tables. The
   underlying field no longer exists on adapter configs.
 
-Existing configs with `meshnet_name` or `matrix_relay_prefix` will still
-load — unknown TOML keys are ignored by the config loader. Operators should
-migrate to `origin_label` and `MatrixConfig.relay_prefix`.
+Existing adapter configs with `meshnet_name` or `matrix_relay_prefix`
+will still load — the adapter config loader silently ignores unknown
+keys. Operators should migrate to `origin_label` and
+`MatrixConfig.relay_prefix`. Route policy sub-tables reject unknown
+keys, but `meshnet_name` and `matrix_relay_prefix` were adapter-level
+fields, so existing route configs are unaffected.

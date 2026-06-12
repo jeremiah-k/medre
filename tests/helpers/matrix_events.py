@@ -29,8 +29,8 @@ def make_matrix_event(
         source_channel_id="ch-0",
         parent_event_id=None,
         lineage=(),
-        relations=relations or (),
-        payload=payload or {"body": "hello"},
+        relations=relations if relations is not None else (),
+        payload=payload if payload is not None else {"body": "hello"},
         metadata=EventMetadata(),
     )
 
@@ -64,7 +64,7 @@ def make_meshtastic_event(
 ) -> CanonicalEvent:
     """Build a CanonicalEvent simulating a Meshtastic source."""
     metadata = EventMetadata()
-    if native_data:
+    if native_data is not None:
         metadata = EventMetadata(native=NativeMetadata(data=native_data))
     return CanonicalEvent(
         event_id="evt-mesh-1",
@@ -76,7 +76,7 @@ def make_meshtastic_event(
         source_channel_id="ch-0",
         parent_event_id=None,
         lineage=(),
-        relations=relations or (),
-        payload=payload or {"body": "hello mesh"},
+        relations=relations if relations is not None else (),
+        payload=payload if payload is not None else {"body": "hello mesh"},
         metadata=metadata,
     )

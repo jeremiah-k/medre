@@ -669,7 +669,7 @@ class TestFakeInboundToMeshtasticOutbound:
             event_id="evt-enqueue",
             target_adapter="bridge-enqueue-id",
             target_channel="0",
-            payload={"text": "enqueue test", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "enqueue test", "channel_index": 0},
         )
         delivery = await mesh_adapter.deliver(result)
 

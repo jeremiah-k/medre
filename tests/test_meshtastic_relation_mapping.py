@@ -377,7 +377,7 @@ class TestMeshtasticToMatrixReplyResolution:
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET_NAME,
-                        matrix_relay_prefix="[{longname}] ",
+                        matrix_relay_prefix="[{sender}] ",
                     ),
                 },
             ),

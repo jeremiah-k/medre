@@ -226,8 +226,8 @@ class TestFullFakeRuntimeHappyPath:
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
             assert (
-                "body" in payload.payload
-            )  # MatrixRenderer produces {"body": ..., "msgtype": ...}
+                "text" in payload.payload
+            )  # TextRenderer produces {"text": ...} (fake adapters skip MatrixRenderer)
             assert payload.target_adapter == "mx_beta"
 
             # -- DeliveryReceipt with full field verification --

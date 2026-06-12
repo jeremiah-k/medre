@@ -851,7 +851,7 @@ class TestMMRelayReactionBodyFormat:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     meshnet_name="mynet",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1201,7 +1201,7 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1220,7 +1220,7 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1239,7 +1239,7 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )

@@ -247,6 +247,28 @@ class TestOldVariablesAreUnknown:
         assert name in result.unknown_variables
         assert result.formatting_error is not None
 
+    @pytest.mark.parametrize(
+        "name",
+        ["from_id", "longname", "shortname", "shortname5", "meshnet_name"],
+    )
+    def test_old_vars_still_unknown_after_extraction(self, name: str) -> None:
+        """Old variables remain unknown even after Matrix extraction populates
+        sender_handle.  Regression guard against broad alias reintroduction."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@alice:matrix.org",
+                "displayname": "Alice",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        # sender_handle should be populated
+        assert attr.source_sender_handle == "@alice:matrix.org"
+        # But old vars are still unknown in templates
+        result = format_relay_prefix("{" + name + "}", attr)
+        assert result.rendered_prefix == "{" + name + "}"
+        assert name in result.unknown_variables
+
 
 # ===================================================================
 # Explicit empty sender_short_label
@@ -493,6 +515,45 @@ class TestExtractionMatrix:
         attr = extract_relay_attribution(event)
         result = format_relay_prefix("{sender}", attr)
         assert result.rendered_prefix == "Alice Display"
+
+    def test_matrix_sender_handle_populated_from_mxid(self) -> None:
+        """Matrix extraction populates source_sender_handle from sender MXID."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@carol:matrix.org",
+                "displayname": "Carol",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_handle == "@carol:matrix.org"
+
+    def test_matrix_sender_handle_renders_via_template(self) -> None:
+        """{sender_handle} renders the MXID through the formatter."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@dave:example.com",
+                "displayname": "Dave",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("{sender_handle}", attr)
+        assert result.rendered_prefix == "@dave:example.com"
+        assert "sender_handle" in result.variables_used
+        assert not result.missing_variables
+
+    def test_matrix_missing_sender_handle_renders_empty(self) -> None:
+        """When no sender in native data, {sender_handle} renders empty."""
+        event = _make_event(
+            source_adapter="matrix-bridge",
+            native_data={},
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_handle is None
+        result = format_relay_prefix("{sender_handle}", attr)
+        assert result.rendered_prefix == ""
+        assert "sender_handle" in result.missing_variables
 
 
 # ===================================================================

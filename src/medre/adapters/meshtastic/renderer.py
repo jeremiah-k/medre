@@ -407,19 +407,30 @@ class MeshtasticRenderer:
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
         is_descriptive_reaction = False
+        prefix_result: PrefixFormatterResult = PrefixFormatterResult(
+            rendered_prefix="",
+            template_used="",
+            variables_used=(),
+            missing_variables=(),
+            unknown_variables=(),
+            formatting_error=None,
+        )
 
         if event.relations:
             rel = event.relations[0]
 
             if is_fallback:
                 # -- fallback_text: degrade relations into plain text --------
-                content["text"] = self._render_fallback_text(
+                fallback_text, fallback_prefix = self._render_fallback_text(
                     event,
                     rel,
                     prefix,
                     target_adapter,
                     source_origin_label=effective_origin_label,
                 )
+                content["text"] = fallback_text
+                if fallback_prefix is not None:
+                    prefix_result = fallback_prefix
                 if rel.relation_type == "reaction" and not self._is_native_reaction(
                     event,
                     target_adapter,
@@ -487,14 +498,6 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        prefix_result: PrefixFormatterResult = PrefixFormatterResult(
-            rendered_prefix="",
-            template_used="",
-            variables_used=(),
-            missing_variables=(),
-            unknown_variables=(),
-            formatting_error=None,
-        )
         if not is_structured_reaction and not is_descriptive_reaction:
             prefix_result = self._format_prefix_for(
                 event,
@@ -566,7 +569,7 @@ class MeshtasticRenderer:
         prefix: str,
         target_adapter: str,
         source_origin_label: str | None = None,
-    ) -> str:
+    ) -> tuple[str, PrefixFormatterResult | None]:
         """Render relation semantics as degraded text for fallback_text mode.
 
         In fallback_text mode, native relation fields (``reply_id``,
@@ -583,11 +586,16 @@ class MeshtasticRenderer:
             Radio relay prefix template from adapter config.
         target_adapter:
             The target adapter identifier.
+        source_origin_label:
+            Pre-resolved origin label for prefix formatting.
 
         Returns
         -------
-        str
-            Text with relation semantics degraded into readable form.
+        tuple[str, PrefixFormatterResult | None]
+            ``(text, prefix_result)`` where *text* has relation semantics
+            degraded into readable form and *prefix_result* is the compact
+            prefix formatter result when a cross-platform reaction was
+            rendered, or ``None`` otherwise.
         """
         if rel.relation_type == "reply":
             # Reply degraded to text: include "[replying to: …]" prefix.
@@ -595,18 +603,18 @@ class MeshtasticRenderer:
             # When absent, resolve a deterministic marker from target_event_id
             # or target_native_ref so relation context is never lost.
             if rel.fallback_text:
-                return self._extract_text(event)
+                return (self._extract_text(event), None)
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
                 body = str(event.payload.get("text", event.payload.get("body", "")))
-                return f"[replying to: {target_marker}] {body}"
-            return self._extract_text(event)
+                return (f"[replying to: {target_marker}] {body}", None)
+            return (self._extract_text(event), None)
 
         if rel.relation_type == "reaction":
             emoji_text = self._resolve_emoji_text(rel, event) or ""
             if self._is_native_reaction(event, target_adapter):
                 # Native reaction degraded to readable text (no tapback).
-                return f"[reacted: {emoji_text}]"
+                return (f"[reacted: {emoji_text}]", None)
             # Cross-platform reaction: MMRelay-style descriptive text,
             # but without native reply_id.
             orig_preview = self._abbreviated_original_text(event, rel)
@@ -627,29 +635,32 @@ class MeshtasticRenderer:
             sep = ""
             if compact_prefix and not compact_prefix[-1:].isspace():
                 sep = " "
-            return f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"'
+            return (
+                f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"',
+                cp_result,
+            )
 
         if rel.relation_type == "edit":
             payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             if payload_text:
-                return f"[edited] {payload_text}"
-            return "[edited]"
+                return (f"[edited] {payload_text}", None)
+            return ("[edited]", None)
 
         if rel.relation_type == "delete":
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
-                return f"[deleted: {target_marker}]"
-            return "[deleted]"
+                return (f"[deleted: {target_marker}]", None)
+            return ("[deleted]", None)
 
         if rel.relation_type == "thread":
             payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             target_marker = self._resolve_reply_target_marker(rel) or "?"
             if payload_text:
-                return f"[thread: {target_marker}] {payload_text}"
-            return f"[thread: {target_marker}]"
+                return (f"[thread: {target_marker}] {payload_text}", None)
+            return (f"[thread: {target_marker}]", None)
 
         # Unknown relation types: standard text extraction.
-        return self._extract_text(event)
+        return (self._extract_text(event), None)
 
     @staticmethod
     def _resolve_reply_target_marker(rel: EventRelation) -> str | None:
