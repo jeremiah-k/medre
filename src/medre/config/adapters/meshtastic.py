@@ -60,10 +60,10 @@ class MeshtasticConfig:
         with generic variables: ``{sender}``, ``{sender_short}``,
         ``{sender_id}``, ``{origin_label}``, ``{platform}``,
         ``{channel}``, ``{route_id}``.
-        Default: ``"{sender_short}[M]: "``.
+        Default: ``"{sender_short}: "``.
         Matches mmrelay's ``DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "``.
 
-        Example: ``"{sender_short}[M]: "``
+        Example: ``"{sender_short}: "``
     mmrelay_compatibility:
         When ``True``, the Matrix renderer embeds mmrelay-compatible
         Meshtastic metadata into the Matrix event content payload.  This
@@ -126,7 +126,7 @@ class MeshtasticConfig:
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    radio_relay_prefix: str = "{sender_short}[M]: "
+    radio_relay_prefix: str = "{sender_short}: "
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3

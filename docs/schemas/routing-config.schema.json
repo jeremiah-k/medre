@@ -81,6 +81,11 @@
           ],
           "default": null,
           "description": "Mapping of Meshtastic channel strings ('0'–'7') to Matrix room IDs."
+        },
+        "origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source-side human-readable label for this route. When set, overrides the source adapter's origin_label in relay-prefix attribution. This is source-context metadata, not a routing key or delivery evidence."
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
@@ -164,6 +169,10 @@
             },
             { "type": "null" }
           ],
+          "default": null
+        },
+        "origin_label": {
+          "type": ["string", "null"],
           "default": null
         }
       },

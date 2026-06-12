@@ -212,8 +212,9 @@ value is empty string.
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
 
-**Default prefix:** `"{sender_short}[M]: "` — matches mmrelay's
-`DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "`.
+**Default prefix:** `"{sender_short}: "` — matches mmrelay's
+`DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "` minus the hardcoded
+platform tag.
 
 **compact mode:** Used for cross-platform reactions. Strips spaces
 from sender labels before template substitution.
@@ -230,12 +231,12 @@ Prefix is applied **before** UTF-8 byte-budget truncation.
 
 `src/medre/config/adapters/meshtastic.py`:
 
-| Field                   | Default                 | Purpose                                          |
-| ----------------------- | ----------------------- | ------------------------------------------------ |
-| `radio_relay_prefix`    | `"{sender_short}[M]: "` | Default for Matrix→mesh body prefix              |
-| `mmrelay_compatibility` | `False`                 | Inject MMRelay mesh metadata into Matrix content |
-| `origin_label`          | `""`                    | Available as `{origin_label}` in both prefixes   |
-| `max_text_bytes`        | `227`                   | UTF-8 byte budget after rendering                |
+| Field                   | Default              | Purpose                                          |
+| ----------------------- | -------------------- | ------------------------------------------------ |
+| `radio_relay_prefix`    | `"{sender_short}: "` | Default for Matrix→mesh body prefix              |
+| `mmrelay_compatibility` | `False`              | Inject MMRelay mesh metadata into Matrix content |
+| `origin_label`          | `""`                 | Available as `{origin_label}` in both prefixes   |
+| `max_text_bytes`        | `227`                | UTF-8 byte budget after rendering                |
 
 ---
 
@@ -512,7 +513,7 @@ string), the variable resolves to an empty string.
 
 MeshCore and LXMF have relay prefix support via `meshcore_relay_prefix`
 and `lxmf_relay_prefix`, but both default to `""` (no prefix). Meshtastic
-defaults to `"{sender_short}[M]: "` for radio. Matrix uses `MatrixConfig.relay_prefix`
+defaults to `"{sender_short}: "` for radio. Matrix uses `MatrixConfig.relay_prefix`
 (target-local, default `""`). Operators must explicitly
 configure MeshCore, LXMF, and Matrix prefixes to get attribution on those
 transports.

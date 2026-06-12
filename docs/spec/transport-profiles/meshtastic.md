@@ -12,25 +12,25 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field                              | Type                                   | Default                 | Description                                                       |
-| ---------------------------------- | -------------------------------------- | ----------------------- | ----------------------------------------------------------------- |
-| `adapter_id`                       | `str`                                  | _(required)_            | Unique adapter instance identifier                                |
-| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`                | Connection mode                                                   |
-| `host`                             | `str \| None`                          | `None`                  | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
-| `port`                             | `int \| None`                          | `None`                  | Port for TCP (default 4403)                                       |
-| `serial_port`                      | `str \| None`                          | `None`                  | Serial device path (required when `connection_type="serial"`)     |
-| `ble_address`                      | `str \| None`                          | `None`                  | BLE MAC address (required when `connection_type="ble"`)           |
-| `origin_label`                     | `str`                                  | `""`                    | Platform-neutral operator-defined source label for relay prefixes |
-| `default_channel`                  | `int`                                  | `0`                     | Default radio channel index for outbound                          |
-| `channel_mapping`                  | `dict[int, str]`                       | `{}`                    | Display-label map (NOT a relay allowlist)                         |
-| `message_delay_seconds`            | `float`                                | `0.5`                   | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                   | Window after start to suppress stale packets                      |
-| `sync_timeout_ms`                  | `int`                                  | `30000`                 | Sync operation timeout                                            |
-| `radio_relay_prefix`               | `str`                                  | `"{sender_short}[M]: "` | Prefix template for Matrix→Meshtastic direction                   |
-| `mmrelay_compatibility`            | `bool`                                 | `False`                 | Embed mmrelay-compatible mesh metadata in Matrix events           |
-| `max_text_bytes`                   | `int`                                  | `227`                   | UTF-8 byte budget for final radio text                            |
-| `queue_send_max_attempts`          | `int`                                  | `3`                     | Max send attempts per queued item                                 |
-| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`             | `"listen_only"` suppresses all radio sends                        |
+| Field                              | Type                                   | Default              | Description                                                       |
+| ---------------------------------- | -------------------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `adapter_id`                       | `str`                                  | _(required)_         | Unique adapter instance identifier                                |
+| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`             | Connection mode                                                   |
+| `host`                             | `str \| None`                          | `None`               | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
+| `port`                             | `int \| None`                          | `None`               | Port for TCP (default 4403)                                       |
+| `serial_port`                      | `str \| None`                          | `None`               | Serial device path (required when `connection_type="serial"`)     |
+| `ble_address`                      | `str \| None`                          | `None`               | BLE MAC address (required when `connection_type="ble"`)           |
+| `origin_label`                     | `str`                                  | `""`                 | Platform-neutral operator-defined source label for relay prefixes |
+| `default_channel`                  | `int`                                  | `0`                  | Default radio channel index for outbound                          |
+| `channel_mapping`                  | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
+| `message_delay_seconds`            | `float`                                | `0.5`                | Minimum seconds between outbound messages                         |
+| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
+| `sync_timeout_ms`                  | `int`                                  | `30000`              | Sync operation timeout                                            |
+| `radio_relay_prefix`               | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
+| `mmrelay_compatibility`            | `bool`                                 | `False`              | Embed mmrelay-compatible mesh metadata in Matrix events           |
+| `max_text_bytes`                   | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
+| `queue_send_max_attempts`          | `int`                                  | `3`                  | Max send attempts per queued item                                 |
+| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |
 
 ---
 
@@ -69,7 +69,7 @@ and replies. It is **not** applied for structured native reactions
 compact prefix in the text body).
 
 **Configuration:** `radio_relay_prefix` (string, default
-`"{sender_short}[M]: "`).
+`"{sender_short}: "`).
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from

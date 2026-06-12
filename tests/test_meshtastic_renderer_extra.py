@@ -1126,7 +1126,7 @@ class TestSharedAttributionMeshCore:
 
     async def test_pubkey_prefix_in_sender_id(self) -> None:
         """MeshCore event with pubkey_prefix populates sender_id."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
         event = CanonicalEvent(
             event_id="mc-1",
             event_kind="message.created",
@@ -1147,7 +1147,7 @@ class TestSharedAttributionMeshCore:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert text.startswith("a1b2c3[M]: ")
+        assert text.startswith("a1b2c3: ")
         assert "None" not in text
 
     async def test_pubkey_prefix_in_sender_id_template(self) -> None:
@@ -1181,7 +1181,7 @@ class TestSharedAttributionLXMF:
 
     async def test_source_hash_in_sender_id(self) -> None:
         """LXMF event with source_hash populates {sender_id}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
         event = CanonicalEvent(
             event_id="lx-1",
             event_kind="message.created",
@@ -1202,11 +1202,11 @@ class TestSharedAttributionLXMF:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert text.startswith("deadbeef[M]: ")
+        assert text.startswith("deadbeef: ")
 
     async def test_source_hash_in_sender_short(self) -> None:
         """LXMF event with source_hash: sender_short is empty (no short label)."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
         event = CanonicalEvent(
             event_id="lx-2",
             event_kind="message.created",
@@ -1228,7 +1228,7 @@ class TestSharedAttributionLXMF:
         )
         text = result.payload["text"]
         # No short label → sender_short renders empty
-        assert text.startswith("[M]: ")
+        assert text.startswith(": ")
 
 
 class TestMissingVarsNeverRenderNone:
@@ -1292,7 +1292,7 @@ class TestPrefixFormatterMetadata:
 
     async def test_metadata_records_prefix_template_and_variables(self) -> None:
         """Result metadata includes prefix_template_used, prefix_variables_used."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
         event = CanonicalEvent(
             event_id="evt-meta",
             event_kind="message.created",
@@ -1315,13 +1315,13 @@ class TestPrefixFormatterMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         # Legacy keys (backward compatibility)
-        assert result.metadata["radio_relay_prefix"] == "TestUser[M]: "
-        assert result.metadata["prefix_template_used"] == "{sender_short}[M]: "
+        assert result.metadata["radio_relay_prefix"] == "TestUser: "
+        assert result.metadata["prefix_template_used"] == "{sender_short}: "
         assert "prefix_variables_used" in result.metadata
         assert "sender_short" in result.metadata["prefix_variables_used"]
         # Normalized keys
-        assert result.metadata["relay_prefix_template"] == "{sender_short}[M]: "
-        assert result.metadata["relay_prefix_rendered"] == "TestUser[M]: "
+        assert result.metadata["relay_prefix_template"] == "{sender_short}: "
+        assert result.metadata["relay_prefix_rendered"] == "TestUser: "
         assert "relay_prefix_variables_used" in result.metadata
         assert "sender_short" in result.metadata["relay_prefix_variables_used"]
         assert "relay_prefix_missing_variables" in result.metadata
@@ -1345,7 +1345,7 @@ class TestPrefixFormatterMetadata:
 
     async def test_metadata_records_missing_variables(self) -> None:
         """Result metadata records variables that resolved to empty."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}: ")
         event = CanonicalEvent(
             event_id="evt-miss",
             event_kind="message.created",

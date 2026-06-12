@@ -98,6 +98,8 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
+        "sender": "@user:example.com",
+        "displayname": display_name,
         "longname": display_name,
         "shortname": display_name.split()[0] if display_name else "",
         "from_id": "@user:example.com",
@@ -214,7 +216,7 @@ class TestCrossPlatformReactionDescriptive:
         """Display name spaces are stripped in the prefix; casing preserved."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(
@@ -239,7 +241,7 @@ class TestCrossPlatformReactionDescriptive:
         """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(key="👋", fallback_text="hi")
@@ -630,7 +632,7 @@ class TestFallbackTextReplyRelationContext:
         """Fallback-text reply gets radio_relay_prefix prepended."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{shortname5}] ",
+            radio_relay_prefix="[{sender_short}] ",
         )
         native_ref = NativeRef(
             adapter="mesh-1",

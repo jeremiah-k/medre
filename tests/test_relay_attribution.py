@@ -745,9 +745,9 @@ class TestExtractionAndFormatting:
             native_data={"pubkey_prefix": "aabbcc"},
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{sender_short}[M]: ", attr)
+        result = format_relay_prefix("{sender_short}: ", attr)
         # No short label → sender_short is empty
-        assert result.rendered_prefix == "[M]: "
+        assert result.rendered_prefix == ": "
         assert "sender_short" in result.missing_variables
 
     def test_matrix_sender_id_template(self) -> None:
@@ -1011,6 +1011,69 @@ class TestPlatformDetectionFromNativeKeys:
         )
         attr = extract_relay_attribution(event)
         assert attr.source_platform is None
+
+
+class TestPlatformDetectionMixedKeys:
+    """Matrix keys win over Meshtastic bare keys when both are present.
+
+    Matrix native data may be enriched with Meshtastic-style bare keys
+    (``longname``, ``shortname``) by the relay pipeline.  The
+    Matrix-specific keys (``sender``, ``event_id``, ``room_id``) are a
+    stronger signal and MUST be detected first.
+    """
+
+    def test_matrix_wins_over_meshtastic_when_both_present(self) -> None:
+        """Native data with both Matrix and Meshtastic keys -> platform=matrix."""
+        event = _make_event(
+            source_adapter="bridge",
+            native_data={
+                "sender": "@alice:matrix.org",
+                "event_id": "$event123",
+                "longname": "Alice Radio",
+                "shortname": "AR",
+                "from_id": "!aabbcc",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "matrix"
+        assert attr.source_sender_id == "@alice:matrix.org"
+
+    def test_matrix_sender_with_meshtastic_longname_detects_matrix(self) -> None:
+        """Only ``sender`` (Matrix) + ``longname`` (Meshtastic) -> matrix."""
+        event = _make_event(
+            source_adapter="relay",
+            native_data={
+                "sender": "@bob:matrix.org",
+                "longname": "Bob Node",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "matrix"
+
+    def test_matrix_room_id_with_meshtastic_from_id_detects_matrix(self) -> None:
+        """``room_id`` (Matrix) + ``from_id`` (Meshtastic bare) -> matrix."""
+        event = _make_event(
+            source_adapter="bridge",
+            native_data={
+                "room_id": "!room:matrix.org",
+                "from_id": "!node123",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "matrix"
+
+    def test_pure_meshtastic_keys_still_detected(self) -> None:
+        """Only Meshtastic bare keys (no Matrix keys) -> meshtastic."""
+        event = _make_event(
+            source_adapter="bridge",
+            native_data={
+                "longname": "Base Station",
+                "shortname": "BS",
+                "from_id": "!aabbcc",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshtastic"
 
 
 # ===================================================================

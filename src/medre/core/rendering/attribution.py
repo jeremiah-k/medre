@@ -355,9 +355,15 @@ def _detect_platform_from_native(native_data: dict[str, object]) -> str | None:
 
     Priority order:
     1. MeshCore — namespaced ``meshcore.*`` keys.
-    2. Meshtastic — ``longname``, ``shortname``, ``from_id``, etc.
-    3. Matrix — ``sender``, ``event_id``, ``room_id``.
+    2. Matrix — ``sender``, ``event_id``, ``room_id``.
+    3. Meshtastic — ``longname``, ``shortname``, ``from_id``, etc.
     4. LXMF — ``source_hash``, ``destination_hash``.
+
+    Matrix is checked before Meshtastic because Matrix native data may be
+    enriched with Meshtastic-style bare keys (``longname``, ``shortname``)
+    by the relay pipeline.  The Matrix-specific keys (``sender``,
+    ``event_id``, ``room_id``) are a stronger signal than bare keys that
+    overlap with Meshtastic terminology.
     """
     # MeshCore: namespaced keys from MeshCoreCodec.
     meshcore_keys = {
@@ -369,15 +375,16 @@ def _detect_platform_from_native(native_data: dict[str, object]) -> str | None:
     if any(k in native_data for k in meshcore_keys):
         return "meshcore"
 
+    # Matrix: characteristic keys — checked before Meshtastic because
+    # Matrix native metadata may carry Meshtastic-enriched bare keys.
+    matrix_keys = {"sender", "event_id", "room_id"}
+    if any(k in native_data for k in matrix_keys):
+        return "matrix"
+
     # Meshtastic: characteristic bare keys.
     meshtastic_keys = {"longname", "shortname", "from_id", "packet_id", "channel"}
     if any(k in native_data for k in meshtastic_keys):
         return "meshtastic"
-
-    # Matrix: characteristic keys.
-    matrix_keys = {"sender", "event_id", "room_id"}
-    if any(k in native_data for k in matrix_keys):
-        return "matrix"
 
     # LXMF: characteristic keys.
     lxmf_keys = {"source_hash", "destination_hash"}

@@ -76,7 +76,7 @@ class TestMeshtasticOriginNoNonsense:
 
     async def test_meshtastic_loop_prefix_clean(self) -> None:
         """Meshtastic-origin event with prefix produces no 'None' or garbled output."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
         event = CanonicalEvent(
             event_id="mesh-evt-1",
             event_kind="message.created",
@@ -103,7 +103,7 @@ class TestMeshtasticOriginNoNonsense:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert text.startswith("Mesh1[M]: ")
+        assert text.startswith("Mesh1: ")
         assert "None" not in text
         assert "hello from mesh" in text
 

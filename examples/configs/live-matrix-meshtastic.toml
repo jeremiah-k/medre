@@ -54,8 +54,8 @@ encryption_mode = "plaintext"          # plaintext | e2ee_optional | e2ee_requir
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-origin_label = "medre-radio"               # platform-neutral label used in cross-platform prefixes
-radio_relay_prefix = "{sender_short}[M]: " # Matrix→Meshtastic: prepend short name (default)
+origin_label = "medre-radio"            # platform-neutral label used in cross-platform prefixes
+radio_relay_prefix = "{sender_short}: " # Matrix→Meshtastic: prepend short name (default)
 # radio_relay_prefix = ""                             # empty = no prefix for radio direction
 # mmrelay_compatibility = true                    # embed mmrelay-compatible metadata in Matrix payloads
 
@@ -66,7 +66,7 @@ radio_relay_prefix = "{sender_short}[M]: " # Matrix→Meshtastic: prepend short 
 # host = "meshtastic.local"
 # port = 4403
 # origin_label = "medre-radio"
-# radio_relay_prefix = "{sender_short}[M]: "
+# radio_relay_prefix = "{sender_short}: "
 # mmrelay_compatibility = true
 
 # ---------------------------------------------------------------------------
