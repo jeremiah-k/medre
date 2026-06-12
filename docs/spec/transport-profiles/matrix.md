@@ -87,7 +87,7 @@ empty string.
 
 **Application points:**
 
-1. Direct mode body (before truncation).
+1. Direct mode body (prefix only, no truncation).
 2. Fallback-text mode body (before truncation).
 3. Reaction emote body (via `_format_reaction_prefix`).
 
@@ -98,7 +98,7 @@ source config fallback matches), no prefix is prepended.
 Prefix length is unconstrained in the renderer, though Matrix homeservers
 impose their own event size limits. When a `RenderingContext` text budget is
 active (`max_text_chars` or `max_text_bytes`), the prefix counts toward that
-budget.
+budget **in the fallback-text path**.
 
 **Metadata keys** (when prefix is configured):
 

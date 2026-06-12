@@ -454,6 +454,7 @@ class MeshtasticRenderer:
                             compact=True,
                         )
                         compact_prefix = compact_prefix_result.rendered_prefix
+                        prefix_result = compact_prefix_result
                         sep = ""
                         if compact_prefix and not compact_prefix[-1:].isspace():
                             sep = " "

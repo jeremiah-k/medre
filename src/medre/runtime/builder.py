@@ -54,7 +54,7 @@ from medre.runtime.errors import RuntimeConfigError
 if TYPE_CHECKING:
     from medre.core.planning.delivery_plan import RetryPolicy
 
-__all__ = ["RuntimeBuilder", "AdapterBuildFailure", "SourceAttributionConfig"]
+__all__ = ["AdapterBuildFailure", "RuntimeBuilder", "SourceAttributionConfig"]
 
 _logger = logging.getLogger(__name__)
 

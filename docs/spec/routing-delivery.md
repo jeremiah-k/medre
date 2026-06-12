@@ -1232,13 +1232,13 @@ from the source adapter config via the runtime source-attribution registry.
 
 ### 17.5.3 Label and Identity Distinctions
 
-| Concept               | Template variable | Source                                      | Scope                                              |
-| --------------------- | ----------------- | ------------------------------------------- | -------------------------------------------------- |
-| `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                    |
-| `source_sender_id`    | `{from_id}`       | Native sender ID from source event metadata | Per-transport native identity                      |
-| `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                          |
-| `meshnet_name`        | `{meshnet_name}`  | Source adapter config `meshnet_name`        | Transport-specific network name, NOT MEDRE-generic |
-| `route_id`            | `{route_id}`      | Matched route                               | Route identification                               |
+| Concept               | Template variable | Source                                      | Scope                                                           |
+| --------------------- | ----------------- | ------------------------------------------- | --------------------------------------------------------------- |
+| `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                                 |
+| `source_sender_id`    | `{from_id}`       | Native sender ID from source event metadata | Per-transport native identity                                   |
+| `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                                       |
+| `meshnet_name`        | `{meshnet_name}`  | Source adapter config `meshnet_name`        | Transport-specific network name, NOT MEDRE-generic              |
+| `route_id`            | `{route_id}`      | Matched route                               | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` over `{meshnet_name}` in
 cross-platform prefix templates. `meshnet_name` is transport-specific

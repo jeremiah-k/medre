@@ -109,10 +109,11 @@ class LxmfRenderer:
 
     def __init__(
         self,
-        configs: Mapping[str, Any] | None = None,
-        source_attribution: dict[str, Any] | None = None,
         metadata_embedding: bool = True,
         relay_prefix: str = "",
+        *,
+        configs: Mapping[str, Any] | None = None,
+        source_attribution: dict[str, Any] | None = None,
     ) -> None:
         self._configs: dict[str, Any] = dict(configs or {})
         self._source_attribution: dict[str, Any] = dict(source_attribution or {})
@@ -314,8 +315,11 @@ class LxmfRenderer:
         source_info = self._source_attribution.get(event.source_adapter)
         if source_info is not None:
             origin_label = getattr(source_info, "origin_label", "") or ""
+            meshnet_name = getattr(source_info, "meshnet_name", "") or ""
             if origin_label:
                 attr = replace(attr, source_origin_label=origin_label)
+            if meshnet_name:
+                attr = replace(attr, source_meshnet_name=meshnet_name)
 
         return attr
 

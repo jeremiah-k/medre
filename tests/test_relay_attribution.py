@@ -46,7 +46,7 @@ def _make_event(
 ) -> CanonicalEvent:
     """Create a minimal canonical event for attribution tests."""
     metadata = EventMetadata(
-        native=NativeMetadata(data=native_data) if native_data else None,
+        native=NativeMetadata(data=native_data) if native_data is not None else None,
         routing=RoutingMetadata(route_trace=route_trace) if route_trace else None,
     )
     return CanonicalEvent(

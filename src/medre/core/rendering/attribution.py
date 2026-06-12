@@ -471,7 +471,8 @@ def _extract_meshcore_fields(
     sender_str = str(sender_val) if sender_val is not None else None
 
     # channel: prefer meshcore.channel, then bare channel_idx.
-    channel_val = native_data.get("meshcore.channel") or native_data.get("channel_idx")
+    _ch = native_data.get("meshcore.channel")
+    channel_val = _ch if _ch is not None else native_data.get("channel_idx")
     channel_str = str(channel_val) if channel_val is not None else None
 
     # packet_id: prefer meshcore.packet_id.
