@@ -1350,8 +1350,12 @@ class TestPrefixFormatterMetadata:
         assert result.metadata["relay_prefix_rendered"] == "TestU[M]: "
         assert "relay_prefix_variables_used" in result.metadata
         assert "shortname5" in result.metadata["relay_prefix_variables_used"]
+        assert "relay_prefix_missing_variables" in result.metadata
+        assert isinstance(result.metadata["relay_prefix_missing_variables"], tuple)
         assert "relay_prefix_unknown_variables" in result.metadata
+        assert isinstance(result.metadata["relay_prefix_unknown_variables"], tuple)
         assert "relay_prefix_formatting_error" in result.metadata
+        assert result.metadata["relay_prefix_formatting_error"] is None
 
     async def test_metadata_no_prefix_keys_when_no_prefix(self) -> None:
         """When no prefix is configured, no prefix metadata keys are present."""

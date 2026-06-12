@@ -658,3 +658,111 @@ class TestMatrixCoreAttributionIntegration:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert "relay_prefix_template" not in result.metadata
+
+    # -- Reaction prefix metadata correctness --
+
+    async def test_reaction_emote_fallback_prefix_metadata_correct(self) -> None:
+        """Reaction emote fallback records prefix metadata from _format_reaction_prefix.
+
+        The reaction path must produce correct relay_prefix_template and
+        related keys — not stale body-level prefix metadata.
+        """
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}] ",
+                    mmrelay_compatibility=False,
+                ),
+            },
+        )
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+            payload={"body": "👍"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        # Emote fallback was rendered (no native target)
+        assert result.payload["msgtype"] == "m.emote"
+        # Reaction prefix metadata must be present and correct
+        assert "relay_prefix_template" in result.metadata
+        assert result.metadata["relay_prefix_template"] == "[{longname}] "
+        assert "relay_prefix_rendered" in result.metadata
+        assert "longname" in result.metadata["relay_prefix_variables_used"]
+
+    async def test_reaction_true_annotation_no_stale_prefix_metadata(self) -> None:
+        """True m.reaction annotation carries no stale body prefix metadata.
+
+        When a true m.reaction is produced (body removed), no prefix
+        metadata from the body path should leak into the result.
+        """
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}] ",
+                    mmrelay_compatibility=False,
+                ),
+            },
+        )
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="canonical-orig",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$evt-reaction-target",
+            ),
+            key="❤️",
+            fallback_text=None,
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+            payload={"body": "❤️"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        # True m.reaction — body removed
+        assert result.payload["_matrix_event_type"] == "m.reaction"
+        assert "body" not in result.payload
+        # No stale body prefix metadata; true reactions return empty dict
+        assert "relay_prefix_template" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
+
+    async def test_plain_text_prefix_metadata_unchanged(self) -> None:
+        """Plain text event with prefix: metadata unchanged by reaction fix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Bob"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert "relay_prefix_template" in result.metadata
+        assert result.metadata["relay_prefix_template"] == "[{longname}] "
+        assert result.metadata["relay_prefix_rendered"] == "[Bob] "
+        assert result.payload["body"] == "[Bob] hello mesh"

@@ -210,8 +210,20 @@ class MatrixRenderer:
         # ------------------------------------------------------------------
         body = str(event.payload.get("text", event.payload.get("body", "")))
 
-        # Apply relay prefix for mesh→Matrix direction
-        body, prefix_meta = self._apply_matrix_relay_prefix(event, body)
+        # Determine if a reaction relation is present before applying the
+        # body-level prefix — reactions manage their own prefix metadata.
+        _is_reaction = (
+            event.relations and event.relations[0].relation_type == "reaction"
+        )
+
+        # Apply relay prefix for mesh→Matrix direction (skip for reactions;
+        # reactions produce their own prefix in the emote fallback body or
+        # discard it entirely for true m.reaction annotations).
+        reaction_prefix_meta: dict[str, object] = {}
+        if _is_reaction:
+            prefix_meta: dict[str, object] = {}
+        else:
+            body, prefix_meta = self._apply_matrix_relay_prefix(event, body)
 
         content: dict[str, object] = {
             "msgtype": "m.text",
@@ -253,7 +265,9 @@ class MatrixRenderer:
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                self._render_reaction(rel, content, target_adapter, event)
+                reaction_prefix_meta = self._render_reaction(
+                    rel, content, target_adapter, event,
+                )
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -264,13 +278,6 @@ class MatrixRenderer:
         )
         content.update(envelope.to_content())
 
-        # Determine if a reaction relation was rendered (emote fallback sets
-        # its own MMRelay metadata, so general injection must be skipped to
-        # avoid overwriting KEY_TEXT with the payload body).
-        _is_reaction = (
-            event.relations and event.relations[0].relation_type == "reaction"
-        )
-
         # Inject mmrelay-compatible metadata when enabled (skip for
         # reactions — _render_reaction already handles all MMRelay keys).
         if self._get_mmrelay_compat(event) and not _is_reaction:
@@ -280,6 +287,7 @@ class MatrixRenderer:
             "renderer": self.name,
         }
         metadata.update(prefix_meta)
+        metadata.update(reaction_prefix_meta)
 
         return RenderingResult(
             event_id=event.event_id,
@@ -522,7 +530,7 @@ class MatrixRenderer:
         content: dict[str, object],
         target_adapter: str,
         event: CanonicalEvent,
-    ) -> None:
+    ) -> dict[str, object]:
         """Render a reaction relation into the Matrix content dict.
 
         When a Matrix-native target ID (owned by *target_adapter*) is
@@ -536,6 +544,10 @@ class MatrixRenderer:
 
         The canonical ``rel.target_event_id`` is **never** used as a
         Matrix event ID — it is an internal MEDRE canonical ID.
+
+        Returns a dict of reaction-specific prefix metadata to be merged
+        into the rendering result metadata.  Empty dict when no prefix
+        metadata applies (e.g. true ``m.reaction`` annotations).
         """
         mx_event_id = self._matrix_target_event_id(rel, target_adapter)
 
@@ -557,6 +569,8 @@ class MatrixRenderer:
             }
             # Internal key consumed by adapter; never leaks to homeserver
             content["_matrix_event_type"] = "m.reaction"
+            # True m.reaction carries no prefix metadata — body is removed.
+            return {}
         else:
             # mmrelay_compat or missing Matrix-native target → m.emote fallback
             symbol = self._extract_reaction_symbol(rel, event)
@@ -564,6 +578,8 @@ class MatrixRenderer:
                 self._extract_original_text(rel, event)
             )
             prefix, _reaction_prefix_meta = self._format_reaction_prefix(event)
+
+            # Store prefix metadata to return to caller for result metadata.
 
             if not prefix or not prefix.strip():
                 emote_body = f'\n reacted {symbol} to "{original_text}"'
@@ -599,6 +615,8 @@ class MatrixRenderer:
             content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
             content[KEY_MESHNET] = self._get_meshnet_name(event)
             content[KEY_PORTNUM] = PORTNUM_TEXT
+
+            return _reaction_prefix_meta
 
     # ------------------------------------------------------------------
     # Private helpers

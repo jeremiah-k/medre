@@ -488,7 +488,7 @@ class MeshtasticRenderer:
             "truncated": was_truncated,
         }
         formatted_prefix = prefix_result.rendered_prefix
-        if formatted_prefix:
+        if prefix:
             # Legacy keys (backward compatibility with existing tests)
             metadata["radio_relay_prefix"] = formatted_prefix
             metadata["prefix_template_used"] = prefix_result.template_used

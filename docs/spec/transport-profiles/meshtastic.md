@@ -134,12 +134,25 @@ space for message content.
 When a prefix is rendered, the following diagnostic keys are set on the
 `RenderingResult.metadata`:
 
+**Legacy keys** (retained for backward compatibility):
+
 | Key                        | Value                                                 |
 | -------------------------- | ----------------------------------------------------- |
 | `radio_relay_prefix`       | The rendered prefix string                            |
 | `prefix_template_used`     | The original template string                          |
 | `prefix_variables_used`    | Variables resolved (value found, even if empty)       |
 | `prefix_missing_variables` | Variables in template whose value was `None` or empty |
+
+**Normalized keys** (consistent across all renderers):
+
+| Key                                 | Value                                                       |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `relay_prefix_template`             | The original template string                                |
+| `relay_prefix_rendered`             | The rendered prefix string                                  |
+| `relay_prefix_variables_used`       | Variables resolved (value found, even if empty)             |
+| `relay_prefix_missing_variables`    | Variables in template whose value was `None` or empty       |
+| `relay_prefix_unknown_variables`    | Unknown placeholders left unchanged in the rendered prefix  |
+| `relay_prefix_formatting_error`     | Error description when unknown placeholders are encountered |
 
 ### Matrix-Bound Prefix
 
