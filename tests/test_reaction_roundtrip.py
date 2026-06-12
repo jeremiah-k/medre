@@ -50,6 +50,8 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
 # Shared constants
 _RADIO_ALPHA = "radio-alpha"
@@ -57,10 +59,6 @@ _RADIO_BRAVO = "radio-bravo"
 _MATRIX = "matrix"
 _ROOM = "!room:server"
 _MESHNET = "testnet"
-
-
-from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
 # ===================================================================
 # Shared helper for source_configs construction
