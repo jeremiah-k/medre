@@ -4,6 +4,7 @@ disabled adapters, error handling."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,6 +38,9 @@ from tests.helpers.runtime_builder import (
     make_fake_meshcore_config,
     make_fake_meshtastic_config,
 )
+
+if TYPE_CHECKING:
+    from medre.adapters.lxmf.renderer import LxmfRenderer
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -516,3 +520,117 @@ class TestAdapterKindValidation:
             },
         )
         assert rt.adapter_kind == "fake"
+
+
+# ---------------------------------------------------------------------------
+# LXMF relay prefix wiring through runtime builder
+# ---------------------------------------------------------------------------
+
+
+class TestLxmfRelayPrefixWiring:
+    """Builder wires configured lxmf_relay_prefix into LxmfRenderer.
+
+    Multi-LXMF rule: first non-empty ``lxmf_relay_prefix`` across LXMF
+    runtime configs in deterministic (adapter_id sorted) order; empty
+    if none.
+    """
+
+    def _find_lxmf_renderer(self, app: MedreApp) -> LxmfRenderer | None:
+        """Return the LxmfRenderer registered in the rendering pipeline."""
+        from medre.adapters.lxmf.renderer import LxmfRenderer as _LxmfRenderer
+
+        for _pri, _seq, renderer in app.rendering_pipeline._renderers:
+            if getattr(renderer, "name", None) == "lxmf":
+                assert isinstance(renderer, _LxmfRenderer)
+                return renderer
+        return None
+
+    def test_prefix_wired_into_lxmf_renderer(self, tmp_paths: MedrePaths) -> None:
+        """Configured lxmf_relay_prefix appears on the registered renderer."""
+        lxmf_cfg = LxmfConfig(
+            adapter_id="lxmf_a",
+            connection_type="fake",
+            lxmf_relay_prefix="[{source_display_name}] ",
+        ).validate()
+        rt = LxmfRuntimeConfig(
+            adapter_id="lxmf_a",
+            enabled=True,
+            adapter_kind="fake",
+            config=lxmf_cfg,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(lxmf={"lxmf_a": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None, "LxmfRenderer not registered in pipeline"
+        assert renderer._relay_prefix == "[{source_display_name}] "
+
+    def test_empty_prefix_default_when_not_configured(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Default empty prefix when lxmf_relay_prefix is not set."""
+        lxmf_cfg = LxmfConfig(
+            adapter_id="lxmf_b",
+            connection_type="fake",
+        ).validate()
+        rt = LxmfRuntimeConfig(
+            adapter_id="lxmf_b",
+            enabled=True,
+            adapter_kind="fake",
+            config=lxmf_cfg,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(lxmf={"lxmf_b": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None
+        assert renderer._relay_prefix == ""
+
+    def test_multi_lxmf_first_non_empty_prefix_wins(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """With multiple LXMF adapters, first non-empty prefix wins."""
+        cfg_a = LxmfConfig(
+            adapter_id="lxmf_alpha",
+            connection_type="fake",
+            lxmf_relay_prefix="",
+        ).validate()
+        cfg_b = LxmfConfig(
+            adapter_id="lxmf_beta",
+            connection_type="fake",
+            lxmf_relay_prefix="<{shortname}> ",
+        ).validate()
+        rt_a = LxmfRuntimeConfig(
+            adapter_id="lxmf_alpha",
+            enabled=True,
+            adapter_kind="fake",
+            config=cfg_a,
+        )
+        rt_b = LxmfRuntimeConfig(
+            adapter_id="lxmf_beta",
+            enabled=True,
+            adapter_kind="fake",
+            config=cfg_b,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                lxmf={"alpha": rt_a, "beta": rt_b},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None
+        # lxmf_alpha sorts before lxmf_beta, but alpha prefix is empty,
+        # so beta's prefix is used.
+        assert renderer._relay_prefix == "<{shortname}> "

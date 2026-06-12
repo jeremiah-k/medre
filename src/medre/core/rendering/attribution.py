@@ -421,23 +421,12 @@ def _extract_lxmf_fields(
 ) -> dict[str, str | None]:
     """Extract LXMF-specific fields from native metadata."""
     source_hash = native_data.get("source_hash")
-    native_data.get("destination_hash")
 
     sender_str = str(source_hash) if source_hash is not None else None
 
     return {
         "source_sender_id": sender_str,
     }
-
-
-# Platform-specific extractors keyed by platform name.
-_PLATFORM_EXTRACTORS: dict[str, type[dict[str, str | None]]] = {
-    # These are callables that take native_data and return partial fields.
-    # We store the functions directly for dispatch.
-}
-
-# Use a function-level dispatch instead of a module-level dict to
-# avoid mypy confusion.
 
 
 def _extract_platform_fields(

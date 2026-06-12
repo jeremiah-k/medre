@@ -11,10 +11,9 @@ MeshCore, LXMF).
   describing template syntax, truncation (byte-safe before `max_text_bytes`),
   metadata keys, and attribution caveat.
 - `docs/spec/transport-profiles/lxmf.md`: Added `lxmf_relay_prefix` config
-  field (string, default `""`) and `announce_interval_seconds` (float, default
-  `600.0`). Added §Relay Attribution Prefix describing template syntax,
-  truncation (character-budget before `max_text_chars`), metadata keys, and
-  attribution caveat.
+  field (string, default `""`). Added §Relay Attribution Prefix describing
+  template syntax, truncation (character-budget before `max_text_chars`),
+  metadata keys, and attribution caveat.
 - `docs/spec/transport-profiles/meshtastic.md`: Added §Relay Attribution
   Prefix with authoritative supported template variable table (canonical
   `source_*` fields plus aliases), formatting rules, truncation semantics,
@@ -29,8 +28,7 @@ MeshCore, LXMF).
   authoritative for machine-readable provenance.
 - `docs/schemas/adapter-config.schema.json`: Added `meshcore_relay_prefix`
   (string, default `""`) to MeshCoreConfig. Added `lxmf_relay_prefix`
-  (string, default `""`) and `announce_interval_seconds` (number, default
-  `600.0`) to LxmfConfig.
+  (string, default `""`) to LxmfConfig.
 - `docs/dev/relay-prefix-attribution-audit.md`: Updated MeshCore and LXMF
   outbound prefix behavior sections to reflect current implementation
   (`meshcore_relay_prefix`, `lxmf_relay_prefix`). Updated Cross-Transport
@@ -44,8 +42,6 @@ MeshCore, LXMF).
   relay attribution data.
 - `lxmf_relay_prefix`: New optional string field on LXMF adapter config.
   Default `""` (no prefix). Same template syntax as `meshcore_relay_prefix`.
-- `announce_interval_seconds`: New optional float field on LXMF adapter
-  config. Default `600.0` (10 minutes). `0` disables periodic announces.
 
-Existing configs without these fields use defaults (no prefix, 600 s
-announce interval). No config migration required.
+Existing configs without these fields use defaults (no prefix). No config
+migration required.

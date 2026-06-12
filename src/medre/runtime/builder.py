@@ -232,17 +232,25 @@ def _register_adapter_renderers(
       ``source_configs`` for per-source-adapter config resolution (multi-radio
       support).  Unknown sources render plain Matrix output without
       Meshtastic prefix or metadata contamination.
+    * ``LxmfRenderer`` receives the first non-empty ``lxmf_relay_prefix``
+      across all LXMF adapter configs in deterministic adapter order.
+      When multiple LXMF adapters are configured, the prefix from the
+      first adapter (sorted by adapter_id) with a non-empty prefix wins.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
     # Collect ALL MeshCoreConfigs for target-aware rendering.
     meshcore_configs: dict[str, Any] = {}
+    # Collect ALL LxmfConfigs for prefix extraction.
+    lxmf_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
             if _transport == "meshcore" and getattr(rtc, "config", None) is not None:
                 meshcore_configs[_adapter_id] = rtc.config
+            if _transport == "lxmf" and getattr(rtc, "config", None) is not None:
+                lxmf_configs[_adapter_id] = rtc.config
         # Fallback: if no real configs but Meshtastic adapters exist (e.g.
         # adapter_kind="fake" where rtc.config is None), synthesize defaults
         # so the renderer is registered and target-aware rendering works.
@@ -272,6 +280,34 @@ def _register_adapter_renderers(
                     meshcore_configs[adapter_id] = _MCConfig(
                         adapter_id=adapter_id,
                     )
+        # Fallback: synthesize default LxmfConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.lxmf:
+            for adapter_id in config.adapters.lxmf:
+                if adapter_id not in lxmf_configs:
+                    import importlib
+
+                    _lxmf_mod = importlib.import_module("medre.config.adapters.lxmf")
+                    _LConfig = _lxmf_mod.LxmfConfig
+                    lxmf_configs[adapter_id] = _LConfig(
+                        adapter_id=adapter_id,
+                        connection_type="fake",
+                    )
+
+    # Resolve the relay prefix for LxmfRenderer.  When multiple LXMF
+    # adapters are configured, the first non-empty ``lxmf_relay_prefix``
+    # in deterministic (adapter_id sorted) order wins; empty string if
+    # none.  This is safe because LxmfRenderer is platform-scoped — it
+    # renders for any target with platform=="lxmf" — and the prefix is
+    # a human-readable attribution hint, not per-target config.
+    _lxmf_relay_prefix = ""
+    if lxmf_configs:
+        for _aid in sorted(lxmf_configs):
+            _cfg = lxmf_configs[_aid]
+            _prefix = getattr(_cfg, "lxmf_relay_prefix", "")
+            if _prefix:
+                _lxmf_relay_prefix = _prefix
+                break
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
@@ -302,6 +338,11 @@ def _register_adapter_renderers(
                     renderer_cls(
                         source_configs=meshtastic_configs,
                     ),
+                    priority=50,
+                )
+            elif class_name == "LxmfRenderer":
+                pipeline.register(
+                    renderer_cls(relay_prefix=_lxmf_relay_prefix),
                     priority=50,
                 )
             else:
