@@ -82,15 +82,11 @@ class SourceAttributionConfig:
     origin_label:
         Human-readable label for the source adapter.  Empty string when
         not configured.
-    meshnet_name:
-        Mesh network name for the source adapter.  Empty string when
-        not configured.
     """
 
     adapter_id: str
     platform: str
     origin_label: str = ""
-    meshnet_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -257,10 +253,10 @@ def _register_adapter_renderers(
     * ``MeshtasticRenderer`` receives a mapping of ALL Meshtastic adapter
       configs (``adapter_id → MeshtasticConfig``) so that rendering is
       target-adapter-aware in multi-radio setups.
-    * ``MatrixRenderer`` receives all Meshtastic adapter configs via
-      ``source_configs`` for per-source-adapter config resolution (multi-radio
-      support).  Unknown sources render plain Matrix output without
-      Meshtastic prefix or metadata contamination.
+    * ``MatrixRenderer`` receives Matrix adapter configs via ``configs``
+      for target-local ``relay_prefix`` resolution.  It registers whenever
+      Matrix configs exist.  Unknown sources render plain Matrix output
+      without prefix or metadata contamination.
     * ``LxmfRenderer`` receives a mapping of ALL LXMF adapter configs
       (``adapter_id → LxmfConfig``) so that rendering is target-adapter-aware
       in multi-LXMF setups.  The prefix template is resolved from the
@@ -354,7 +350,6 @@ def _register_adapter_renderers(
                 adapter_id=_aid,
                 platform=_platform,
                 origin_label=getattr(_cfg, "origin_label", ""),
-                meshnet_name=getattr(_cfg, "meshnet_name", ""),
             )
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
@@ -384,12 +379,12 @@ def _register_adapter_renderers(
                     ),
                     priority=50,
                 )
-            elif class_name == "MatrixRenderer" and meshtastic_configs:
-                # MatrixRenderer uses all MeshtasticConfigs via source_configs
-                # for per-source-adapter config resolution (multi-radio
-                # support).  Unknown sources render plain Matrix output.
-                # MatrixConfigs are passed via configs for target-local
-                # relay_prefix resolution.
+            elif class_name == "MatrixRenderer":
+                # MatrixRenderer uses target-local MatrixConfig.relay_prefix
+                # for relay prefix resolution.  Register when Matrix configs
+                # or Meshtastic source configs are available.
+                if not _matrix_configs and not meshtastic_configs:
+                    continue
                 pipeline.register(
                     renderer_cls(
                         source_configs=meshtastic_configs,

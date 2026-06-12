@@ -249,7 +249,7 @@ asserts all of the following for its fixtures:
    `source_channel_id`, payload shape, relations, and metadata.
 2. **Rendering**: canonical events render to native payloads with correct
    envelope fields (e.g. Matrix `msgtype`/`body`/`m.relates_to`,
-   Meshtastic `text`/`channel_index`/`meshnet_name`).
+   Meshtastic `text`/`channel_index`/`origin_label`).
 3. **Capability decisions**: `CapabilityDecisionResolver` produces
    `direct` for native capabilities, `fallback_text` for fallback,
    and `skip` for unsupported, consistent with transport-profile JSONs.

@@ -665,13 +665,11 @@ class TestSourceAttributionRegistry:
             adapter_id="radio_a",
             connection_type="fake",
             origin_label="MyRadio",
-            meshnet_name="testnet",
         ).validate()
         core_cfg = MeshCoreConfig(
             adapter_id="node_b",
             connection_type="fake",
             origin_label="CoreNode",
-            meshnet_name="corenet",
         ).validate()
         lxmf_cfg = LxmfConfig(
             adapter_id="lxmf_c",
@@ -734,7 +732,6 @@ class TestSourceAttributionRegistry:
         assert sa["radio_a"].adapter_id == "radio_a"
         assert sa["radio_a"].platform == "meshtastic"
         assert sa["radio_a"].origin_label == "MyRadio"
-        assert sa["radio_a"].meshnet_name == "testnet"
 
         # Check MeshCoreRenderer has the registry.
         core_renderer = _find_renderer_by_name(app, "meshcore")
@@ -743,7 +740,6 @@ class TestSourceAttributionRegistry:
         assert "node_b" in sa_core
         assert sa_core["node_b"].platform == "meshcore"
         assert sa_core["node_b"].origin_label == "CoreNode"
-        assert sa_core["node_b"].meshnet_name == "corenet"
 
         # Check LxmfRenderer has the registry.
         lxmf_renderer = _find_renderer_by_name(app, "lxmf")
@@ -753,16 +749,17 @@ class TestSourceAttributionRegistry:
         assert sa_lxmf["lxmf_c"].platform == "lxmf"
         assert sa_lxmf["lxmf_c"].origin_label == "LXMF Relay"
 
-        # Matrix renderer only registered when meshtastic configs exist.
+        # Matrix renderer registered when meshtastic configs exist (this test
+        # has meshtastic adapters so it will be registered).
         matrix_renderer = _find_renderer_by_name(app, "matrix")
-        if matrix_renderer is not None:
-            sa_mx = matrix_renderer._source_attribution
-            assert "mx_d" in sa_mx
-            assert sa_mx["mx_d"].platform == "matrix"
-            assert sa_mx["mx_d"].origin_label == "Matrix Bot"
+        assert matrix_renderer is not None
+        sa_mx = matrix_renderer._source_attribution
+        assert "mx_d" in sa_mx
+        assert sa_mx["mx_d"].platform == "matrix"
+        assert sa_mx["mx_d"].origin_label == "Matrix Bot"
 
     def test_missing_config_defaults_empty_strings(self, tmp_paths: MedrePaths) -> None:
-        """Adapter without origin_label/meshnet_name produces empty strings."""
+        """Adapter without origin_label produces empty strings."""
         mesh_cfg = MeshtasticConfig(
             adapter_id="radio_plain",
             connection_type="fake",
@@ -788,7 +785,6 @@ class TestSourceAttributionRegistry:
         sa = renderer._source_attribution
         assert "radio_plain" in sa
         assert sa["radio_plain"].origin_label == ""
-        assert sa["radio_plain"].meshnet_name == ""
 
     def test_multi_adapter_same_transport(self, tmp_paths: MedrePaths) -> None:
         """Two adapters of same transport produce two registry entries."""
@@ -830,3 +826,41 @@ class TestSourceAttributionRegistry:
         assert len(sa) == 2
         assert sa["radio_alpha"].origin_label == "Alpha"
         assert sa["radio_beta"].origin_label == "Beta"
+
+    def test_matrix_renderer_registers_with_only_matrix_configs(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """MatrixRenderer registers when Matrix configs exist, even without
+        any Meshtastic adapters."""
+        matrix_cfg = MatrixConfig(
+            adapter_id="mx_only",
+            homeserver="https://matrix.test",
+            user_id="@bot:test",
+            access_token="tok",
+            encryption_mode="plaintext",
+            origin_label="Standalone Matrix",
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "mx_only": MatrixRuntimeConfig(
+                        adapter_id="mx_only",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=matrix_cfg,
+                    ),
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        matrix_renderer = _find_renderer_by_name(app, "matrix")
+        assert (
+            matrix_renderer is not None
+        ), "MatrixRenderer should register with Matrix configs only"
+        sa = matrix_renderer._source_attribution
+        assert "mx_only" in sa
+        assert sa["mx_only"].platform == "matrix"
+        assert sa["mx_only"].origin_label == "Standalone Matrix"

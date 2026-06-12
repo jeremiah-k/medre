@@ -66,17 +66,16 @@ depends on the configuration model:
    owns the rendering, not on the source adapter.
 
 2. **Backward-compat fallback:** When `MatrixConfig.relay_prefix` is empty,
-   the renderer falls back to `MeshtasticConfig.matrix_relay_prefix` resolved
-   via the `source_configs` mapping. This preserves the legacy behavior where
+   the renderer falls back to the source adapter config resolved
+   via the `source_configs` mapping. This preserves legacy behavior where
    the source adapter's config controlled the Matrix-bound prefix. New
    configurations SHOULD use `MatrixConfig.relay_prefix`.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
-the source event. Operators SHOULD prefer `{origin_label}` over
-`{meshnet_name}` in cross-platform prefix templates — `origin_label` is the
-MEDRE-generic source label, while `meshnet_name` is transport-specific and
-may be empty for non-radio sources. See the Meshtastic Transport Profile
+the source event. Operators SHOULD prefer `{origin_label}` in cross-platform
+prefix templates — `origin_label` is the MEDRE-generic source label available
+on all adapter configs. See the Meshtastic Transport Profile
 §Relay Attribution Prefix for the authoritative list of supported template
 variables and formatting rules.
 

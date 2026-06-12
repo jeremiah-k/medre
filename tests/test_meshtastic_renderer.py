@@ -31,14 +31,12 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -293,15 +291,15 @@ class TestMeshtasticRenderer:
         assert result.event_id == "evt-1"
         assert result.target_adapter == "mesh-node"
 
-    async def test_render_includes_meshnet_name(self) -> None:
+    async def test_render_payload_structure(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
         )
-        assert "meshnet_name" in result.payload
-        assert result.payload["meshnet_name"] == ""
+        assert "text" in result.payload
+        assert "channel_index" in result.payload
 
     async def test_render_metadata_includes_renderer(self) -> None:
         renderer = _make_renderer("mesh-node")
@@ -426,9 +424,8 @@ class TestRendererStructuredReply:
         assert result.payload["text"] == "my reply"
         # No fallback prefix when native ref available
         assert "[replying to:" not in result.payload["text"]
-        # channel_index / meshnet_name preserved
+        # channel_index preserved
         assert result.payload["channel_index"] == 0
-        assert "meshnet_name" in result.payload
 
     async def test_reply_without_native_ref_plain_text(self) -> None:
         """Reply without numeric native ref → plain text, no fallback prefix."""
@@ -569,8 +566,8 @@ class TestRendererStructuredReaction:
         assert "emoji" not in result.payload
         assert "[reacted: 👍]" in result.payload["text"]
 
-    async def test_reaction_preserves_channel_and_meshnet(self) -> None:
-        """Reaction rendering preserves channel_index and meshnet_name."""
+    async def test_reaction_preserves_channel(self) -> None:
+        """Reaction rendering preserves channel_index."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
@@ -588,7 +585,6 @@ class TestRendererStructuredReaction:
             ),
         )
         assert result.payload["channel_index"] == 4
-        assert "meshnet_name" in result.payload
 
 
 class TestMeshtasticRendererForeignRefs:

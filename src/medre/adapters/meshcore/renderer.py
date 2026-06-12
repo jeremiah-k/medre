@@ -46,7 +46,6 @@ trimmed.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.core.events import CanonicalEvent
@@ -184,7 +183,6 @@ class MeshCoreRenderer:
                 f"{sorted(self._configs.keys())}"
             ) from None
 
-        meshnet_name = adapter_config.meshnet_name
         # Use context budget if provided, else adapter config budget.
         # Clamp to non-negative to guard against misconfiguration.
         selected_max_text_bytes = (
@@ -217,30 +215,30 @@ class MeshCoreRenderer:
         prefix_vars_unknown: tuple[str, ...] = ()
 
         if prefix_template:
+            # Resolve source origin_label from the source_attribution
+            # registry.
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            source_origin_label: str | None = None
+            if src_attr_cfg is not None:
+                source_origin_label = getattr(src_attr_cfg, "origin_label", None)
+
             attr = extract_relay_attribution(
                 event,
-                source_meshnet_name=adapter_config.meshnet_name or None,
+                source_origin_label=source_origin_label,
             )
-            # Resolve source origin_label and source_meshnet_name from
-            # the source_attribution registry.
-            src_attr_cfg = self._source_attribution.get(event.source_adapter)
-            if src_attr_cfg is not None:
-                src_origin = getattr(src_attr_cfg, "origin_label", "") or None
-                src_mesh = getattr(src_attr_cfg, "meshnet_name", "") or None
-                if src_origin is not None or src_mesh is not None:
-                    overrides: dict[str, str | None] = {}
-                    if src_origin is not None:
-                        overrides["source_origin_label"] = src_origin
-                    if src_mesh is not None:
-                        overrides["source_meshnet_name"] = src_mesh
-                    attr = replace(attr, **overrides)
             prefix_result = format_relay_prefix(prefix_template, attr)
             rendered_prefix = prefix_result.rendered_prefix
             prefix_formatting_error = prefix_result.formatting_error
             prefix_vars_used = prefix_result.variables_used
             prefix_vars_missing = prefix_result.missing_variables
             prefix_vars_unknown = prefix_result.unknown_variables
-            text = rendered_prefix + text
+            # On formatting_exception the rendered_prefix is the raw
+            # template — do NOT prepend it to user-facing text.
+            if not (
+                prefix_formatting_error
+                and prefix_formatting_error.startswith("formatting_exception:")
+            ):
+                text = rendered_prefix + text
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         truncated_text, was_truncated, original_bytes, rendered_bytes = (
@@ -250,7 +248,6 @@ class MeshCoreRenderer:
         content: dict[str, object] = {
             "text": truncated_text,
             "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
         }
 
         metadata: dict[str, object] = {

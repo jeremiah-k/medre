@@ -79,7 +79,6 @@ class TestRelayAttributionModel:
         assert attr.source_adapter_id is None
         assert attr.source_platform is None
         assert attr.source_sender_id is None
-        assert attr.source_meshnet_name is None
         assert attr.route_id is None
 
     def test_frozen_immutability(self) -> None:
@@ -98,7 +97,6 @@ class TestRelayAttributionModel:
             source_short_name="alice",
             source_short_name_5="alice",
             source_room_or_channel="!room:matrix.org",
-            source_meshnet_name=None,
             source_native_message_id="$msg1",
             source_native_channel_id="!room:matrix.org",
             route_id="route-1",
@@ -137,7 +135,6 @@ class TestFormatRelayPrefixAllVariables:
             source_short_name="alice",
             source_short_name_5="alice",
             source_room_or_channel="!room:matrix.org",
-            source_meshnet_name="testnet",
             source_origin_label="East Meshtastic",
             source_native_message_id="$msg1",
             source_native_channel_id="!room:matrix.org",
@@ -156,7 +153,6 @@ class TestFormatRelayPrefixAllVariables:
             ("source_short_name", "alice"),
             ("source_short_name_5", "alice"),
             ("source_room_or_channel", "!room:matrix.org"),
-            ("source_meshnet_name", "testnet"),
             ("source_origin_label", "East Meshtastic"),
             ("source_native_message_id", "$msg1"),
             ("source_native_channel_id", "!room:matrix.org"),
@@ -166,7 +162,6 @@ class TestFormatRelayPrefixAllVariables:
             ("shortname", "alice"),
             ("shortname5", "alice"),
             ("from_id", "@alice:matrix.org"),
-            ("meshnet_name", "testnet"),
             ("origin_label", "East Meshtastic"),
         ],
     )
@@ -179,10 +174,10 @@ class TestFormatRelayPrefixAllVariables:
         assert result.formatting_error is None
 
     def test_multiple_variables(self) -> None:
-        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", self._full_attr())
-        assert result.rendered_prefix == "[Alice Wonderland/testnet]: "
+        result = format_relay_prefix("[{longname}/{origin_label}]: ", self._full_attr())
+        assert result.rendered_prefix == "[Alice Wonderland/East Meshtastic]: "
         assert "longname" in result.variables_used
-        assert "meshnet_name" in result.variables_used
+        assert "origin_label" in result.variables_used
 
     def test_shortname5_convention(self) -> None:
         """shortname5 is first 5 chars of shortname, falling back to from_id."""
@@ -200,6 +195,17 @@ class TestFormatRelayPrefixAllVariables:
         )
         result = format_relay_prefix("{shortname5}", attr)
         assert result.rendered_prefix == "node-"
+
+    def test_shortname5_empty_string_preserved(self) -> None:
+        """Explicitly empty source_short_name_5 is preserved, not fallen back."""
+        attr = RelayAttribution(
+            source_short_name_5="",
+            source_short_name="fallback",
+            source_sender_id="fallback-id",
+        )
+        result = format_relay_prefix("{shortname5}", attr)
+        assert result.rendered_prefix == ""
+        assert "shortname5" in result.missing_variables
 
 
 # ===================================================================
@@ -225,11 +231,11 @@ class TestNoneCoalescing:
     def test_partial_none(self) -> None:
         attr = RelayAttribution(
             source_long_name="Bob",
-            source_meshnet_name=None,
+            source_origin_label=None,
         )
-        result = format_relay_prefix("[{longname}/{meshnet_name}]", attr)
+        result = format_relay_prefix("[{longname}/{origin_label}]", attr)
         assert result.rendered_prefix == "[Bob/]"
-        assert "meshnet_name" in result.missing_variables
+        assert "origin_label" in result.missing_variables
         assert "longname" not in result.missing_variables
 
 
@@ -241,12 +247,12 @@ class TestNoneCoalescing:
 class TestExistingTemplates:
     """Existing adapter templates must work without modification."""
 
-    def test_longname_meshnet(self) -> None:
+    def test_longname_origin_label(self) -> None:
         attr = RelayAttribution(
             source_long_name="Meshtastic User",
-            source_meshnet_name="mynet",
+            source_origin_label="mynet",
         )
-        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
+        result = format_relay_prefix("[{longname}/{origin_label}]: ", attr)
         assert result.rendered_prefix == "[Meshtastic User/mynet]: "
 
     def test_shortname5_bracket_m(self) -> None:
@@ -256,12 +262,12 @@ class TestExistingTemplates:
         result = format_relay_prefix("{shortname5}[M]: ", attr)
         assert result.rendered_prefix == "Short[M]: "
 
-    def test_shortname_bracket_meshnet(self) -> None:
+    def test_shortname_bracket_origin(self) -> None:
         attr = RelayAttribution(
             source_short_name="SN",
-            source_meshnet_name="net1",
+            source_origin_label="net1",
         )
-        result = format_relay_prefix("{shortname}[{meshnet_name}]: ", attr)
+        result = format_relay_prefix("{shortname}[{origin_label}]: ", attr)
         assert result.rendered_prefix == "SN[net1]: "
 
 
@@ -356,9 +362,9 @@ class TestDeterminism:
     def test_deterministic_repeated(self) -> None:
         attr = RelayAttribution(
             source_long_name="User1",
-            source_meshnet_name="net",
+            source_origin_label="net",
         )
-        template = "[{longname}/{meshnet_name}]: "
+        template = "[{longname}/{origin_label}]: "
         r1 = format_relay_prefix(template, attr)
         r2 = format_relay_prefix(template, attr)
         assert r1.rendered_prefix == r2.rendered_prefix
@@ -465,7 +471,6 @@ class TestExtractionMeshtastic:
                 "longname": "Radio User",
                 "shortname": "RU",
                 "from_id": "!aabbccdd",
-                "meshnet_name": "my-mesh",
             },
         )
         attr = extract_relay_attribution(event)
@@ -473,7 +478,6 @@ class TestExtractionMeshtastic:
         assert attr.source_sender_id == "!aabbccdd"
         assert attr.source_long_name == "Radio User"
         assert attr.source_short_name == "RU"
-        assert attr.source_meshnet_name == "my-mesh"
 
     def test_shortname5_from_shortname(self) -> None:
         event = _make_event(
@@ -504,20 +508,6 @@ class TestExtractionMeshtastic:
         attr = extract_relay_attribution(event)
         assert attr.source_long_name is None
         assert attr.source_sender_id == "!node1"
-
-    def test_template_longname_meshnet(self) -> None:
-        event = _make_event(
-            source_adapter="meshtastic-radio",
-            native_data={
-                "longname": "TestUser",
-                "shortname": "TU",
-                "from_id": "!abcd",
-                "meshnet_name": "testnet",
-            },
-        )
-        attr = extract_relay_attribution(event)
-        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
-        assert result.rendered_prefix == "[TestUser/testnet]: "
 
 
 # ===================================================================
@@ -624,11 +614,6 @@ class TestExtractionCommon:
         attr = extract_relay_attribution(event, route_id="route-override")
         assert attr.route_id == "route-override"
 
-    def test_meshnet_name_override(self) -> None:
-        event = _make_event(source_adapter="meshtastic-radio")
-        attr = extract_relay_attribution(event, source_meshnet_name="override-net")
-        assert attr.source_meshnet_name == "override-net"
-
     def test_no_native_metadata(self) -> None:
         event = _make_event(native_data=None)
         attr = extract_relay_attribution(event)
@@ -687,13 +672,12 @@ class TestExtractionAndFormatting:
                 "longname": "RadioOp",
                 "shortname": "RO",
                 "from_id": "!11223344",
-                "meshnet_name": "my-mesh",
             },
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("[{longname}/{meshnet_name}]: ", attr)
-        assert result.rendered_prefix == "[RadioOp/my-mesh]: "
-        assert not result.missing_variables
+        result = format_relay_prefix("[{longname}/{origin_label}]: ", attr)
+        assert result.rendered_prefix == "[RadioOp/]: "
+        assert "origin_label" in result.missing_variables
         assert result.formatting_error is None
 
     def test_meshcore_shortname5_template(self) -> None:
@@ -1031,7 +1015,7 @@ class TestMeshCoreRealCodecEndToEnd:
 
 
 class TestOriginLabelAlias:
-    """origin_label alias maps to source_origin_label; co-exists with meshnet_name."""
+    """origin_label alias maps to source_origin_label."""
 
     def test_origin_label_resolves_when_set(self) -> None:
         attr = RelayAttribution(source_origin_label="East Meshtastic")
@@ -1058,30 +1042,16 @@ class TestOriginLabelAlias:
         result = format_relay_prefix("[{origin_label}]: ", attr)
         assert result.rendered_prefix == "[West Hub]: "
 
-    def test_origin_label_and_meshnet_name_independent(self) -> None:
-        """Both {origin_label} and {meshnet_name} work in the same template."""
+    def test_origin_label_with_other_vars(self) -> None:
+        """{origin_label} works alongside other template variables."""
         attr = RelayAttribution(
             source_origin_label="East Meshtastic",
-            source_meshnet_name="mynet",
+            source_long_name="User1",
         )
-        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
-        assert result.rendered_prefix == "[East Meshtastic/mynet]: "
+        result = format_relay_prefix("[{origin_label}/{longname}]: ", attr)
+        assert result.rendered_prefix == "[East Meshtastic/User1]: "
         assert "origin_label" in result.variables_used
-        assert "meshnet_name" in result.variables_used
-
-    def test_origin_label_set_meshnet_name_missing(self) -> None:
-        attr = RelayAttribution(source_origin_label="Hub A")
-        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
-        assert result.rendered_prefix == "[Hub A/]: "
-        assert "meshnet_name" in result.missing_variables
-        assert "origin_label" not in result.missing_variables
-
-    def test_meshnet_name_set_origin_label_missing(self) -> None:
-        attr = RelayAttribution(source_meshnet_name="net1")
-        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
-        assert result.rendered_prefix == "[/net1]: "
-        assert "origin_label" in result.missing_variables
-        assert "meshnet_name" not in result.missing_variables
+        assert "longname" in result.variables_used
 
     def test_canonical_source_origin_label_direct(self) -> None:
         """Canonical name source_origin_label also resolves."""
@@ -1089,3 +1059,11 @@ class TestOriginLabelAlias:
         result = format_relay_prefix("{source_origin_label}", attr)
         assert result.rendered_prefix == "Direct Label"
         assert "source_origin_label" in result.variables_used
+
+    def test_meshnet_name_is_unknown(self) -> None:
+        """meshnet_name is no longer a known template variable."""
+        attr = RelayAttribution(source_origin_label="Hub")
+        result = format_relay_prefix("{meshnet_name}", attr)
+        assert result.rendered_prefix == "{meshnet_name}"
+        assert "meshnet_name" in result.unknown_variables
+        assert result.formatting_error is not None

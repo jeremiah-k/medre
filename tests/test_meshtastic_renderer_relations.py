@@ -29,14 +29,12 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -217,7 +215,6 @@ class TestCrossPlatformReactionDescriptive:
         renderer = _make_renderer(
             "mesh-1",
             radio_relay_prefix="[{longname}] ",
-            meshnet_name="testnet",
         )
 
         rel = _make_cross_platform_relation(
@@ -361,8 +358,8 @@ class TestCrossPlatformReactionDescriptive:
         text = result.payload["text"]
         assert "payload body text" in text
 
-    async def test_preserves_channel_and_meshnet(self) -> None:
-        """Cross-platform reaction preserves channel_index and meshnet_name."""
+    async def test_preserves_channel(self) -> None:
+        """Cross-platform reaction preserves channel_index."""
         renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="😀",
@@ -377,7 +374,6 @@ class TestCrossPlatformReactionDescriptive:
             ),
         )
         assert result.payload["channel_index"] == 4
-        assert "meshnet_name" in result.payload
 
     async def test_metadata_includes_descriptive_reaction_flag(self) -> None:
         """Result metadata has descriptive_reaction=True for cross-platform."""
@@ -578,9 +574,9 @@ class TestFallbackTextReplyRelationContext:
         assert "[replying to: evt-override]" in text
         assert "99" not in text
 
-    async def test_preserves_channel_index_and_meshnet_name(self) -> None:
-        """Fallback-text reply preserves channel_index and meshnet_name."""
-        renderer = _make_renderer("mesh-1", meshnet_name="testnet")
+    async def test_preserves_channel_index(self) -> None:
+        """Fallback-text reply preserves channel_index."""
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id="42",
@@ -599,7 +595,6 @@ class TestFallbackTextReplyRelationContext:
             ),
         )
         assert result.payload["channel_index"] == 3
-        assert result.payload["meshnet_name"] == "testnet"
         assert "reply_id" not in result.payload
 
     async def test_byte_truncation_preserved(self) -> None:

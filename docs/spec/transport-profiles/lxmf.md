@@ -19,7 +19,6 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 | `display_name`              | `str`                                                    | `""`         | Display name for LXMF announces                                                                                                |
 | `stamp_cost`                | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                                               |
 | `default_delivery_method`   | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                                                   |
-| `meshnet_name`              | `str`                                                    | `""`         | Human-readable meshnet name (informational)                                                                                    |
 | `origin_label`              | `str`                                                    | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                              |
 | `default_channel`           | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                                             |
 | `message_delay_seconds`     | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                                               |
@@ -106,12 +105,11 @@ config via the runtime source-attribution registry.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
-the source event. Operators SHOULD prefer `{origin_label}` over
-`{meshnet_name}` for cross-platform prefix templates — `origin_label` is the
-MEDRE-generic source label resolved from the source-attribution registry,
-while `meshnet_name` is transport-specific. See the Meshtastic Transport
-Profile §Relay Attribution Prefix for the authoritative list of supported
-template variables.
+the source event. Operators SHOULD prefer `{origin_label}` for
+cross-platform prefix templates — `origin_label` is the MEDRE-generic source
+label resolved from the source-attribution registry. See the Meshtastic
+Transport Profile §Relay Attribution Prefix for the authoritative list of
+supported template variables.
 
 **Default:** `""` (no prefix). LXMF sender identity is a hex Reticulum
 identity hash — templates referencing `{longname}` or `{shortname}` resolve

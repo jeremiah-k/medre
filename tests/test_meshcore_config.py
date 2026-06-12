@@ -27,7 +27,6 @@ class TestMeshCoreConfigValid:
             port=4000,
             default_channel=1,
             message_delay_seconds=1.0,
-            meshnet_name="testnet",
             identity="node-alpha",
             pubkey="aabbccdd",
             node_config={"freq": 868.0},

@@ -475,6 +475,18 @@ class TestMatrixRendererReplySender:
 # ---------------------------------------------------------------------------
 
 
+class _StubSourceAttribution:
+    """Minimal duck-typed SourceAttributionConfig for Matrix renderer tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "",
+        origin_label: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.origin_label = origin_label
+
+
 class TestMultiRadioSourceConfig:
     """MatrixRenderer resolves per-source-adapter config for multi-radio setups."""
 
@@ -494,9 +506,30 @@ class TestMultiRadioSourceConfig:
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
 
+    @staticmethod
+    def _source_attribution() -> dict[str, _StubSourceAttribution]:
+        """source_attribution registry for KEY_MESHNET (populated from origin_label)."""
+        return {
+            "radio-alpha": _StubSourceAttribution(
+                adapter_id="radio-alpha",
+                origin_label="AlphaNet",
+            ),
+            "radio-bravo": _StubSourceAttribution(
+                adapter_id="radio-bravo",
+                origin_label="BravoNet",
+            ),
+        }
+
+    def _make_renderer(self, **kwargs: object) -> MatrixRenderer:
+        return MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+            **kwargs,  # type: ignore[arg-type]
+        )
+
     async def test_alpha_source_uses_alpha_prefix(self) -> None:
         """Event from radio-alpha uses alpha's matrix_relay_prefix."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
@@ -509,7 +542,7 @@ class TestMultiRadioSourceConfig:
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
         """Event from radio-bravo uses bravo's matrix_relay_prefix."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-bravo",
             native_data={"longname": "Bob"},
@@ -522,7 +555,7 @@ class TestMultiRadioSourceConfig:
 
     async def test_unknown_source_renders_plain_output(self) -> None:
         """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie"},
@@ -538,7 +571,7 @@ class TestMultiRadioSourceConfig:
 
     async def test_alpha_mmrelay_compat_enabled(self) -> None:
         """Event from radio-alpha (mmrelay_compat=True) gets mesh metadata."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "99"},
@@ -553,7 +586,7 @@ class TestMultiRadioSourceConfig:
 
     async def test_bravo_mmrelay_compat_disabled(self) -> None:
         """Event from radio-bravo (mmrelay_compat=False) omits mesh metadata."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
@@ -567,7 +600,7 @@ class TestMultiRadioSourceConfig:
 
     async def test_reaction_prefix_resolves_per_source(self) -> None:
         """Reaction emote prefix resolves per source adapter config."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         relation = EventRelation(
             relation_type="reaction",
             target_event_id="orig-001",
@@ -592,11 +625,12 @@ class TestMultiRadioSourceConfig:
         body = result.payload["body"]
         # mmrelay_compat default is True for alpha → emote fallback
         assert "Alice/AlphaNet" in body
+        # KEY_MESHNET now sourced from origin_label in source_attribution
         assert result.payload["meshtastic_meshnet"] == "AlphaNet"
 
     async def test_reaction_meshnet_per_source(self) -> None:
-        """Reaction KEY_MESHNET resolves from source adapter config."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        """Reaction KEY_MESHNET resolves from source origin_label."""
+        renderer = self._make_renderer()
         relation = EventRelation(
             relation_type="reaction",
             target_event_id="orig-001",
@@ -618,13 +652,12 @@ class TestMultiRadioSourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        # Bravo has mmrelay_compat=False → reaction fallback emote
-        # but KEY_MESHNET should still be BravoNet from source config
+        # KEY_MESHNET sourced from origin_label in source_attribution
         assert result.payload["meshtastic_meshnet"] == "BravoNet"
 
     async def test_non_meshtastic_source_ignores_meshtastic_configs(self) -> None:
         """Non-Meshtastic source with Meshtastic source_configs renders plain output."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_event(
             event_id="evt-plain-1",
             payload={"body": "Hello from elsewhere"},
@@ -651,9 +684,9 @@ class TestMultiRadioSourceConfig:
 class TestRuntimeAssemblySourceConfig:
     """MatrixRenderer behavior under runtime assembly configuration.
 
-    Runtime assembly passes ``source_configs`` only.  Unknown / non-Meshtastic
-    sources render plain Matrix output without Meshtastic prefix or metadata
-    contamination.
+    Runtime assembly passes ``source_configs`` and ``source_attribution``.
+    Unknown / non-Meshtastic sources render plain Matrix output without
+    Meshtastic prefix or metadata contamination.
     """
 
     @staticmethod
@@ -672,9 +705,30 @@ class TestRuntimeAssemblySourceConfig:
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
 
+    @staticmethod
+    def _source_attribution() -> dict[str, _StubSourceAttribution]:
+        """source_attribution registry for KEY_MESHNET (populated from origin_label)."""
+        return {
+            "radio-alpha": _StubSourceAttribution(
+                adapter_id="radio-alpha",
+                origin_label="AlphaNet",
+            ),
+            "radio-bravo": _StubSourceAttribution(
+                adapter_id="radio-bravo",
+                origin_label="BravoNet",
+            ),
+        }
+
+    def _make_renderer(self, **kwargs: object) -> MatrixRenderer:
+        return MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+            **kwargs,  # type: ignore[arg-type]
+        )
+
     async def test_runtime_source_a_renders_with_alpha_metadata(self) -> None:
         """Runtime assembly: event from radio-alpha uses alpha's prefix and metadata."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "42"},
@@ -687,11 +741,12 @@ class TestRuntimeAssemblySourceConfig:
         # alpha has mmrelay_compat=True → mesh metadata injected
         assert "meshtastic_id" in result.payload
         assert result.payload["meshtastic_id"] == "42"
+        # KEY_MESHNET sourced from origin_label in source_attribution
         assert result.payload["meshtastic_meshnet"] == "AlphaNet"
 
     async def test_runtime_source_b_renders_with_bravo_metadata(self) -> None:
         """Runtime assembly: event from radio-bravo uses bravo's prefix, no mmrelay metadata."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
@@ -707,7 +762,7 @@ class TestRuntimeAssemblySourceConfig:
 
     async def test_non_meshtastic_source_renders_plain_output(self) -> None:
         """Non-Meshtastic source renders plain Matrix output with no Meshtastic metadata."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_event(
             event_id="evt-matrix-1",
             payload={"body": "Hello from Matrix"},
@@ -729,7 +784,7 @@ class TestRuntimeAssemblySourceConfig:
 
     async def test_unknown_meshtastic_source_renders_plain_output(self) -> None:
         """Unknown Meshtastic source (not in source_configs) renders plain output."""
-        renderer = MatrixRenderer(source_configs=self._source_configs())
+        renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie", "packet_id": "77"},

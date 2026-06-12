@@ -19,8 +19,8 @@ MeshCore, LXMF).
   `source_*` fields plus aliases), formatting rules, truncation semantics,
   metadata keys, Matrix-bound prefix cross-reference, and attribution caveat.
 - `docs/spec/transport-profiles/matrix.md`: Added §Relay Attribution Prefix
-  documenting that Matrix uses the source adapter's `matrix_relay_prefix`
-  (currently `MeshtasticConfig.matrix_relay_prefix`), application points,
+  documenting Matrix prefix resolution (now target-local via
+  `MatrixConfig.relay_prefix`), application points,
   metadata keys, and attribution caveat.
 - `docs/spec/routing-delivery.md`: Added §17.5 (Relay Attribution Prefix —
   Single Authority Caveat) documenting that prefix text is human-readable

@@ -285,7 +285,7 @@ enabled = true
 adapter_kind = "real"
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "LongFast Net"
+origin_label = "LongFast Net"
 default_channel = 0
 channel_mapping = {0 = "general", 1 = "alerts"}
 
@@ -295,7 +295,7 @@ adapter_kind = "real"
 connection_type = "tcp"
 host = "meshtastic-turbo.local"
 port = 4403
-meshnet_name = "ShortTurbo Net"
+origin_label = "ShortTurbo Net"
 default_channel = 0
 channel_mapping = {0 = "fast"}
 ```
@@ -330,7 +330,7 @@ enabled = true
 adapter_kind = "real"
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "LocalMesh"
+origin_label = "LocalMesh"
 default_channel = 0
 channel_mapping = {0 = "general"}
 ```

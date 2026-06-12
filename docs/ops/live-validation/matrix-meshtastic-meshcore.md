@@ -134,7 +134,7 @@ port matches the device identified in Step 2:
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "MEDRE"
+origin_label = "MEDRE"
 mmrelay_compatibility = true
 ```
 

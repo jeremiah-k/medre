@@ -26,14 +26,12 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -151,14 +149,12 @@ def _make_renderer_with_attribution(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     source_attribution: dict | None = None,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with source_attribution."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
     )
     return MeshtasticRenderer(
         configs={target_adapter: config},
@@ -253,12 +249,10 @@ class TestSourceOriginLabel:
                 "radio-alpha": MeshtasticConfig(
                     adapter_id="radio-alpha",
                     radio_relay_prefix="",
-                    meshnet_name="AlphaNet",
                 ),
                 "radio-bravo": MeshtasticConfig(
                     adapter_id="radio-bravo",
                     radio_relay_prefix="[{origin_label}]: ",
-                    meshnet_name="BravoNet",
                 ),
             },
             source_attribution={

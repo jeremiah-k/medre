@@ -138,7 +138,7 @@ serial_port = "/dev/ttyACM0"
 host = "meshtastic.local"
 port = 4403
 ble_address = ""
-meshnet_name = "MyMesh"
+origin_label = "MyMesh"
 default_channel = 0
 channel_mapping = {0 = "general", 1 = "admin"}
 message_delay_seconds = 0.5
@@ -157,7 +157,7 @@ outbound_mode = "enabled"
 | `port`                             | int                | `None`        | Port for TCP.                                                                         |
 | `serial_port`                      | string             | `None`        | Serial device path. Required when `connection_type="serial"`.                         |
 | `ble_address`                      | string             | `None`        | BLE MAC address. Required when `connection_type="ble"`.                               |
-| `meshnet_name`                     | string             | `""`          | Human-readable meshnet name (informational).                                          |
+| `origin_label`                     | string             | `""`          | Platform-neutral source label for relay prefixes.                                     |
 | `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                    |
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                         |
 | `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                     |
@@ -186,7 +186,7 @@ serial_baudrate = 115200
 host = "meshcore.local"
 port = 4000
 ble_address = ""
-meshnet_name = ""
+origin_label = ""
 default_channel = 0
 message_delay_seconds = 0.5
 identity = "my-node"
@@ -201,7 +201,7 @@ node_config = {}
 | `adapter_id`                                    | string     | instance name | Unique identifier.                                                 |
 | `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.                                 |
 | `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters. TCP port defaults to 4000 when `port=None`. |
-| `meshnet_name`                                  | string     | `""`          | Informational.                                                     |
+| `origin_label`                                  | string     | `""`          | Platform-neutral source label for relay prefixes.                  |
 | `default_channel`                               | int        | `0`           | Default outbound channel.                                          |
 | `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                                            |
 | `identity`                                      | string     | `None`        | MeshCore node identity string.                                     |
@@ -221,7 +221,7 @@ connection_type = "reticulum"
 display_name = "MEDRE"
 stamp_cost = 8
 default_delivery_method = "direct"
-meshnet_name = ""
+origin_label = ""
 default_channel = 0
 message_delay_seconds = 0.5
 metadata_embedding = true
@@ -238,7 +238,7 @@ identity_path = "{state}/lxmf/identity"
 | `display_name`            | string | `""`          | Display name for LXMF announces.                                                                   |
 | `stamp_cost`              | int    | `8`           | Stamp cost. `0` means no stamp required.                                                           |
 | `default_delivery_method` | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.                                               |
-| `meshnet_name`            | string | `""`          | Informational.                                                                                     |
+| `origin_label`            | string | `""`          | Platform-neutral source label for relay prefixes.                                                  |
 | `default_channel`         | int    | `0`           | Default outbound channel.                                                                          |
 | `message_delay_seconds`   | float  | `0.5`         | Pacing.                                                                                            |
 | `metadata_embedding`      | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.                                                    |

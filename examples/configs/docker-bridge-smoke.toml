@@ -54,7 +54,7 @@ adapter_kind = "real"
 connection_type = "tcp"
 host = "localhost"
 port = 4403
-meshnet_name = "docker-bridge-ci"
+origin_label = "docker-bridge-ci"
 
 # ---------------------------------------------------------------------------
 # Fake adapters — no SDK, no network, no hardware
@@ -63,7 +63,7 @@ meshnet_name = "docker-bridge-ci"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "fake-radio"
+origin_label = "fake-radio"
 
 [adapters.matrix.fake_mx]
 enabled = true

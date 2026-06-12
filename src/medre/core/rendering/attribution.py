@@ -53,7 +53,6 @@ _CANONICAL_NAMES = frozenset(
         "source_short_name",
         "source_short_name_5",
         "source_room_or_channel",
-        "source_meshnet_name",
         "source_origin_label",
         "source_native_message_id",
         "source_native_channel_id",
@@ -67,7 +66,6 @@ _ALIASES: dict[str, str] = {
     "shortname": "source_short_name",
     "shortname5": "source_short_name_5",
     "from_id": "source_sender_id",
-    "meshnet_name": "source_meshnet_name",
     "origin_label": "source_origin_label",
 }
 
@@ -88,7 +86,7 @@ class RelayAttribution:
     templates never render the literal text ``"None"``.
 
     Aliases (``longname``, ``shortname``, ``shortname5``, ``from_id``,
-    ``meshnet_name``, ``origin_label``) are **not** stored here — they are derived by the
+    ``origin_label``) are **not** stored here — they are derived by the
     formatter from the canonical ``source_*`` fields.  This avoids
     competing sources of truth.
 
@@ -115,8 +113,6 @@ class RelayAttribution:
         ``source_sender_id``.
     source_room_or_channel:
         Room / channel ID from the source (``event.source_channel_id``).
-    source_meshnet_name:
-        Mesh network name when applicable.
     source_origin_label:
         Human-readable label for the source origin (e.g. ``"East
         Meshtastic"``).  Resolved through the ``origin_label`` alias
@@ -138,7 +134,6 @@ class RelayAttribution:
     source_short_name: str | None = None
     source_short_name_5: str | None = None
     source_room_or_channel: str | None = None
-    source_meshnet_name: str | None = None
     source_origin_label: str | None = None
     source_native_message_id: str | None = None
     source_native_channel_id: str | None = None
@@ -162,7 +157,7 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
 
     # Derive short_name_5 when not explicitly set: first 5 chars of
     # short_name, falling back to first 5 chars of sender_id.
-    if attr.source_short_name_5:
+    if attr.source_short_name_5 is not None:
         short5 = attr.source_short_name_5
     elif short_name:
         short5 = short_name[:5]
@@ -181,7 +176,6 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
         "source_short_name": short_name,
         "source_short_name_5": short5 or "",
         "source_room_or_channel": attr.source_room_or_channel or "",
-        "source_meshnet_name": attr.source_meshnet_name or "",
         "source_origin_label": attr.source_origin_label or "",
         "source_native_message_id": attr.source_native_message_id or "",
         "source_native_channel_id": attr.source_native_channel_id or "",
@@ -271,7 +265,6 @@ def format_relay_prefix(
     """
     try:
         var_map = _build_variable_map(attr)
-        _PLACEHOLDER_RE.findall(template)
 
         variables_used: list[str] = []
         missing_variables: list[str] = []
@@ -426,12 +419,10 @@ def _extract_meshtastic_fields(
     longname = native_data.get("longname")
     shortname = native_data.get("shortname")
     from_id = native_data.get("from_id")
-    meshnet_name = native_data.get("meshnet_name")
 
     longname_str = str(longname) if longname is not None else None
     shortname_str = str(shortname) if shortname is not None else None
     from_id_str = str(from_id) if from_id is not None else None
-    meshnet_str = str(meshnet_name) if meshnet_name is not None else None
 
     # shortname5 convention: first 5 chars of shortname, fallback to from_id.
     short5: str | None = None
@@ -446,7 +437,6 @@ def _extract_meshtastic_fields(
         "source_long_name": longname_str,
         "source_short_name": shortname_str,
         "source_short_name_5": short5,
-        "source_meshnet_name": meshnet_str,
     }
 
 
@@ -519,7 +509,6 @@ def extract_relay_attribution(
     event: CanonicalEvent,
     *,
     source_platform: str | None = None,
-    source_meshnet_name: str | None = None,
     source_origin_label: str | None = None,
     route_id: str | None = None,
 ) -> RelayAttribution:
@@ -537,9 +526,6 @@ def extract_relay_attribution(
     source_platform:
         Override platform detection.  When ``None``, the platform is
         guessed from ``event.source_adapter``.
-    source_meshnet_name:
-        Override meshnet name.  Useful when the config provides it but
-        the event metadata does not carry it.
     source_origin_label:
         Override origin label.  When not ``None``, takes precedence over
         any value extracted from native metadata.  Typically sourced
@@ -596,15 +582,6 @@ def extract_relay_attribution(
         fields["source_native_message_id"] = _auth_msg_id
     if _auth_chan_id is not None:
         fields["source_native_channel_id"] = _auth_chan_id
-
-    # Meshnet name: explicit parameter wins over native data.
-    if source_meshnet_name is not None:
-        fields["source_meshnet_name"] = source_meshnet_name
-    elif (
-        "source_meshnet_name" not in fields or fields.get("source_meshnet_name") is None
-    ):
-        # Already populated by platform extractor if available.
-        pass
 
     # Origin label: explicit parameter wins, never overwritten by
     # platform extraction.

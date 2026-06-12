@@ -23,14 +23,12 @@ def _make_config(
     adapter_id: str = "meshcore_node",
     *,
     max_text_bytes: int = 512,
-    meshnet_name: str = "",
     default_channel: int = 0,
     meshcore_relay_prefix: str = "",
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
-        meshnet_name=meshnet_name,
         default_channel=default_channel,
         meshcore_relay_prefix=meshcore_relay_prefix,
     )
@@ -40,11 +38,8 @@ def _make_renderer(
     adapter_id: str = "meshcore_node",
     *,
     max_text_bytes: int = 512,
-    meshnet_name: str = "",
 ) -> MeshCoreRenderer:
-    cfg = _make_config(
-        adapter_id, max_text_bytes=max_text_bytes, meshnet_name=meshnet_name
-    )
+    cfg = _make_config(adapter_id, max_text_bytes=max_text_bytes)
     return MeshCoreRenderer(configs={adapter_id: cfg})
 
 
@@ -352,55 +347,20 @@ class TestMeshCoreRendererTargetResolution:
         """Multi-config renderer resolves correct adapter."""
         r = MeshCoreRenderer(
             configs={
-                "mc-a": _make_config("mc-a", max_text_bytes=100, meshnet_name="net-a"),
-                "mc-b": _make_config("mc-b", max_text_bytes=10, meshnet_name="net-b"),
+                "mc-a": _make_config("mc-a", max_text_bytes=100),
+                "mc-b": _make_config("mc-b", max_text_bytes=10),
             }
         )
         event = _make_event(payload={"body": "hello world"})
         result_a = await r.render(
             event, RenderingContext(target_adapter="mc-a", delivery_strategy="direct")
         )
-        assert result_a.payload["meshnet_name"] == "net-a"
         assert result_a.payload["text"] == "hello world"  # 11 bytes, under 100
 
         result_b = await r.render(
             event, RenderingContext(target_adapter="mc-b", delivery_strategy="direct")
         )
-        assert result_b.payload["meshnet_name"] == "net-b"
         assert result_b.payload["text"] == "hello worl"  # truncated to 10 bytes
-
-
-# ===================================================================
-# meshnet_name propagation
-# ===================================================================
-
-
-class TestMeshCoreRendererMeshnetName:
-    """meshnet_name comes from config, not hardcoded."""
-
-    pytestmark = pytest.mark.asyncio
-
-    async def test_render_meshnet_name_from_config(self) -> None:
-        renderer = _make_renderer(meshnet_name="testnet")
-        event = _make_event()
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == "testnet"
-
-    async def test_render_meshnet_name_default_empty(self) -> None:
-        renderer = _make_renderer()
-        event = _make_event()
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == ""
 
 
 # ===================================================================
@@ -721,33 +681,9 @@ class TestMeshCoreRendererTruncation:
 
 
 class TestMeshCoreRendererPrefixFormatting:
-    """Verify meshnet_name and channel_index propagate correctly in output."""
+    """Verify prefix formatting and channel_index propagate correctly in output."""
 
     pytestmark = pytest.mark.asyncio
-
-    async def test_meshnet_name_in_output(self) -> None:
-        """meshnet_name from config appears in rendered payload."""
-        renderer = _make_renderer(meshnet_name="testnet-alpha")
-        event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == "testnet-alpha"
-
-    async def test_empty_meshnet_name_default(self) -> None:
-        """Default meshnet_name is empty string."""
-        renderer = _make_renderer()
-        event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == ""
 
     async def test_channel_index_from_target_channel(self) -> None:
         """target_channel is parsed as channel_index in payload."""
@@ -773,8 +709,8 @@ class TestMeshCoreRendererPrefixFormatting:
         )
         assert result.payload["channel_index"] == 3
 
-    async def test_payload_has_exactly_three_keys(self) -> None:
-        """Rendered payload has text, channel_index, meshnet_name only."""
+    async def test_payload_has_exactly_two_keys(self) -> None:
+        """Rendered payload has text and channel_index only."""
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
         result = await renderer.render(
@@ -783,7 +719,7 @@ class TestMeshCoreRendererPrefixFormatting:
                 target_adapter="meshcore_node", delivery_strategy="direct"
             ),
         )
-        assert set(result.payload.keys()) == {"text", "channel_index", "meshnet_name"}
+        assert set(result.payload.keys()) == {"text", "channel_index"}
 
     async def test_max_text_bytes_zero_with_multibyte(self) -> None:
         """max_text_bytes=0 produces empty text even with multibyte input."""
@@ -944,7 +880,7 @@ class TestMeshCoreTargetSelectionRules:
     - Both ``direct`` and ``fallback_text`` strategies produce the same
       relation-free payload for MeshCore (no native rendering path).
     - The payload always contains exactly ``text``, ``channel_index``,
-      and ``meshnet_name`` — never ``reply_id``, ``emoji``, or
+      ``text`` and ``channel_index`` — never ``reply_id``, ``emoji``, or
       ``m.relates_to``.
     """
 
@@ -999,7 +935,7 @@ class TestMeshCoreTargetSelectionRules:
         """MeshCore payload never contains native relation fields.
 
         Regardless of relation type or native ref presence, the payload
-        contains only text, channel_index, and meshnet_name.
+        contains only text and channel_index.
         """
         renderer = _make_renderer()
         rel = EventRelation(
@@ -1032,7 +968,7 @@ class TestMeshCoreTargetSelectionRules:
         )
         payload_keys = set(result.payload.keys())
         # Only these keys are ever emitted
-        assert payload_keys == {"text", "channel_index", "meshnet_name"}
+        assert payload_keys == {"text", "channel_index"}
         # Explicitly no native relation fields
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload

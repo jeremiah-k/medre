@@ -51,7 +51,6 @@ _ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset(
 _NO_SECRET_FIELDS: frozenset[str] = frozenset(
     {
         "display_name",
-        "meshnet_name",
     }
 )
 
@@ -77,8 +76,6 @@ class LxmfConfig:
     default_delivery_method:
         Default LXMF delivery method: ``"direct"``, ``"opportunistic"``,
         ``"propagated"``, or ``"paper"``.  Defaults to ``"direct"``.
-    meshnet_name:
-        Human-readable meshnet name (informational).
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:
@@ -119,7 +116,6 @@ class LxmfConfig:
     display_name: str = ""
     stamp_cost: int = 8
     default_delivery_method: str = "direct"
-    meshnet_name: str = ""
     origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5

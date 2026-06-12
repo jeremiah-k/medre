@@ -84,8 +84,6 @@ class MeshCoreConfig:
         Host-level pairing via ``bluetoothctl`` remains the
         recommended path; this field exists for automated/headless
         deployments.
-    meshnet_name:
-        Human-readable meshnet name (informational).
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:
@@ -124,7 +122,6 @@ class MeshCoreConfig:
     serial_baudrate: int = 115200
     ble_address: str | None = None
     ble_pin: str | None = None
-    meshnet_name: str = ""
     origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5

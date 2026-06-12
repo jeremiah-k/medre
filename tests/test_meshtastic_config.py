@@ -26,7 +26,6 @@ class TestMeshtasticConfigValid:
             port=4403,
             default_channel=1,
             message_delay_seconds=1.0,
-            meshnet_name="testnet",
         )
         result = config.validate()
         assert result.adapter_id == "mesh-2"

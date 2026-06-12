@@ -20,8 +20,8 @@ enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 
-# Human-readable name used in log messages and mesh announcements
-meshnet_name = "medre-node"
+# Human-readable label used in log messages and cross-platform prefixes
+origin_label = "medre-node"
 
 # Suppress outbound radio sends while still receiving inbound traffic:
 # outbound_mode = "listen_only"

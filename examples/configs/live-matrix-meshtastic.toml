@@ -43,6 +43,7 @@ user_id = ""                           # REQUIRED — bot user ID (e.g. @mesh-bo
 access_token = ""                      # REQUIRED — bot access token
 room_allowlist = ["!room:example.com"] # REQUIRED — your test room ID
 encryption_mode = "plaintext"          # plaintext | e2ee_optional | e2ee_required
+# relay_prefix = "[{longname}/{origin_label}]: "    # Meshtastic→Matrix: prepend sender info via target-local prefix
 
 # ---------------------------------------------------------------------------
 # Meshtastic transport (serial)
@@ -53,11 +54,9 @@ encryption_mode = "plaintext"          # plaintext | e2ee_optional | e2ee_requir
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "medre-radio"                          # human-readable name in logs and mesh announcements
-matrix_relay_prefix = "[{longname}/{meshnet_name}]: " # Meshtastic→Matrix: prepend sender info (default)
-radio_relay_prefix = "{shortname5}[M]: "              # Matrix→Meshtastic: prepend short name (default)
-# matrix_relay_prefix = "[{longname}/{shortname}]: "    # alternative: long name + short name
-# radio_relay_prefix = ""                               # empty = no prefix for radio direction
+origin_label = "medre-radio"             # platform-neutral label used in cross-platform prefixes
+radio_relay_prefix = "{shortname5}[M]: " # Matrix→Meshtastic: prepend short name (default)
+# radio_relay_prefix = ""                             # empty = no prefix for radio direction
 # mmrelay_compatibility = true                    # embed mmrelay-compatible metadata in Matrix payloads
 
 # # --- TCP alternative (uncomment and comment out serial lines above) ---
@@ -66,8 +65,7 @@ radio_relay_prefix = "{shortname5}[M]: "              # Matrix→Meshtastic: pre
 # connection_type = "tcp"
 # host = "meshtastic.local"
 # port = 4403
-# meshnet_name = "medre-radio"
-# matrix_relay_prefix = "[{longname}/{meshnet_name}]: "
+# origin_label = "medre-radio"
 # radio_relay_prefix = "{shortname5}[M]: "
 # mmrelay_compatibility = true
 

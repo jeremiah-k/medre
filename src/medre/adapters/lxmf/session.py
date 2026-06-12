@@ -919,12 +919,13 @@ class LxmfSession:
             else:
                 self._identity = RNS.Identity()
 
-            # 3. Create LXMRouter — storagepath is REQUIRED by LXMF 0.9.7.
+            # 3. Create LXMRouter — storagepath is REQUIRED by validated
+            #    LXMF LXMRouter behavior.
             storagepath = self._config.storage_path
             if not storagepath:
                 raise LxmfConnectionError(
                     "storage_path is required for LXMRouter construction "
-                    "(LXMF 0.9.7 raises ValueError without it)"
+                    "(validated LXMF LXMRouter behavior raises ValueError without it)"
                 )
             self._router = lxmf.LXMRouter(
                 identity=self._identity,

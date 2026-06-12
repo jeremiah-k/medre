@@ -30,14 +30,12 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -164,7 +162,6 @@ class TestMatrixToMeshtasticReactionComprehensive:
         renderer = _make_renderer(
             "mesh-1",
             radio_relay_prefix="[{longname}] ",
-            meshnet_name="mynet",
         )
 
         rel = _make_cross_platform_relation(
@@ -852,13 +849,11 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
                 radio_relay_prefix="[{shortname5}@alpha] ",
-                meshnet_name="alpha-mesh",
                 max_text_bytes=60,
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
                 radio_relay_prefix="[{shortname5}@bravo] ",
-                meshnet_name="bravo-mesh",
                 max_text_bytes=200,
             ),
         }
@@ -867,7 +862,7 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
 
 class TestMultiRadioTargetAware:
     """A single MeshtasticRenderer with multiple configs renders differently
-    per target_adapter for prefix, meshnet_name, byte budget, replies,
+    per target_adapter for prefix, byte budget, replies,
     reactions, and unknown target behavior.
     """
 
@@ -936,28 +931,6 @@ class TestMultiRadioTargetAware:
         assert result_a.payload["text"] != result_b.payload["text"]
         assert "[TestU@alpha]" in result_a.payload["text"]
         assert "[TestU@bravo]" in result_b.payload["text"]
-
-    # -- distinct meshnet_name -----------------------------------------
-
-    async def test_alpha_meshnet_name(self) -> None:
-        """Payload meshnet_name matches alpha config."""
-        renderer = _make_multi_radio_renderer()
-        event = self._event_with_native("msg")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
-        )
-        assert result.payload["meshnet_name"] == "alpha-mesh"
-
-    async def test_bravo_meshnet_name(self) -> None:
-        """Payload meshnet_name matches bravo config."""
-        renderer = _make_multi_radio_renderer()
-        event = self._event_with_native("msg")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
-        )
-        assert result.payload["meshnet_name"] == "bravo-mesh"
 
     # -- distinct byte budgets -----------------------------------------
 

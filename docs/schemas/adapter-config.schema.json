@@ -78,7 +78,7 @@
         "relay_prefix": {
           "type": "string",
           "default": "",
-          "description": "Target-local prefix template for Matrix outbound body text. When empty, the renderer falls back to the source adapter's matrix_relay_prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
+          "description": "Target-local prefix template for Matrix outbound body text. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id", "homeserver", "user_id"],
@@ -119,11 +119,6 @@
           "default": null,
           "description": "BLE MAC address for BLE connections."
         },
-        "meshnet_name": {
-          "type": "string",
-          "default": "",
-          "description": "Human-readable meshnet name (informational)."
-        },
         "origin_label": {
           "type": "string",
           "default": "",
@@ -157,11 +152,6 @@
           "type": "integer",
           "default": 30000,
           "description": "Timeout in milliseconds for sync operations."
-        },
-        "matrix_relay_prefix": {
-          "type": "string",
-          "default": "[{longname}/{meshnet_name}]: ",
-          "description": "Template prepended to messages relayed from Meshtastic to Matrix."
         },
         "radio_relay_prefix": {
           "type": "string",
@@ -234,11 +224,6 @@
           "type": ["string", "null"],
           "default": null,
           "description": "BLE MAC address for BLE connections."
-        },
-        "meshnet_name": {
-          "type": "string",
-          "default": "",
-          "description": "Human-readable meshnet name (informational)."
         },
         "origin_label": {
           "type": "string",
@@ -337,11 +322,6 @@
           "enum": ["direct", "opportunistic", "propagated", "paper"],
           "default": "direct",
           "description": "Default LXMF delivery method."
-        },
-        "meshnet_name": {
-          "type": "string",
-          "default": "",
-          "description": "Human-readable meshnet name (informational)."
         },
         "origin_label": {
           "type": "string",

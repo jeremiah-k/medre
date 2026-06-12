@@ -45,7 +45,6 @@ the inline text in the content field.  The result carries
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any, Mapping
 
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
@@ -215,7 +214,13 @@ class LxmfRenderer:
         if prefix_template:
             attr = self._extract_attribution_with_source(event)
             prefix_result = format_relay_prefix(prefix_template, attr)
-            if prefix_result.rendered_prefix:
+            # On formatting_exception the rendered_prefix is the raw
+            # template — do NOT prepend it to user-facing text.
+            is_exception = (
+                prefix_result.formatting_error
+                and prefix_result.formatting_error.startswith("formatting_exception:")
+            )
+            if prefix_result.rendered_prefix and not is_exception:
                 text = prefix_result.rendered_prefix + text
             prefix_meta["relay_prefix_template"] = prefix_result.template_used
             prefix_meta["relay_prefix_rendered"] = prefix_result.rendered_prefix
@@ -309,17 +314,16 @@ class LxmfRenderer:
             Attribution snapshot with origin_label populated from the
             source_attribution registry when available.
         """
-        attr = extract_relay_attribution(event)
-
-        # Enrich with origin_label from source_attribution registry.
+        # Resolve source origin_label from the source_attribution registry.
         source_info = self._source_attribution.get(event.source_adapter)
+        source_origin_label: str | None = None
         if source_info is not None:
-            origin_label = getattr(source_info, "origin_label", "") or ""
-            meshnet_name = getattr(source_info, "meshnet_name", "") or ""
-            if origin_label:
-                attr = replace(attr, source_origin_label=origin_label)
-            if meshnet_name:
-                attr = replace(attr, source_meshnet_name=meshnet_name)
+            source_origin_label = getattr(source_info, "origin_label", None)
+
+        attr = extract_relay_attribution(
+            event,
+            source_origin_label=source_origin_label,
+        )
 
         return attr
 

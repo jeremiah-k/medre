@@ -87,7 +87,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "MyMesh"
+origin_label = "MyMesh"
 # max_text_bytes = 227  # UTF-8 byte budget for final radio text (default 227)
 # outbound_mode = "enabled"   # "enabled" (send) or "listen_only" (suppress outbound radio)
 
@@ -188,7 +188,7 @@ allowed_event_types = ["message.created"]
 # connection_type = "tcp"
 # host = "192.168.1.50"
 # port = 4403
-# meshnet_name = "MyMesh"
+# origin_label = "MyMesh"
 
 # [routes.matrix_fanout]
 # source_adapters = ["main"]

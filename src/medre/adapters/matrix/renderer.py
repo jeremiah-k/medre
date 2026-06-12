@@ -92,15 +92,16 @@ class MatrixRenderer:
         return self._source_configs.get(event.source_adapter)
 
     def _get_meshnet_name(self, event: CanonicalEvent) -> str:
-        """Resolve meshnet_name for *event*'s source adapter.
+        """Resolve the meshnet label for *event*'s source adapter.
 
-        Returns the config's ``meshnet_name`` when a source config is
-        matched; otherwise returns an empty string (neutral default).
+        Returns the source adapter's ``origin_label`` (the sole
+        platform-neutral label) when found in the source_attribution
+        registry; otherwise returns an empty string (neutral default).
+
+        This field populates the mmrelay-compatible ``KEY_MESHNET``
+        metadata key.
         """
-        cfg = self._resolve_source_config(event)
-        if cfg is not None:
-            return getattr(cfg, "meshnet_name", "")
-        return ""
+        return self._resolve_source_origin_label(event) or ""
 
     def _get_matrix_relay_prefix(
         self, event: CanonicalEvent, target_adapter: str = ""
@@ -532,11 +533,9 @@ class MatrixRenderer:
         if not template:
             return "", {}
 
-        meshnet_name = self._get_meshnet_name(event) or None
         source_origin_label = self._resolve_source_origin_label(event)
         attr = extract_relay_attribution(
             event,
-            source_meshnet_name=meshnet_name,
             source_origin_label=source_origin_label,
         )
         fmt_result = format_relay_prefix(template, attr)
@@ -707,11 +706,9 @@ class MatrixRenderer:
         if not template:
             return body, {}
 
-        meshnet_name = self._get_meshnet_name(event) or None
         source_origin_label = self._resolve_source_origin_label(event)
         attr = extract_relay_attribution(
             event,
-            source_meshnet_name=meshnet_name,
             source_origin_label=source_origin_label,
         )
         fmt_result = format_relay_prefix(template, attr)

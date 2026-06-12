@@ -39,6 +39,7 @@ homeserver = ""               # REQUIRED — your homeserver URL
 user_id = ""                  # REQUIRED — bot user ID (e.g. @mesh-bot:example.com)
 access_token = ""             # REQUIRED — bot access token
 encryption_mode = "plaintext" # plaintext for bring-up; e2ee_required once vodozemac is installed
+# relay_prefix = "[{longname}/{origin_label}]: "    # Meshtastic→Matrix prefix via target-local config
 
 # ---------------------------------------------------------------------------
 # Meshtastic transport (serial)
@@ -47,9 +48,8 @@ encryption_mode = "plaintext" # plaintext for bring-up; e2ee_required once vodoz
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "medre-radio"
-matrix_relay_prefix = "[{longname}/{meshnet_name}]: " # Meshtastic→Matrix prefix
-radio_relay_prefix = "{shortname5}[M]: "              # Matrix→Meshtastic prefix
+origin_label = "medre-radio"
+radio_relay_prefix = "{shortname5}[M]: " # Matrix→Meshtastic prefix
 
 # # --- TCP alternative (uncomment to use instead of serial) ---
 # connection_type = "tcp"

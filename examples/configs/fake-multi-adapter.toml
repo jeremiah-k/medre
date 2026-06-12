@@ -39,7 +39,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "dev-radio"
+origin_label = "dev-radio"
 
 # --- MeshCore (fake) ---
 [adapters.meshcore.fake_meshcore]

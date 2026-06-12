@@ -1237,13 +1237,11 @@ from the source adapter config via the runtime source-attribution registry.
 | `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                                 |
 | `source_sender_id`    | `{from_id}`       | Native sender ID from source event metadata | Per-transport native identity                                   |
 | `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                                       |
-| `meshnet_name`        | `{meshnet_name}`  | Source adapter config `meshnet_name`        | Transport-specific network name, NOT MEDRE-generic              |
 | `route_id`            | `{route_id}`      | Matched route                               | Route identification (may be empty if no route trace available) |
 
-Operators SHOULD prefer `{origin_label}` over `{meshnet_name}` in
-cross-platform prefix templates. `meshnet_name` is transport-specific
-(radio mesh network name) and may be empty or semantically irrelevant for
-non-radio transports. `origin_label` is the single MEDRE-generic label.
+Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
+`origin_label` is the single MEDRE-generic label populated on all adapter
+configs.
 
 ### 17.5.4 Renderer Lookup
 
@@ -1256,9 +1254,7 @@ an empty string — no label is rendered.
 For the Matrix outbound prefix specifically, `MatrixConfig.relay_prefix`
 (string, default `""`) is the target-local prefix template. The Matrix
 renderer reads this field from its own config (target-local), not from the
-source adapter's config. The old path through
-`MeshtasticConfig.matrix_relay_prefix` is a backward-compatibility fallback
-only — new configurations SHOULD use `MatrixConfig.relay_prefix`.
+source adapter's config. New configurations SHOULD use `MatrixConfig.relay_prefix`.
 
 For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
 lives on the respective target adapter config (`radio_relay_prefix`,
@@ -1271,7 +1267,7 @@ includes `source_origin_label` from the source-attribution registry.
 The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines a single set of template
 variables (canonical `source_*` fields plus aliases `longname`, `shortname`,
-`shortname5`, `from_id`, `meshnet_name`, `origin_label`). All four transport
+`shortname5`, `from_id`, `origin_label`). All four transport
 renderers use the same formatter and the same variable schema. The
 authoritative variable list is documented in the Meshtastic Transport
 Profile §Relay Attribution Prefix.
