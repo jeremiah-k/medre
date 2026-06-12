@@ -401,7 +401,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "replay-run-id"
+origin_label = "replay-run-id"
 
 [routes.mx_to_mesh]
 source_adapters = ["fake_matrix"]

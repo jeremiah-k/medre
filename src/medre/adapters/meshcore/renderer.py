@@ -1,8 +1,8 @@
 """MeshCore renderer for target-specific event rendering.
 
 The :class:`MeshCoreRenderer` converts canonical events into
-MeshCore-ready content payloads (dicts with ``text``, ``channel_index``,
-and optional ``meshnet_name``).
+MeshCore-ready content payloads (dicts with ``text`` and
+``channel_index``).
 
 The renderer is initialised with a **required** mapping of adapter IDs to
 :class:`~medre.config.adapters.meshcore.MeshCoreConfig` instances.
@@ -30,8 +30,8 @@ constraints, and text budgets.  No legacy signature parameters.
 
 When ``delivery_strategy == "fallback_text"``, relation semantics are
 degraded into inline text within the MeshCore content body while
-preserving MeshCore payload ownership (``text``, ``channel_index``,
-``meshnet_name``).  Contact/channel/destination semantics and target
+preserving MeshCore payload ownership (``text``, ``channel_index``).
+Contact/channel/destination semantics and target
 addressing are retained in the native MeshCore structure.  The result
 carries ``fallback_applied="strategy_fallback_text"``.
 
@@ -63,14 +63,13 @@ if TYPE_CHECKING:
 class MeshCoreRenderer:
     """Renderer for MeshCore transport targets.
 
-    Produces content dicts with ``text``, ``channel_index``, and optional
-    ``meshnet_name``.
+    Produces content dicts with ``text`` and ``channel_index``.
 
     **Target-aware rendering.** The renderer is initialised with a
     mapping of adapter IDs to :class:`~medre.config.adapters.meshcore.MeshCoreConfig`
     instances.  At render time the config for *target_adapter* is resolved
     from this mapping.  This allows multi-node setups where each adapter
-    has different ``max_text_bytes`` and ``meshnet_name`` values.
+    has different ``max_text_bytes`` values.
 
     An empty *configs* mapping raises :class:`ValueError`.  An unknown
     *target_adapter* at render time raises :class:`KeyError`.
@@ -146,12 +145,11 @@ class MeshCoreRenderer:
           to the configured ``max_text_bytes`` UTF-8 byte budget.
         * ``channel_index``: parsed from ``ctx.target_channel`` or
           ``config.default_channel``.
-        * ``meshnet_name``: the configured mesh network name.
 
         Under ``ctx.delivery_strategy == "fallback_text"``, relation
         semantics are degraded into inline text while the payload retains
-        MeshCore-native structure (``text``, ``channel_index``,
-        ``meshnet_name``).  Contact/channel/destination semantics and
+        MeshCore-native structure (``text``, ``channel_index``).
+        Contact/channel/destination semantics and
         target addressing are preserved.
 
         **Target-aware config resolution.** The renderer resolves the

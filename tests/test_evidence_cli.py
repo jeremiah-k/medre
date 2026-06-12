@@ -55,7 +55,7 @@ enabled = true
 adapter_kind = "fake"
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.bridge]
 source_adapters = ["main"]

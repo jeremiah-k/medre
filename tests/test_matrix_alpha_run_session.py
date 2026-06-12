@@ -173,7 +173,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "AlphaTest"
+origin_label = "AlphaTest"
 
 [routes.alpha_bridge]
 source_adapters = ["matrix_alpha"]

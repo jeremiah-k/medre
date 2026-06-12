@@ -695,7 +695,7 @@ class MatrixRenderer:
         from :mod:`medre.core.rendering.attribution`.  Variables available
         in templates include all canonical ``source_*`` fields plus aliases
         (``longname``, ``shortname``, ``shortname5``, ``from_id``,
-        ``meshnet_name``, ``origin_label``).
+        ``origin_label``).
 
         Returns a ``(prefixed_body, formatter_meta)`` tuple.
         ``formatter_meta`` is empty when no prefix is configured or a

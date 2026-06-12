@@ -93,7 +93,6 @@ class FakeMeshtasticClient:
         self,
         text: str,
         channel_index: int,
-        meshnet_name: str = "",
         dest_id: str | None = None,
         reply_id: int | None = None,
         emoji: int | None = None,
@@ -106,8 +105,6 @@ class FakeMeshtasticClient:
             The text payload.
         channel_index:
             Target radio channel index.
-        meshnet_name:
-            Optional meshnet name (unused by fake).
         dest_id:
             Optional destination node ID for DMs.
         reply_id:
@@ -125,7 +122,6 @@ class FakeMeshtasticClient:
         record: dict[str, Any] = {
             "text": text,
             "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
             "dest_id": dest_id,
             "packet_id": packet_id,
         }
@@ -366,7 +362,6 @@ class FakeMeshtasticAdapter(AdapterContract):
         channel_index = result.payload.get("channel_index", 0)
         if not isinstance(channel_index, int):
             channel_index = 0
-        meshnet_name = str(result.payload.get("meshnet_name", ""))
         reply_id = result.payload.get("reply_id")
         if isinstance(reply_id, int):
             reply_id_val: int | None = reply_id
@@ -379,7 +374,6 @@ class FakeMeshtasticAdapter(AdapterContract):
         send_result = await self._fake_client.send_text(
             text=text,
             channel_index=channel_index,
-            meshnet_name=meshnet_name,
             reply_id=reply_id_val,
             emoji=emoji_val,
         )

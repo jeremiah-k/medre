@@ -48,13 +48,13 @@ path = "{(tmp_path / "test.db").as_posix()}"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMeshA"
+origin_label = "TestMeshA"
 
 [adapters.meshtastic.test_mesh_b]
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMeshB"
+origin_label = "TestMeshB"
 
 [routes.mesh_bridge]
 source_adapters = ["test_mesh_a"]

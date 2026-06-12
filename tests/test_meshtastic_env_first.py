@@ -72,12 +72,12 @@ def _set_both_radio_envs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set env vars to create radio-a and radio-b Meshtastic adapters."""
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__MESHNET_NAME", "RadioA")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ORIGIN_LABEL", "RadioA")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
 
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_B__TRANSPORT", "meshtastic")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_B__MESHNET_NAME", "RadioB")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_B__ORIGIN_LABEL", "RadioB")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_B__ADAPTER_KIND", "fake")
 
 
@@ -85,7 +85,7 @@ def _set_radio_a_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set env vars to create only radio-a."""
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__MESHNET_NAME", "RadioA")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ORIGIN_LABEL", "RadioA")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
 
 
@@ -125,9 +125,9 @@ class TestEnvCreatedMeshtasticAdaptersLoad:
         assert radio_a.config.connection_type == "fake"
         assert radio_b.config.connection_type == "fake"
 
-        # meshnet_name set from env
-        assert radio_a.config.meshnet_name == "RadioA"
-        assert radio_b.config.meshnet_name == "RadioB"
+        # origin_label set from env
+        assert radio_a.config.origin_label == "RadioA"
+        assert radio_b.config.origin_label == "RadioB"
 
         # adapter_ids derived from env token
         assert radio_a.adapter_id == "radio-a"
@@ -155,12 +155,12 @@ class TestEnvCreatedAdaptersBuildViaRuntimeBuilder:
             assert "radio-a" in app.adapters
             assert "radio-b" in app.adapters
 
-            # Adapters have correct meshnet_name from their config.
+            # Adapters have correct origin_label from their config.
             # For fake adapters, _build_fake_adapter creates a default
             # MeshtasticConfig — so we verify the RuntimeConfig that was
-            # passed to the builder carries the env-created meshnet_name.
-            assert config.adapters.meshtastic["radio-a"].config.meshnet_name == "RadioA"
-            assert config.adapters.meshtastic["radio-b"].config.meshnet_name == "RadioB"
+            # passed to the builder carries the env-created origin_label.
+            assert config.adapters.meshtastic["radio-a"].config.origin_label == "RadioA"
+            assert config.adapters.meshtastic["radio-b"].config.origin_label == "RadioB"
 
             # Built adapters themselves are the correct type and platform.
             radio_a_adapter = app.adapters["radio-a"]
@@ -205,7 +205,7 @@ class TestEnvCreatedNoCrossContamination:
 
         # radio-a exists
         assert "radio-a" in config.adapters.meshtastic
-        assert config.adapters.meshtastic["radio-a"].config.meshnet_name == "RadioA"
+        assert config.adapters.meshtastic["radio-a"].config.origin_label == "RadioA"
 
         # radio-b does NOT exist — no TRANSPORT set, no TOML stanza
         assert "radio-b" not in config.adapters.meshtastic

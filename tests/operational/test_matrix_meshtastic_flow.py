@@ -617,7 +617,6 @@ class TestMatrixToMeshtasticTextRender:
 
         assert "Ping mesh" in result.payload["text"]
         assert result.payload["channel_index"] == config.default_channel
-        assert result.payload["meshnet_name"] == config.meshnet_name
         assert result.truncated is False
 
     @pytest.mark.asyncio

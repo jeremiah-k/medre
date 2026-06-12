@@ -1,8 +1,8 @@
 """Meshtastic renderer for target-specific event rendering.
 
 The :class:`MeshtasticRenderer` converts canonical events into
-Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
-and optional ``meshnet_name``).
+Meshtastic-ready content payloads (dicts with ``text`` and
+``channel_index``).
 
 The renderer is initialised with a **required** mapping of adapter IDs to
 :class:`~medre.config.adapters.meshtastic.MeshtasticConfig` instances.
@@ -19,7 +19,6 @@ template uses Python ``str.format()`` syntax with the following variables:
 * ``{shortname}`` — sender short name (from event native metadata, if available).
 * ``{shortname5}`` — first 5 characters of ``{shortname}`` (or ``{from_id}``
   if shortname is empty).
-* ``{meshnet_name}`` — the mesh network name from the adapter config.
 * ``{from_id}`` — the sender's numeric node ID.
 
 This renderer is owned by the Meshtastic adapter package and is registered
@@ -78,15 +77,13 @@ if TYPE_CHECKING:
 class MeshtasticRenderer:
     """Renderer for Meshtastic transport targets.
 
-    Produces content dicts with ``text``, ``channel_index``, and optional
-    ``meshnet_name``.
+    Produces content dicts with ``text`` and ``channel_index``.
 
     **Target-aware rendering.** The renderer is initialised with a
     mapping of adapter IDs to :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
     instances.  At render time the config for *target_adapter* is resolved
     from this mapping.  This allows multi-radio setups where each adapter
-    has different ``max_text_bytes``, ``radio_relay_prefix``, and
-    ``meshnet_name`` values.
+    has different ``max_text_bytes`` and ``radio_relay_prefix`` values.
 
     An empty *configs* mapping raises :class:`ValueError`.  An unknown
     *target_adapter* at render time raises :class:`KeyError`.
@@ -189,7 +186,7 @@ class MeshtasticRenderer:
         * Plus all canonical ``source_*`` fields from :class:`RelayAttribution`.
 
         ``{meshnet_name}`` is no longer a known variable — it passes
-        through unchanged in templates (recorded as unknown).
+        through unchanged in templates (recorded as an unknown field).
 
         Falls back to empty strings for any unavailable variables.
         Never renders the literal text ``"None"``.
@@ -293,7 +290,6 @@ class MeshtasticRenderer:
           configured ``radio_relay_prefix`` prepended if set.
         * ``channel_index``: the adapter's ``default_channel``, overridden
           only when *ctx.target_channel* is a valid numeric value.
-        * ``meshnet_name``: the configured mesh network name.
 
         **Target-aware config resolution.** The renderer resolves the
         config for *ctx.target_adapter* from the ``configs`` mapping
@@ -306,7 +302,7 @@ class MeshtasticRenderer:
         fields (``reply_id``, ``emoji``) are suppressed; relation
         context is expressed as readable text instead.  All Meshtastic
         payload ownership is preserved: ``channel_index``,
-        ``meshnet_name``, prefix rules, and UTF-8 byte-safe truncation.
+        ``channel_index``, prefix rules, and UTF-8 byte-safe truncation.
 
         **Direct mode** — when ``ctx.delivery_strategy`` is ``"direct"``
         (or any non-fallback strategy), the renderer uses native

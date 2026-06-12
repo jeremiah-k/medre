@@ -116,7 +116,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "V2Mesh"
+origin_label = "V2Mesh"
 
 [adapters.meshcore.fake_core]
 enabled = true
@@ -205,7 +205,7 @@ encryption_mode = "plaintext"
 enabled = false
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "DisabledMesh"
+origin_label = "DisabledMesh"
 """
 
 CONFIG_MULTI_HOP_ROUTES_BAD = """\
@@ -985,7 +985,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "FixedMesh"
+origin_label = "FixedMesh"
 
 [adapters.meshcore.end]
 enabled = true

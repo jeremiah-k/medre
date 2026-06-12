@@ -54,7 +54,7 @@ room_allowlist = ["!room:example.com"]
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.bridge]
 source_adapters = ["test_matrix"]

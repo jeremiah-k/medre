@@ -75,7 +75,7 @@ encryption_mode = "e2ee_required"
 enabled = false
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 """
 
 INVALID_TOML = """\

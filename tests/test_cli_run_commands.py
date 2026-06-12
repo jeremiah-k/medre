@@ -356,7 +356,7 @@ enabled = true
 adapter_kind = "fake"
 connection_type = "serial"
 serial_port = "/dev/ttyFAKE"
-meshnet_name = "FakeMesh"
+origin_label = "FakeMesh"
 """
 
     @pytest.fixture()

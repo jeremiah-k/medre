@@ -139,7 +139,6 @@ class TestMatrixToMeshtasticFallbackText:
 
         result = await renderer.render(event, ctx)
         assert result.payload["channel_index"] == config.default_channel
-        assert result.payload["meshnet_name"] == config.meshnet_name
         assert "reply_id" not in result.payload
         assert result.fallback_applied == "strategy_fallback_text"
 
@@ -553,7 +552,7 @@ class TestRenderingEvidence:
             event_id="evt-1",
             target_adapter="test_mesh",
             target_channel="0",
-            payload={"text": "Hello", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "Hello", "channel_index": 0},
             metadata={"truncated": False},
             truncated=False,
         )

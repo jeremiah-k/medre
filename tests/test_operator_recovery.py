@@ -109,7 +109,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "RecoveryMesh"
+origin_label = "RecoveryMesh"
 
 [routes.matrix_to_mesh]
 source_adapters = ["fake_matrix"]
@@ -876,7 +876,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "FixedMesh"
+origin_label = "FixedMesh"
 
 [routes.fixed_route]
 source_adapters = ["real_adapter"]
@@ -1098,7 +1098,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "Mesh"
+origin_label = "Mesh"
 
 [routes.dup_id]
 source_adapters = ["a"]

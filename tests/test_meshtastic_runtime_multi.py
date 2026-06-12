@@ -5,9 +5,9 @@ one Matrix) and two unidirectional routes.  Verifies that:
 
 1. RuntimeBuilder builds successfully with all three adapters.
 2. Both Meshtastic adapters exist in ``app.adapters``.
-3. Config for radio-a carries ``meshnet_name="RadioA"``.
-4. Config for radio-b carries ``meshnet_name="RadioB"``.
-5. radio-a and radio-b have independent configs (different meshnet_name,
+3. Config for radio-a carries ``origin_label="RadioA"``.
+4. Config for radio-b carries ``origin_label="RadioB"``.
+5. radio-a and radio-b have independent configs (different origin_label,
    different default_channel).
 6. Route resolution finds a route from radio-a to matrix-fake.
 7. Route resolution finds a route from matrix-fake to radio-b.
@@ -52,14 +52,14 @@ backend = "memory"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "RadioA"
+origin_label = "RadioA"
 default_channel = 0
 
 [adapters.meshtastic.radio-b]
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "RadioB"
+origin_label = "RadioB"
 default_channel = 1
 
 [adapters.matrix.matrix-fake]
@@ -99,7 +99,7 @@ backend = "memory"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "RenderNet"
+origin_label = "RenderNet"
 default_channel = 3
 max_text_bytes = 50
 radio_relay_prefix = "[RenderNet] "
@@ -221,24 +221,24 @@ class TestMeshtasticRuntimeMulti:
             assert isinstance(radio_b, FakeMeshtasticAdapter)
             assert isinstance(matrix_fake, FakeMatrixAdapter)
 
-            # -- Assertion 3: radio-a config meshnet_name == "RadioA" ----------
+            # -- Assertion 3: radio-a config origin_label == "RadioA" ----------
             cfg_a = config.adapters.meshtastic["radio-a"].config
             assert cfg_a is not None, "radio-a has no MeshtasticConfig"
             assert (
-                cfg_a.meshnet_name == "RadioA"
-            ), f"radio-a meshnet_name={cfg_a.meshnet_name!r}, expected 'RadioA'"
+                cfg_a.origin_label == "RadioA"
+            ), f"radio-a origin_label={cfg_a.origin_label!r}, expected 'RadioA'"
 
-            # -- Assertion 4: radio-b config meshnet_name == "RadioB" ----------
+            # -- Assertion 4: radio-b config origin_label == "RadioB" ----------
             cfg_b = config.adapters.meshtastic["radio-b"].config
             assert cfg_b is not None, "radio-b has no MeshtasticConfig"
             assert (
-                cfg_b.meshnet_name == "RadioB"
-            ), f"radio-b meshnet_name={cfg_b.meshnet_name!r}, expected 'RadioB'"
+                cfg_b.origin_label == "RadioB"
+            ), f"radio-b origin_label={cfg_b.origin_label!r}, expected 'RadioB'"
 
-            # -- Assertion 5: Independent configs (meshnet_name and channel) ---
-            assert cfg_a.meshnet_name != cfg_b.meshnet_name, (
-                f"meshnet_name should differ: "
-                f"radio-a={cfg_a.meshnet_name!r}, radio-b={cfg_b.meshnet_name!r}"
+            # -- Assertion 5: Independent configs (origin_label and channel) ---
+            assert cfg_a.origin_label != cfg_b.origin_label, (
+                f"origin_label should differ: "
+                f"radio-a={cfg_a.origin_label!r}, radio-b={cfg_b.origin_label!r}"
             )
             assert cfg_a.default_channel != cfg_b.default_channel, (
                 f"default_channel should differ: "
@@ -300,7 +300,7 @@ class TestMeshtasticRuntimeMulti:
             assert cfg_b.default_channel == 3
             assert cfg_b.max_text_bytes == 50
             assert cfg_b.radio_relay_prefix == "[RenderNet] "
-            assert cfg_b.meshnet_name == "RenderNet"
+            assert cfg_b.origin_label == "RenderNet"
 
             # Render a Matrix event targeting radio-b without target_channel.
             event = _make_matrix_event(body="test message content")
@@ -321,14 +321,11 @@ class TestMeshtasticRuntimeMulti:
             assert result.metadata["max_text_bytes"] == 50
             assert len(result.payload["text"].encode("utf-8")) <= 50
 
-            # radio_relay_prefix template resolved with radio-b's meshnet_name.
+            # radio_relay_prefix template resolved with radio-b's origin_label.
             text = result.payload["text"]
             assert (
                 "[RenderNet] " in text
             ), f"Expected '[RenderNet] ' prefix in text, got: {text!r}"
-
-            # meshnet_name in payload matches radio-b config.
-            assert result.payload["meshnet_name"] == "RenderNet"
 
         finally:
             try:

@@ -123,7 +123,7 @@ encryption_mode = "plaintext"
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyNONEXISTENT"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 """
         p = tmp_path / "config.toml"
         p.write_text(config_with_real)
@@ -169,7 +169,7 @@ encryption_mode = "plaintext"
 enabled = false
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 """
         p = tmp_path / "config.toml"
         p.write_text(config_mixed)
@@ -517,7 +517,7 @@ encryption_mode = "plaintext"
 enabled = false
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "DisabledMesh"
+origin_label = "DisabledMesh"
 """
         p = tmp_path / "config.toml"
         p.write_text(config)

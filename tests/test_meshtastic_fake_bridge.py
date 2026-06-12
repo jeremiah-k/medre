@@ -128,7 +128,7 @@ class TestMeshtasticInboundToFakeOutbound:
         # MeshtasticRenderer was selected, not TextRenderer.
         assert result.metadata["renderer"] == "meshtastic"
         assert "channel_index" in result.payload
-        assert "meshnet_name" in result.payload
+        assert "meshnet_name" not in result.payload
 
         await mesh_adapter.stop()
         await runner.stop()
@@ -926,7 +926,7 @@ class TestFakeInboundToMeshtasticOutbound:
         assert item is not None
         assert "text" in item["payload"]
         assert "channel_index" in item["payload"]
-        assert "meshnet_name" in item["payload"]
+        assert "meshnet_name" not in item["payload"]
 
         await fake_in_adapter.stop()
         await mesh_out_adapter.stop()

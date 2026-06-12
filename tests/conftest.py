@@ -262,7 +262,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.matrix_to_mesh]
 source_adapters = ["fake_matrix"]

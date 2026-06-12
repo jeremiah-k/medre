@@ -76,7 +76,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "smoke-radio"
+origin_label = "smoke-radio"
 
 [routes.mx_to_mesh]
 source_adapters = ["fake_matrix"]

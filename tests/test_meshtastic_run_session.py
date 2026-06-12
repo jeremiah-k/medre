@@ -43,13 +43,13 @@ path = "{db_path}"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [adapters.meshtastic.mesh_dest]
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.mesh_to_mesh]
 source_adapters = ["mesh_source"]

@@ -69,7 +69,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 """
 
 _ROUTES_NO_RETRY = """\

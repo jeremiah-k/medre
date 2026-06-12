@@ -259,10 +259,9 @@ class TestMeshtasticPipelineIntegration:
 
         # CRITICAL: Prove MeshtasticRenderer rendered this, not TextRenderer.
         # TextRenderer produces {"text": ...}; MeshtasticRenderer produces
-        # {"text": ..., "channel_index": ..., "meshnet_name": ...}.
+        # {"text": ..., "channel_index": ...}.
         assert payload.metadata["renderer"] == "meshtastic"
         assert "channel_index" in payload.payload
-        assert "meshnet_name" in payload.payload
 
         # Outbound native ref should also persist
         resolved = await temp_storage.resolve_native_ref(
@@ -788,9 +787,8 @@ class TestMeshtasticPlatformRendererSelection:
         # Proves MeshtasticRenderer was selected (not TextRenderer)
         assert result.metadata["renderer"] == "meshtastic"
 
-        # Proves Meshtastic payload shape (channel_index + meshnet_name)
+        # Proves Meshtastic payload shape (channel_index)
         assert "channel_index" in result.payload
-        assert "meshnet_name" in result.payload
 
         # Outbound delivery returned a deterministic native_message_id
         assert out_adapter.fake_client.sent_count == 1
