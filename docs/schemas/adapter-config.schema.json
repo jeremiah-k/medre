@@ -155,7 +155,7 @@
         },
         "radio_relay_prefix": {
           "type": "string",
-          "default": "{shortname5}[M]: ",
+          "default": "{sender_short}[M]: ",
           "description": "Template prepended to messages relayed from Matrix to Meshtastic radio."
         },
         "mmrelay_compatibility": {

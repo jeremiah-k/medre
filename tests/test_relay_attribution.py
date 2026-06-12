@@ -2,9 +2,10 @@
 formatting.
 
 Covers:
-- RelayAttribution immutability, default construction, and compat propagation.
+- RelayAttribution immutability and default construction.
 - Generic preferred formatter variables ({sender}, {sender_short}, etc.).
-- Compatibility aliases ({longname}, {shortname}, {shortname5}, {from_id}).
+- Old Meshtastic-era variables ({from_id}, {longname}, {shortname},
+  {shortname5}) are now unknown placeholders.
 - None coalescing to empty string; is-not-None preservation for labels.
 - Unknown-placeholder policy (leave unchanged, set error).
 - Brace / format edge cases (unmatched braces, empty template).
@@ -120,31 +121,6 @@ class TestRelayAttributionModel:
         b = RelayAttribution(source_adapter_id="y")
         assert a != b
 
-    def test_compat_propagation_long_name(self) -> None:
-        """Constructing with source_long_name propagates to source_sender_label."""
-        attr = RelayAttribution(source_long_name="Alice")
-        assert attr.source_sender_label == "Alice"
-
-    def test_compat_propagation_short_name(self) -> None:
-        """Constructing with source_short_name propagates to source_sender_short_label."""
-        attr = RelayAttribution(source_short_name="Ali")
-        assert attr.source_sender_short_label == "Ali"
-
-    def test_compat_propagation_generic_wins_over_deprecated(self) -> None:
-        """When both generic and deprecated fields are set, deprecated propagates
-        (deprecated fields are authoritative for adapter compat)."""
-        attr = RelayAttribution(
-            source_sender_label="Generic",
-            source_long_name="Deprecated",
-        )
-        # __post_init__ overwrites with deprecated value
-        assert attr.source_sender_label == "Deprecated"
-
-    def test_compat_no_propagation_when_deprecated_is_none(self) -> None:
-        """When deprecated field is None, generic field is preserved."""
-        attr = RelayAttribution(source_sender_label="Generic", source_long_name=None)
-        assert attr.source_sender_label == "Generic"
-
 
 # ===================================================================
 # Generic preferred formatter variables
@@ -197,10 +173,6 @@ class TestGenericPreferredVariables:
             ("source_native_message_id", "$msg1"),
             ("source_native_channel_id", "!room:matrix.org"),
             ("route_id", "route-42"),
-            # Compatibility aliases (retained for backward compat only)
-            ("longname", "Alice Wonderland"),
-            ("shortname", "alice"),
-            ("from_id", "@alice:matrix.org"),
         ],
     )
     def test_single_variable(self, name: str, expected: str) -> None:
@@ -247,68 +219,33 @@ class TestGenericPreferredVariables:
 
 
 # ===================================================================
-# Compatibility aliases (backward-compat only, do NOT use in new code)
+# Old Meshtastic-era variables are now unknown
 # ===================================================================
 
 
-class TestCompatAliases:
-    """Compatibility aliases map old Meshtastic-era names to generic fields.
+class TestOldVariablesAreUnknown:
+    """Old Meshtastic-era template variables are no longer known.
 
-    These are retained for backward-compatible templates only.
-    **Do NOT use in new code — prefer {sender}, {sender_short}, {sender_id}.**
+    {from_id}, {longname}, {shortname}, {shortname5} are NOT generic
+    formatter aliases.  They pass through unchanged as unknown
+    placeholders.
     """
 
-    def test_longname_compat_maps_to_sender_label(self) -> None:
-        attr = RelayAttribution(source_sender_label="RadioOp")
-        result = format_relay_prefix("{longname}", attr)
-        assert result.rendered_prefix == "RadioOp"
-        assert result.formatting_error is None
-
-    def test_shortname_compat_maps_to_sender_short_label(self) -> None:
-        attr = RelayAttribution(source_sender_short_label="RO")
-        result = format_relay_prefix("{shortname}", attr)
-        assert result.rendered_prefix == "RO"
-
-    def test_from_id_compat_maps_to_sender_id(self) -> None:
-        attr = RelayAttribution(source_sender_id="!aabbccdd")
-        result = format_relay_prefix("{from_id}", attr)
-        assert result.rendered_prefix == "!aabbccdd"
-
-    def test_shortname5_from_sender_short_label(self) -> None:
-        """shortname5 derives from sender_short_label first 5 chars."""
+    @pytest.mark.parametrize(
+        "name",
+        ["from_id", "longname", "shortname", "shortname5", "meshnet_name"],
+    )
+    def test_old_variable_is_unknown(self, name: str) -> None:
         attr = RelayAttribution(
-            source_sender_short_label="abcdefgh",
-            source_sender_id="!1234567890",
+            source_sender_id="!aabb",
+            source_sender_label="RadioOp",
+            source_sender_short_label="RO",
+            source_origin_label="East",
         )
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == "abcde"
-
-    def test_shortname5_fallback_to_sender_id(self) -> None:
-        """shortname5 falls back to sender_id when short label is None."""
-        attr = RelayAttribution(
-            source_sender_short_label=None,
-            source_sender_id="node-42",
-        )
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == "node-"
-
-    def test_shortname5_empty_when_both_empty(self) -> None:
-        attr = RelayAttribution()
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == ""
-        assert "shortname5" in result.missing_variables
-
-    def test_longname_via_compat_propagation(self) -> None:
-        """Constructing with source_long_name (deprecated) renders via {longname}."""
-        attr = RelayAttribution(source_long_name="Compat User")
-        result = format_relay_prefix("{longname}", attr)
-        assert result.rendered_prefix == "Compat User"
-
-    def test_shortname_via_compat_propagation(self) -> None:
-        """Constructing with source_short_name (deprecated) renders via {shortname}."""
-        attr = RelayAttribution(source_short_name="CU")
-        result = format_relay_prefix("{shortname}", attr)
-        assert result.rendered_prefix == "CU"
+        result = format_relay_prefix("{" + name + "}", attr)
+        assert result.rendered_prefix == "{" + name + "}"
+        assert name in result.unknown_variables
+        assert result.formatting_error is not None
 
 
 # ===================================================================
@@ -328,26 +265,6 @@ class TestExplicitEmptySenderShortLabel:
         result = format_relay_prefix("{sender_short}", attr)
         assert result.rendered_prefix == ""
         assert "sender_short" in result.missing_variables
-
-    def test_explicit_empty_sender_short_label_no_shortname5_fallback(self) -> None:
-        """When sender_short_label is explicitly empty, shortname5 should be
-        empty too, NOT falling back to sender_id."""
-        attr = RelayAttribution(
-            source_sender_short_label="",
-            source_sender_id="fallback-id",
-        )
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == ""
-        assert "shortname5" in result.missing_variables
-
-    def test_none_sender_short_label_allows_shortname5_fallback(self) -> None:
-        """When sender_short_label is None (not empty), shortname5 falls back."""
-        attr = RelayAttribution(
-            source_sender_short_label=None,
-            source_sender_id="fallback-id",
-        )
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == "fallb"
 
 
 # ===================================================================
@@ -391,37 +308,6 @@ class TestNoneCoalescing:
 
 
 # ===================================================================
-# Existing template patterns (compat aliases still work)
-# ===================================================================
-
-
-class TestExistingTemplates:
-    """Existing adapter templates must work without modification
-    (compat aliases)."""
-
-    def test_longname_origin_label(self) -> None:
-        attr = RelayAttribution(
-            source_sender_label="Meshtastic User",
-            source_origin_label="mynet",
-        )
-        result = format_relay_prefix("[{longname}/{origin_label}]: ", attr)
-        assert result.rendered_prefix == "[Meshtastic User/mynet]: "
-
-    def test_shortname5_bracket_m(self) -> None:
-        attr = RelayAttribution(source_sender_short_label="Short")
-        result = format_relay_prefix("{shortname5}[M]: ", attr)
-        assert result.rendered_prefix == "Short[M]: "
-
-    def test_shortname_bracket_origin(self) -> None:
-        attr = RelayAttribution(
-            source_sender_short_label="SN",
-            source_origin_label="net1",
-        )
-        result = format_relay_prefix("{shortname}[{origin_label}]: ", attr)
-        assert result.rendered_prefix == "SN[net1]: "
-
-
-# ===================================================================
 # Unknown placeholder policy
 # ===================================================================
 
@@ -453,37 +339,8 @@ class TestUnknownPlaceholderPolicy:
 
     def test_unknown_no_error_when_all_known(self) -> None:
         attr = RelayAttribution(source_sender_id="user1")
-        result = format_relay_prefix("[{from_id}]", attr)
+        result = format_relay_prefix("[{sender_id}]", attr)
         assert result.formatting_error is None
-
-    def test_meshnet_name_is_unknown(self) -> None:
-        """meshnet_name is NOT a known template variable outside mmrelay
-        compat paths."""
-        attr = RelayAttribution(source_origin_label="Hub")
-        result = format_relay_prefix("{meshnet_name}", attr)
-        assert result.rendered_prefix == "{meshnet_name}"
-        assert "meshnet_name" in result.unknown_variables
-        assert result.formatting_error is not None
-
-    def test_source_long_name_not_formatter_canonical(self) -> None:
-        """source_long_name is no longer a first-class formatter canonical name.
-        It exists on the dataclass for adapter compat only."""
-        attr = RelayAttribution(source_sender_label="Alice")
-        result = format_relay_prefix("{source_long_name}", attr)
-        assert "source_long_name" in result.unknown_variables
-        assert result.rendered_prefix == "{source_long_name}"
-
-    def test_source_short_name_not_formatter_canonical(self) -> None:
-        """source_short_name is no longer a first-class formatter canonical."""
-        attr = RelayAttribution(source_sender_short_label="A")
-        result = format_relay_prefix("{source_short_name}", attr)
-        assert "source_short_name" in result.unknown_variables
-
-    def test_source_short_name_5_not_formatter_canonical(self) -> None:
-        """source_short_name_5 is no longer a first-class formatter canonical."""
-        attr = RelayAttribution(source_sender_short_label="ABCDE")
-        result = format_relay_prefix("{source_short_name_5}", attr)
-        assert "source_short_name_5" in result.unknown_variables
 
 
 # ===================================================================
@@ -579,9 +436,9 @@ class TestPrefixFormatterResult:
 
     def test_missing_variables_tracked(self) -> None:
         attr = RelayAttribution(source_sender_label=None, source_sender_id=None)
-        result = format_relay_prefix("{longname}-{from_id}", attr)
-        assert "longname" in result.missing_variables
-        assert "from_id" in result.missing_variables
+        result = format_relay_prefix("{sender}-{sender_id}", attr)
+        assert "sender" in result.missing_variables
+        assert "sender_id" in result.missing_variables
 
     def test_empty_value_is_missing(self) -> None:
         attr = RelayAttribution(source_sender_label="")
@@ -624,16 +481,6 @@ class TestExtractionMatrix:
         assert attr.source_sender_short_label == "bob"
         assert attr.source_display_name is None
 
-    def test_sender_id_fallback_from_id(self) -> None:
-        """from_id alias resolves to the Matrix sender MXID."""
-        event = _make_event(
-            source_adapter="matrix-bridge",
-            native_data={"sender": "@carol:example.com"},
-        )
-        attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{from_id}", attr)
-        assert result.rendered_prefix == "@carol:example.com"
-
     def test_matrix_sender_renders_via_generic(self) -> None:
         """Matrix display name renders via generic {sender} variable."""
         event = _make_event(
@@ -671,7 +518,8 @@ class TestExtractionMeshtastic:
         assert attr.source_sender_label == "Radio User"
         assert attr.source_sender_short_label == "RU"
 
-    def test_shortname5_from_short_label(self) -> None:
+    def test_sender_short_truncates_to_five(self) -> None:
+        """sender_short_label is stored as-is (no auto-truncation)."""
         event = _make_event(
             source_adapter="meshtastic-radio",
             native_data={
@@ -680,10 +528,11 @@ class TestExtractionMeshtastic:
             },
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == "LongN"
+        result = format_relay_prefix("{sender_short}", attr)
+        assert result.rendered_prefix == "LongName"
 
-    def test_shortname5_fallback_from_id(self) -> None:
+    def test_sender_id_fallback_when_no_shortname(self) -> None:
+        """When no shortname, sender_id is still available."""
         event = _make_event(
             source_adapter="meshtastic-radio",
             native_data={
@@ -691,8 +540,8 @@ class TestExtractionMeshtastic:
             },
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{shortname5}", attr)
-        assert result.rendered_prefix == "!abcd"
+        result = format_relay_prefix("{sender_id}", attr)
+        assert result.rendered_prefix == "!abcdef123456"
 
     def test_missing_longname(self) -> None:
         event = _make_event(
@@ -874,8 +723,8 @@ class TestExtractionAndFormatting:
         assert "origin_label" in result.missing_variables
         assert result.formatting_error is None
 
-    def test_meshtastic_compat_longname(self) -> None:
-        """Compat alias {longname} still works after extraction."""
+    def test_meshtastic_compat_now_unknown(self) -> None:
+        """Old compat alias {longname} is now unknown."""
         event = _make_event(
             source_adapter="meshtastic-radio",
             native_data={
@@ -886,25 +735,28 @@ class TestExtractionAndFormatting:
         )
         attr = extract_relay_attribution(event)
         result = format_relay_prefix("[{longname}/{origin_label}]: ", attr)
-        assert result.rendered_prefix == "[RadioOp/]: "
+        # {longname} is unknown → left as literal
+        assert result.rendered_prefix == "[{longname}/]: "
+        assert "longname" in result.unknown_variables
 
-    def test_meshcore_shortname5_template(self) -> None:
+    def test_meshcore_sender_short_template(self) -> None:
         event = _make_event(
             source_adapter="meshcore-node",
             native_data={"pubkey_prefix": "aabbcc"},
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{shortname5}[M]: ", attr)
-        # pubkey_prefix becomes source_sender_id, shortname5 derived from it
-        assert result.rendered_prefix == "aabbc[M]: "
+        result = format_relay_prefix("{sender_short}[M]: ", attr)
+        # No short label → sender_short is empty
+        assert result.rendered_prefix == "[M]: "
+        assert "sender_short" in result.missing_variables
 
-    def test_matrix_from_id_template(self) -> None:
+    def test_matrix_sender_id_template(self) -> None:
         event = _make_event(
             source_adapter="matrix-bridge",
             native_data={"sender": "@dave:matrix.org"},
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{from_id}: ", attr)
+        result = format_relay_prefix("{sender_id}: ", attr)
         assert result.rendered_prefix == "@dave:matrix.org: "
 
     def test_lxmf_missing_display_no_crash(self) -> None:
@@ -918,16 +770,17 @@ class TestExtractionAndFormatting:
         assert result.rendered_prefix == "[]: "
         assert "sender" in result.missing_variables
 
-    def test_lxmf_compat_longname(self) -> None:
-        """Compat alias {longname} renders empty for LXMF (no label)."""
+    def test_lxmf_compat_longname_now_unknown(self) -> None:
+        """Old compat alias {longname} is now unknown for LXMF."""
         event = _make_event(
             source_adapter="lxmf-node",
             native_data={"source_hash": "hash1"},
         )
         attr = extract_relay_attribution(event)
         result = format_relay_prefix("[{longname}]: ", attr)
-        assert result.rendered_prefix == "[]: "
-        assert "longname" in result.missing_variables
+        # {longname} is unknown → left as literal
+        assert result.rendered_prefix == "[{longname}]: "
+        assert "longname" in result.unknown_variables
 
 
 # ===================================================================
@@ -1045,15 +898,15 @@ class TestExtractionMeshCoreBareFixture:
         assert attr.source_sender_id == "bare-pk"
         assert attr.source_native_channel_id == "1"
 
-    def test_bare_shortname5_derived_from_pubkey(self) -> None:
-        """shortname5 derived from bare pubkey_prefix."""
+    def test_bare_sender_short_from_pubkey(self) -> None:
+        """sender_short is empty when MeshCore has no short label."""
         event = _make_event(
             source_adapter="meshcore-node",
             native_data={"pubkey_prefix": "aabbccdd"},
         )
         attr = extract_relay_attribution(event)
-        result = format_relay_prefix("{shortname5}[MC]: ", attr)
-        assert result.rendered_prefix == "aabbc[MC]: "
+        result = format_relay_prefix("{sender_short}[MC]: ", attr)
+        assert result.rendered_prefix == "[MC]: "
 
 
 # ===================================================================

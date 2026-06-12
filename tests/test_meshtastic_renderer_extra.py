@@ -161,7 +161,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """All Test D requirements in one test: spaces, casing, reply_id, no emoji."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(
@@ -222,7 +222,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """Prefix without trailing space gets separator space before 'reacted'."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]",
+            radio_relay_prefix="[{sender}]",
         )
 
         rel = _make_cross_platform_relation(
@@ -385,11 +385,11 @@ class TestNativeReactionPreserved:
 class TestMatrixDisplayNameInPrefix:
     """Verify that Matrix display names flow through to the prefix template."""
 
-    async def test_longname_in_prefix_from_matrix_display_name(self) -> None:
-        """radio_relay_prefix {longname} uses Matrix display name."""
+    async def test_sender_in_prefix_from_matrix_display_name(self) -> None:
+        """radio_relay_prefix {sender} uses Matrix display name."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]: ",
+            radio_relay_prefix="[{sender}]: ",
         )
 
         event = CanonicalEvent(
@@ -424,7 +424,7 @@ class TestMatrixDisplayNameInPrefix:
         """Prefix shows display name, not raw MXID like @user:server."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{longname}: ",
+            radio_relay_prefix="{sender}: ",
         )
 
         event = CanonicalEvent(
@@ -479,7 +479,7 @@ class TestByteBudgetTruncation:
         """ASCII text over budget truncates to fit within max_text_bytes."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]: ",
+            radio_relay_prefix="[{sender}]: ",
             max_text_bytes=20,
         )
 
@@ -680,7 +680,7 @@ class TestDescriptiveReactionByteBudget:
         """Long descriptive reaction text is truncated to byte budget."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
             max_text_bytes=30,
         )
 
@@ -848,12 +848,12 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
         configs={
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
-                radio_relay_prefix="[{shortname5}@alpha] ",
+                radio_relay_prefix="[{sender_short}@alpha] ",
                 max_text_bytes=60,
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
-                radio_relay_prefix="[{shortname5}@bravo] ",
+                radio_relay_prefix="[{sender_short}@bravo] ",
                 max_text_bytes=200,
             ),
         }
@@ -1124,9 +1124,9 @@ class TestMultiRadioTargetAware:
 class TestSharedAttributionMeshCore:
     """MeshCore → Meshtastic prefix uses pubkey_prefix as sender fallback."""
 
-    async def test_pubkey_prefix_in_shortname5(self) -> None:
-        """MeshCore event with pubkey_prefix populates shortname5."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{shortname5}[M]: ")
+    async def test_pubkey_prefix_in_sender_id(self) -> None:
+        """MeshCore event with pubkey_prefix populates sender_id."""
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}[M]: ")
         event = CanonicalEvent(
             event_id="mc-1",
             event_kind="message.created",
@@ -1147,12 +1147,12 @@ class TestSharedAttributionMeshCore:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert text.startswith("a1b2c[M]: ")
+        assert text.startswith("a1b2c3[M]: ")
         assert "None" not in text
 
-    async def test_pubkey_prefix_in_from_id(self) -> None:
-        """MeshCore event pubkey_prefix is available as {from_id}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="<{from_id}> ")
+    async def test_pubkey_prefix_in_sender_id_template(self) -> None:
+        """MeshCore event pubkey_prefix is available as {sender_id}."""
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="<{sender_id}> ")
         event = CanonicalEvent(
             event_id="mc-2",
             event_kind="message.created",
@@ -1179,9 +1179,9 @@ class TestSharedAttributionMeshCore:
 class TestSharedAttributionLXMF:
     """LXMF → Meshtastic prefix uses source_hash as sender fallback."""
 
-    async def test_source_hash_in_from_id(self) -> None:
-        """LXMF event with source_hash populates {from_id}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{from_id}[M]: ")
+    async def test_source_hash_in_sender_id(self) -> None:
+        """LXMF event with source_hash populates {sender_id}."""
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}[M]: ")
         event = CanonicalEvent(
             event_id="lx-1",
             event_kind="message.created",
@@ -1204,9 +1204,9 @@ class TestSharedAttributionLXMF:
         text = result.payload["text"]
         assert text.startswith("deadbeef[M]: ")
 
-    async def test_source_hash_in_shortname5(self) -> None:
-        """LXMF event with source_hash populates {shortname5}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{shortname5}[M]: ")
+    async def test_source_hash_in_sender_short(self) -> None:
+        """LXMF event with source_hash: sender_short is empty (no short label)."""
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
         event = CanonicalEvent(
             event_id="lx-2",
             event_kind="message.created",
@@ -1227,7 +1227,8 @@ class TestSharedAttributionLXMF:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert text.startswith("cafeb[M]: ")
+        # No short label → sender_short renders empty
+        assert text.startswith("[M]: ")
 
 
 class TestMissingVarsNeverRenderNone:
@@ -1236,7 +1237,7 @@ class TestMissingVarsNeverRenderNone:
     async def test_no_native_data_no_none_in_prefix(self) -> None:
         """Event with no native metadata renders empty prefix vars, not 'None'."""
         renderer = _make_renderer(
-            "mesh-1", radio_relay_prefix="[{longname}][{shortname5}]: "
+            "mesh-1", radio_relay_prefix="[{sender}][{sender_short}]: "
         )
         event = CanonicalEvent(
             event_id="evt-empty",
@@ -1260,9 +1261,9 @@ class TestMissingVarsNeverRenderNone:
         assert text == "[][]: hello"
 
     async def test_partial_native_data_no_none(self) -> None:
-        """Event with only longname renders shortname5 empty, not 'None'."""
+        """Event with only longname renders sender_short empty, not 'None'."""
         renderer = _make_renderer(
-            "mesh-1", radio_relay_prefix="{longname}/{shortname5}: "
+            "mesh-1", radio_relay_prefix="{sender}/{sender_short}: "
         )
         event = CanonicalEvent(
             event_id="evt-partial",
@@ -1291,7 +1292,7 @@ class TestPrefixFormatterMetadata:
 
     async def test_metadata_records_prefix_template_and_variables(self) -> None:
         """Result metadata includes prefix_template_used, prefix_variables_used."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{shortname5}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
         event = CanonicalEvent(
             event_id="evt-meta",
             event_kind="message.created",
@@ -1314,15 +1315,15 @@ class TestPrefixFormatterMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         # Legacy keys (backward compatibility)
-        assert result.metadata["radio_relay_prefix"] == "TestU[M]: "
-        assert result.metadata["prefix_template_used"] == "{shortname5}[M]: "
+        assert result.metadata["radio_relay_prefix"] == "TestUser[M]: "
+        assert result.metadata["prefix_template_used"] == "{sender_short}[M]: "
         assert "prefix_variables_used" in result.metadata
-        assert "shortname5" in result.metadata["prefix_variables_used"]
+        assert "sender_short" in result.metadata["prefix_variables_used"]
         # Normalized keys
-        assert result.metadata["relay_prefix_template"] == "{shortname5}[M]: "
-        assert result.metadata["relay_prefix_rendered"] == "TestU[M]: "
+        assert result.metadata["relay_prefix_template"] == "{sender_short}[M]: "
+        assert result.metadata["relay_prefix_rendered"] == "TestUser[M]: "
         assert "relay_prefix_variables_used" in result.metadata
-        assert "shortname5" in result.metadata["relay_prefix_variables_used"]
+        assert "sender_short" in result.metadata["relay_prefix_variables_used"]
         assert "relay_prefix_missing_variables" in result.metadata
         assert isinstance(result.metadata["relay_prefix_missing_variables"], tuple)
         assert "relay_prefix_unknown_variables" in result.metadata
@@ -1344,7 +1345,7 @@ class TestPrefixFormatterMetadata:
 
     async def test_metadata_records_missing_variables(self) -> None:
         """Result metadata records variables that resolved to empty."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{longname}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}[M]: ")
         event = CanonicalEvent(
             event_id="evt-miss",
             event_kind="message.created",
@@ -1363,7 +1364,7 @@ class TestPrefixFormatterMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         assert "prefix_missing_variables" in result.metadata
-        assert "longname" in result.metadata["prefix_missing_variables"]
+        assert "sender" in result.metadata["prefix_missing_variables"]
         # Normalized key also present
         assert "relay_prefix_missing_variables" in result.metadata
-        assert "longname" in result.metadata["relay_prefix_missing_variables"]
+        assert "sender" in result.metadata["relay_prefix_missing_variables"]

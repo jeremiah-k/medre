@@ -55,8 +55,7 @@ MEDRE-generic source label for cross-platform prefix templates.
 - `matrix_relay_prefix`: **Removed** from `MeshtasticConfig`. Matrix prefix
   is `MatrixConfig.relay_prefix` (target-local) only.
 - `meshnet_name`: Removed from transport profile config tables. The
-  underlying field may still exist on adapter configs but is not recommended
-  for prefix templates.
+  underlying field no longer exists on adapter configs.
 
 Existing configs with `meshnet_name` or `matrix_relay_prefix` will still
 load — unknown TOML keys are ignored by the config loader. Operators should

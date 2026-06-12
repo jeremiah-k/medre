@@ -76,7 +76,7 @@ class TestMeshtasticOriginNoNonsense:
 
     async def test_meshtastic_loop_prefix_clean(self) -> None:
         """Meshtastic-origin event with prefix produces no 'None' or garbled output."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{shortname5}[M]: ")
+        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}[M]: ")
         event = CanonicalEvent(
             event_id="mesh-evt-1",
             event_kind="message.created",
@@ -224,7 +224,7 @@ class TestSourceOriginLabel:
         """Matrix→Meshtastic: Matrix source origin_label appears in Meshtastic prefix."""
         renderer = _make_renderer_with_attribution(
             "mesh-1",
-            radio_relay_prefix="[{origin_label}/{shortname5}]: ",
+            radio_relay_prefix="[{origin_label}/{sender_short}]: ",
             source_attribution={
                 "matrix-1": _StubSourceAttribution(
                     adapter_id="matrix-1",
@@ -239,7 +239,7 @@ class TestSourceOriginLabel:
         )
         text = result.payload["text"]
         assert "Home Matrix" in text
-        # shortname5 derived from display name
+        # sender_short from display name (no explicit shortname)
         assert "TestU" in text
 
     async def test_mesh_to_mesh_uses_source_origin_label(self) -> None:

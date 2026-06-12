@@ -348,7 +348,7 @@ class TestMatrixRendererReplySender:
             source_configs={
                 "transport": _StubMeshtasticConfig(
                     adapter_id="transport",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -495,13 +495,13 @@ class TestMultiRadioSourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             meshnet_name="AlphaNet",
-            matrix_relay_prefix="[{longname}/AlphaNet]: ",
+            matrix_relay_prefix="[{sender}/AlphaNet]: ",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
             meshnet_name="BravoNet",
-            matrix_relay_prefix="[{longname}/BravoNet]: ",
+            matrix_relay_prefix="[{sender}/BravoNet]: ",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
@@ -694,13 +694,13 @@ class TestRuntimeAssemblySourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             meshnet_name="AlphaNet",
-            matrix_relay_prefix="[{longname}/AlphaNet]: ",
+            matrix_relay_prefix="[{sender}/AlphaNet]: ",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
             meshnet_name="BravoNet",
-            matrix_relay_prefix="[{longname}/BravoNet]: ",
+            matrix_relay_prefix="[{sender}/BravoNet]: ",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}

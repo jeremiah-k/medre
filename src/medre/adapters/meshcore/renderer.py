@@ -213,12 +213,13 @@ class MeshCoreRenderer:
         prefix_vars_unknown: tuple[str, ...] = ()
 
         if prefix_template:
-            # Resolve source origin_label from the source_attribution
-            # registry.
-            src_attr_cfg = self._source_attribution.get(event.source_adapter)
-            source_origin_label: str | None = None
-            if src_attr_cfg is not None:
-                source_origin_label = getattr(src_attr_cfg, "origin_label", None)
+            # Resolve origin_label precedence:
+            # ctx.source_origin_label (route/context) > adapter registry > None.
+            source_origin_label: str | None = ctx.source_origin_label
+            if not source_origin_label:
+                src_attr_cfg = self._source_attribution.get(event.source_adapter)
+                if src_attr_cfg is not None:
+                    source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
             attr = extract_relay_attribution(
                 event,

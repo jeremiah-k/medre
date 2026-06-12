@@ -282,7 +282,7 @@ class TestMeshnetNameUnknownPlaceholder:
             configs={
                 "mesh-1": MeshtasticConfig(
                     adapter_id="mesh-1",
-                    radio_relay_prefix="[{meshnet_name}/{shortname5}] ",
+                    radio_relay_prefix="[{meshnet_name}/{sender_short}] ",
                 ),
             },
         )

@@ -1,4 +1,4 @@
-"""mmrelay wire-format protocol constants.
+"""mmrelay wire-format protocol constants and helpers.
 
 These key names are dictated by the mmrelay project's Matrix message schema.
 They live outside any adapter package because they define a cross-adapter
@@ -22,3 +22,33 @@ KEY_REACTION_KEY = "meshtastic_reaction_key"
 # Protocol values
 PORTNUM_TEXT = "TEXT_MESSAGE_APP"
 EMOJI_FLAG_VALUE: int = 1
+
+
+def derive_meshnet_value(
+    source_origin_label: str | None,
+    adapter_origin_label: str | None = None,
+) -> str:
+    """Derive the value for ``KEY_MESHNET`` from generic origin labels.
+
+    Resolution precedence:
+    1. *source_origin_label* (route/context level) when non-empty.
+    2. *adapter_origin_label* (source-attribution registry) when non-empty.
+    3. Empty string (neutral default).
+
+    Parameters
+    ----------
+    source_origin_label:
+        Route/context origin label (highest precedence).
+    adapter_origin_label:
+        Adapter-level origin label from the source_attribution registry.
+
+    Returns
+    -------
+    str
+        The string value to assign to ``KEY_MESHNET``.
+    """
+    if source_origin_label:
+        return source_origin_label
+    if adapter_origin_label:
+        return adapter_origin_label
+    return ""

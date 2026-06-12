@@ -79,13 +79,21 @@ The `{origin_label}` template variable is resolved from the source adapter's
 **Available template variables** (all coalesced to empty string on
 `None`):
 
-| Variable         | Source                                                                 |
-| ---------------- | ---------------------------------------------------------------------- |
-| `{longname}`     | `event.metadata.native.data["longname"]`                               |
-| `{shortname}`    | `event.metadata.native.data["shortname"]`                              |
-| `{shortname5}`   | First 5 chars of `shortname`, or `from_id`                             |
-| `{from_id}`      | `event.metadata.native.data["from_id"]`                                |
-| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
+| Variable          | Source                                                                 |
+| ----------------- | ---------------------------------------------------------------------- |
+| `{sender}`        | Source sender display name (from attribution extractor)                |
+| `{sender_short}`  | Source sender short label (from attribution extractor)                 |
+| `{sender_id}`     | Source sender native ID (MXID, node ID, etc.)                          |
+| `{sender_handle}` | Source sender handle / address                                         |
+| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                    |
+| `{route_id}`      | Matched route identifier                                               |
+| `{channel}`       | Source room or channel ID                                              |
+| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+
+Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
+and `{meshnet_name}` are **unknown placeholders** in the current formatter.
+They are left unchanged in the rendered output and reported in
+`unknown_variables`.
 
 **Default prefix** (from `MatrixConfig.relay_prefix`):
 `""` (no prefix by default). Operators configure the prefix template on the
@@ -190,19 +198,25 @@ value is empty string.
 
 **Available template variables:**
 
-| Variable         | Source                                                                 |
-| ---------------- | ---------------------------------------------------------------------- |
-| `{longname}`     | `native_data["longname"]`                                              |
-| `{shortname}`    | `native_data["shortname"]`                                             |
-| `{shortname5}`   | First 5 chars of `shortname`, or `from_id`                             |
-| `{from_id}`      | `native_data["from_id"]` or `source_transport_id`                      |
-| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
+| Variable          | Source                                                                 |
+| ----------------- | ---------------------------------------------------------------------- |
+| `{sender}`        | Source sender display name (from attribution extractor)                |
+| `{sender_short}`  | Source sender short label (from attribution extractor)                 |
+| `{sender_id}`     | Source sender native ID                                                |
+| `{sender_handle}` | Source sender handle / address                                         |
+| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                    |
+| `{route_id}`      | Matched route identifier                                               |
+| `{channel}`       | Source room or channel ID                                              |
+| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
 
-**Default prefix:** `"{shortname5}[M]: "` — documented as matching
-mmrelay's `DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "`.
+Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
+and `{meshnet_name}` are **unknown placeholders** in the current formatter.
+
+**Default prefix:** `"{sender_short}[M]: "` — matches mmrelay's
+`DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "`.
 
 **compact mode:** Used for cross-platform reactions. Strips spaces
-from `longname` and `shortname` before template substitution.
+from sender labels before template substitution.
 
 **Prefix is NOT applied for:**
 
@@ -216,12 +230,12 @@ Prefix is applied **before** UTF-8 byte-budget truncation.
 
 `src/medre/config/adapters/meshtastic.py`:
 
-| Field                   | Default               | Purpose                                          |
-| ----------------------- | --------------------- | ------------------------------------------------ |
-| `radio_relay_prefix`    | `"{shortname5}[M]: "` | Template for Matrix→mesh body prefix             |
-| `mmrelay_compatibility` | `False`               | Inject MMRelay mesh metadata into Matrix content |
-| `origin_label`          | `""`                  | Available as `{origin_label}` in both prefixes   |
-| `max_text_bytes`        | `227`                 | UTF-8 byte budget after rendering                |
+| Field                   | Default                 | Purpose                                          |
+| ----------------------- | ----------------------- | ------------------------------------------------ |
+| `radio_relay_prefix`    | `"{sender_short}[M]: "` | Default for Matrix→mesh body prefix              |
+| `mmrelay_compatibility` | `False`                 | Inject MMRelay mesh metadata into Matrix content |
+| `origin_label`          | `""`                    | Available as `{origin_label}` in both prefixes   |
+| `max_text_bytes`        | `227`                   | UTF-8 byte budget after rendering                |
 
 ---
 
@@ -264,13 +278,20 @@ value is empty string.
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable         | Source                                                                 |
-| ---------------- | ---------------------------------------------------------------------- |
-| `{longname}`     | Attribution extractor (empty for MeshCore sources)                     |
-| `{shortname}`    | Attribution extractor (empty for MeshCore sources)                     |
-| `{shortname5}`   | First 5 chars of shortname, or sender_id                               |
-| `{from_id}`      | Attribution extractor (`pubkey_prefix` for MeshCore)                   |
-| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
+| Variable          | Source                                                                 |
+| ----------------- | ---------------------------------------------------------------------- |
+| `{sender}`        | Attribution extractor (empty for MeshCore sources)                     |
+| `{sender_short}`  | Attribution extractor (empty for MeshCore sources)                     |
+| `{sender_id}`     | Attribution extractor (`pubkey_prefix` for MeshCore)                   |
+| `{sender_handle}` | Attribution extractor (empty for MeshCore sources)                     |
+| `{platform}`      | Source platform name                                                   |
+| `{route_id}`      | Matched route identifier                                               |
+| `{channel}`       | Source channel ID                                                      |
+| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+
+Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
+and `{meshnet_name}` are **unknown placeholders** — they resolve to empty
+for MeshCore sources and are left unchanged in the rendered output.
 
 **Default prefix:** `""` (no prefix).
 
@@ -344,13 +365,19 @@ default `""`).
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable         | Source                                                                 |
-| ---------------- | ---------------------------------------------------------------------- |
-| `{longname}`     | Attribution extractor (empty for LXMF sources)                         |
-| `{shortname}`    | Attribution extractor (empty for LXMF sources)                         |
-| `{shortname5}`   | First 5 chars of shortname, or sender_id                               |
-| `{from_id}`      | Attribution extractor (`source_hash` for LXMF)                         |
-| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
+| Variable          | Source                                                                 |
+| ----------------- | ---------------------------------------------------------------------- |
+| `{sender}`        | Attribution extractor (empty for LXMF sources)                         |
+| `{sender_short}`  | Attribution extractor (empty for LXMF sources)                         |
+| `{sender_id}`     | Attribution extractor (`source_hash` for LXMF)                         |
+| `{sender_handle}` | Attribution extractor (empty for LXMF sources)                         |
+| `{platform}`      | Source platform name                                                   |
+| `{route_id}`      | Matched route identifier                                               |
+| `{channel}`       | Source channel ID (always empty for LXMF)                              |
+| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+
+Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
+and `{meshnet_name}` are **unknown placeholders** in the current formatter.
 
 **Default prefix:** `""` (no prefix).
 
@@ -403,6 +430,29 @@ non-empty):
 | `PORTNUM_TEXT`     | `"TEXT_MESSAGE_APP"`        | Hardcoded injection value         |
 | `EMOJI_FLAG_VALUE` | `1`                         | Reaction flag                     |
 
+### KEY_MESHNET Isolation
+
+`KEY_MESHNET` (`"meshtastic_meshnet"`) is an **external mmrelay wire-format
+field** — not a MEDRE attribution variable, config field, or template
+variable. It is read and written **only** when `mmrelay_compatibility=True`
+on the source Meshtastic adapter config.
+
+- **Populated from:** `derive_meshnet_value()` in `src/medre/interop/mmrelay.py`
+  resolves from `source_origin_label` (route/context) →
+  `adapter_origin_label` (source-attribution registry) → empty string.
+- **Written to:** Matrix event content payload by the Matrix renderer during
+  mmrelay-compatible metadata injection.
+- **Read from:** Matrix event content by the Matrix codec's
+  `_capture_mmrelay_fields` for inbound mmrelay-origin messages.
+- **Not used in:** prefix templates, routing, delivery, or any other
+  rendering path. `{meshnet_name}` is an unknown placeholder in the prefix
+  formatter.
+
+This field is **temporary and isolated** in the mmrelay interop code.
+It is easy to remove once mmrelay is updated to use MEDRE's native
+attribution model. Operators should not rely on `meshtastic_meshnet` as a
+config or template variable.
+
 ### MMRelay-Compatible Fields in Matrix Inbound
 
 The Matrix codec captures all MMRelay fields from Matrix event content
@@ -451,7 +501,7 @@ string), the variable resolves to an empty string.
 | Concept               | Template variable | Source                       | Scope                        |
 | --------------------- | ----------------- | ---------------------------- | ---------------------------- |
 | `origin_label`        | `{origin_label}`  | Source adapter config        | MEDRE-generic operator label |
-| `source_sender_id`    | `{from_id}`       | Source event native metadata | Per-transport native ID      |
+| `source_sender_id`    | `{sender_id}`     | Source event native metadata | Per-transport native ID      |
 | `source_display_name` | —                 | Source event native metadata | Per-transport display name   |
 
 ---
@@ -462,19 +512,20 @@ string), the variable resolves to an empty string.
 
 MeshCore and LXMF have relay prefix support via `meshcore_relay_prefix`
 and `lxmf_relay_prefix`, but both default to `""` (no prefix). Meshtastic
-defaults to `"{shortname5}[M]: "` for radio. Matrix uses `MatrixConfig.relay_prefix`
+defaults to `"{sender_short}[M]: "` for radio. Matrix uses `MatrixConfig.relay_prefix`
 (target-local, default `""`). Operators must explicitly
 configure MeshCore, LXMF, and Matrix prefixes to get attribution on those
 transports.
 
-### 2. No `longname`/`shortname` on MeshCore or LXMF native metadata
+### 2. No `{sender}`/`{sender_short}` on MeshCore or LXMF sources
 
 MeshCore uses `meshcore.sender_id` (hex pubkey prefix). LXMF uses
-`source_hash` (hex identity hash). Neither populates `longname`,
-`shortname`, or `from_id` in native metadata.
+`source_hash` (hex identity hash). Neither populates
+`source_sender_label` or `source_sender_short_label` in native metadata.
 
-Consequence: prefix templates referencing `{longname}` or `{shortname}`
-resolve to empty string when the source is MeshCore or LXMF.
+Consequence: prefix templates referencing `{sender}` or `{sender_short}`
+resolve to empty string when the source is MeshCore or LXMF. Operators
+SHOULD prefer `{origin_label}` or `{sender_id}` for cross-platform templates.
 
 ### 3. Prefix config ownership is target-local for Matrix, target-owned for others
 
@@ -488,10 +539,12 @@ variables describe the source, not the target.
 
 ### 4. Matrix display-name enrichment is post-codec
 
-The Matrix adapter enriches `longname`/`shortname` from Matrix display
-names **after** codec decode, in `_on_room_message`. This means any
-code path that uses codec output directly (without passing through the
-adapter) will not have display-name attribution.
+The Matrix adapter enriches `longname`/`shortname` native metadata keys
+from Matrix display names **after** codec decode, in `_on_room_message`.
+These native metadata keys are consumed by the attribution extractor to
+populate `source_sender_label` and `source_sender_short_label`. Code paths
+that use codec output directly (without passing through the adapter) will
+not have display-name attribution.
 
 ### 5. Metadata key namespace inconsistency
 
@@ -502,9 +555,12 @@ uses yet another set: `source_hash`, `destination_hash`, `message_id`.
 Matrix uses flat keys matching MMRelay: `sender`, `room_id`, `event_id`,
 plus captured `meshtastic_*` keys.
 
-Prefix template variables (`{longname}`, `{shortname}`, `{from_id}`)
-work for Meshtastic sources and (after enrichment) Matrix sources. They
-resolve to empty strings for MeshCore and LXMF sources.
+The attribution extractor normalizes these into canonical
+`source_sender_label`, `source_sender_short_label`, `source_sender_id`,
+etc. Prefix template variables (`{sender}`, `{sender_short}`,
+`{sender_id}`) work for all source transports via this normalization
+layer. For MeshCore and LXMF sources, sender labels are empty but
+`sender_id` carries the native identifier.
 
 `{origin_label}` is the MEDRE-generic source label available on all
 adapter configs. It resolves to the operator-defined label for any
@@ -519,22 +575,19 @@ decide MMRelay metadata injection. There is no equivalent mechanism
 for MeshCore or LXMF sources, and no MMRelay-compatible metadata is
 generated for those transports.
 
-### 7. `shortname5` derivation differs by context
+### 7. `shortname5` derivation removed
 
-In the Meshtastic renderer, `shortname5` falls back to `from_id` or
-`source_transport_id`. In the Matrix renderer, it falls back to
-`from_id` from native metadata. For Matrix-origin events, the adapter
-enrichment derives `shortname` from display name (first 5 chars) or MXID
-localpart (first 5 chars). For MeshCore-origin events, there is no
-`shortname` at all, so `shortname5` would be empty or fall back to
-`from_id` (which is the hex pubkey prefix).
+The old `{shortname5}` variable was a derived value that behaved
+differently per context. It has been removed from the known variable
+schema. Use `{sender_short}` instead — the attribution extractor
+provides the short label directly.
 
 ### 8. No cross-transport name resolution
 
 There is no mechanism to resolve a human-readable name from a MeshCore
-pubkey prefix or LXMF identity hash into `longname`/`shortname` for
-downstream prefix templates. Node info lookup exists only for
-Meshtastic (via the SDK node database).
+pubkey prefix or LXMF identity hash into `source_sender_label` or
+`source_sender_short_label` for downstream prefix templates. Node info
+lookup exists only for Meshtastic (via the SDK node database).
 
 ---
 

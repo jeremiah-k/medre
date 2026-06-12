@@ -13,13 +13,16 @@ mapping — there is no fallback or default.  An empty mapping raises
 
 When the resolved config contains a non-empty ``radio_relay_prefix``,
 the renderer prepends a formatted prefix to the message text.  The prefix
-template uses Python ``str.format()`` syntax with the following variables:
+template uses Python ``str.format()`` syntax with generic variables:
 
-* ``{longname}`` — sender long name (from event native metadata, if available).
-* ``{shortname}`` — sender short name (from event native metadata, if available).
-* ``{shortname5}`` — first 5 characters of ``{shortname}`` (or ``{from_id}``
-  if shortname is empty).
-* ``{from_id}`` — the sender's numeric node ID.
+* ``{sender}`` — primary sender label (generic, preferred).
+* ``{sender_short}`` — abbreviated sender label.
+* ``{sender_id}`` — sender node/transport ID.
+* ``{origin_label}`` — source origin label (from route context or adapter
+  registry).
+* ``{platform}`` — source platform name.
+* ``{channel}`` — source channel/room.
+* ``{route_id}`` — route identifier.
 
 This renderer is owned by the Meshtastic adapter package and is registered
 with the rendering pipeline.
@@ -166,6 +169,7 @@ class MeshtasticRenderer:
         radio_relay_prefix: str,
         *,
         compact: bool = False,
+        source_origin_label: str | None = None,
     ) -> PrefixFormatterResult:
         """Format a prefix template using shared attribution extraction.
 
@@ -176,23 +180,24 @@ class MeshtasticRenderer:
         directly from native metadata when the platform-specific extractor
         does not populate them.
 
-        Available template variables (and their aliases):
+        Available template variables:
 
-        * ``{longname}`` — sender long name.
-        * ``{shortname}`` — sender short name.
-        * ``{shortname5}`` — first 5 chars of shortname (or from_id).
-        * ``{origin_label}`` — source adapter origin label.
-        * ``{from_id}`` — sender node ID.
-        * Plus all canonical ``source_*`` fields from :class:`RelayAttribution`.
+        * ``{sender}`` — sender label (generic, preferred).
+        * ``{sender_short}`` — sender short label (generic, preferred).
+        * ``{sender_id}`` — sender node/transport ID.
+        * ``{origin_label}`` — source origin label.
+        * ``{platform}`` — source platform name.
+        * ``{channel}`` — source channel/room.
+        * ``{route_id}`` — route identifier.
 
-        ``{meshnet_name}`` is no longer a known variable — it passes
-        through unchanged in templates (recorded as an unknown field).
+        ``{meshnet_name}`` is not a known variable — it passes through
+        unchanged in templates (recorded as an unknown field).
 
         Falls back to empty strings for any unavailable variables.
         Never renders the literal text ``"None"``.
 
         When *compact* is ``True``, spaces are stripped from display-name
-        tokens (longname, shortname) before template substitution.
+        tokens before template substitution.
 
         Parameters
         ----------
@@ -202,6 +207,11 @@ class MeshtasticRenderer:
             The prefix template string.
         compact:
             When ``True``, strip spaces from display-name tokens.
+        source_origin_label:
+            Pre-resolved origin label.  When non-empty, takes precedence
+            over the source_attribution registry value.  Typically
+            resolved from ``RenderingContext.source_origin_label`` by the
+            caller in :meth:`render`.
 
         Returns
         -------
@@ -219,13 +229,14 @@ class MeshtasticRenderer:
                 formatting_error=None,
             )
 
-        # Resolve source origin_label from the source_attribution
-        # registry.  The registry maps adapter_id → SourceAttributionConfig
-        # with the source adapter's own origin_label (not the target's).
-        src_attr_cfg = self._source_attribution.get(event.source_adapter)
-        source_origin_label: str | None = None
-        if src_attr_cfg is not None:
-            source_origin_label = getattr(src_attr_cfg, "origin_label", None)
+        # origin_label precedence is resolved by the caller (render()).
+        # When the caller provides source_origin_label (non-None), it
+        # already reflects: ctx.source_origin_label > registry > None.
+        # Fall back to registry only when the caller did not resolve.
+        if source_origin_label is None:
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            if src_attr_cfg is not None:
+                source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
         attr = extract_relay_attribution(
             event,
@@ -235,40 +246,39 @@ class MeshtasticRenderer:
         # Flat-key fallback: the codec pipeline may store
         # Meshtastic-style flat keys (longname, shortname, from_id)
         # in native_data regardless of source platform.  Patch any
-        # attribution fields that the platform extractor left empty.
+        # generic attribution fields that the platform extractor left
+        # empty.
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
         patches: dict[str, str | None] = {}
-        if not attr.source_long_name:
+        if not attr.source_sender_label:
             ln = native_data.get("longname")
-            patches["source_long_name"] = str(ln) if ln is not None else None
-        if not attr.source_short_name:
+            patches["source_sender_label"] = str(ln) if ln is not None else None
+        if not attr.source_sender_short_label:
             sn = native_data.get("shortname")
-            patches["source_short_name"] = str(sn) if sn is not None else None
+            patches["source_sender_short_label"] = str(sn) if sn is not None else None
         if not attr.source_sender_id:
             fid = native_data.get("from_id", event.source_transport_id)
             patches["source_sender_id"] = str(fid) if fid is not None else None
-        if patches.get("source_long_name") and not attr.source_display_name:
-            patches["source_display_name"] = patches["source_long_name"]
+        if patches.get("source_sender_label") and not attr.source_display_name:
+            patches["source_display_name"] = patches["source_sender_label"]
 
         if patches:
-            # Clear short_name_5 so it is re-derived from patched values.
-            if "source_short_name" in patches or "source_sender_id" in patches:
-                patches["source_short_name_5"] = None
             attr = replace(attr, **patches)
 
         if compact:
-            long_compact = (attr.source_long_name or "").replace(" ", "") or None
-            short_compact = (attr.source_short_name or "").replace(" ", "") or None
+            sender_compact = (attr.source_sender_label or "").replace(" ", "") or None
+            short_compact = (attr.source_sender_short_label or "").replace(
+                " ", ""
+            ) or None
             display_compact = (attr.source_display_name or "").replace(" ", "") or None
             attr = replace(
                 attr,
                 source_display_name=display_compact,
-                source_long_name=long_compact,
-                source_short_name=short_compact,
-                source_short_name_5=None,  # Force re-derivation
+                source_sender_label=sender_compact,
+                source_sender_short_label=short_compact,
             )
 
         return format_relay_prefix(radio_relay_prefix, attr)
@@ -386,6 +396,14 @@ class MeshtasticRenderer:
             "channel_index": channel_index,
         }
 
+        # Resolve origin_label precedence:
+        # ctx.source_origin_label (route/context) > adapter registry > None.
+        effective_origin_label: str | None = ctx.source_origin_label
+        if not effective_origin_label:
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            if src_attr_cfg is not None:
+                effective_origin_label = getattr(src_attr_cfg, "origin_label", None)
+
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
         is_descriptive_reaction = False
@@ -400,6 +418,7 @@ class MeshtasticRenderer:
                     rel,
                     prefix,
                     target_adapter,
+                    source_origin_label=effective_origin_label,
                 )
                 if rel.relation_type == "reaction" and not self._is_native_reaction(
                     event,
@@ -436,6 +455,7 @@ class MeshtasticRenderer:
                             event,
                             prefix,
                             compact=True,
+                            source_origin_label=effective_origin_label,
                         )
                         # On formatting_exception, use empty prefix to
                         # avoid leaking raw template into reaction text.
@@ -479,6 +499,7 @@ class MeshtasticRenderer:
             prefix_result = self._format_prefix_for(
                 event,
                 prefix,
+                source_origin_label=effective_origin_label,
             )
             # On formatting_exception the rendered_prefix is the raw
             # template — do NOT prepend it to user-facing text.
@@ -544,6 +565,7 @@ class MeshtasticRenderer:
         rel: EventRelation,
         prefix: str,
         target_adapter: str,
+        source_origin_label: str | None = None,
     ) -> str:
         """Render relation semantics as degraded text for fallback_text mode.
 
@@ -592,6 +614,7 @@ class MeshtasticRenderer:
                 event,
                 prefix,
                 compact=True,
+                source_origin_label=source_origin_label,
             )
             # On formatting_exception, use empty prefix to avoid
             # leaking raw template into reaction text.

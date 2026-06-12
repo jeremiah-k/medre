@@ -633,9 +633,9 @@ class TestLxmfRelayPrefix:
         assert result.payload["content"] == "[Alice] hello from matrix"
         assert result.metadata["relay_prefix_rendered"] == "[Alice] "
 
-    async def test_meshtastic_prefix_with_shortname(self) -> None:
-        """Meshtastic -> LXMF prefix uses shortname from native metadata."""
-        renderer = LxmfRenderer(relay_prefix="<{shortname}> ")
+    async def test_meshtastic_prefix_with_sender_short(self) -> None:
+        """Meshtastic -> LXMF prefix uses sender_short from native metadata."""
+        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
             native_data={
@@ -652,9 +652,9 @@ class TestLxmfRelayPrefix:
         assert result.payload["content"] == "<BASE> radio check"
         assert result.metadata["relay_prefix_rendered"] == "<BASE> "
 
-    async def test_meshtastic_prefix_with_from_id(self) -> None:
-        """Meshtastic -> LXMF prefix uses from_id alias."""
-        renderer = LxmfRenderer(relay_prefix="({from_id}) ")
+    async def test_meshtastic_prefix_with_sender_id(self) -> None:
+        """Meshtastic -> LXMF prefix uses sender_id."""
+        renderer = LxmfRenderer(relay_prefix="({sender_id}) ")
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
             native_data={
@@ -754,7 +754,7 @@ class TestLxmfRelayPrefix:
 
     async def test_prefix_metadata_in_result(self) -> None:
         """Result metadata records prefix template and rendered string."""
-        renderer = LxmfRenderer(relay_prefix="<{shortname}> ")
+        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
             native_data={"shortname": "DEV"},
@@ -764,7 +764,7 @@ class TestLxmfRelayPrefix:
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        assert result.metadata["relay_prefix_template"] == "<{shortname}> "
+        assert result.metadata["relay_prefix_template"] == "<{sender_short}> "
         assert result.metadata["relay_prefix_rendered"] == "<DEV> "
 
     async def test_prefix_metadata_absent_when_empty(self) -> None:
@@ -870,7 +870,7 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_beta": LxmfConfig(
                 adapter_id="lxmf_beta",
                 connection_type="fake",
-                lxmf_relay_prefix="<{shortname}> ",
+                lxmf_relay_prefix="<{sender_short}> ",
             ),
         }
         renderer = LxmfRenderer(configs=configs)
@@ -890,7 +890,7 @@ class TestLxmfTargetAwareConfigs:
         )
         assert result_a.payload["content"] == "[Base Radio] hello"
 
-        # Render to lxmf_beta — uses shortname prefix
+        # Render to lxmf_beta — uses sender_short prefix
         result_b = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_beta", delivery_strategy="direct"),
@@ -935,7 +935,7 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_other": LxmfConfig(
                 adapter_id="lxmf_other",
                 connection_type="fake",
-                lxmf_relay_prefix="<{shortname}> ",
+                lxmf_relay_prefix="<{sender_short}> ",
             ),
         }
         renderer = LxmfRenderer(

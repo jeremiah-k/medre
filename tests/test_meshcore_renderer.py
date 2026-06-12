@@ -1085,11 +1085,11 @@ class TestMeshCoreRendererRelayPrefix:
         assert result.metadata["relay_prefix_rendered"] == "[Alice] "
         assert result.metadata["relay_prefix_template"] == "[{source_display_name}] "
 
-    async def test_meshtastic_prefix_with_shortname(self) -> None:
-        """Meshtastic source: prefix template resolves {shortname} alias."""
+    async def test_meshtastic_prefix_with_sender_short(self) -> None:
+        """Meshtastic source: prefix template resolves {sender_short}."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="<{shortname}> ",
+            meshcore_relay_prefix="<{sender_short}> ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(

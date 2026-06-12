@@ -112,8 +112,9 @@ Transport Profile §Relay Attribution Prefix for the authoritative list of
 supported template variables.
 
 **Default:** `""` (no prefix). LXMF sender identity is a hex Reticulum
-identity hash — templates referencing `{longname}` or `{shortname}` resolve
-to empty strings for LXMF-origin events.
+identity hash — templates referencing `{sender}` or `{sender_short}` resolve
+to empty strings for LXMF-origin events. Operators SHOULD prefer
+`{origin_label}` or `{sender_id}` for LXMF-bound prefixes.
 
 **Truncation:** The prefix is prepended to the content body before
 character-budget truncation (`max_text_chars`, default 16384) and before

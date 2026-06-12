@@ -1235,7 +1235,7 @@ from the source adapter config via the runtime source-attribution registry.
 | Concept               | Template variable | Source                                      | Scope                                                           |
 | --------------------- | ----------------- | ------------------------------------------- | --------------------------------------------------------------- |
 | `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                                 |
-| `source_sender_id`    | `{from_id}`       | Native sender ID from source event metadata | Per-transport native identity                                   |
+| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata | Per-transport native identity                                   |
 | `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                                       |
 | `route_id`            | `{route_id}`      | Matched route                               | Route identification (may be empty if no route trace available) |
 
@@ -1266,8 +1266,9 @@ includes `source_origin_label` from the source-attribution registry.
 
 The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines a single set of template
-variables (canonical `source_*` fields plus aliases `longname`, `shortname`,
-`shortname5`, `from_id`, `origin_label`). All four transport
+variables (canonical `source_*` fields plus preferred aliases
+`sender`, `sender_short`, `sender_id`, `sender_handle`, `platform`,
+`route_id`, `channel`, `origin_label`). All four transport
 renderers use the same formatter and the same variable schema. The
 authoritative variable list is documented in the Meshtastic Transport
 Profile §Relay Attribution Prefix.

@@ -56,15 +56,14 @@ class MeshtasticConfig:
         Timeout in milliseconds for sync operations.
     radio_relay_prefix:
         Template string prepended to messages relayed **from** Matrix
-        **to** Meshtastic radio.  Uses Python ``str.format()`` syntax with
-        variables: ``{longname}``, ``{shortname}``, ``{shortname5}``,
-        ``{origin_label}``, ``{from_id}``.  ``{shortname5}`` resolves to
-        the first 5 characters of ``{shortname}`` (or ``{from_id}`` if
-        shortname is empty).
-        Default: ``"{shortname5}[M]: "``.
+        **to** Meshtastic radio.  Uses Python ``str.format()`` syntax
+        with generic variables: ``{sender}``, ``{sender_short}``,
+        ``{sender_id}``, ``{origin_label}``, ``{platform}``,
+        ``{channel}``, ``{route_id}``.
+        Default: ``"{sender_short}[M]: "``.
         Matches mmrelay's ``DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "``.
 
-        Example: ``"{shortname5}[M]: "``
+        Example: ``"{sender_short}[M]: "``
     mmrelay_compatibility:
         When ``True``, the Matrix renderer embeds mmrelay-compatible
         Meshtastic metadata into the Matrix event content payload.  This
@@ -127,7 +126,7 @@ class MeshtasticConfig:
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    radio_relay_prefix: str = "{shortname5}[M]: "
+    radio_relay_prefix: str = "{sender_short}[M]: "
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3

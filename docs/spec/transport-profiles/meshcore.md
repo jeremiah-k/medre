@@ -116,7 +116,7 @@ label resolved from the source-attribution registry. See the Meshtastic
 Transport Profile §Relay Attribution Prefix for the authoritative list of
 supported template variables.
 
-**Default:** `""` (no prefix). MeshCore does not have a convention for a default prefix because sender identity is a hex pubkey prefix, not a human-readable name — templates referencing `{longname}` or `{shortname}` resolve to empty strings for MeshCore-origin events.
+**Default:** `""` (no prefix). MeshCore does not have a convention for a default prefix because sender identity is a hex pubkey prefix, not a human-readable name — templates referencing `{sender}` or `{sender_short}` resolve to empty strings for MeshCore-origin events. Operators SHOULD prefer `{origin_label}` or `{sender_id}` for MeshCore-bound prefixes.
 
 **Truncation:** The prefix is prepended before UTF-8 byte-budget truncation (`max_text_bytes`, default 512). The rendered prefix counts toward the byte budget. Multi-byte UTF-8 codepoints are never split.
 

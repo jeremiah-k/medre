@@ -212,7 +212,7 @@ class LxmfRenderer:
         prefix_meta: dict[str, object] = {}
         prefix_template = self._resolve_prefix_template(ctx)
         if prefix_template:
-            attr = self._extract_attribution_with_source(event)
+            attr = self._extract_attribution_with_source(event, ctx)
             prefix_result = format_relay_prefix(prefix_template, attr)
             # On formatting_exception the rendered_prefix is the raw
             # template — do NOT prepend it to user-facing text.
@@ -295,30 +295,39 @@ class LxmfRenderer:
         return self._relay_prefix
 
     def _extract_attribution_with_source(
-        self, event: CanonicalEvent
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext | None = None,
     ) -> RelayAttribution:
         """Extract relay attribution, enriching with source origin_label.
 
-        Extracts standard relay attribution from the event, then looks
-        up the source adapter in the source_attribution registry to
-        populate ``source_origin_label``.
+        Extracts standard relay attribution from the event, then resolves
+        origin_label with precedence:
+        ``ctx.source_origin_label`` (route/context) > source_attribution
+        registry > ``None``.
 
         Parameters
         ----------
         event:
             The canonical event to extract attribution from.
+        ctx:
+            Optional rendering context carrying the route-level
+            ``source_origin_label``.
 
         Returns
         -------
         RelayAttribution
             Attribution snapshot with origin_label populated from the
-            source_attribution registry when available.
+            highest-precedence source.
         """
-        # Resolve source origin_label from the source_attribution registry.
-        source_info = self._source_attribution.get(event.source_adapter)
+        # Resolve origin_label precedence: ctx > registry > None.
         source_origin_label: str | None = None
-        if source_info is not None:
-            source_origin_label = getattr(source_info, "origin_label", None)
+        if ctx is not None and ctx.source_origin_label:
+            source_origin_label = ctx.source_origin_label
+        else:
+            source_info = self._source_attribution.get(event.source_adapter)
+            if source_info is not None:
+                source_origin_label = getattr(source_info, "origin_label", None)
 
         attr = extract_relay_attribution(
             event,
