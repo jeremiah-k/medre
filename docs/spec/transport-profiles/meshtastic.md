@@ -12,26 +12,27 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field                              | Type                                   | Default                           | Description                                                   |
-| ---------------------------------- | -------------------------------------- | --------------------------------- | ------------------------------------------------------------- |
-| `adapter_id`                       | `str`                                  | _(required)_                      | Unique adapter instance identifier                            |
-| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`                          | Connection mode                                               |
-| `host`                             | `str \| None`                          | `None`                            | Hostname/IP for TCP (required when `connection_type="tcp"`)   |
-| `port`                             | `int \| None`                          | `None`                            | Port for TCP (default 4403)                                   |
-| `serial_port`                      | `str \| None`                          | `None`                            | Serial device path (required when `connection_type="serial"`) |
-| `ble_address`                      | `str \| None`                          | `None`                            | BLE MAC address (required when `connection_type="ble"`)       |
-| `meshnet_name`                     | `str`                                  | `""`                              | Human-readable meshnet name (informational)                   |
-| `default_channel`                  | `int`                                  | `0`                               | Default radio channel index for outbound                      |
-| `channel_mapping`                  | `dict[int, str]`                       | `{}`                              | Display-label map (NOT a relay allowlist)                     |
-| `message_delay_seconds`            | `float`                                | `0.5`                             | Minimum seconds between outbound messages                     |
-| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                             | Window after start to suppress stale packets                  |
-| `sync_timeout_ms`                  | `int`                                  | `30000`                           | Sync operation timeout                                        |
-| `matrix_relay_prefix`              | `str`                                  | `"[{longname}/{meshnet_name}]: "` | Prefix template for Meshtastic→Matrix direction               |
-| `radio_relay_prefix`               | `str`                                  | `"{shortname5}[M]: "`             | Prefix template for Matrix→Meshtastic direction               |
-| `mmrelay_compatibility`            | `bool`                                 | `False`                           | Embed mmrelay-compatible mesh metadata in Matrix events       |
-| `max_text_bytes`                   | `int`                                  | `227`                             | UTF-8 byte budget for final radio text                        |
-| `queue_send_max_attempts`          | `int`                                  | `3`                               | Max send attempts per queued item                             |
-| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`                       | `"listen_only"` suppresses all radio sends                    |
+| Field                              | Type                                   | Default                           | Description                                                       |
+| ---------------------------------- | -------------------------------------- | --------------------------------- | ----------------------------------------------------------------- |
+| `adapter_id`                       | `str`                                  | _(required)_                      | Unique adapter instance identifier                                |
+| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`                          | Connection mode                                                   |
+| `host`                             | `str \| None`                          | `None`                            | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
+| `port`                             | `int \| None`                          | `None`                            | Port for TCP (default 4403)                                       |
+| `serial_port`                      | `str \| None`                          | `None`                            | Serial device path (required when `connection_type="serial"`)     |
+| `ble_address`                      | `str \| None`                          | `None`                            | BLE MAC address (required when `connection_type="ble"`)           |
+| `meshnet_name`                     | `str`                                  | `""`                              | Human-readable meshnet name (informational)                       |
+| `origin_label`                     | `str`                                  | `""`                              | Platform-neutral operator-defined source label for relay prefixes |
+| `default_channel`                  | `int`                                  | `0`                               | Default radio channel index for outbound                          |
+| `channel_mapping`                  | `dict[int, str]`                       | `{}`                              | Display-label map (NOT a relay allowlist)                         |
+| `message_delay_seconds`            | `float`                                | `0.5`                             | Minimum seconds between outbound messages                         |
+| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                             | Window after start to suppress stale packets                      |
+| `sync_timeout_ms`                  | `int`                                  | `30000`                           | Sync operation timeout                                            |
+| `matrix_relay_prefix`              | `str`                                  | `"[{longname}/{meshnet_name}]: "` | Prefix template for Meshtastic→Matrix direction                   |
+| `radio_relay_prefix`               | `str`                                  | `"{shortname5}[M]: "`             | Prefix template for Matrix→Meshtastic direction                   |
+| `mmrelay_compatibility`            | `bool`                                 | `False`                           | Embed mmrelay-compatible mesh metadata in Matrix events           |
+| `max_text_bytes`                   | `int`                                  | `227`                             | UTF-8 byte budget for final radio text                            |
+| `queue_send_max_attempts`          | `int`                                  | `3`                               | Max send attempts per queued item                                 |
+| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`                       | `"listen_only"` suppresses all radio sends                        |
 
 ---
 
@@ -85,21 +86,22 @@ renderers (Matrix, Meshtastic, MeshCore, LXMF).
 
 **Canonical fields** (from `RelayAttribution`):
 
-| Variable                     | Source                                                 |
-| ---------------------------- | ------------------------------------------------------ |
-| `{source_adapter_id}`        | Adapter instance ID                                    |
-| `{source_platform}`          | Platform name (`matrix`, `meshtastic`, etc.)           |
-| `{source_transport}`         | Transport identifier                                   |
-| `{source_sender_id}`         | Native sender ID (MXID, node ID, pubkey, hash)         |
-| `{source_display_name}`      | Best-effort human-readable display name                |
-| `{source_long_name}`         | Long display name                                      |
-| `{source_short_name}`        | Short display name                                     |
-| `{source_short_name_5}`      | First 5 chars of short name, falling back to sender ID |
-| `{source_room_or_channel}`   | Room or channel ID from source                         |
-| `{source_meshnet_name}`      | Mesh network name                                      |
-| `{source_native_message_id}` | Native message ID from source                          |
-| `{source_native_channel_id}` | Native channel ID from source                          |
-| `{route_id}`                 | Route identifier                                       |
+| Variable                     | Source                                                         |
+| ---------------------------- | -------------------------------------------------------------- |
+| `{source_adapter_id}`        | Adapter instance ID                                            |
+| `{source_platform}`          | Platform name (`matrix`, `meshtastic`, etc.)                   |
+| `{source_transport}`         | Transport identifier                                           |
+| `{source_sender_id}`         | Native sender ID (MXID, node ID, pubkey, hash)                 |
+| `{source_display_name}`      | Best-effort human-readable display name                        |
+| `{source_long_name}`         | Long display name                                              |
+| `{source_short_name}`        | Short display name                                             |
+| `{source_short_name_5}`      | First 5 chars of short name, falling back to sender ID         |
+| `{source_room_or_channel}`   | Room or channel ID from source                                 |
+| `{source_meshnet_name}`      | Mesh network name                                              |
+| `{source_origin_label}`      | Source adapter origin label (from source-attribution registry) |
+| `{source_native_message_id}` | Native message ID from source                                  |
+| `{source_native_channel_id}` | Native channel ID from source                                  |
+| `{route_id}`                 | Route identifier                                               |
 
 **Aliases** (derived from canonical fields):
 
@@ -110,6 +112,7 @@ renderers (Matrix, Meshtastic, MeshCore, LXMF).
 | `{shortname5}`   | `source_short_name_5` |
 | `{from_id}`      | `source_sender_id`    |
 | `{meshnet_name}` | `source_meshnet_name` |
+| `{origin_label}` | `source_origin_label` |
 
 ### Formatting Rules
 
@@ -145,22 +148,30 @@ When a prefix is rendered, the following diagnostic keys are set on the
 
 **Normalized keys** (consistent across all renderers):
 
-| Key                              | Value                                                       |
-| -------------------------------- | ----------------------------------------------------------- |
-| `relay_prefix_template`          | The original template string                                |
-| `relay_prefix_rendered`          | The rendered prefix string                                  |
-| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)             |
-| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty       |
-| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix  |
-| `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered |
+| Key                              | Value                                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `relay_prefix_template`          | The original template string                                                                  |
+| `relay_prefix_rendered`          | The rendered prefix string                                                                    |
+| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)                                               |
+| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty                                         |
+| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix                                    |
+| `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered                                   |
+| `relay_prefix_origin_label`      | Source adapter origin label resolved from source-attribution registry (recorded when present) |
 
 ### Matrix-Bound Prefix
 
 When the Meshtastic adapter is the **source** of a relay to a Matrix target,
-the Matrix renderer uses the source adapter's `matrix_relay_prefix`
-(currently `MeshtasticConfig.matrix_relay_prefix`, default
-`"[{longname}/{meshnet_name}]: "`). This is resolved by the Matrix renderer
-from its `source_configs` mapping, not from the Meshtastic config directly.
+the Matrix renderer resolves the prefix template. The preferred path is
+`MatrixConfig.relay_prefix` (target-local, default `""`). When that is empty,
+the renderer falls back to `MeshtasticConfig.matrix_relay_prefix` (default
+`"[{longname}/{meshnet_name}]: "`) via the `source_configs` mapping.
+
+For cross-platform prefix templates, operators SHOULD prefer `{origin_label}`
+over `{meshnet_name}` — `origin_label` is the MEDRE-generic source label
+populated on all adapter configs, while `meshnet_name` is Meshtastic-specific
+and may be empty for non-radio sources. `{origin_label}` is resolved from
+the source adapter config via the runtime source-attribution registry.
+
 The same shared variable table applies. The Matrix renderer has no
 constrained radio byte budget — prefix length is unconstrained in the
 renderer, though Matrix homeservers impose their own event size limits.

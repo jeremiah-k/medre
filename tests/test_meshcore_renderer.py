@@ -1324,3 +1324,96 @@ class TestMeshCoreRendererRelayPrefix:
         )
         assert result.payload["text"] == "[A] hi"
         assert result.truncated is False
+
+
+# ===================================================================
+# Source origin_label from source_attribution registry
+# ===================================================================
+
+
+class _StubSourceAttribution:
+    """Minimal duck-typed SourceAttributionConfig for tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "",
+        origin_label: str = "",
+        meshnet_name: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.origin_label = origin_label
+        self.meshnet_name = meshnet_name
+
+
+class TestMeshCoreSourceOriginLabel:
+    """MeshCore target prefix uses source origin_label from registry."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_source_origin_label_in_prefix(self) -> None:
+        """MeshCore target prefix uses source origin_label from registry."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}]: ",
+        )
+        renderer = MeshCoreRenderer(
+            configs={"mc-relay": cfg},
+            source_attribution={
+                "meshcore-1": _StubSourceAttribution(
+                    adapter_id="meshcore-1",
+                    origin_label="Remote Node",
+                ),
+            },
+        )
+        event = _make_event_with_native(
+            source_adapter="meshcore-1",
+            native_data={"meshcore.pubkey_prefix": "a1b2c3"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "[Remote Node]: " in result.payload["text"]
+
+    async def test_lxmf_to_meshcore_origin_label(self) -> None:
+        """LXMF→MeshCore: source origin_label appears in prefix."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}] ",
+        )
+        renderer = MeshCoreRenderer(
+            configs={"mc-relay": cfg},
+            source_attribution={
+                "lxmf-1": _StubSourceAttribution(
+                    adapter_id="lxmf-1",
+                    origin_label="LXMF Relay",
+                ),
+            },
+        )
+        event = _make_event_with_native(
+            source_adapter="lxmf-1",
+            native_data={"source_hash": "feedface"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "[LXMF Relay] " in result.payload["text"]
+
+    async def test_no_registry_entry_uses_empty_origin_label(self) -> None:
+        """Missing source_attribution entry: origin_label is empty, not 'None'."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data=None,
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "None" not in result.payload["text"]
+        assert "[] " in result.payload["text"]

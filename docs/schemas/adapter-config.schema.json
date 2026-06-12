@@ -74,6 +74,11 @@
           "type": "string",
           "default": "",
           "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Target-local prefix template for Matrix outbound body text. When empty, the renderer falls back to the source adapter's matrix_relay_prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id", "homeserver", "user_id"],

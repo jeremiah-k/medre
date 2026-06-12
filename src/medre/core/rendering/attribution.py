@@ -519,6 +519,7 @@ def extract_relay_attribution(
     *,
     source_platform: str | None = None,
     source_meshnet_name: str | None = None,
+    source_origin_label: str | None = None,
     route_id: str | None = None,
 ) -> RelayAttribution:
     """Extract relay attribution from a canonical event.
@@ -538,6 +539,10 @@ def extract_relay_attribution(
     source_meshnet_name:
         Override meshnet name.  Useful when the config provides it but
         the event metadata does not carry it.
+    source_origin_label:
+        Override origin label.  When not ``None``, takes precedence over
+        any value extracted from native metadata.  Typically sourced
+        from the :class:`SourceAttributionConfig` registry.
     route_id:
         Route identifier, typically from the delivery pipeline.
 
@@ -599,6 +604,11 @@ def extract_relay_attribution(
     ):
         # Already populated by platform extractor if available.
         pass
+
+    # Origin label: explicit parameter wins, never overwritten by
+    # platform extraction.
+    if source_origin_label is not None:
+        fields["source_origin_label"] = source_origin_label
 
     # Compute source_short_name_5 if not already set.
     if fields.get("source_short_name_5") is None:

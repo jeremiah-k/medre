@@ -11,6 +11,20 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"lxmf"``, the renderer
 matches on that platform string directly.
 
+**Target-aware rendering**
+
+The renderer is initialised with an optional mapping of adapter IDs to
+:class:`~medre.config.adapters.lxmf.LxmfConfig` instances.  At render
+time the config for *ctx.target_adapter* is resolved from this mapping
+— the ``lxmf_relay_prefix`` from the target adapter's config is used
+as the prefix template.  This allows multi-LXMF setups where each
+adapter has a different relay prefix.
+
+When no configs mapping is provided or the target adapter is not found,
+the renderer falls back to the ``relay_prefix`` constructor argument
+for backward compatibility with direct-constructed renderer instances
+(e.g. in tests).
+
 **Strict RenderingContext protocol**
 
 Both ``can_render`` and ``render`` accept a frozen
@@ -31,11 +45,13 @@ the inline text in the content field.  The result carries
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import replace
+from typing import Any, Mapping
 
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.attribution import (
+    RelayAttribution,
     extract_relay_attribution,
     format_relay_prefix,
 )
@@ -50,21 +66,39 @@ class LxmfRenderer:
     Produces content dicts with ``content``, ``title``, ``fields``, and
     ``destination_hash``.
 
+    **Target-aware rendering.** The renderer is initialised with an
+    optional mapping of adapter IDs to LXMF config instances.  At render
+    time the config for *ctx.target_adapter* is resolved from this
+    mapping.  The ``lxmf_relay_prefix`` from the resolved config is used
+    as the prefix template.  This allows multi-LXMF setups where each
+    adapter has a different relay prefix.
+
+    When no *configs* mapping is provided or the target adapter is not
+    found, the renderer falls back to *relay_prefix* for backward
+    compatibility with direct-constructed renderer instances.
+
     When ``metadata_embedding`` is enabled (default), the renderer
-    embeds a MEDRE envelope in the ``fields`` dict containing the
+    embeds a MEDRE metadata envelope in the ``fields`` dict containing the
     event ID, relations, and metadata keys.
 
     Selection is via the pipeline's platform registry.
 
     Parameters
     ----------
+    configs:
+        Optional mapping of adapter IDs to config objects.  When
+        provided, the prefix template is resolved from the target
+        adapter's ``lxmf_relay_prefix`` at render time.
+    source_attribution:
+        Optional mapping of adapter IDs to source attribution config
+        objects.  Used to resolve ``origin_label`` for the source
+        adapter when formatting relay prefixes.
     metadata_embedding:
         Whether to embed MEDRE metadata envelopes in LXMF fields.
     relay_prefix:
-        Optional template string for human-readable relay attribution
-        prefix.  When non-empty, the shared prefix formatter resolves
-        ``{placeholder}`` syntax against relay attribution extracted
-        from the event.  Default ``""`` (no prefix).
+        Fallback template string for human-readable relay attribution
+        prefix.  Used when *configs* is ``None`` or the target adapter
+        is not found in the mapping.  Default ``""`` (no prefix).
     """
 
     name: str = "lxmf"
@@ -75,9 +109,13 @@ class LxmfRenderer:
 
     def __init__(
         self,
+        configs: Mapping[str, Any] | None = None,
+        source_attribution: dict[str, Any] | None = None,
         metadata_embedding: bool = True,
         relay_prefix: str = "",
     ) -> None:
+        self._configs: dict[str, Any] = dict(configs or {})
+        self._source_attribution: dict[str, Any] = dict(source_attribution or {})
         self._metadata_embedding = metadata_embedding
         self._relay_prefix = relay_prefix
 
@@ -165,14 +203,17 @@ class LxmfRenderer:
         if is_fallback:
             text = self._degrade_relations_inline(event, text)
 
-        # Optional human-readable relay prefix.  Extracted from event
+        # Optional human-readable relay prefix.  Resolved from target
+        # adapter config (target-aware) with fallback to constructor
+        # relay_prefix for backward compat.  Extracted from event
         # attribution and formatted via the shared prefix formatter.
         # The prefix is for human readability only — the MEDRE metadata
         # envelope in fields remains the authoritative provenance source.
         prefix_meta: dict[str, object] = {}
-        if self._relay_prefix:
-            attr = extract_relay_attribution(event)
-            prefix_result = format_relay_prefix(self._relay_prefix, attr)
+        prefix_template = self._resolve_prefix_template(ctx)
+        if prefix_template:
+            attr = self._extract_attribution_with_source(event)
+            prefix_result = format_relay_prefix(prefix_template, attr)
             if prefix_result.rendered_prefix:
                 text = prefix_result.rendered_prefix + text
             prefix_meta["relay_prefix_template"] = prefix_result.template_used
@@ -218,6 +259,65 @@ class LxmfRenderer:
             truncated=truncated,
             fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
+
+    # ------------------------------------------------------------------
+    # Prefix resolution helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_prefix_template(self, ctx: RenderingContext) -> str:
+        """Resolve the relay prefix template for the target adapter.
+
+        Looks up the target adapter in the configs mapping and returns
+        its ``lxmf_relay_prefix``.  Falls back to ``self._relay_prefix``
+        when the configs mapping is empty or the target adapter is not
+        found (backward compat for direct-constructed renderers).
+
+        Parameters
+        ----------
+        ctx:
+            Frozen rendering context with target adapter identity.
+
+        Returns
+        -------
+        str
+            The prefix template string (may be empty).
+        """
+        if self._configs:
+            adapter_config = self._configs.get(ctx.target_adapter)
+            if adapter_config is not None:
+                return getattr(adapter_config, "lxmf_relay_prefix", "")
+        return self._relay_prefix
+
+    def _extract_attribution_with_source(
+        self, event: CanonicalEvent
+    ) -> RelayAttribution:
+        """Extract relay attribution, enriching with source origin_label.
+
+        Extracts standard relay attribution from the event, then looks
+        up the source adapter in the source_attribution registry to
+        populate ``source_origin_label``.
+
+        Parameters
+        ----------
+        event:
+            The canonical event to extract attribution from.
+
+        Returns
+        -------
+        RelayAttribution
+            Attribution snapshot with origin_label populated from the
+            source_attribution registry when available.
+        """
+        attr = extract_relay_attribution(event)
+
+        # Enrich with origin_label from source_attribution registry.
+        source_info = self._source_attribution.get(event.source_adapter)
+        if source_info is not None:
+            origin_label = getattr(source_info, "origin_label", "") or ""
+            if origin_label:
+                attr = replace(attr, source_origin_label=origin_label)
+
+        return attr
 
     # ------------------------------------------------------------------
     # Fallback helpers

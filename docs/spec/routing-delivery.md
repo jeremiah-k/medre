@@ -1198,13 +1198,15 @@ When route configuration is reloaded at runtime:
 
 Routes register in the same order they appear in configuration. Registration is deterministic. `validate_route_adapter_refs` runs before any route is registered. If any enabled route references an adapter ID not present in the assembled runtime, startup fails.
 
-## 17.5 Relay Attribution Prefix — Single Authority Caveat
+## 17.5 Relay Attribution Prefix
+
+### 17.5.1 Purpose and Scope
 
 Transport renderers MAY prepend a human-readable relay attribution prefix to
 outbound message text. The prefix is derived from a template string
 configured per adapter (e.g. `radio_relay_prefix`, `meshcore_relay_prefix`,
-`lxmf_relay_prefix`) or per source adapter direction (e.g.
-`matrix_relay_prefix` on `MeshtasticConfig`).
+`lxmf_relay_prefix`) or per target adapter (e.g. `relay_prefix` on
+`MatrixConfig`).
 
 The prefix is **human-readable attribution only**. It does not constitute
 delivery evidence and MUST NOT be interpreted as provenance by downstream
@@ -1212,17 +1214,79 @@ consumers. The authoritative source for machine-readable provenance is the
 MEDRE metadata namespace (`medre.envelope` on Matrix, `fields[0xFD]` on
 LXMF, `RenderingResult.metadata` on all transports).
 
+### 17.5.2 origin_label
+
+`origin_label` is the platform-neutral, operator-defined source label for
+relay prefixes. Each adapter config declares an `origin_label` field
+(string, default `""`), set by the operator to a short human-readable name
+for the adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
+
+- `origin_label` is NOT delivery evidence.
+- `origin_label` is NOT a routing key.
+- `origin_label` is NOT a native transport identity (it is not a node ID,
+  MXID, pubkey prefix, or Reticulum hash).
+
+The canonical field on `RelayAttribution` is `source_origin_label`. The
+template alias is `{origin_label}`. Renderers look up `source_origin_label`
+from the source adapter config via the runtime source-attribution registry.
+
+### 17.5.3 Label and Identity Distinctions
+
+| Concept               | Template variable | Source                                      | Scope                                              |
+| --------------------- | ----------------- | ------------------------------------------- | -------------------------------------------------- |
+| `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                    |
+| `source_sender_id`    | `{from_id}`       | Native sender ID from source event metadata | Per-transport native identity                      |
+| `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                          |
+| `meshnet_name`        | `{meshnet_name}`  | Source adapter config `meshnet_name`        | Transport-specific network name, NOT MEDRE-generic |
+| `route_id`            | `{route_id}`      | Matched route                               | Route identification                               |
+
+Operators SHOULD prefer `{origin_label}` over `{meshnet_name}` in
+cross-platform prefix templates. `meshnet_name` is transport-specific
+(radio mesh network name) and may be empty or semantically irrelevant for
+non-radio transports. `origin_label` is the single MEDRE-generic label.
+
+### 17.5.4 Renderer Lookup
+
+Renderers resolve `source_origin_label` through the runtime
+source-attribution registry. The registry maps adapter instance names to
+their `origin_label` config value. When a source adapter has no
+`origin_label` configured (empty string), the template variable resolves to
+an empty string — no label is rendered.
+
+For the Matrix outbound prefix specifically, `MatrixConfig.relay_prefix`
+(string, default `""`) is the target-local prefix template. The Matrix
+renderer reads this field from its own config (target-local), not from the
+source adapter's config. The old path through
+`MeshtasticConfig.matrix_relay_prefix` is a backward-compatibility fallback
+only — new configurations SHOULD use `MatrixConfig.relay_prefix`.
+
+For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
+lives on the respective target adapter config (`radio_relay_prefix`,
+`meshcore_relay_prefix`, `lxmf_relay_prefix`). Variables within those
+templates are resolved from the source event's `RelayAttribution`, which
+includes `source_origin_label` from the source-attribution registry.
+
+### 17.5.5 Shared Formatter and Variable Schema
+
 The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines a single set of template
 variables (canonical `source_*` fields plus aliases `longname`, `shortname`,
-`shortname5`, `from_id`, `meshnet_name`). All four transport renderers use
-the same formatter and the same variable schema. The authoritative variable
-list is documented in the Meshtastic Transport Profile §Relay Attribution
-Prefix.
+`shortname5`, `from_id`, `meshnet_name`, `origin_label`). All four transport
+renderers use the same formatter and the same variable schema. The
+authoritative variable list is documented in the Meshtastic Transport
+Profile §Relay Attribution Prefix.
 
 Formatting rules: `None`/missing values format as empty strings. Unknown
 placeholders are left unchanged in the output and recorded in diagnostic
 metadata. The formatter never raises exceptions.
+
+### 17.5.6 False Delivery Claims
+
+No relay prefix, regardless of its content, constitutes a delivery claim.
+Prefixes are prepended to message text for human readability only. The
+metadata namespace remains the authoritative source for machine-readable
+provenance and delivery evidence. Operators MUST NOT rely on prefix text for
+routing decisions, delivery confirmation, or identity verification.
 
 ## 18. Non-Goals
 

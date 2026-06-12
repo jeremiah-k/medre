@@ -766,3 +766,114 @@ class TestMatrixCoreAttributionIntegration:
         assert result.metadata["relay_prefix_template"] == "[{longname}] "
         assert result.metadata["relay_prefix_rendered"] == "[Bob] "
         assert result.payload["body"] == "[Bob] hello mesh"
+
+
+# ---------------------------------------------------------------------------
+# Target-local prefix (MatrixConfig.relay_prefix) tests
+# ---------------------------------------------------------------------------
+
+
+class _StubMatrixConfig:
+    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "matrix-1",
+        relay_prefix: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.relay_prefix = relay_prefix
+
+
+class _StubSourceAttribution:
+    """Minimal duck-typed SourceAttributionConfig."""
+
+    def __init__(
+        self,
+        adapter_id: str = "radio-alpha",
+        origin_label: str = "",
+        meshnet_name: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.origin_label = origin_label
+        self.meshnet_name = meshnet_name
+
+
+class TestMatrixTargetLocalPrefix:
+    """MatrixConfig.relay_prefix provides target-local prefix template."""
+
+    async def test_target_local_prefix_renders_origin_label(self) -> None:
+        """MatrixConfig.relay_prefix produces prefixed output."""
+        renderer = MatrixRenderer(
+            source_attribution={
+                "radio-alpha": _StubSourceAttribution(
+                    adapter_id="radio-alpha",
+                    origin_label="East Mesh",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{origin_label}]: ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["body"] == "[East Mesh]: hello mesh"
+
+    async def test_origin_label_from_source_attribution_in_prefix(self) -> None:
+        """Source origin_label from source_attribution registry appears in prefix."""
+        renderer = MatrixRenderer(
+            source_attribution={
+                "radio-alpha": _StubSourceAttribution(
+                    adapter_id="radio-alpha",
+                    origin_label="West Net",
+                    meshnet_name="WestMesh",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{origin_label}/{from_id}]: ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Bob", "from_id": "!42"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        body: str = result.payload["body"]
+        assert "West Net" in body
+        assert "!42" in body
+
+    async def test_target_local_prefix_fallback_to_source_config(self) -> None:
+        """Without target-local prefix, falls back to source config matrix_relay_prefix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "radio-alpha": _StubMeshtasticConfig(
+                    adapter_id="radio-alpha",
+                    matrix_relay_prefix="[{longname}]: ",
+                ),
+            },
+        )
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        # Falls back to source config prefix (no target-local prefix)
+        assert result.payload["body"] == "[Alice]: hello mesh"

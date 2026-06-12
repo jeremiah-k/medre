@@ -46,7 +46,8 @@ trimmed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.attribution import (
@@ -89,6 +90,7 @@ class MeshCoreRenderer:
         self,
         *,
         configs: Mapping[str, MeshCoreConfig],
+        source_attribution: dict[str, Any] | None = None,
     ) -> None:
         if not configs:
             raise ValueError(
@@ -96,6 +98,7 @@ class MeshCoreRenderer:
                 "Pass a non-empty configs mapping."
             )
         self._configs: dict[str, MeshCoreConfig] = dict(configs)
+        self._source_attribution: dict[str, Any] = dict(source_attribution or {})
 
     # ------------------------------------------------------------------
     # Capability check
@@ -218,6 +221,19 @@ class MeshCoreRenderer:
                 event,
                 source_meshnet_name=adapter_config.meshnet_name or None,
             )
+            # Resolve source origin_label and source_meshnet_name from
+            # the source_attribution registry.
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            if src_attr_cfg is not None:
+                src_origin = getattr(src_attr_cfg, "origin_label", "") or None
+                src_mesh = getattr(src_attr_cfg, "meshnet_name", "") or None
+                if src_origin is not None or src_mesh is not None:
+                    overrides: dict[str, str | None] = {}
+                    if src_origin is not None:
+                        overrides["source_origin_label"] = src_origin
+                    if src_mesh is not None:
+                        overrides["source_meshnet_name"] = src_mesh
+                    attr = replace(attr, **overrides)
             prefix_result = format_relay_prefix(prefix_template, attr)
             rendered_prefix = prefix_result.rendered_prefix
             prefix_formatting_error = prefix_result.formatting_error

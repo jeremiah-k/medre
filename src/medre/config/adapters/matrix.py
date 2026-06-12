@@ -79,6 +79,7 @@ class MatrixConfig:
     require_encrypted_rooms: bool = False
     auto_join_rooms: tuple[str, ...] = ()
     origin_label: str = ""
+    relay_prefix: str = ""
 
     def validate(self) -> MatrixConfig:
         """Validate the configuration and return it for chaining.
@@ -207,6 +208,15 @@ class MatrixConfig:
             raise MatrixConfigError(
                 f"origin_label must be a str, "
                 f"got {type(self.origin_label).__name__}"
+            )
+
+        # --- relay_prefix ---
+        if isinstance(self.relay_prefix, bool):
+            raise MatrixConfigError("relay_prefix must be a str, got bool")
+        if not isinstance(self.relay_prefix, str):
+            raise MatrixConfigError(
+                f"relay_prefix must be a str, "
+                f"got {type(self.relay_prefix).__name__}"
             )
 
         return self

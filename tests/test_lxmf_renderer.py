@@ -1,5 +1,5 @@
 """Tests for LxmfRenderer: name, can_render dispatch, rendering output,
-title, fields envelope, relay prefix, and edge cases.
+title, fields envelope, relay prefix, target-aware configs, and edge cases.
 """
 
 from __future__ import annotations
@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.adapters.lxmf.renderer import LxmfRenderer
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.metadata import EventMetadata as _EM
 from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.runtime.builder import SourceAttributionConfig
 
 
 def _make_event(
@@ -824,3 +826,207 @@ class TestLxmfRelayPrefix:
         assert envelope["event_id"] == "evt-prefix-1"
         # Envelope does NOT contain the prefix or rendered text
         assert "relay_prefix" not in envelope
+
+
+class TestLxmfTargetAwareConfigs:
+    """Target-aware config resolution for LxmfRenderer.
+
+    Tests that the renderer resolves prefix from the target adapter's
+    config mapping at render time, not from a single global prefix.
+    """
+
+    async def test_prefix_from_target_adapter_config(self) -> None:
+        """Prefix resolved from configs mapping via target_adapter."""
+        configs = {
+            "lxmf_a": LxmfConfig(
+                adapter_id="lxmf_a",
+                connection_type="fake",
+                lxmf_relay_prefix="[{source_display_name}] ",
+            ),
+        }
+        renderer = LxmfRenderer(configs=configs)
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={
+                "sender": "@alice:example.com",
+                "displayname": "Alice",
+            },
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[Alice] hello"
+
+    async def test_two_lxmf_adapters_different_prefixes(self) -> None:
+        """Two LXMF adapters with different prefixes render correctly."""
+        configs = {
+            "lxmf_alpha": LxmfConfig(
+                adapter_id="lxmf_alpha",
+                connection_type="fake",
+                lxmf_relay_prefix="[{source_display_name}] ",
+            ),
+            "lxmf_beta": LxmfConfig(
+                adapter_id="lxmf_beta",
+                connection_type="fake",
+                lxmf_relay_prefix="<{shortname}> ",
+            ),
+        }
+        renderer = LxmfRenderer(configs=configs)
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "Base Radio",
+                "shortname": "RAD",
+            },
+            payload={"body": "hello"},
+        )
+
+        # Render to lxmf_alpha — uses display_name (longname) prefix
+        result_a = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_alpha", delivery_strategy="direct"),
+        )
+        assert result_a.payload["content"] == "[Base Radio] hello"
+
+        # Render to lxmf_beta — uses shortname prefix
+        result_b = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_beta", delivery_strategy="direct"),
+        )
+        assert result_b.payload["content"] == "<RAD> hello"
+
+    async def test_empty_prefix_from_config(self) -> None:
+        """Adapter config with empty lxmf_relay_prefix produces no prefix."""
+        configs = {
+            "lxmf_plain": LxmfConfig(
+                adapter_id="lxmf_plain",
+                connection_type="fake",
+                lxmf_relay_prefix="",
+            ),
+        }
+        renderer = LxmfRenderer(configs=configs)
+        event = _make_event(payload={"body": "plain text"})
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_plain", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "plain text"
+        assert "relay_prefix_template" not in result.metadata
+
+    async def test_fallback_to_relay_prefix_when_no_configs(self) -> None:
+        """relay_prefix fallback used when configs mapping is empty."""
+        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"displayname": "Alice"},
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[Alice] hello"
+
+    async def test_fallback_to_relay_prefix_when_target_not_in_configs(self) -> None:
+        """relay_prefix fallback used when target_adapter not in configs."""
+        configs = {
+            "lxmf_other": LxmfConfig(
+                adapter_id="lxmf_other",
+                connection_type="fake",
+                lxmf_relay_prefix="<{shortname}> ",
+            ),
+        }
+        renderer = LxmfRenderer(
+            configs=configs,
+            relay_prefix="[{source_display_name}] ",
+        )
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"displayname": "Alice"},
+            payload={"body": "hello"},
+        )
+        # Target adapter is NOT in configs — falls back to relay_prefix
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_unknown", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[Alice] hello"
+
+
+class TestLxmfSourceOriginLabel:
+    """origin_label from source_attribution registry appears in prefix."""
+
+    async def test_origin_label_from_source_attribution(self) -> None:
+        """Source origin_label from registry is used in prefix formatting."""
+        source_attr = {
+            "meshtastic-radio": SourceAttributionConfig(
+                adapter_id="meshtastic-radio",
+                platform="meshtastic",
+                origin_label="East Radio",
+            ),
+        }
+        renderer = LxmfRenderer(
+            relay_prefix="[{origin_label}] ",
+            source_attribution=source_attr,
+        )
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={},
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[East Radio] hello"
+
+    async def test_origin_label_with_configs_mapping(self) -> None:
+        """origin_label works with target-aware configs mapping."""
+        source_attr = {
+            "meshtastic-radio": SourceAttributionConfig(
+                adapter_id="meshtastic-radio",
+                platform="meshtastic",
+                origin_label="Base Station Alpha",
+            ),
+        }
+        configs = {
+            "lxmf_a": LxmfConfig(
+                adapter_id="lxmf_a",
+                connection_type="fake",
+                lxmf_relay_prefix="<{origin_label}> ",
+            ),
+        }
+        renderer = LxmfRenderer(
+            configs=configs,
+            source_attribution=source_attr,
+        )
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={},
+            payload={"body": "radio check"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "<Base Station Alpha> radio check"
+
+    async def test_no_origin_label_when_not_in_registry(self) -> None:
+        """Empty origin_label when source adapter not in registry."""
+        renderer = LxmfRenderer(
+            relay_prefix="[{origin_label}] ",
+            source_attribution={},
+        )
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data={},
+            payload={"body": "mystery"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        # origin_label resolves to empty string
+        assert result.payload["content"] == "[] mystery"

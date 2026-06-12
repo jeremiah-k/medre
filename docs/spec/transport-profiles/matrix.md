@@ -26,6 +26,8 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `encryption_mode`         | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
 | `require_encrypted_rooms` | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
 | `auto_join_rooms`         | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
+| `origin_label`            | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
+| `relay_prefix`            | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
 
 ---
 
@@ -55,30 +57,42 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 ## Relay Attribution Prefix
 
 The Matrix renderer prepends a human-readable relay attribution prefix to the
-message body when the **source adapter's** config provides a prefix template.
-The prefix is NOT configured on `MatrixConfig` — it comes from the source
-adapter's configuration, resolved via the renderer's `source_configs` mapping.
+message body when a prefix template is available. The prefix template source
+depends on the configuration model:
 
-**Current config source:** When the source is a Meshtastic adapter, the
-template is `MeshtasticConfig.matrix_relay_prefix` (default
-`"[{longname}/{meshnet_name}]: "`). When no source config is found (e.g.
-event from an adapter not in the `source_configs` mapping), no prefix is
-prepended. MeshCore and LXMF source adapters do not contribute a Matrix
-outbound prefix in this release — only `MeshtasticConfig` carries
-`matrix_relay_prefix`. This policy may be extended to other source
-adapters in a future release.
+1. **Target-local (preferred):** `MatrixConfig.relay_prefix` (string, default
+   `""`). When non-empty, this template is used for all Matrix outbound
+   renders. This is the target-local prefix — it lives on the adapter that
+   owns the rendering, not on the source adapter.
+
+2. **Backward-compat fallback:** When `MatrixConfig.relay_prefix` is empty,
+   the renderer falls back to `MeshtasticConfig.matrix_relay_prefix` resolved
+   via the `source_configs` mapping. This preserves the legacy behavior where
+   the source adapter's config controlled the Matrix-bound prefix. New
+   configurations SHOULD use `MatrixConfig.relay_prefix`.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
-the source event. See the Meshtastic Transport Profile §Relay Attribution
-Prefix for the authoritative list of supported template variables and
-formatting rules.
+the source event. Operators SHOULD prefer `{origin_label}` over
+`{meshnet_name}` in cross-platform prefix templates — `origin_label` is the
+MEDRE-generic source label, while `meshnet_name` is transport-specific and
+may be empty for non-radio sources. See the Meshtastic Transport Profile
+§Relay Attribution Prefix for the authoritative list of supported template
+variables and formatting rules.
+
+**Renderer lookup:** `{origin_label}` is resolved from the source adapter's
+`origin_label` config via the runtime source-attribution registry. When the
+source adapter has no `origin_label` configured, the variable resolves to an
+empty string.
 
 **Application points:**
 
 1. Direct mode body (before truncation).
 2. Fallback-text mode body (before truncation).
 3. Reaction emote body (via `_format_reaction_prefix`).
+
+**When no prefix is found** (both `MatrixConfig.relay_prefix` is empty and no
+source config fallback matches), no prefix is prepended.
 
 **Truncation:** The Matrix renderer has no constrained radio byte budget.
 Prefix length is unconstrained in the renderer, though Matrix homeservers

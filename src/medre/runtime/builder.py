@@ -54,7 +54,7 @@ from medre.runtime.errors import RuntimeConfigError
 if TYPE_CHECKING:
     from medre.core.planning.delivery_plan import RetryPolicy
 
-__all__ = ["RuntimeBuilder", "AdapterBuildFailure"]
+__all__ = ["RuntimeBuilder", "AdapterBuildFailure", "SourceAttributionConfig"]
 
 _logger = logging.getLogger(__name__)
 
@@ -62,6 +62,35 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Build result types
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SourceAttributionConfig:
+    """Platform-neutral source attribution for prefix formatting.
+
+    Built by :class:`RuntimeBuilder` from adapter configs.  Passed to
+    renderers so they can look up source adapter ``origin_label`` and
+    platform info when formatting relay prefixes.
+
+    Attributes
+    ----------
+    adapter_id:
+        Unique adapter identifier within the runtime.
+    platform:
+        Transport name (``"meshtastic"``, ``"meshcore"``, ``"lxmf"``,
+        ``"matrix"``).
+    origin_label:
+        Human-readable label for the source adapter.  Empty string when
+        not configured.
+    meshnet_name:
+        Mesh network name for the source adapter.  Empty string when
+        not configured.
+    """
+
+    adapter_id: str
+    platform: str
+    origin_label: str = ""
+    meshnet_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,10 +261,13 @@ def _register_adapter_renderers(
       ``source_configs`` for per-source-adapter config resolution (multi-radio
       support).  Unknown sources render plain Matrix output without
       Meshtastic prefix or metadata contamination.
-    * ``LxmfRenderer`` receives the first non-empty ``lxmf_relay_prefix``
-      across all LXMF adapter configs in deterministic adapter order.
-      When multiple LXMF adapters are configured, the prefix from the
-      first adapter (sorted by adapter_id) with a non-empty prefix wins.
+    * ``LxmfRenderer`` receives a mapping of ALL LXMF adapter configs
+      (``adapter_id → LxmfConfig``) so that rendering is target-adapter-aware
+      in multi-LXMF setups.  The prefix template is resolved from the
+      target adapter's ``lxmf_relay_prefix`` at render time.
+    * ``MeshCoreRenderer`` receives a mapping of ALL MeshCore adapter
+      configs (``adapter_id → MeshCoreConfig``) so that rendering is
+      target-adapter-aware in multi-node setups.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
@@ -296,20 +328,34 @@ def _register_adapter_renderers(
                         connection_type="fake",
                     )
 
-    # Resolve the relay prefix for LxmfRenderer.  When multiple LXMF
-    # adapters are configured, the first non-empty ``lxmf_relay_prefix``
-    # in deterministic (adapter_id sorted) order wins; empty string if
-    # none.  This is safe because LxmfRenderer is platform-scoped — it
-    # renders for any target with platform=="lxmf" — and the prefix is
-    # a human-readable attribution hint, not per-target config.
-    _lxmf_relay_prefix = ""
-    if lxmf_configs:
-        for _aid in sorted(lxmf_configs):
-            _cfg = lxmf_configs[_aid]
-            _prefix = getattr(_cfg, "lxmf_relay_prefix", "")
-            if _prefix:
-                _lxmf_relay_prefix = _prefix
-                break
+    # Build source attribution registry from all adapter configs.
+    # Maps adapter_id → SourceAttributionConfig for every enabled adapter
+    # across all transports.  Uses duck-typing (getattr) to avoid importing
+    # adapter config classes into core.
+    source_attribution: dict[str, SourceAttributionConfig] = {}
+    _matrix_configs: dict[str, Any] = {}
+    if config is not None:
+        for _transport, _adapter_id, _rtc in config.adapters.all_configs():
+            if (
+                _transport == "matrix"
+                and _rtc.enabled
+                and getattr(_rtc, "config", None) is not None
+            ):
+                _matrix_configs[_adapter_id] = _rtc.config
+    _all_config_maps: list[tuple[str, dict[str, Any]]] = [
+        ("meshtastic", meshtastic_configs),
+        ("meshcore", meshcore_configs),
+        ("lxmf", lxmf_configs),
+        ("matrix", _matrix_configs),
+    ]
+    for _platform, _cfg_map in _all_config_maps:
+        for _aid, _cfg in _cfg_map.items():
+            source_attribution[_aid] = SourceAttributionConfig(
+                adapter_id=_aid,
+                platform=_platform,
+                origin_label=getattr(_cfg, "origin_label", ""),
+                meshnet_name=getattr(_cfg, "meshnet_name", ""),
+            )
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
@@ -322,29 +368,42 @@ def _register_adapter_renderers(
                 if not meshtastic_configs:
                     continue
                 pipeline.register(
-                    renderer_cls(configs=meshtastic_configs),
+                    renderer_cls(
+                        configs=meshtastic_configs,
+                        source_attribution=source_attribution,
+                    ),
                     priority=50,
                 )
             elif class_name == "MeshCoreRenderer":
                 if not meshcore_configs:
                     continue
                 pipeline.register(
-                    renderer_cls(configs=meshcore_configs),
+                    renderer_cls(
+                        configs=meshcore_configs,
+                        source_attribution=source_attribution,
+                    ),
                     priority=50,
                 )
             elif class_name == "MatrixRenderer" and meshtastic_configs:
                 # MatrixRenderer uses all MeshtasticConfigs via source_configs
                 # for per-source-adapter config resolution (multi-radio
                 # support).  Unknown sources render plain Matrix output.
+                # MatrixConfigs are passed via configs for target-local
+                # relay_prefix resolution.
                 pipeline.register(
                     renderer_cls(
                         source_configs=meshtastic_configs,
+                        source_attribution=source_attribution,
+                        configs=_matrix_configs,
                     ),
                     priority=50,
                 )
             elif class_name == "LxmfRenderer":
                 pipeline.register(
-                    renderer_cls(relay_prefix=_lxmf_relay_prefix),
+                    renderer_cls(
+                        configs=lxmf_configs,
+                        source_attribution=source_attribution,
+                    ),
                     priority=50,
                 )
             else:

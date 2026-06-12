@@ -465,3 +465,86 @@ class TestMatrixConfigOriginLabel:
             MatrixConfigError, match="origin_label must be a str, got NoneType"
         ):
             config.validate()
+
+
+# ===================================================================
+# relay_prefix field
+# ===================================================================
+
+
+class TestMatrixConfigRelayPrefix:
+    """relay_prefix field defaults and validation."""
+
+    def test_default_is_empty_string(self) -> None:
+        """Default relay_prefix is empty string."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        assert config.relay_prefix == ""
+
+    def test_valid_string_accepted(self) -> None:
+        """Non-empty relay_prefix passes validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            relay_prefix="[{origin_label}/{from_id}]: ",
+        )
+        assert config.validate().relay_prefix == "[{origin_label}/{from_id}]: "
+
+    def test_empty_string_is_valid(self) -> None:
+        """Empty relay_prefix passes validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            relay_prefix="",
+        )
+        assert config.validate().relay_prefix == ""
+
+    def test_bool_true_rejected(self) -> None:
+        """Bool relay_prefix is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            relay_prefix=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="relay_prefix must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_bool_false_rejected(self) -> None:
+        """Bool False relay_prefix is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            relay_prefix=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="relay_prefix must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_int_rejected(self) -> None:
+        """Int relay_prefix is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            relay_prefix=42,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="relay_prefix must be a str, got int"
+        ):
+            config.validate()

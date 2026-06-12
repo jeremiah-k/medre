@@ -58,7 +58,7 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.rendering.attribution import (
@@ -105,6 +105,7 @@ class MeshtasticRenderer:
         self,
         *,
         configs: Mapping[str, MeshtasticConfig],
+        source_attribution: dict[str, Any] | None = None,
     ) -> None:
         if not configs:
             raise ValueError(
@@ -112,6 +113,7 @@ class MeshtasticRenderer:
                 "Pass a non-empty configs mapping."
             )
         self._configs: dict[str, MeshtasticConfig] = dict(configs)
+        self._source_attribution: dict[str, Any] = dict(source_attribution or {})
 
     # ------------------------------------------------------------------
     # Capability check
@@ -161,8 +163,8 @@ class MeshtasticRenderer:
     # Prefix formatting
     # ------------------------------------------------------------------
 
-    @staticmethod
     def _format_prefix_for(
+        self,
         event: CanonicalEvent,
         radio_relay_prefix: str,
         meshnet_name: str,
@@ -224,6 +226,22 @@ class MeshtasticRenderer:
             event,
             source_meshnet_name=meshnet_name or None,
         )
+
+        # Resolve source origin_label and source_meshnet_name from
+        # the source_attribution registry.  The registry maps
+        # adapter_id → SourceAttributionConfig with the source adapter's
+        # own origin_label and meshnet_name (not the target's).
+        src_attr_cfg = self._source_attribution.get(event.source_adapter)
+        if src_attr_cfg is not None:
+            src_origin = getattr(src_attr_cfg, "origin_label", "") or None
+            src_mesh = getattr(src_attr_cfg, "meshnet_name", "") or None
+            if src_origin is not None or src_mesh is not None:
+                overrides: dict[str, str | None] = {}
+                if src_origin is not None:
+                    overrides["source_origin_label"] = src_origin
+                if src_mesh is not None:
+                    overrides["source_meshnet_name"] = src_mesh
+                attr = replace(attr, **overrides)
 
         # Flat-key fallback: the codec pipeline may store
         # Meshtastic-style flat keys (longname, shortname, from_id)

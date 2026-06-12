@@ -60,25 +60,33 @@ This enrichment happens **after** codec decode, using
 
 The Matrix renderer (`MatrixRenderer` in
 `src/medre/adapters/matrix/renderer.py`) applies a relay prefix to the
-message body via `_apply_matrix_relay_prefix` (lines 613–663).
+message body via `_apply_matrix_relay_prefix`.
 
-**Prefix configuration source:** The prefix template is NOT on
-`MatrixConfig`. It comes from the **source adapter's** config —
-specifically `MeshtasticConfig.matrix_relay_prefix`. The renderer
-resolves it by looking up `event.source_adapter` in the
-`source_configs` mapping supplied at renderer construction (lines 74–84
-and 97–106).
+**Prefix configuration source (two paths):**
+
+1. **Target-local (preferred):** `MatrixConfig.relay_prefix` (string, default
+   `""`). When non-empty, this template is used for all Matrix outbound
+   renders. The prefix lives on the adapter that owns the rendering.
+
+2. **Backward-compat fallback:** When `MatrixConfig.relay_prefix` is empty,
+   the renderer falls back to the source adapter's config — specifically
+   `MeshtasticConfig.matrix_relay_prefix` — resolved via the `source_configs`
+   mapping supplied at renderer construction (lines 74–84 and 97–106).
+
+The `{origin_label}` template variable is resolved from the source adapter's
+`origin_label` config via the runtime source-attribution registry.
 
 **Available template variables** (all coalesced to empty string on
 `None`):
 
-| Variable         | Source                                     |
-| ---------------- | ------------------------------------------ |
-| `{longname}`     | `event.metadata.native.data["longname"]`   |
-| `{shortname}`    | `event.metadata.native.data["shortname"]`  |
-| `{shortname5}`   | First 5 chars of `shortname`, or `from_id` |
-| `{meshnet_name}` | Source adapter config `meshnet_name`       |
-| `{from_id}`      | `event.metadata.native.data["from_id"]`    |
+| Variable         | Source                                                                 |
+| ---------------- | ---------------------------------------------------------------------- |
+| `{longname}`     | `event.metadata.native.data["longname"]`                               |
+| `{shortname}`    | `event.metadata.native.data["shortname"]`                              |
+| `{shortname5}`   | First 5 chars of `shortname`, or `from_id`                             |
+| `{meshnet_name}` | Source adapter config `meshnet_name`                                   |
+| `{from_id}`      | `event.metadata.native.data["from_id"]`                                |
+| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
 
 **Default prefix** (from `MeshtasticConfig`):
 `"[{longname}/{meshnet_name}]: "` — documented as matching mmrelay's
@@ -97,18 +105,10 @@ The prefix is applied **before** any truncation.
 the `source_configs` mapping), the prefix resolves to empty string and
 no prefix is prepended.
 
-**Deferred policy (MeshCore / LXMF → Matrix):** Matrix outbound prefix
-currently resolves from `MeshtasticConfig.matrix_relay_prefix` only.
-`MeshCoreConfig` and `LxmfConfig` do not carry a `matrix_relay_prefix`
-field, so MeshCore-origin and LXMF-origin events rendered through
-`MatrixRenderer` produce no relay prefix. This is a **deferred
-feature**, not a bug — extending Matrix outbound prefix to additional
-source adapter types requires adding a `matrix_relay_prefix` field to
-the respective config models and wiring it through the renderer's
-source-config resolution. See the
-`TestMatrixCoreAttributionIntegration` test class in
-`tests/test_matrix_relay_attribution.py` for restructured coverage that
-asserts no prefix (body unchanged) for MeshCore/LXMF origins.
+**Source-origin label enrichment:** The Matrix renderer looks up the source
+adapter's `origin_label` from the source-attribution registry and populates
+`source_origin_label` on the `RelayAttribution` used for prefix formatting.
+When the source adapter has no `origin_label`, the value is empty string.
 
 ### Matrix Metadata Envelope
 
@@ -140,9 +140,16 @@ handles its own MMRelay keys).
 
 ### MatrixConfig Prefix-Relevant Fields
 
-`src/medre/config/adapters/matrix.py`: `MatrixConfig` has **no prefix
-template fields**. No `matrix_relay_prefix`, no `radio_relay_prefix`,
-no `mmrelay_compatibility`.
+`src/medre/config/adapters/matrix.py`: `MatrixConfig` now has a
+**target-local prefix template field**:
+
+| Field          | Default | Purpose                                          |
+| -------------- | ------- | ------------------------------------------------ |
+| `relay_prefix` | `""`    | Target-local prefix template for Matrix outbound |
+| `origin_label` | `""`    | Source label for use when Matrix is source       |
+
+The old model (prefix only from `MeshtasticConfig.matrix_relay_prefix`) is
+preserved as a backward-compatibility fallback.
 
 ---
 
@@ -177,15 +184,21 @@ session's node database. When node info is unavailable, `longname` and
 `src/medre/adapters/meshtastic/renderer.py`) prepends
 `radio_relay_prefix` via `_format_prefix_for` (lines 158–228).
 
+The renderer looks up the source adapter's `origin_label` from the
+source-attribution registry to populate `source_origin_label` on the
+`RelayAttribution`. When the source adapter has no `origin_label`, the
+value is empty string.
+
 **Available template variables:**
 
-| Variable         | Source                                            |
-| ---------------- | ------------------------------------------------- |
-| `{longname}`     | `native_data["longname"]`                         |
-| `{shortname}`    | `native_data["shortname"]`                        |
-| `{shortname5}`   | First 5 chars of `shortname`, or `from_id`        |
-| `{meshnet_name}` | Target adapter config `meshnet_name`              |
-| `{from_id}`      | `native_data["from_id"]` or `source_transport_id` |
+| Variable         | Source                                                                 |
+| ---------------- | ---------------------------------------------------------------------- |
+| `{longname}`     | `native_data["longname"]`                                              |
+| `{shortname}`    | `native_data["shortname"]`                                             |
+| `{shortname5}`   | First 5 chars of `shortname`, or `from_id`                             |
+| `{meshnet_name}` | Target adapter config `meshnet_name`                                   |
+| `{from_id}`      | `native_data["from_id"]` or `source_transport_id`                      |
+| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
 
 **Default prefix:** `"{shortname5}[M]: "` — documented as matching
 mmrelay's `DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "`.
@@ -211,6 +224,7 @@ Prefix is applied **before** UTF-8 byte-budget truncation.
 | `radio_relay_prefix`    | `"{shortname5}[M]: "`             | Template for Matrix→mesh body prefix             |
 | `mmrelay_compatibility` | `False`                           | Inject MMRelay mesh metadata into Matrix content |
 | `meshnet_name`          | `""`                              | Available as `{meshnet_name}` in both prefixes   |
+| `origin_label`          | `""`                              | Available as `{origin_label}` in both prefixes   |
 | `max_text_bytes`        | `227`                             | UTF-8 byte budget after rendering                |
 
 ---
@@ -243,19 +257,25 @@ The MeshCore renderer (`MeshCoreRenderer` in
 prefix when `meshcore_relay_prefix` is non-empty on the target adapter's
 `MeshCoreConfig`.
 
+The renderer looks up the source adapter's `origin_label` from the
+source-attribution registry to populate `source_origin_label` on the
+`RelayAttribution`. When the source adapter has no `origin_label`, the
+value is empty string.
+
 **Prefix configuration source:** `MeshCoreConfig.meshcore_relay_prefix`
 (string, default `""`).
 
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable         | Source                                               |
-| ---------------- | ---------------------------------------------------- |
-| `{longname}`     | Attribution extractor (empty for MeshCore sources)   |
-| `{shortname}`    | Attribution extractor (empty for MeshCore sources)   |
-| `{shortname5}`   | First 5 chars of shortname, or sender_id             |
-| `{meshnet_name}` | Target adapter config `meshnet_name`                 |
-| `{from_id}`      | Attribution extractor (`pubkey_prefix` for MeshCore) |
+| Variable         | Source                                                                 |
+| ---------------- | ---------------------------------------------------------------------- |
+| `{longname}`     | Attribution extractor (empty for MeshCore sources)                     |
+| `{shortname}`    | Attribution extractor (empty for MeshCore sources)                     |
+| `{shortname5}`   | First 5 chars of shortname, or sender_id                               |
+| `{meshnet_name}` | Target adapter config `meshnet_name`                                   |
+| `{from_id}`      | Attribution extractor (`pubkey_prefix` for MeshCore)                   |
+| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
 
 **Default prefix:** `""` (no prefix).
 
@@ -281,6 +301,7 @@ non-empty):
 | Field                   | Default | Note                                             |
 | ----------------------- | ------- | ------------------------------------------------ |
 | `meshnet_name`          | `""`    | Available as `{meshnet_name}` in prefix template |
+| `origin_label`          | `""`    | Available as `{origin_label}` in prefix template |
 | `max_text_bytes`        | `512`   | UTF-8 byte budget (prefix counts toward it)      |
 | `meshcore_relay_prefix` | `""`    | Prefix template; empty = no prefix prepended     |
 
@@ -315,24 +336,28 @@ envelope in `fields[0xFD]` via `_reconstruct_relations` (codec.py lines
 
 The LXMF renderer (`LxmfRenderer` in
 `src/medre/adapters/lxmf/renderer.py`, lines 168–183) prepends a relay
-prefix when `lxmf_relay_prefix` is non-empty on the `LxmfConfig`.
+prefix when a relay prefix is configured on the target `LxmfConfig`.
+
+The LXMF renderer is **target-aware**: the prefix template comes from the
+target LXMF adapter's `lxmf_relay_prefix` config, resolved per delivery
+target. The renderer looks up the source adapter's `origin_label` from the
+source-attribution registry to populate `source_origin_label` on the
+`RelayAttribution`.
 
 **Prefix configuration source:** `LxmfConfig.lxmf_relay_prefix` (string,
-default `""`). The runtime builder collapses all per-adapter LXMF configs into
-a single `relay_prefix` passed to `LxmfRenderer`. In multi-adapter setups the
-builder picks the first non-empty prefix in sorted adapter-ID order; that
-prefix applies to **all** LXMF renders regardless of the target adapter.
+default `""`).
 
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable         | Source                                         |
-| ---------------- | ---------------------------------------------- |
-| `{longname}`     | Attribution extractor (empty for LXMF sources) |
-| `{shortname}`    | Attribution extractor (empty for LXMF sources) |
-| `{shortname5}`   | First 5 chars of shortname, or sender_id       |
-| `{meshnet_name}` | Config `meshnet_name`                          |
-| `{from_id}`      | Attribution extractor (`source_hash` for LXMF) |
+| Variable         | Source                                                                 |
+| ---------------- | ---------------------------------------------------------------------- |
+| `{longname}`     | Attribution extractor (empty for LXMF sources)                         |
+| `{shortname}`    | Attribution extractor (empty for LXMF sources)                         |
+| `{shortname5}`   | First 5 chars of shortname, or sender_id                               |
+| `{meshnet_name}` | Config `meshnet_name`                                                  |
+| `{from_id}`      | Attribution extractor (`source_hash` for LXMF)                         |
+| `{origin_label}` | Source adapter config `origin_label` (via source-attribution registry) |
 
 **Default prefix:** `""` (no prefix).
 
@@ -359,6 +384,7 @@ non-empty):
 | Field                | Default | Note                                             |
 | -------------------- | ------- | ------------------------------------------------ |
 | `meshnet_name`       | `""`    | Available as `{meshnet_name}` in prefix template |
+| `origin_label`       | `""`    | Available as `{origin_label}` in prefix template |
 | `metadata_embedding` | `True`  | Controls MEDRE envelope in fields                |
 | `display_name`       | `""`    | For LXMF announces, not prefixing                |
 | `lxmf_relay_prefix`  | `""`    | Prefix template; empty = no prefix prepended     |
@@ -406,6 +432,39 @@ renders as `m.emote` with `KEY_EMOJI=1`, `KEY_REPLY_ID`,
 
 ---
 
+## origin_label
+
+### Concept
+
+`origin_label` is a platform-neutral, operator-defined source label stored on
+each adapter config (`MatrixConfig.origin_label`, `MeshtasticConfig.origin_label`,
+`MeshCoreConfig.origin_label`, `LxmfConfig.origin_label`). All four configs
+declare it as a string with default `""`.
+
+The canonical field on `RelayAttribution` is `source_origin_label`. The
+template alias is `{origin_label}`. It is resolved through the runtime
+source-attribution registry, which maps adapter instance names to their
+`origin_label` config value.
+
+### Source-Attribution Registry
+
+The runtime builder constructs a source-attribution registry from all adapter
+configs at assembly time. Renderers consult this registry to look up the
+source adapter's `origin_label` when populating `RelayAttribution` for prefix
+formatting. When the source adapter has no `origin_label` configured (empty
+string), the variable resolves to an empty string.
+
+### Distinction from Other Labels
+
+| Concept               | Template variable | Source                       | Scope                        |
+| --------------------- | ----------------- | ---------------------------- | ---------------------------- |
+| `origin_label`        | `{origin_label}`  | Source adapter config        | MEDRE-generic operator label |
+| `meshnet_name`        | `{meshnet_name}`  | Source adapter config        | Transport-specific net name  |
+| `source_sender_id`    | `{from_id}`       | Source event native metadata | Per-transport native ID      |
+| `source_display_name` | —                 | Source event native metadata | Per-transport display name   |
+
+---
+
 ## Cross-Transport Gaps
 
 ### 1. Prefix defaults differ across transports
@@ -426,14 +485,15 @@ MeshCore uses `meshcore.sender_id` (hex pubkey prefix). LXMF uses
 Consequence: prefix templates referencing `{longname}` or `{shortname}`
 resolve to empty string when the source is MeshCore or LXMF.
 
-### 3. Prefix config ownership is asymmetric
+### 3. Prefix config ownership is target-local for Matrix, target-owned for others
 
-`matrix_relay_prefix` and `radio_relay_prefix` live on `MeshtasticConfig`.
-The Matrix renderer resolves the prefix from the source adapter's config.
-`MeshCoreConfig.meshcore_relay_prefix` and `LxmfConfig.lxmf_relay_prefix`
-are on their respective configs, resolved by their own renderers. Matrix
-has no prefix field on its own config — it always reads from the source
-adapter.
+`MatrixConfig.relay_prefix` is the target-local prefix template for Matrix
+outbound (new). The old `MeshtasticConfig.matrix_relay_prefix` is a backward-
+compat fallback. `MeshCoreConfig.meshcore_relay_prefix` and
+`LxmfConfig.lxmf_relay_prefix` are on their respective target configs,
+resolved by their own renderers. All renderers resolve `{origin_label}` from
+the source adapter config via the source-attribution registry — prefix
+variables describe the source, not the target.
 
 ### 4. Matrix display-name enrichment is post-codec
 
@@ -454,6 +514,12 @@ plus captured `meshtastic_*` keys.
 Prefix template variables (`{longname}`, `{shortname}`, `{from_id}`)
 work for Meshtastic sources and (after enrichment) Matrix sources. They
 resolve to empty strings for MeshCore and LXMF sources.
+
+`{origin_label}` is the MEDRE-generic source label available on all
+adapter configs. It resolves to the operator-defined label for any
+transport source. Operators SHOULD prefer `{origin_label}` over
+`{meshnet_name}` in cross-platform templates, as `meshnet_name` is
+transport-specific and remains empty for non-radio sources.
 
 ### 6. `mmrelay_compatibility` is Meshtastic-only
 
