@@ -63,7 +63,10 @@ adapter's configuration, resolved via the renderer's `source_configs` mapping.
 template is `MeshtasticConfig.matrix_relay_prefix` (default
 `"[{longname}/{meshnet_name}]: "`). When no source config is found (e.g.
 event from an adapter not in the `source_configs` mapping), no prefix is
-prepended.
+prepended. MeshCore and LXMF source adapters do not contribute a Matrix
+outbound prefix in this release — only `MeshtasticConfig` carries
+`matrix_relay_prefix`. This policy may be extended to other source
+adapters in a future release.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
@@ -85,9 +88,14 @@ budget.
 
 **Metadata keys** (when prefix is configured):
 
-| Key                | Value                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `prefix_formatter` | Sub-dict with `template_used`, `variables_used`, `missing_variables`, `unknown_variables`, `formatting_error` |
+| Key                              | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `relay_prefix_template`          | Original template string               |
+| `relay_prefix_rendered`          | Rendered prefix string                 |
+| `relay_prefix_variables_used`    | Tuple of template variables resolved   |
+| `relay_prefix_missing_variables` | Tuple of variables that resolved empty |
+| `relay_prefix_unknown_variables` | Tuple of unknown placeholder names     |
+| `relay_prefix_formatting_error`  | Error string or `None`                 |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It
 does not constitute delivery evidence. The MEDRE metadata envelope

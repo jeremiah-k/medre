@@ -120,34 +120,6 @@ class MatrixRenderer:
             return getattr(cfg, "mmrelay_compatibility", False)
         return False
 
-    def _detect_source_platform(self, event: CanonicalEvent) -> str | None:
-        """Best-effort source platform detection for relay attribution.
-
-        First inspects ``event.source_adapter`` for known platform
-        fragments (mirrors the core heuristic).  When the adapter name
-        does not contain a recognisable fragment, falls back to inspecting
-        native metadata keys to identify the originating platform.
-        """
-        lowered = event.source_adapter.lower()
-        for fragment, platform in (
-            ("matrix", "matrix"),
-            ("meshtastic", "meshtastic"),
-            ("meshcore", "meshcore"),
-            ("lxmf", "lxmf"),
-        ):
-            if fragment in lowered:
-                return platform
-        # Fallback: detect from native metadata keys.
-        if event.metadata and event.metadata.native:
-            data = event.metadata.native.data
-            if any(k in data for k in ("longname", "shortname", "from_id")):
-                return "meshtastic"
-            if "pubkey_prefix" in data:
-                return "meshcore"
-            if "source_hash" in data:
-                return "lxmf"
-        return None
-
     # ------------------------------------------------------------------
     # Capability check
     # ------------------------------------------------------------------
@@ -518,10 +490,8 @@ class MatrixRenderer:
             return "", {}
 
         meshnet_name = self._get_meshnet_name(event) or None
-        source_platform = self._detect_source_platform(event)
         attr = extract_relay_attribution(
             event,
-            source_platform=source_platform,
             source_meshnet_name=meshnet_name,
         )
         fmt_result = format_relay_prefix(template, attr)
@@ -533,13 +503,12 @@ class MatrixRenderer:
             return "", {}
 
         formatter_meta: dict[str, object] = {
-            "prefix_formatter": {
-                "template_used": fmt_result.template_used,
-                "variables_used": fmt_result.variables_used,
-                "missing_variables": fmt_result.missing_variables,
-                "unknown_variables": fmt_result.unknown_variables,
-                "formatting_error": fmt_result.formatting_error,
-            },
+            "relay_prefix_template": fmt_result.template_used,
+            "relay_prefix_rendered": fmt_result.rendered_prefix,
+            "relay_prefix_variables_used": fmt_result.variables_used,
+            "relay_prefix_missing_variables": fmt_result.missing_variables,
+            "relay_prefix_unknown_variables": fmt_result.unknown_variables,
+            "relay_prefix_formatting_error": fmt_result.formatting_error,
         }
         return fmt_result.rendered_prefix, formatter_meta
 
@@ -681,10 +650,8 @@ class MatrixRenderer:
             return body, {}
 
         meshnet_name = self._get_meshnet_name(event) or None
-        source_platform = self._detect_source_platform(event)
         attr = extract_relay_attribution(
             event,
-            source_platform=source_platform,
             source_meshnet_name=meshnet_name,
         )
         fmt_result = format_relay_prefix(template, attr)
@@ -696,13 +663,12 @@ class MatrixRenderer:
             return body, {}
 
         formatter_meta: dict[str, object] = {
-            "prefix_formatter": {
-                "template_used": fmt_result.template_used,
-                "variables_used": fmt_result.variables_used,
-                "missing_variables": fmt_result.missing_variables,
-                "unknown_variables": fmt_result.unknown_variables,
-                "formatting_error": fmt_result.formatting_error,
-            },
+            "relay_prefix_template": fmt_result.template_used,
+            "relay_prefix_rendered": fmt_result.rendered_prefix,
+            "relay_prefix_variables_used": fmt_result.variables_used,
+            "relay_prefix_missing_variables": fmt_result.missing_variables,
+            "relay_prefix_unknown_variables": fmt_result.unknown_variables,
+            "relay_prefix_formatting_error": fmt_result.formatting_error,
         }
         return f"{fmt_result.rendered_prefix}{body}", formatter_meta
 

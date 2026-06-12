@@ -1146,7 +1146,7 @@ class TestMeshCoreRendererRelayPrefix:
             RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
         )
         assert result.payload["text"] == "[Alice] hello world"
-        assert result.metadata["rendered_relay_prefix"] == "[Alice] "
+        assert result.metadata["relay_prefix_rendered"] == "[Alice] "
         assert result.metadata["relay_prefix_template"] == "[{source_display_name}] "
 
     async def test_meshtastic_prefix_with_shortname(self) -> None:
@@ -1169,7 +1169,7 @@ class TestMeshCoreRendererRelayPrefix:
             RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
         )
         assert result.payload["text"] == "<BS> hello world"
-        assert result.metadata["rendered_relay_prefix"] == "<BS> "
+        assert result.metadata["relay_prefix_rendered"] == "<BS> "
 
     async def test_missing_vars_produce_empty_not_none(self) -> None:
         """Missing attribution variables produce empty strings, not 'None'."""
@@ -1189,7 +1189,7 @@ class TestMeshCoreRendererRelayPrefix:
         )
         assert "None" not in str(result.payload["text"])
         assert result.payload["text"] == "[] hello world"
-        assert result.metadata["rendered_relay_prefix"] == "[] "
+        assert result.metadata["relay_prefix_rendered"] == "[] "
 
     async def test_prefix_counts_toward_max_text_bytes(self) -> None:
         """Prefix bytes count toward max_text_bytes — body is truncated."""
@@ -1233,8 +1233,8 @@ class TestMeshCoreRendererRelayPrefix:
             RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
         )
         assert result.metadata["relay_prefix_template"] == "[{source_platform}] "
-        assert result.metadata["rendered_relay_prefix"] == "[matrix] "
-        assert "prefix_formatting_error" not in result.metadata
+        assert result.metadata["relay_prefix_rendered"] == "[matrix] "
+        assert result.metadata["relay_prefix_formatting_error"] is None
 
     async def test_metadata_records_formatting_error_for_unknown_placeholder(
         self,
@@ -1250,8 +1250,10 @@ class TestMeshCoreRendererRelayPrefix:
             event,
             RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
         )
-        assert result.metadata["prefix_formatting_error"] is not None
-        assert "unknown placeholder" in str(result.metadata["prefix_formatting_error"])
+        assert result.metadata["relay_prefix_formatting_error"] is not None
+        assert "unknown placeholder" in str(
+            result.metadata["relay_prefix_formatting_error"]
+        )
 
     async def test_default_empty_prefix_no_metadata_keys(self) -> None:
         """Default empty prefix: no prefix metadata keys in output."""
@@ -1263,8 +1265,8 @@ class TestMeshCoreRendererRelayPrefix:
             RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
         )
         assert "relay_prefix_template" not in result.metadata
-        assert "rendered_relay_prefix" not in result.metadata
-        assert "prefix_formatting_error" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
+        assert "relay_prefix_formatting_error" not in result.metadata
         assert result.payload["text"] == "hello world"
 
     async def test_default_empty_prefix_preserves_current_behavior(self) -> None:
@@ -1300,7 +1302,7 @@ class TestMeshCoreRendererRelayPrefix:
         )
         assert result.payload["text"] == ""
         assert result.truncated is True
-        assert result.metadata["rendered_relay_prefix"] == "[Alice] "
+        assert result.metadata["relay_prefix_rendered"] == "[Alice] "
 
     async def test_prefix_exact_budget_fits(self) -> None:
         """Prefix + body exactly at budget: not truncated."""

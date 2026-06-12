@@ -703,3 +703,301 @@ class TestExtractionAndFormatting:
         result = format_relay_prefix("[{longname}]: ", attr)
         assert result.rendered_prefix == "[]: "
         assert "longname" in result.missing_variables
+
+
+# ===================================================================
+# Extraction: MeshCore with real codec namespaced keys
+# ===================================================================
+
+
+class TestExtractionMeshCoreNamespaced:
+    """MeshCore extraction with namespaced keys as produced by MeshCoreCodec."""
+
+    def test_namespaced_pubkey_prefix_as_sender_id(self) -> None:
+        """meshcore.pubkey_prefix populates source_sender_id."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.pubkey_prefix": "a1b2c3",
+                "meshcore.sender_id": "a1b2c3",
+                "meshcore.channel": 2,
+                "meshcore.packet_id": 42,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshcore"
+        assert attr.source_sender_id == "a1b2c3"
+        assert attr.source_native_channel_id == "2"
+        assert attr.source_native_message_id == "42"
+
+    def test_namespaced_pubkey_prefix_preferred_over_sender_id(self) -> None:
+        """meshcore.pubkey_prefix wins over meshcore.sender_id."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.pubkey_prefix": "preferred",
+                "meshcore.sender_id": "fallback",
+                "meshcore.channel": 0,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_id == "preferred"
+
+    def test_namespaced_sender_id_fallback(self) -> None:
+        """When meshcore.pubkey_prefix absent, meshcore.sender_id used."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.sender_id": "sender-val",
+                "meshcore.channel": 1,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_id == "sender-val"
+
+    def test_namespaced_channel_preferred_over_bare(self) -> None:
+        """meshcore.channel preferred over bare channel_idx."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.pubkey_prefix": "pk1",
+                "meshcore.channel": 5,
+                "channel_idx": 99,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_native_channel_id == "5"
+
+    def test_namespaced_packet_id_extracted(self) -> None:
+        """meshcore.packet_id populates source_native_message_id."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.pubkey_prefix": "pk",
+                "meshcore.channel": 0,
+                "meshcore.packet_id": 12345,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_native_message_id == "12345"
+
+    def test_full_namespaced_pipeline_format(self) -> None:
+        """Namespaced MeshCore data produces correct prefix via formatter."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.pubkey_prefix": "deadbeef",
+                "meshcore.sender_id": "deadbeef",
+                "meshcore.channel": 3,
+                "meshcore.packet_id": 999,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix(
+            "{from_id}/{source_sender_id}/{source_native_channel_id}", attr
+        )
+        assert result.rendered_prefix == "deadbeef/deadbeef/3"
+
+
+# ===================================================================
+# Extraction: MeshCore bare fixture keys (backward compat)
+# ===================================================================
+
+
+class TestExtractionMeshCoreBareFixture:
+    """Bare unnamespaced keys still work for test fixture compatibility."""
+
+    def test_bare_pubkey_prefix_fallback(self) -> None:
+        """Bare pubkey_prefix still works when no namespaced key present."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "pubkey_prefix": "bare-pk",
+                "channel_idx": "1",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_sender_id == "bare-pk"
+        assert attr.source_native_channel_id == "1"
+
+    def test_bare_shortname5_derived_from_pubkey(self) -> None:
+        """shortname5 derived from bare pubkey_prefix."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={"pubkey_prefix": "aabbccdd"},
+        )
+        attr = extract_relay_attribution(event)
+        result = format_relay_prefix("{shortname5}[MC]: ", attr)
+        assert result.rendered_prefix == "aabbc[MC]: "
+
+
+# ===================================================================
+# Native-metadata-key platform detection
+# ===================================================================
+
+
+class TestPlatformDetectionFromNativeKeys:
+    """Arbitrary adapter IDs produce correct platform from native metadata keys."""
+
+    def test_meshcore_detected_from_namespaced_keys(self) -> None:
+        """Adapter "radio-a" with MeshCore native keys → platform=meshcore."""
+        event = _make_event(
+            source_adapter="radio-a",
+            native_data={
+                "meshcore.pubkey_prefix": "pk1",
+                "meshcore.channel": 0,
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshcore"
+        assert attr.source_sender_id == "pk1"
+
+    def test_meshtastic_detected_from_native_keys(self) -> None:
+        """Adapter "relay" with Meshtastic native keys → platform=meshtastic."""
+        event = _make_event(
+            source_adapter="relay",
+            native_data={
+                "longname": "Base Station",
+                "shortname": "BS",
+                "from_id": "!aabbcc",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshtastic"
+        assert attr.source_sender_id == "!aabbcc"
+
+    def test_matrix_detected_from_native_keys(self) -> None:
+        """Adapter "base" with Matrix native keys → platform=matrix."""
+        event = _make_event(
+            source_adapter="base",
+            native_data={
+                "sender": "@alice:matrix.org",
+                "event_id": "$event123",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "matrix"
+        assert attr.source_sender_id == "@alice:matrix.org"
+
+    def test_lxmf_detected_from_native_keys(self) -> None:
+        """Adapter "node-x" with LXMF native keys → platform=lxmf."""
+        event = _make_event(
+            source_adapter="node-x",
+            native_data={
+                "source_hash": "abc123",
+                "destination_hash": "def456",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "lxmf"
+        assert attr.source_sender_id == "abc123"
+
+    def test_adapter_id_wins_over_native_keys(self) -> None:
+        """Adapter-ID heuristic takes priority over native key detection."""
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "sender": "@intruder:matrix.org",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        # adapter ID wins → meshtastic, not matrix
+        assert attr.source_platform == "meshtastic"
+
+    def test_explicit_platform_overrides_all(self) -> None:
+        """Explicit source_platform overrides both heuristics."""
+        event = _make_event(
+            source_adapter="meshtastic-radio",
+            native_data={"sender": "@alice:matrix.org"},
+        )
+        attr = extract_relay_attribution(event, source_platform="lxmf")
+        assert attr.source_platform == "lxmf"
+
+    def test_no_native_data_no_platform(self) -> None:
+        """Unknown adapter with no native data → platform=None."""
+        event = _make_event(source_adapter="unknown-thing", native_data=None)
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform is None
+
+    def test_empty_native_data_no_platform(self) -> None:
+        """Unknown adapter with empty native data → platform=None."""
+        event = _make_event(source_adapter="unknown-thing", native_data={})
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform is None
+
+    def test_unrecognizable_native_keys_no_platform(self) -> None:
+        """Adapter with unrecognized native keys → platform=None."""
+        event = _make_event(
+            source_adapter="unknown-thing",
+            native_data={"foo": "bar", "baz": 42},
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform is None
+
+
+# ===================================================================
+# MeshCore → formatter end-to-end with real codec data shape
+# ===================================================================
+
+
+class TestMeshCoreRealCodecEndToEnd:
+    """Events shaped exactly like MeshCoreCodec produces work end-to-end."""
+
+    def test_real_codec_shape_prefix(self) -> None:
+        """Full codec-shaped native data produces {from_id}/{source_sender_id}/
+        {source_native_channel_id} through the shared formatter."""
+        event = _make_event(
+            source_adapter="meshcore-node",
+            native_data={
+                "meshcore.packet_id": 42,
+                "meshcore.sender_id": "abcdef",
+                "meshcore.channel": 3,
+                "meshcore.pubkey_prefix": "abcdef",
+                "meshcore.txt_type": 1,
+                "meshcore.is_direct_message": False,
+                "meshcore.classification": {
+                    "action": "relay",
+                    "category": "text",
+                    "reason": "public_text",
+                    "is_direct_message": False,
+                    "routeable": True,
+                },
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshcore"
+        assert attr.source_sender_id == "abcdef"
+        assert attr.source_native_channel_id == "3"
+        assert attr.source_native_message_id == "42"
+
+        result = format_relay_prefix(
+            "{from_id}/{source_sender_id}/{source_native_channel_id}", attr
+        )
+        assert result.rendered_prefix == "abcdef/abcdef/3"
+
+    def test_real_codec_shape_with_arbitrary_adapter_id(self) -> None:
+        """Arbitrary adapter ID still resolves via native-key detection."""
+        event = _make_event(
+            source_adapter="radio-a",
+            native_data={
+                "meshcore.packet_id": 100,
+                "meshcore.sender_id": "cafefe",
+                "meshcore.channel": 1,
+                "meshcore.pubkey_prefix": "cafefe",
+                "meshcore.txt_type": 0,
+                "meshcore.is_direct_message": False,
+                "meshcore.classification": {
+                    "action": "relay",
+                    "category": "text",
+                    "reason": "public_text",
+                    "is_direct_message": False,
+                    "routeable": True,
+                },
+            },
+        )
+        attr = extract_relay_attribution(event)
+        assert attr.source_platform == "meshcore"
+        assert attr.source_sender_id == "cafefe"
+
+        result = format_relay_prefix("{from_id}[MC]: ", attr)
+        assert result.rendered_prefix == "cafefe[MC]: "

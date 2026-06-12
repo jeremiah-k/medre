@@ -1340,10 +1340,18 @@ class TestPrefixFormatterMetadata:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
+        # Legacy keys (backward compatibility)
         assert result.metadata["radio_relay_prefix"] == "TestU[M]: "
         assert result.metadata["prefix_template_used"] == "{shortname5}[M]: "
         assert "prefix_variables_used" in result.metadata
         assert "shortname5" in result.metadata["prefix_variables_used"]
+        # Normalized keys
+        assert result.metadata["relay_prefix_template"] == "{shortname5}[M]: "
+        assert result.metadata["relay_prefix_rendered"] == "TestU[M]: "
+        assert "relay_prefix_variables_used" in result.metadata
+        assert "shortname5" in result.metadata["relay_prefix_variables_used"]
+        assert "relay_prefix_unknown_variables" in result.metadata
+        assert "relay_prefix_formatting_error" in result.metadata
 
     async def test_metadata_no_prefix_keys_when_no_prefix(self) -> None:
         """When no prefix is configured, no prefix metadata keys are present."""
@@ -1354,6 +1362,8 @@ class TestPrefixFormatterMetadata:
         )
         assert "radio_relay_prefix" not in result.metadata
         assert "prefix_template_used" not in result.metadata
+        assert "relay_prefix_template" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
 
     async def test_metadata_records_missing_variables(self) -> None:
         """Result metadata records variables that resolved to empty."""
@@ -1377,6 +1387,9 @@ class TestPrefixFormatterMetadata:
         )
         assert "prefix_missing_variables" in result.metadata
         assert "longname" in result.metadata["prefix_missing_variables"]
+        # Normalized key also present
+        assert "relay_prefix_missing_variables" in result.metadata
+        assert "longname" in result.metadata["relay_prefix_missing_variables"]
 
 
 class TestMeshtasticOriginNoNonsense:

@@ -97,6 +97,19 @@ The prefix is applied **before** any truncation.
 the `source_configs` mapping), the prefix resolves to empty string and
 no prefix is prepended.
 
+**Deferred policy (MeshCore / LXMF → Matrix):** Matrix outbound prefix
+currently resolves from `MeshtasticConfig.matrix_relay_prefix` only.
+`MeshCoreConfig` and `LxmfConfig` do not carry a `matrix_relay_prefix`
+field, so MeshCore-origin and LXMF-origin events rendered through
+`MatrixRenderer` produce no relay prefix. This is a **deferred
+feature**, not a bug — extending Matrix outbound prefix to additional
+source adapter types requires adding a `matrix_relay_prefix` field to
+the respective config models and wiring it through the renderer's
+source-config resolution. See the
+`TestMatrixCoreAttributionIntegration` test class in
+`tests/test_matrix_relay_attribution.py` for restructured coverage that
+asserts no prefix (body unchanged) for MeshCore/LXMF origins.
+
 ### Matrix Metadata Envelope
 
 `MatrixMetadataEnvelope` (in
@@ -252,11 +265,14 @@ The rendered prefix counts toward `max_text_bytes`.
 **Metadata keys** (conditional, only when `meshcore_relay_prefix` is
 non-empty):
 
-| Key                       | Value                                |
-| ------------------------- | ------------------------------------ |
-| `relay_prefix_template`   | Original template string             |
-| `rendered_relay_prefix`   | Rendered prefix string               |
-| `prefix_formatting_error` | Error string if unknown placeholders |
+| Key                              | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `relay_prefix_template`          | Original template string               |
+| `relay_prefix_rendered`          | Rendered prefix string                 |
+| `relay_prefix_variables_used`    | Tuple of template variables resolved   |
+| `relay_prefix_missing_variables` | Tuple of variables that resolved empty |
+| `relay_prefix_unknown_variables` | Tuple of unknown placeholder names     |
+| `relay_prefix_formatting_error`  | Error string or `None`                 |
 
 ### MeshCoreConfig Prefix-Relevant Fields
 
@@ -324,11 +340,14 @@ handling. The rendered prefix counts toward the character budget.
 **Metadata keys** (conditional, only when `lxmf_relay_prefix` is
 non-empty):
 
-| Key                             | Value                                |
-| ------------------------------- | ------------------------------------ |
-| `relay_prefix_template`         | Original template string             |
-| `relay_prefix_rendered`         | Rendered prefix string               |
-| `relay_prefix_formatting_error` | Error string if unknown placeholders |
+| Key                              | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `relay_prefix_template`          | Original template string               |
+| `relay_prefix_rendered`          | Rendered prefix string                 |
+| `relay_prefix_variables_used`    | Tuple of template variables resolved   |
+| `relay_prefix_missing_variables` | Tuple of variables that resolved empty |
+| `relay_prefix_unknown_variables` | Tuple of unknown placeholder names     |
+| `relay_prefix_formatting_error`  | Error string or `None`                 |
 
 ### LxmfConfig Prefix-Relevant Fields
 

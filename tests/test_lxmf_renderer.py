@@ -775,6 +775,9 @@ class TestLxmfRelayPrefix:
         )
         assert "relay_prefix_template" not in result.metadata
         assert "relay_prefix_rendered" not in result.metadata
+        assert "relay_prefix_variables_used" not in result.metadata
+        assert "relay_prefix_missing_variables" not in result.metadata
+        assert "relay_prefix_unknown_variables" not in result.metadata
         assert "relay_prefix_formatting_error" not in result.metadata
 
     async def test_prefix_formatting_error_recorded(self) -> None:

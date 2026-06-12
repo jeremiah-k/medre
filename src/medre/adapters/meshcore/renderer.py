@@ -209,6 +209,9 @@ class MeshCoreRenderer:
         prefix_template = adapter_config.meshcore_relay_prefix
         rendered_prefix = ""
         prefix_formatting_error: str | None = None
+        prefix_vars_used: tuple[str, ...] = ()
+        prefix_vars_missing: tuple[str, ...] = ()
+        prefix_vars_unknown: tuple[str, ...] = ()
 
         if prefix_template:
             attr = extract_relay_attribution(
@@ -218,6 +221,9 @@ class MeshCoreRenderer:
             prefix_result = format_relay_prefix(prefix_template, attr)
             rendered_prefix = prefix_result.rendered_prefix
             prefix_formatting_error = prefix_result.formatting_error
+            prefix_vars_used = prefix_result.variables_used
+            prefix_vars_missing = prefix_result.missing_variables
+            prefix_vars_unknown = prefix_result.unknown_variables
             text = rendered_prefix + text
 
         # -- UTF-8 byte-budget truncation after final rendering ------
@@ -244,9 +250,11 @@ class MeshCoreRenderer:
         # Prefix-specific metadata (only when prefix is configured).
         if prefix_template:
             metadata["relay_prefix_template"] = prefix_template
-            metadata["rendered_relay_prefix"] = rendered_prefix
-            if prefix_formatting_error is not None:
-                metadata["prefix_formatting_error"] = prefix_formatting_error
+            metadata["relay_prefix_rendered"] = rendered_prefix
+            metadata["relay_prefix_variables_used"] = prefix_vars_used
+            metadata["relay_prefix_missing_variables"] = prefix_vars_missing
+            metadata["relay_prefix_unknown_variables"] = prefix_vars_unknown
+            metadata["relay_prefix_formatting_error"] = prefix_formatting_error
 
         return RenderingResult(
             event_id=event.event_id,

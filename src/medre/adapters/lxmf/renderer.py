@@ -177,10 +177,16 @@ class LxmfRenderer:
                 text = prefix_result.rendered_prefix + text
             prefix_meta["relay_prefix_template"] = prefix_result.template_used
             prefix_meta["relay_prefix_rendered"] = prefix_result.rendered_prefix
-            if prefix_result.formatting_error:
-                prefix_meta["relay_prefix_formatting_error"] = (
-                    prefix_result.formatting_error
-                )
+            prefix_meta["relay_prefix_variables_used"] = prefix_result.variables_used
+            prefix_meta["relay_prefix_missing_variables"] = (
+                prefix_result.missing_variables
+            )
+            prefix_meta["relay_prefix_unknown_variables"] = (
+                prefix_result.unknown_variables
+            )
+            prefix_meta["relay_prefix_formatting_error"] = (
+                prefix_result.formatting_error
+            )
 
         # Enforce character budget declared in adapter capabilities
         # (max_text_chars=16384 by default).  Record original length

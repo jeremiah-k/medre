@@ -489,10 +489,18 @@ class MeshtasticRenderer:
         }
         formatted_prefix = prefix_result.rendered_prefix
         if formatted_prefix:
+            # Legacy keys (backward compatibility with existing tests)
             metadata["radio_relay_prefix"] = formatted_prefix
             metadata["prefix_template_used"] = prefix_result.template_used
             metadata["prefix_variables_used"] = prefix_result.variables_used
             metadata["prefix_missing_variables"] = prefix_result.missing_variables
+            # Normalized keys (consistent across all renderers)
+            metadata["relay_prefix_template"] = prefix_result.template_used
+            metadata["relay_prefix_rendered"] = formatted_prefix
+            metadata["relay_prefix_variables_used"] = prefix_result.variables_used
+            metadata["relay_prefix_missing_variables"] = prefix_result.missing_variables
+            metadata["relay_prefix_unknown_variables"] = prefix_result.unknown_variables
+            metadata["relay_prefix_formatting_error"] = prefix_result.formatting_error
         if is_descriptive_reaction:
             metadata["descriptive_reaction"] = True
         if is_fallback:

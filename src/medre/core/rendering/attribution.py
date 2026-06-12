@@ -335,6 +335,48 @@ def _guess_platform(source_adapter: str) -> str | None:
     return None
 
 
+def _detect_platform_from_native(native_data: dict[str, object]) -> str | None:
+    """Detect the source platform by inspecting native metadata keys.
+
+    This provides a fallback when the adapter ID does not contain a
+    recognizable platform substring (e.g. ``"radio-a"``, ``"base"``).
+    Each platform is identified by the presence of characteristic
+    keys in the native data dict.
+
+    Priority order:
+    1. MeshCore — namespaced ``meshcore.*`` keys.
+    2. Meshtastic — ``longname``, ``shortname``, ``from_id``, etc.
+    3. Matrix — ``sender``, ``event_id``, ``room_id``.
+    4. LXMF — ``source_hash``, ``destination_hash``.
+    """
+    # MeshCore: namespaced keys from MeshCoreCodec.
+    meshcore_keys = {
+        "meshcore.pubkey_prefix",
+        "meshcore.sender_id",
+        "meshcore.channel",
+        "meshcore.packet_id",
+    }
+    if any(k in native_data for k in meshcore_keys):
+        return "meshcore"
+
+    # Meshtastic: characteristic bare keys.
+    meshtastic_keys = {"longname", "shortname", "from_id", "packet_id", "channel"}
+    if any(k in native_data for k in meshtastic_keys):
+        return "meshtastic"
+
+    # Matrix: characteristic keys.
+    matrix_keys = {"sender", "event_id", "room_id"}
+    if any(k in native_data for k in matrix_keys):
+        return "matrix"
+
+    # LXMF: characteristic keys.
+    lxmf_keys = {"source_hash", "destination_hash"}
+    if any(k in native_data for k in lxmf_keys):
+        return "lxmf"
+
+    return None
+
+
 def _extract_localpart(mxid: str) -> str:
     """Extract the localpart from a Matrix MXID (``@user:domain``)."""
     if mxid.startswith("@"):
@@ -403,16 +445,35 @@ def _extract_meshtastic_fields(
 def _extract_meshcore_fields(
     native_data: dict[str, object],
 ) -> dict[str, str | None]:
-    """Extract MeshCore-specific fields from native metadata."""
-    pubkey_prefix = native_data.get("pubkey_prefix")
-    channel_idx = native_data.get("channel_idx")
+    """Extract MeshCore-specific fields from native metadata.
 
-    sender_str = str(pubkey_prefix) if pubkey_prefix is not None else None
-    channel_str = str(channel_idx) if channel_idx is not None else None
+    Prefers namespaced keys produced by ``MeshCoreCodec``
+    (``meshcore.pubkey_prefix``, ``meshcore.sender_id``,
+    ``meshcore.channel``, ``meshcore.packet_id``).  Falls back to bare
+    fixture keys (``pubkey_prefix``, ``channel_idx``) for backward
+    compatibility with test fixtures and older data.
+    """
+    # sender_id: prefer meshcore.pubkey_prefix, then meshcore.sender_id,
+    # then bare pubkey_prefix for fixture tolerance.
+    sender_val = (
+        native_data.get("meshcore.pubkey_prefix")
+        or native_data.get("meshcore.sender_id")
+        or native_data.get("pubkey_prefix")
+    )
+    sender_str = str(sender_val) if sender_val is not None else None
+
+    # channel: prefer meshcore.channel, then bare channel_idx.
+    channel_val = native_data.get("meshcore.channel") or native_data.get("channel_idx")
+    channel_str = str(channel_val) if channel_val is not None else None
+
+    # packet_id: prefer meshcore.packet_id.
+    pkt_val = native_data.get("meshcore.packet_id")
+    pkt_str = str(pkt_val) if pkt_val is not None else None
 
     return {
         "source_sender_id": sender_str,
         "source_native_channel_id": channel_str,
+        "source_native_message_id": pkt_str,
     }
 
 
@@ -479,6 +540,15 @@ def extract_relay_attribution(
     """
     platform = source_platform or _guess_platform(event.source_adapter)
 
+    # Native metadata for extraction and platform detection fallback.
+    native_data: dict[str, object] = {}
+    if event.metadata.native is not None and event.metadata.native.data:
+        native_data = dict(event.metadata.native.data)
+
+    # When adapter-ID heuristic fails, inspect native metadata keys.
+    if platform is None and native_data:
+        platform = _detect_platform_from_native(native_data)
+
     # Base fields from the event envelope.
     fields: dict[str, str | None] = {
         "source_adapter_id": event.source_adapter,
@@ -499,10 +569,6 @@ def extract_relay_attribution(
         fields["route_id"] = event.metadata.routing.route_trace[0]
 
     # Platform-specific extraction from native metadata.
-    native_data: dict[str, object] = {}
-    if event.metadata.native is not None and event.metadata.native.data:
-        native_data = dict(event.metadata.native.data)
-
     platform_fields = _extract_platform_fields(platform, native_data)
     fields.update(platform_fields)
 
