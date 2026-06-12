@@ -456,3 +456,55 @@ class TestMeshtasticConfigInvalid:
         )
         with pytest.raises(MeshtasticConfigError, match="detection_sensor_relay"):
             config.validate()
+
+    # -- origin_label validation --
+
+    def test_origin_label_default_is_empty_string(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.origin_label == ""
+
+    def test_origin_label_empty_string_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", origin_label="")
+        assert config.validate().origin_label == ""
+
+    def test_origin_label_valid_string_accepted(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", origin_label="Meshtastic Node Alpha"
+        )
+        assert config.validate().origin_label == "Meshtastic Node Alpha"
+
+    def test_origin_label_bool_true_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", origin_label=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="origin_label must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_origin_label_bool_false_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", origin_label=False  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="origin_label must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_origin_label_int_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", origin_label=42  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="origin_label must be a str, got int"
+        ):
+            config.validate()
+
+    def test_origin_label_none_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", origin_label=None  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="origin_label must be a str, got NoneType"
+        ):
+            config.validate()

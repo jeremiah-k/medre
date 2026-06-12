@@ -368,3 +368,100 @@ class TestMatrixConfigAutoJoinRooms:
         )
         with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
             config.validate()
+
+
+# ===================================================================
+# origin_label field
+# ===================================================================
+
+
+class TestMatrixConfigOriginLabel:
+    """origin_label field defaults and validation."""
+
+    def test_default_is_empty_string(self) -> None:
+        """Default origin_label is empty string."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        assert config.origin_label == ""
+
+    def test_valid_string_accepted(self) -> None:
+        """Non-empty origin_label passes validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label="My Matrix Server",
+        )
+        assert config.validate().origin_label == "My Matrix Server"
+
+    def test_empty_string_is_valid(self) -> None:
+        """Empty origin_label passes validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label="",
+        )
+        assert config.validate().origin_label == ""
+
+    def test_bool_true_rejected(self) -> None:
+        """Bool origin_label is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="origin_label must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_bool_false_rejected(self) -> None:
+        """Bool False origin_label is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="origin_label must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_int_rejected(self) -> None:
+        """Int origin_label is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label=42,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="origin_label must be a str, got int"
+        ):
+            config.validate()
+
+    def test_none_rejected(self) -> None:
+        """None origin_label is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            origin_label=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MatrixConfigError, match="origin_label must be a str, got NoneType"
+        ):
+            config.validate()

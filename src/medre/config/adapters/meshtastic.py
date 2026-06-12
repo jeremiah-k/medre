@@ -132,6 +132,7 @@ class MeshtasticConfig:
     serial_port: str | None = None
     ble_address: str | None = None
     meshnet_name: str = ""
+    origin_label: str = ""
     default_channel: int = 0
     channel_mapping: dict[int, str] = field(default_factory=dict)
     message_delay_seconds: float = 0.5
@@ -260,5 +261,13 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"detection_sensor_relay must be a bool, "
                 f"got {type(self.detection_sensor_relay).__name__}"
+            )
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise MeshtasticConfigError("origin_label must be a str, got bool")
+        if not isinstance(self.origin_label, str):
+            raise MeshtasticConfigError(
+                f"origin_label must be a str, "
+                f"got {type(self.origin_label).__name__}"
             )
         return self

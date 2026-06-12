@@ -54,6 +54,7 @@ _CANONICAL_NAMES = frozenset(
         "source_short_name_5",
         "source_room_or_channel",
         "source_meshnet_name",
+        "source_origin_label",
         "source_native_message_id",
         "source_native_channel_id",
         "route_id",
@@ -67,6 +68,7 @@ _ALIASES: dict[str, str] = {
     "shortname5": "source_short_name_5",
     "from_id": "source_sender_id",
     "meshnet_name": "source_meshnet_name",
+    "origin_label": "source_origin_label",
 }
 
 _ALL_KNOWN_NAMES = _CANONICAL_NAMES | frozenset(_ALIASES.keys())
@@ -86,7 +88,7 @@ class RelayAttribution:
     templates never render the literal text ``"None"``.
 
     Aliases (``longname``, ``shortname``, ``shortname5``, ``from_id``,
-    ``meshnet_name``) are **not** stored here — they are derived by the
+    ``meshnet_name``, ``origin_label``) are **not** stored here — they are derived by the
     formatter from the canonical ``source_*`` fields.  This avoids
     competing sources of truth.
 
@@ -115,6 +117,10 @@ class RelayAttribution:
         Room / channel ID from the source (``event.source_channel_id``).
     source_meshnet_name:
         Mesh network name when applicable.
+    source_origin_label:
+        Human-readable label for the source origin (e.g. ``"East
+        Meshtastic"``).  Resolved through the ``origin_label`` alias
+        in prefix templates.
     source_native_message_id:
         Native message ID from the source adapter.
     source_native_channel_id:
@@ -133,6 +139,7 @@ class RelayAttribution:
     source_short_name_5: str | None = None
     source_room_or_channel: str | None = None
     source_meshnet_name: str | None = None
+    source_origin_label: str | None = None
     source_native_message_id: str | None = None
     source_native_channel_id: str | None = None
     route_id: str | None = None
@@ -175,6 +182,7 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
         "source_short_name_5": short5 or "",
         "source_room_or_channel": attr.source_room_or_channel or "",
         "source_meshnet_name": attr.source_meshnet_name or "",
+        "source_origin_label": attr.source_origin_label or "",
         "source_native_message_id": attr.source_native_message_id or "",
         "source_native_channel_id": attr.source_native_channel_id or "",
         "route_id": attr.route_id or "",

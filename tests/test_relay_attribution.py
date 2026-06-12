@@ -138,6 +138,7 @@ class TestFormatRelayPrefixAllVariables:
             source_short_name_5="alice",
             source_room_or_channel="!room:matrix.org",
             source_meshnet_name="testnet",
+            source_origin_label="East Meshtastic",
             source_native_message_id="$msg1",
             source_native_channel_id="!room:matrix.org",
             route_id="route-42",
@@ -156,6 +157,7 @@ class TestFormatRelayPrefixAllVariables:
             ("source_short_name_5", "alice"),
             ("source_room_or_channel", "!room:matrix.org"),
             ("source_meshnet_name", "testnet"),
+            ("source_origin_label", "East Meshtastic"),
             ("source_native_message_id", "$msg1"),
             ("source_native_channel_id", "!room:matrix.org"),
             ("route_id", "route-42"),
@@ -165,6 +167,7 @@ class TestFormatRelayPrefixAllVariables:
             ("shortname5", "alice"),
             ("from_id", "@alice:matrix.org"),
             ("meshnet_name", "testnet"),
+            ("origin_label", "East Meshtastic"),
         ],
     )
     def test_single_variable(self, name: str, expected: str) -> None:
@@ -1020,3 +1023,69 @@ class TestMeshCoreRealCodecEndToEnd:
 
         result = format_relay_prefix("{from_id}[MC]: ", attr)
         assert result.rendered_prefix == "cafefe[MC]: "
+
+
+# ===================================================================
+# origin_label alias
+# ===================================================================
+
+
+class TestOriginLabelAlias:
+    """origin_label alias maps to source_origin_label; co-exists with meshnet_name."""
+
+    def test_origin_label_resolves_when_set(self) -> None:
+        attr = RelayAttribution(source_origin_label="East Meshtastic")
+        result = format_relay_prefix("{origin_label}", attr)
+        assert result.rendered_prefix == "East Meshtastic"
+        assert "origin_label" in result.variables_used
+        assert not result.missing_variables
+        assert result.formatting_error is None
+
+    def test_origin_label_empty_when_none(self) -> None:
+        attr = RelayAttribution(source_origin_label=None)
+        result = format_relay_prefix("{origin_label}", attr)
+        assert result.rendered_prefix == ""
+        assert "origin_label" in result.missing_variables
+
+    def test_origin_label_empty_when_default(self) -> None:
+        attr = RelayAttribution()
+        result = format_relay_prefix("{origin_label}", attr)
+        assert result.rendered_prefix == ""
+        assert "None" not in result.rendered_prefix
+
+    def test_origin_label_with_value_renders(self) -> None:
+        attr = RelayAttribution(source_origin_label="West Hub")
+        result = format_relay_prefix("[{origin_label}]: ", attr)
+        assert result.rendered_prefix == "[West Hub]: "
+
+    def test_origin_label_and_meshnet_name_independent(self) -> None:
+        """Both {origin_label} and {meshnet_name} work in the same template."""
+        attr = RelayAttribution(
+            source_origin_label="East Meshtastic",
+            source_meshnet_name="mynet",
+        )
+        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[East Meshtastic/mynet]: "
+        assert "origin_label" in result.variables_used
+        assert "meshnet_name" in result.variables_used
+
+    def test_origin_label_set_meshnet_name_missing(self) -> None:
+        attr = RelayAttribution(source_origin_label="Hub A")
+        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[Hub A/]: "
+        assert "meshnet_name" in result.missing_variables
+        assert "origin_label" not in result.missing_variables
+
+    def test_meshnet_name_set_origin_label_missing(self) -> None:
+        attr = RelayAttribution(source_meshnet_name="net1")
+        result = format_relay_prefix("[{origin_label}/{meshnet_name}]: ", attr)
+        assert result.rendered_prefix == "[/net1]: "
+        assert "origin_label" in result.missing_variables
+        assert "meshnet_name" not in result.missing_variables
+
+    def test_canonical_source_origin_label_direct(self) -> None:
+        """Canonical name source_origin_label also resolves."""
+        attr = RelayAttribution(source_origin_label="Direct Label")
+        result = format_relay_prefix("{source_origin_label}", attr)
+        assert result.rendered_prefix == "Direct Label"
+        assert "source_origin_label" in result.variables_used

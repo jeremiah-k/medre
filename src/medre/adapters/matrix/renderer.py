@@ -266,7 +266,10 @@ class MatrixRenderer:
 
             elif rel.relation_type == "reaction":
                 reaction_prefix_meta = self._render_reaction(
-                    rel, content, target_adapter, event,
+                    rel,
+                    content,
+                    target_adapter,
+                    event,
                 )
 
         # Embed metadata envelope

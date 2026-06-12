@@ -125,6 +125,7 @@ class MeshCoreConfig:
     ble_address: str | None = None
     ble_pin: str | None = None
     meshnet_name: str = ""
+    origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
     identity: str | None = None
@@ -193,6 +194,15 @@ class MeshCoreConfig:
             raise MeshCoreConfigError(
                 f"meshcore_relay_prefix must be a str, "
                 f"got {type(self.meshcore_relay_prefix).__name__}"
+            )
+
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise MeshCoreConfigError("origin_label must be a str, got bool")
+        if not isinstance(self.origin_label, str):
+            raise MeshCoreConfigError(
+                f"origin_label must be a str, "
+                f"got {type(self.origin_label).__name__}"
             )
 
         # Non-fake connection type validation

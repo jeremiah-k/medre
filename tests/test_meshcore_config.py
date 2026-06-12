@@ -761,3 +761,61 @@ class TestMeshCoreConfigRelayPrefix:
             config.validate().meshcore_relay_prefix
             == "<{source_platform}:{shortname}> "
         )
+
+
+# --- origin_label validation: str, default "", bool rejected ---
+
+
+class TestMeshCoreConfigOriginLabel:
+    """origin_label validation: type, default, and edge cases."""
+
+    def test_default_is_empty_string(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.origin_label == ""
+
+    def test_default_validates(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.validate().origin_label == ""
+
+    def test_non_empty_string_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            origin_label="MeshCore Hub",
+        )
+        assert config.validate().origin_label == "MeshCore Hub"
+
+    def test_empty_string_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", origin_label="")
+        assert config.validate().origin_label == ""
+
+    def test_bool_true_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=True)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="origin_label must be a str, got bool",
+        ):
+            config.validate()
+
+    def test_bool_false_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=False)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="origin_label must be a str, got bool",
+        ):
+            config.validate()
+
+    def test_int_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=42)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="origin_label must be a str, got int",
+        ):
+            config.validate()
+
+    def test_none_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=None)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="origin_label must be a str, got NoneType",
+        ):
+            config.validate()

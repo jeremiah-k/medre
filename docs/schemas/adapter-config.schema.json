@@ -69,6 +69,11 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Canonical Matrix room IDs ('!localpart:server') to auto-join on startup."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         }
       },
       "required": ["adapter_id", "homeserver", "user_id"],
@@ -113,6 +118,11 @@
           "type": "string",
           "default": "",
           "description": "Human-readable meshnet name (informational)."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "default_channel": {
           "type": "integer",
@@ -225,6 +235,11 @@
           "default": "",
           "description": "Human-readable meshnet name (informational)."
         },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
         "default_channel": {
           "type": "integer",
           "default": 0,
@@ -322,6 +337,11 @@
           "type": "string",
           "default": "",
           "description": "Human-readable meshnet name (informational)."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "default_channel": {
           "type": "integer",

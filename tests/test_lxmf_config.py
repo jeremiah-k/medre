@@ -420,3 +420,69 @@ class TestLxmfConfigRelayPrefix:
             match="lxmf_relay_prefix must be a string, got NoneType",
         ):
             config.validate()
+
+
+# --- origin_label validation ---
+
+
+class TestLxmfConfigOriginLabel:
+    """origin_label validation."""
+
+    def test_default_is_empty_string(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        assert config.origin_label == ""
+
+    def test_empty_string_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", origin_label="")
+        assert config.validate().origin_label == ""
+
+    def test_valid_string_accepted(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            origin_label="LXMF Node Reticulum",
+        )
+        assert config.validate().origin_label == "LXMF Node Reticulum"
+
+    def test_bool_true_rejected(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            origin_label=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="origin_label must be a string, not a boolean",
+        ):
+            config.validate()
+
+    def test_bool_false_rejected(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            origin_label=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="origin_label must be a string, not a boolean",
+        ):
+            config.validate()
+
+    def test_int_rejected(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            origin_label=42,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="origin_label must be a string, got int",
+        ):
+            config.validate()
+
+    def test_none_rejected(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            origin_label=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            LxmfConfigError,
+            match="origin_label must be a string, got NoneType",
+        ):
+            config.validate()

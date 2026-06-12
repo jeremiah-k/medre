@@ -78,6 +78,7 @@ class MatrixConfig:
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
     auto_join_rooms: tuple[str, ...] = ()
+    origin_label: str = ""
 
     def validate(self) -> MatrixConfig:
         """Validate the configuration and return it for chaining.
@@ -197,6 +198,15 @@ class MatrixConfig:
             raise MatrixConfigError(
                 "require_encrypted_rooms=True is invalid with "
                 "encryption_mode='plaintext'"
+            )
+
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise MatrixConfigError("origin_label must be a str, got bool")
+        if not isinstance(self.origin_label, str):
+            raise MatrixConfigError(
+                f"origin_label must be a str, "
+                f"got {type(self.origin_label).__name__}"
             )
 
         return self

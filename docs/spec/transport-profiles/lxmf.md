@@ -115,14 +115,14 @@ envelope handling. The rendered prefix counts toward the character budget.
 
 **Metadata keys** (conditional, only when prefix is configured):
 
-| Key                                 | Value                                                       |
-| ----------------------------------- | ----------------------------------------------------------- |
-| `relay_prefix_template`             | The original template string                                |
-| `relay_prefix_rendered`             | The rendered prefix string                                  |
-| `relay_prefix_variables_used`       | Variables resolved (value found, even if empty)             |
-| `relay_prefix_missing_variables`    | Variables in template whose value was `None` or empty       |
-| `relay_prefix_unknown_variables`    | Unknown placeholders left unchanged in the rendered prefix  |
-| `relay_prefix_formatting_error`     | Error description when unknown placeholders encountered     |
+| Key                              | Value                                                      |
+| -------------------------------- | ---------------------------------------------------------- |
+| `relay_prefix_template`          | The original template string                               |
+| `relay_prefix_rendered`          | The rendered prefix string                                 |
+| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)            |
+| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty      |
+| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix |
+| `relay_prefix_formatting_error`  | Error description when unknown placeholders encountered    |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It
 does not constitute delivery evidence. The MEDRE metadata namespace
