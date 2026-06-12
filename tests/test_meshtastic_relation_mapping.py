@@ -63,13 +63,18 @@ class _StubMeshtasticConfig:
         self,
         adapter_id: str = "radio",
         meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
         self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
+
+
+class _StubMatrixConfig:
+    """Minimal duck-typed config for MatrixRenderer target-local configs."""
+
+    def __init__(self, relay_prefix: str = "") -> None:
+        self.relay_prefix = relay_prefix
 
 
 # Fixed IDs used across both tests for traceability.
@@ -377,7 +382,11 @@ class TestMeshtasticToMatrixReplyResolution:
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET_NAME,
-                        matrix_relay_prefix="[{sender}] ",
+                    ),
+                },
+                configs={
+                    _MATRIX_ADAPTER: _StubMatrixConfig(
+                        relay_prefix="[{sender}] ",
                     ),
                 },
             ),

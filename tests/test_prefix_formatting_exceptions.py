@@ -7,8 +7,9 @@ template to user-facing text, but MUST still record all 6 normalized
 metadata keys.
 
 Since the formatter uses regex-based substitution (not ``str.format()``),
-unmatched braces do NOT trigger exceptions.  Tests use ``unittest.mock``
-to simulate the exception path.
+unmatched braces do NOT trigger exceptions.  Tests trigger real exceptions
+by patching the internal ``_build_variable_map`` helper in the defining
+module, so ``format_relay_prefix`` exercises its own try/except handler.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from medre.core.events import (
     EventMetadata,
     NativeMetadata,
 )
-from medre.core.rendering.attribution import PrefixFormatterResult
 from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
@@ -65,18 +65,6 @@ def _make_event(
     )
 
 
-def _make_exception_result(template: str) -> PrefixFormatterResult:
-    """A PrefixFormatterResult simulating a formatting_exception."""
-    return PrefixFormatterResult(
-        rendered_prefix=template,
-        template_used=template,
-        variables_used=(),
-        missing_variables=(),
-        unknown_variables=(),
-        formatting_error="formatting_exception: simulated error",
-    )
-
-
 # ===================================================================
 # MeshCore formatting_exception guard
 # ===================================================================
@@ -91,10 +79,12 @@ class TestMeshCoreFormattingExceptionGuard:
         cfg = _make_meshcore_config(meshcore_relay_prefix=template)
         renderer = MeshCoreRenderer(configs={"mc-1": cfg})
         event = _make_event()
-        exc_result = _make_exception_result(template)
+        # Patch inside the defining module so the real format_relay_prefix
+        # exercises its own try/except handler.  Avoids brittle imported
+        # binding patches that may not take effect in some CI environments.
         with patch(
-            "medre.adapters.meshcore.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,
@@ -111,10 +101,9 @@ class TestMeshCoreFormattingExceptionGuard:
         cfg = _make_meshcore_config(meshcore_relay_prefix=template)
         renderer = MeshCoreRenderer(configs={"mc-1": cfg})
         event = _make_event()
-        exc_result = _make_exception_result(template)
         with patch(
-            "medre.adapters.meshcore.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,
@@ -159,10 +148,12 @@ class TestLxmfFormattingExceptionGuard:
         template = "[{origin_label}]: "
         renderer = LxmfRenderer(relay_prefix=template)
         event = _make_event()
-        exc_result = _make_exception_result(template)
+        # Patch inside the defining module so the real format_relay_prefix
+        # exercises its own try/except handler.  Avoids brittle imported
+        # binding patches that may not take effect in some CI environments.
         with patch(
-            "medre.adapters.lxmf.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,
@@ -178,10 +169,9 @@ class TestLxmfFormattingExceptionGuard:
         template = "[{origin_label}]: "
         renderer = LxmfRenderer(relay_prefix=template)
         event = _make_event()
-        exc_result = _make_exception_result(template)
         with patch(
-            "medre.adapters.lxmf.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,

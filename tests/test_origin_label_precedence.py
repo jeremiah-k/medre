@@ -608,8 +608,6 @@ class TestMeshCoreFormattingExceptionGuard:
     """MeshCore: formatting_exception does not prepend raw template text."""
 
     async def test_exception_does_not_prepend_raw_template(self) -> None:
-        from medre.core.rendering.attribution import PrefixFormatterResult
-
         config = MeshCoreConfig(
             adapter_id="mc-1",
             meshcore_relay_prefix="[{sender}] ",
@@ -617,18 +615,13 @@ class TestMeshCoreFormattingExceptionGuard:
         renderer = MeshCoreRenderer(configs={"mc-1": config})
         event = _make_event(source_adapter="src-a")
 
-        exc_result = PrefixFormatterResult(
-            rendered_prefix="[{sender}] ",  # raw template on exception
-            template_used="[{sender}] ",
-            variables_used=(),
-            missing_variables=(),
-            unknown_variables=(),
-            formatting_error="formatting_exception: test error",
-        )
-
+        # Patch inside the defining module so the real format_relay_prefix
+        # exercises its own try/except handler.  This avoids the brittle
+        # pattern of patching the renderer module's imported binding, which
+        # can fail to take effect in some CI environments.
         with patch(
-            "medre.adapters.meshcore.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,
@@ -653,23 +646,16 @@ class TestLxmfFormattingExceptionGuard:
     """LXMF: formatting_exception does not prepend raw template text."""
 
     async def test_exception_does_not_prepend_raw_template(self) -> None:
-        from medre.core.rendering.attribution import PrefixFormatterResult
-
         renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         event = _make_event(source_adapter="src-a")
 
-        exc_result = PrefixFormatterResult(
-            rendered_prefix="[{sender}] ",
-            template_used="[{sender}] ",
-            variables_used=(),
-            missing_variables=(),
-            unknown_variables=(),
-            formatting_error="formatting_exception: test error",
-        )
-
+        # Patch inside the defining module so the real format_relay_prefix
+        # exercises its own try/except handler.  This avoids the brittle
+        # pattern of patching the renderer module's imported binding, which
+        # can fail to take effect in some CI environments.
         with patch(
-            "medre.adapters.lxmf.renderer.format_relay_prefix",
-            return_value=exc_result,
+            "medre.core.rendering.attribution._build_variable_map",
+            side_effect=RuntimeError("boom"),
         ):
             result = await renderer.render(
                 event,

@@ -71,13 +71,18 @@ class _StubMeshtasticConfig:
         self,
         adapter_id: str = "radio",
         meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
         self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
+
+
+class _StubMatrixConfig:
+    """Minimal duck-typed config for MatrixRenderer target-local configs."""
+
+    def __init__(self, relay_prefix: str = "") -> None:
+        self.relay_prefix = relay_prefix
 
 
 # =========================================================================
@@ -321,8 +326,10 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET,
-                        matrix_relay_prefix="[{sender}] ",
                     ),
+                },
+                configs={
+                    _MATRIX: _StubMatrixConfig(relay_prefix="[{sender}] "),
                 },
             ),
             priority=50,
@@ -647,8 +654,10 @@ class TestMultiRadioReactionRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         meshnet_name=_MESHNET,
-                        matrix_relay_prefix="[{sender}] ",
                     ),
+                },
+                configs={
+                    _MATRIX: _StubMatrixConfig(relay_prefix="[{sender}] "),
                 },
             ),
             priority=50,
