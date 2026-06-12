@@ -178,7 +178,6 @@ def _make_mesh_reaction(
         native_data
         if native_data is not None
         else {
-            "room_id": "!room:server",
             "longname": longname,
             "shortname": shortname,
             "packet_id": packet_id,

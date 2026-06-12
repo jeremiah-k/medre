@@ -62,6 +62,18 @@ class _StubMeshtasticConfig:
         self.mmrelay_compatibility = mmrelay_compatibility
 
 
+class _StubSourceAttribution:
+    """Minimal duck-typed config for MatrixRenderer source_attribution."""
+
+    def __init__(
+        self,
+        adapter_id: str = "mesh-1",
+        origin_label: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.origin_label = origin_label
+
+
 # Source-config mappings for common test patterns.
 _SRC_MESHTASTIC = {
     "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
@@ -815,7 +827,6 @@ def _make_mesh_reaction(
         native_data
         if native_data is not None
         else {
-            "room_id": "!room:server",
             "longname": longname,
             "shortname": shortname,
             "packet_id": packet_id,
@@ -1127,6 +1138,12 @@ class TestReactionMetadataCompleteness:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     meshnet_name="testnet",
+                ),
+            },
+            source_attribution={
+                "mesh-1": _StubSourceAttribution(
+                    adapter_id="mesh-1",
+                    origin_label="testnet",
                 ),
             },
         )
