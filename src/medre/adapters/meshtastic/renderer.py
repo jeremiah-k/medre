@@ -397,12 +397,15 @@ class MeshtasticRenderer:
         }
 
         # Resolve origin_label precedence:
-        # ctx.source_origin_label (route/context) > adapter registry > None.
+        # ctx.source_origin_label (route/context) > adapter registry >
+        # target adapter config origin_label > None.
         effective_origin_label: str | None = ctx.source_origin_label
         if not effective_origin_label:
             src_attr_cfg = self._source_attribution.get(event.source_adapter)
             if src_attr_cfg is not None:
                 effective_origin_label = getattr(src_attr_cfg, "origin_label", None)
+        if not effective_origin_label:
+            effective_origin_label = adapter_config.origin_label or None
 
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
