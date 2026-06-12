@@ -551,7 +551,7 @@ class TestLxmfRelayPrefixWiring:
         lxmf_cfg = LxmfConfig(
             adapter_id="lxmf_a",
             connection_type="fake",
-            lxmf_relay_prefix="[{source_display_name}] ",
+            lxmf_relay_prefix="[{sender}] ",
         ).validate()
         rt = LxmfRuntimeConfig(
             adapter_id="lxmf_a",
@@ -569,9 +569,7 @@ class TestLxmfRelayPrefixWiring:
         renderer = self._find_lxmf_renderer(app)
         assert renderer is not None, "LxmfRenderer not registered in pipeline"
         assert "lxmf_a" in renderer._configs
-        assert renderer._configs["lxmf_a"].lxmf_relay_prefix == (
-            "[{source_display_name}] "
-        )
+        assert renderer._configs["lxmf_a"].lxmf_relay_prefix == ("[{sender}] ")
 
     def test_empty_configs_default_when_not_configured(
         self, tmp_paths: MedrePaths

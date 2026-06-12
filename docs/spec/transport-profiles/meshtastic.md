@@ -93,7 +93,6 @@ renderers (Matrix, Meshtastic, MeshCore, LXMF).
 | `{source_sender_label}`       | Primary human-readable sender label                            |
 | `{source_sender_short_label}` | Abbreviated sender label                                       |
 | `{source_sender_handle}`      | Sender handle or address                                       |
-| `{source_display_name}`       | Best-effort human-readable display name                        |
 | `{source_room_or_channel}`    | Room or channel ID from source                                 |
 | `{source_origin_label}`       | Source adapter origin label (from source-attribution registry) |
 | `{source_native_message_id}`  | Native message ID from source                                  |

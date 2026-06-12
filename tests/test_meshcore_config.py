@@ -710,9 +710,9 @@ def test_meshcore_relay_prefix_default_validates() -> None:
 def test_meshcore_relay_prefix_non_empty_string_is_valid() -> None:
     config = MeshCoreConfig(
         adapter_id="meshcore-1",
-        meshcore_relay_prefix="[{source_display_name}] ",
+        meshcore_relay_prefix="[{sender}] ",
     )
-    assert config.validate().meshcore_relay_prefix == "[{source_display_name}] "
+    assert config.validate().meshcore_relay_prefix == "[{sender}] "
 
 
 def test_meshcore_relay_prefix_empty_string_is_valid() -> None:

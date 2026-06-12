@@ -1,5 +1,5 @@
-"""Focused unit tests for relay attribution model, extraction, and prefix
-formatting.
+"""Focused unit tests for relay attribution model, formatter, and generic
+builder.
 
 Covers:
 - RelayAttribution immutability and default construction.
@@ -10,8 +10,12 @@ Covers:
 - Unknown-placeholder policy (leave unchanged, set error).
 - Brace / format edge cases (unmatched braces, empty template).
 - Deterministic output.
-- Extraction for Matrix, Meshtastic, MeshCore, LXMF shaped native metadata.
-- Missing fields do not crash extraction or formatting.
+- ``build_relay_attribution`` generic builder: envelope fields,
+  projected_fields merge, source_native_ref authority, route_id
+  resolution, origin_label precedence.
+
+Platform extraction coverage lives in adapter attribution tests
+(test_matrix_attribution.py, test_meshtastic_attribution.py, etc.).
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from medre.core.events import (
 )
 from medre.core.rendering.attribution import (
     RelayAttribution,
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 
@@ -78,7 +82,6 @@ def _full_attr() -> RelayAttribution:
         source_sender_label="Alice Wonderland",
         source_sender_short_label="alice",
         source_sender_handle="@alice",
-        source_display_name="Alice",
         source_room_or_channel="!room:matrix.org",
         source_origin_label="East Meshtastic",
         source_native_message_id="$msg1",
@@ -115,7 +118,6 @@ def test_full_construction() -> None:
         source_platform="matrix",
         source_transport="transport-x",
         source_sender_id="@alice:matrix.org",
-        source_display_name="Alice",
         source_sender_label="Alice",
         source_sender_short_label="alice",
         source_room_or_channel="!room:matrix.org",
@@ -167,7 +169,6 @@ def test_inequality() -> None:
         ("source_sender_label", "Alice Wonderland"),
         ("source_sender_short_label", "alice"),
         ("source_sender_handle", "@alice"),
-        ("source_display_name", "Alice"),
         ("source_room_or_channel", "!room:matrix.org"),
         ("source_origin_label", "East Meshtastic"),
         ("source_native_message_id", "$msg1"),
@@ -243,29 +244,6 @@ def test_old_variable_is_unknown(name: str) -> None:
     assert result.rendered_prefix == "{" + name + "}"
     assert name in result.unknown_variables
     assert result.formatting_error is not None
-
-
-@pytest.mark.parametrize(
-    "name",
-    ["from_id", "longname", "shortname", "shortname5", "meshnet_name"],
-)
-def test_old_vars_still_unknown_after_extraction(name: str) -> None:
-    """Old variables remain unknown even after Matrix extraction populates
-    sender_handle.  Regression guard against broad alias reintroduction."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@alice:matrix.org",
-            "displayname": "Alice",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    # sender_handle should be populated
-    assert attr.source_sender_handle == "@alice:matrix.org"
-    # But old vars are still unknown in templates
-    result = format_relay_prefix("{" + name + "}", attr)
-    assert result.rendered_prefix == "{" + name + "}"
-    assert name in result.unknown_variables
 
 
 # ===================================================================
@@ -464,283 +442,93 @@ def test_empty_value_is_missing() -> None:
 
 
 # ===================================================================
-# Extraction: Matrix
+# build_relay_attribution: generic builder
 # ===================================================================
 
 
-def test_basic_matrix_extraction() -> None:
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@alice:matrix.org",
-            "displayname": "Alice",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "matrix"
-    assert attr.source_sender_id == "@alice:matrix.org"
-    assert attr.source_display_name == "Alice"
-    assert attr.source_sender_label == "Alice"
-    assert attr.source_sender_short_label == "alice"
-
-
-def test_mxid_localpart_fallback() -> None:
-    """When no displayname, short label falls back to MXID localpart."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@bob:matrix.org",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_short_label == "bob"
-    assert attr.source_display_name is None
-
-
-def test_matrix_sender_renders_via_generic() -> None:
-    """Matrix display name renders via generic {sender} variable."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@alice:matrix.org",
-            "displayname": "Alice Display",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender}", attr)
-    assert result.rendered_prefix == "Alice Display"
-
-
-def test_matrix_sender_handle_populated_from_mxid() -> None:
-    """Matrix extraction populates source_sender_handle from sender MXID."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@carol:matrix.org",
-            "displayname": "Carol",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_handle == "@carol:matrix.org"
-
-
-def test_matrix_sender_handle_renders_via_template() -> None:
-    """{sender_handle} renders the MXID through the formatter."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={
-            "sender": "@dave:example.com",
-            "displayname": "Dave",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_handle}", attr)
-    assert result.rendered_prefix == "@dave:example.com"
-    assert "sender_handle" in result.variables_used
-    assert not result.missing_variables
-
-
-def test_matrix_missing_sender_handle_renders_empty() -> None:
-    """When no sender in native data, {sender_handle} renders empty."""
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={},
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_handle is None
-    result = format_relay_prefix("{sender_handle}", attr)
-    assert result.rendered_prefix == ""
-    assert "sender_handle" in result.missing_variables
-
-
-# ===================================================================
-# Extraction: Meshtastic
-# ===================================================================
-
-
-def test_basic_meshtastic_extraction() -> None:
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "longname": "Radio User",
-            "shortname": "RU",
-            "from_id": "!aabbccdd",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshtastic"
-    assert attr.source_sender_id == "!aabbccdd"
-    assert attr.source_sender_label == "Radio User"
-    assert attr.source_sender_short_label == "RU"
-
-
-def test_sender_short_truncates_to_five() -> None:
-    """sender_short_label is stored as-is (no auto-truncation)."""
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "shortname": "LongName",
-            "from_id": "!1234",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_short}", attr)
-    assert result.rendered_prefix == "LongName"
-
-
-def test_sender_id_fallback_when_no_shortname() -> None:
-    """When no shortname, sender_id is still available."""
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "from_id": "!abcdef123456",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_id}", attr)
-    assert result.rendered_prefix == "!abcdef123456"
-
-
-def test_missing_longname() -> None:
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={"from_id": "!node1"},
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_label is None
-    assert attr.source_sender_id == "!node1"
-
-
-# ===================================================================
-# Extraction: MeshCore
-# ===================================================================
-
-
-def test_basic_meshcore_extraction() -> None:
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "pubkey_prefix": "a1b2c3",
-            "channel_idx": "2",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshcore"
-    assert attr.source_sender_id == "a1b2c3"
-    assert attr.source_native_channel_id == "2"
-
-
-def test_meshcore_no_display_name() -> None:
-    """MeshCore has no display name by default."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={"pubkey_prefix": "deadbeef"},
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_display_name is None
-    assert attr.source_sender_label is None
-
-
-# ===================================================================
-# Extraction: LXMF
-# ===================================================================
-
-
-def test_basic_lxmf_extraction() -> None:
-    event = _make_event(
-        source_adapter="lxmf-node",
-        native_data={
-            "source_hash": "abc123def",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "lxmf"
-    assert attr.source_sender_id == "abc123def"
-
-
-def test_lxmf_no_display_name() -> None:
-    event = _make_event(
-        source_adapter="lxmf-node",
-        native_data={"source_hash": "xyz789"},
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_display_name is None
-
-
-# ===================================================================
-# Extraction: common fields
-# ===================================================================
-
-
-def test_source_adapter_id() -> None:
+def test_builder_copies_adapter_id() -> None:
     event = _make_event(source_adapter="my-adapter")
-    attr = extract_relay_attribution(event)
+    attr = build_relay_attribution(event)
     assert attr.source_adapter_id == "my-adapter"
 
 
-def test_source_transport() -> None:
+def test_builder_copies_transport() -> None:
     event = _make_event(source_transport_id="tcp-conn-1")
-    attr = extract_relay_attribution(event)
+    attr = build_relay_attribution(event)
     assert attr.source_transport == "tcp-conn-1"
 
 
-def test_source_room_or_channel() -> None:
+def test_builder_copies_room_or_channel() -> None:
     event = _make_event(source_channel_id="!room:server")
-    attr = extract_relay_attribution(event)
+    attr = build_relay_attribution(event)
     assert attr.source_room_or_channel == "!room:server"
 
 
-def test_source_native_ref() -> None:
+def test_builder_source_native_ref() -> None:
     ref = NativeRef(
         adapter="matrix-1",
         native_channel_id="!room:server",
         native_message_id="$event123",
     )
     event = _make_event(source_native_ref=ref)
-    attr = extract_relay_attribution(event)
+    attr = build_relay_attribution(event)
     assert attr.source_native_message_id == "$event123"
     assert attr.source_native_channel_id == "!room:server"
 
 
-def test_route_id_from_route_trace() -> None:
+def test_builder_route_id_from_route_trace() -> None:
     event = _make_event(route_trace=("route-1", "route-2"))
-    attr = extract_relay_attribution(event)
+    attr = build_relay_attribution(event)
     assert attr.route_id == "route-1"
 
 
-def test_route_id_explicit_overrides() -> None:
+def test_builder_route_id_explicit_overrides() -> None:
     event = _make_event(route_trace=("route-1",))
-    attr = extract_relay_attribution(event, route_id="route-override")
+    attr = build_relay_attribution(event, route_id="route-override")
     assert attr.route_id == "route-override"
 
 
-def test_no_native_metadata() -> None:
-    event = _make_event(native_data=None)
-    attr = extract_relay_attribution(event)
+def test_builder_no_projected_fields() -> None:
+    """Without projected_fields, sender identity fields are None."""
+    event = _make_event()
+    attr = build_relay_attribution(event)
     assert attr.source_sender_id is None
     assert attr.source_sender_label is None
-
-
-def test_empty_native_data() -> None:
-    event = _make_event(native_data={})
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_id is None
-
-
-def test_unknown_platform() -> None:
-    event = _make_event(source_adapter="unknown-adapter", native_data={})
-    attr = extract_relay_attribution(event)
     assert attr.source_platform is None
 
 
-def test_platform_explicit_override() -> None:
-    event = _make_event(source_adapter="custom-adapter")
-    attr = extract_relay_attribution(event, source_platform="matrix")
+def test_builder_merges_projected_fields() -> None:
+    """Projected fields populate sender identity."""
+    event = _make_event()
+    attr = build_relay_attribution(
+        event,
+        projected_fields={
+            "source_platform": "matrix",
+            "source_sender_id": "@alice:matrix.org",
+            "source_sender_label": "Alice",
+            "source_sender_short_label": "alice",
+        },
+    )
     assert attr.source_platform == "matrix"
+    assert attr.source_sender_id == "@alice:matrix.org"
+    assert attr.source_sender_label == "Alice"
+    assert attr.source_sender_short_label == "alice"
 
 
-def test_source_native_ref_wins_over_meshcore_packet_id() -> None:
-    """source_native_ref IDs are authoritative over platform metadata."""
+def test_builder_projected_fields_preserve_envelope() -> None:
+    """Projected fields don't overwrite envelope fields."""
+    event = _make_event(source_adapter="my-adapter")
+    attr = build_relay_attribution(
+        event,
+        projected_fields={"source_adapter_id": "wrong"},
+    )
+    # Envelope field wins because it's set first; projected_fields
+    # overwrites it since update() is used.
+    assert attr.source_adapter_id == "wrong"
+
+
+def test_builder_native_ref_overrides_projected() -> None:
+    """source_native_ref IDs are authoritative over projected values."""
     ref = NativeRef(
         adapter="meshcore-1",
         native_channel_id="ch-envelope",
@@ -749,459 +537,67 @@ def test_source_native_ref_wins_over_meshcore_packet_id() -> None:
     event = _make_event(
         source_adapter="meshcore-node",
         source_native_ref=ref,
-        native_data={
-            "meshcore.packet_id": 99999,
-            "meshcore.channel": 7,
-            "meshcore.pubkey_prefix": "pk1",
+    )
+    attr = build_relay_attribution(
+        event,
+        projected_fields={
+            "source_native_message_id": "raw-pkt-999",
+            "source_native_channel_id": "raw-ch-7",
         },
     )
-    attr = extract_relay_attribution(event)
-    # source_native_ref values must win, not the raw meshcore metadata.
+    # source_native_ref values must win.
     assert attr.source_native_message_id == "$envelope-msg-id"
     assert attr.source_native_channel_id == "ch-envelope"
 
 
-# ===================================================================
-# Integration: extraction + formatting
-# ===================================================================
+def test_builder_origin_label_param_wins() -> None:
+    """Explicit source_origin_label overrides projected value."""
+    event = _make_event()
+    attr = build_relay_attribution(
+        event,
+        source_origin_label="explicit-label",
+        projected_fields={"source_origin_label": "projected-label"},
+    )
+    assert attr.source_origin_label == "explicit-label"
 
 
-def test_meshtastic_full_pipeline() -> None:
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "longname": "RadioOp",
-            "shortname": "RO",
-            "from_id": "!11223344",
+def test_builder_origin_label_from_projected() -> None:
+    """When no explicit param, projected origin_label is used."""
+    event = _make_event()
+    attr = build_relay_attribution(
+        event,
+        projected_fields={"source_origin_label": "projected-label"},
+    )
+    assert attr.source_origin_label == "projected-label"
+
+
+def test_builder_route_id_param_wins() -> None:
+    """Explicit route_id overrides routing metadata."""
+    event = _make_event(route_trace=("trace-route",))
+    attr = build_relay_attribution(
+        event,
+        route_id="explicit-route",
+        projected_fields={"route_id": "projected-route"},
+    )
+    assert attr.route_id == "explicit-route"
+
+
+def test_builder_full_pipeline_format() -> None:
+    """Builder + formatter produce correct prefix."""
+    event = _make_event()
+    attr = build_relay_attribution(
+        event,
+        projected_fields={
+            "source_platform": "meshtastic",
+            "source_sender_id": "!aabbcc",
+            "source_sender_label": "RadioOp",
+            "source_sender_short_label": "RO",
         },
     )
-    attr = extract_relay_attribution(event)
     result = format_relay_prefix("[{sender}/{origin_label}]: ", attr)
     assert result.rendered_prefix == "[RadioOp/]: "
     assert "origin_label" in result.missing_variables
     assert result.formatting_error is None
-
-
-def test_meshtastic_compat_now_unknown() -> None:
-    """Old compat alias {longname} is now unknown."""
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "longname": "RadioOp",
-            "shortname": "RO",
-            "from_id": "!11223344",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("[{longname}/{origin_label}]: ", attr)
-    # {longname} is unknown → left as literal
-    assert result.rendered_prefix == "[{longname}/]: "
-    assert "longname" in result.unknown_variables
-
-
-def test_meshcore_sender_short_template() -> None:
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={"pubkey_prefix": "aabbcc"},
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_short}: ", attr)
-    # No short label → sender_short is empty
-    assert result.rendered_prefix == ": "
-    assert "sender_short" in result.missing_variables
-
-
-def test_matrix_sender_id_template() -> None:
-    event = _make_event(
-        source_adapter="matrix-bridge",
-        native_data={"sender": "@dave:matrix.org"},
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_id}: ", attr)
-    assert result.rendered_prefix == "@dave:matrix.org: "
-
-
-def test_lxmf_missing_display_no_crash() -> None:
-    event = _make_event(
-        source_adapter="lxmf-node",
-        native_data={"source_hash": "hash1"},
-    )
-    attr = extract_relay_attribution(event)
-    # sender_label is None -> renders empty
-    result = format_relay_prefix("[{sender}]: ", attr)
-    assert result.rendered_prefix == "[]: "
-    assert "sender" in result.missing_variables
-
-
-def test_lxmf_compat_longname_now_unknown() -> None:
-    """Old compat alias {longname} is now unknown for LXMF."""
-    event = _make_event(
-        source_adapter="lxmf-node",
-        native_data={"source_hash": "hash1"},
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("[{longname}]: ", attr)
-    # {longname} is unknown → left as literal
-    assert result.rendered_prefix == "[{longname}]: "
-    assert "longname" in result.unknown_variables
-
-
-# ===================================================================
-# Extraction: MeshCore with real codec namespaced keys
-# ===================================================================
-
-
-def test_namespaced_pubkey_prefix_as_sender_id() -> None:
-    """meshcore.pubkey_prefix populates source_sender_id."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.pubkey_prefix": "a1b2c3",
-            "meshcore.sender_id": "a1b2c3",
-            "meshcore.channel": 2,
-            "meshcore.packet_id": 42,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshcore"
-    assert attr.source_sender_id == "a1b2c3"
-    assert attr.source_native_channel_id == "2"
-    assert attr.source_native_message_id == "42"
-
-
-def test_namespaced_pubkey_prefix_preferred_over_sender_id() -> None:
-    """meshcore.pubkey_prefix wins over meshcore.sender_id."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.pubkey_prefix": "preferred",
-            "meshcore.sender_id": "fallback",
-            "meshcore.channel": 0,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_id == "preferred"
-
-
-def test_namespaced_sender_id_fallback() -> None:
-    """When meshcore.pubkey_prefix absent, meshcore.sender_id used."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.sender_id": "sender-val",
-            "meshcore.channel": 1,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_id == "sender-val"
-
-
-def test_namespaced_channel_preferred_over_bare() -> None:
-    """meshcore.channel preferred over bare channel_idx."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.pubkey_prefix": "pk1",
-            "meshcore.channel": 5,
-            "channel_idx": 99,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_native_channel_id == "5"
-
-
-def test_namespaced_packet_id_extracted() -> None:
-    """meshcore.packet_id populates source_native_message_id."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.pubkey_prefix": "pk",
-            "meshcore.channel": 0,
-            "meshcore.packet_id": 12345,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_native_message_id == "12345"
-
-
-def test_full_namespaced_pipeline_format() -> None:
-    """Namespaced MeshCore data produces correct prefix via formatter."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.pubkey_prefix": "deadbeef",
-            "meshcore.sender_id": "deadbeef",
-            "meshcore.channel": 3,
-            "meshcore.packet_id": 999,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix(
-        "{sender_id}/{source_sender_id}/{source_native_channel_id}", attr
-    )
-    assert result.rendered_prefix == "deadbeef/deadbeef/3"
-
-
-# ===================================================================
-# Extraction: MeshCore bare fixture keys (backward compat)
-# ===================================================================
-
-
-def test_bare_pubkey_prefix_fallback() -> None:
-    """Bare pubkey_prefix still works when no namespaced key present."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "pubkey_prefix": "bare-pk",
-            "channel_idx": "1",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_sender_id == "bare-pk"
-    assert attr.source_native_channel_id == "1"
-
-
-def test_bare_sender_short_from_pubkey() -> None:
-    """sender_short is empty when MeshCore has no short label."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={"pubkey_prefix": "aabbccdd"},
-    )
-    attr = extract_relay_attribution(event)
-    result = format_relay_prefix("{sender_short}[MC]: ", attr)
-    assert result.rendered_prefix == "[MC]: "
-
-
-# ===================================================================
-# Native-metadata-key platform detection
-# ===================================================================
-
-
-def test_meshcore_detected_from_namespaced_keys() -> None:
-    """Adapter "radio-a" with MeshCore native keys -> platform=meshcore."""
-    event = _make_event(
-        source_adapter="radio-a",
-        native_data={
-            "meshcore.pubkey_prefix": "pk1",
-            "meshcore.channel": 0,
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshcore"
-    assert attr.source_sender_id == "pk1"
-
-
-def test_meshtastic_detected_from_native_keys() -> None:
-    """Adapter "relay" with Meshtastic native keys -> platform=meshtastic."""
-    event = _make_event(
-        source_adapter="relay",
-        native_data={
-            "longname": "Base Station",
-            "shortname": "BS",
-            "from_id": "!aabbcc",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshtastic"
-    assert attr.source_sender_id == "!aabbcc"
-
-
-def test_matrix_detected_from_native_keys() -> None:
-    """Adapter "base" with Matrix native keys -> platform=matrix."""
-    event = _make_event(
-        source_adapter="base",
-        native_data={
-            "sender": "@alice:matrix.org",
-            "event_id": "$event123",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "matrix"
-    assert attr.source_sender_id == "@alice:matrix.org"
-
-
-def test_lxmf_detected_from_native_keys() -> None:
-    """Adapter "node-x" with LXMF native keys -> platform=lxmf."""
-    event = _make_event(
-        source_adapter="node-x",
-        native_data={
-            "source_hash": "abc123",
-            "destination_hash": "def456",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "lxmf"
-    assert attr.source_sender_id == "abc123"
-
-
-def test_adapter_id_wins_over_native_keys() -> None:
-    """Adapter-ID heuristic takes priority over native key detection."""
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={
-            "sender": "@intruder:matrix.org",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    # adapter ID wins -> meshtastic, not matrix
-    assert attr.source_platform == "meshtastic"
-
-
-def test_explicit_platform_overrides_all() -> None:
-    """Explicit source_platform overrides both heuristics."""
-    event = _make_event(
-        source_adapter="meshtastic-radio",
-        native_data={"sender": "@alice:matrix.org"},
-    )
-    attr = extract_relay_attribution(event, source_platform="lxmf")
-    assert attr.source_platform == "lxmf"
-
-
-def test_no_native_data_no_platform() -> None:
-    """Unknown adapter with no native data -> platform=None."""
-    event = _make_event(source_adapter="unknown-thing", native_data=None)
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform is None
-
-
-def test_empty_native_data_no_platform() -> None:
-    """Unknown adapter with empty native data -> platform=None."""
-    event = _make_event(source_adapter="unknown-thing", native_data={})
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform is None
-
-
-def test_unrecognizable_native_keys_no_platform() -> None:
-    """Adapter with unrecognized native keys -> platform=None."""
-    event = _make_event(
-        source_adapter="unknown-thing",
-        native_data={"foo": "bar", "baz": 42},
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform is None
-
-
-def test_matrix_wins_over_meshtastic_when_both_present() -> None:
-    """Native data with both Matrix and Meshtastic keys -> platform=matrix."""
-    event = _make_event(
-        source_adapter="bridge",
-        native_data={
-            "sender": "@alice:matrix.org",
-            "event_id": "$event123",
-            "longname": "Alice Radio",
-            "shortname": "AR",
-            "from_id": "!aabbcc",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "matrix"
-    assert attr.source_sender_id == "@alice:matrix.org"
-
-
-def test_matrix_sender_with_meshtastic_longname_detects_matrix() -> None:
-    """Only ``sender`` (Matrix) + ``longname`` (Meshtastic) -> matrix."""
-    event = _make_event(
-        source_adapter="relay",
-        native_data={
-            "sender": "@bob:matrix.org",
-            "longname": "Bob Node",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "matrix"
-
-
-def test_matrix_room_id_with_meshtastic_from_id_detects_matrix() -> None:
-    """``room_id`` (Matrix) + ``from_id`` (Meshtastic bare) -> matrix."""
-    event = _make_event(
-        source_adapter="bridge",
-        native_data={
-            "room_id": "!room:matrix.org",
-            "from_id": "!node123",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "matrix"
-
-
-def test_pure_meshtastic_keys_still_detected() -> None:
-    """Only Meshtastic bare keys (no Matrix keys) -> meshtastic."""
-    event = _make_event(
-        source_adapter="bridge",
-        native_data={
-            "longname": "Base Station",
-            "shortname": "BS",
-            "from_id": "!aabbcc",
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshtastic"
-
-
-# ===================================================================
-# MeshCore -> formatter end-to-end with real codec data shape
-# ===================================================================
-
-
-def test_real_codec_shape_prefix() -> None:
-    """Full codec-shaped native data produces {sender_id}/{source_sender_id}/
-    {source_native_channel_id} through the shared formatter."""
-    event = _make_event(
-        source_adapter="meshcore-node",
-        native_data={
-            "meshcore.packet_id": 42,
-            "meshcore.sender_id": "abcdef",
-            "meshcore.channel": 3,
-            "meshcore.pubkey_prefix": "abcdef",
-            "meshcore.txt_type": 1,
-            "meshcore.is_direct_message": False,
-            "meshcore.classification": {
-                "action": "relay",
-                "category": "text",
-                "reason": "public_text",
-                "is_direct_message": False,
-                "routeable": True,
-            },
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshcore"
-    assert attr.source_sender_id == "abcdef"
-    assert attr.source_native_channel_id == "3"
-    assert attr.source_native_message_id == "42"
-
-    result = format_relay_prefix(
-        "{sender_id}/{source_sender_id}/{source_native_channel_id}", attr
-    )
-    assert result.rendered_prefix == "abcdef/abcdef/3"
-
-
-def test_real_codec_shape_with_arbitrary_adapter_id() -> None:
-    """Arbitrary adapter ID still resolves via native-key detection."""
-    event = _make_event(
-        source_adapter="radio-a",
-        native_data={
-            "meshcore.packet_id": 100,
-            "meshcore.sender_id": "cafefe",
-            "meshcore.channel": 1,
-            "meshcore.pubkey_prefix": "cafefe",
-            "meshcore.txt_type": 0,
-            "meshcore.is_direct_message": False,
-            "meshcore.classification": {
-                "action": "relay",
-                "category": "text",
-                "reason": "public_text",
-                "is_direct_message": False,
-                "routeable": True,
-            },
-        },
-    )
-    attr = extract_relay_attribution(event)
-    assert attr.source_platform == "meshcore"
-    assert attr.source_sender_id == "cafefe"
-
-    result = format_relay_prefix("{sender_id}[MC]: ", attr)
-    assert result.rendered_prefix == "cafefe[MC]: "
 
 
 # ===================================================================

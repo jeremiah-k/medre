@@ -1,9 +1,12 @@
-"""Tests for route-level source-context ``origin_label`` plumbing.
+"""Tests for route-level source-context ``source_origin_label`` /
+``dest_origin_label`` direction-aware plumbing.
 
-Verifies the minimal source-side origin-label foundation:
+Verifies the direction-aware source-side origin-label foundation:
 
-* ``RouteConfig.origin_label`` is threaded through the route engine
-  into ``RouteSource.origin_label``.
+* ``RouteConfig.source_origin_label`` is threaded through the route engine
+  into ``RouteSource.origin_label`` on forward legs.
+* ``RouteConfig.dest_origin_label`` is threaded through the route engine
+  into ``RouteSource.origin_label`` on reverse (swapped) legs.
 * ``RenderingPipeline.render`` threads ``source_origin_label`` into
   the frozen ``RenderingContext`` available to renderers.
 * Precedence intent: when a route label is set it appears on the context
@@ -84,17 +87,18 @@ class _CapturingRenderer:
 
 
 # ---------------------------------------------------------------------------
-# Route engine: RouteConfig.origin_label -> RouteSource.origin_label
+# Route engine: RouteConfig.source_origin_label / dest_origin_label
+#   -> RouteSource.origin_label
 # ---------------------------------------------------------------------------
 
 
-def test_standard_expansion_threads_origin_label() -> None:
+def test_standard_expansion_threads_source_origin_label() -> None:
     rc = RouteConfig.from_toml_dict(
         "r1",
         {
             "source_adapters": ["src-a"],
             "dest_adapters": ["dst-b"],
-            "origin_label": "East Relay",
+            "source_origin_label": "East Relay",
         },
     )
     routes = _expand_route_config(rc)
@@ -112,20 +116,37 @@ def test_standard_expansion_none_when_unset() -> None:
     assert routes[0].source.origin_label is None
 
 
-def test_swap_direction_keeps_origin_label() -> None:
-    """dest_to_source reverse leg still carries the route label."""
+def test_swap_direction_uses_dest_origin_label() -> None:
+    """dest_to_source reverse leg uses dest_origin_label."""
     rc = RouteConfig.from_toml_dict(
         "r3",
         {
             "source_adapters": ["src-a"],
             "dest_adapters": ["dst-b"],
             "directionality": RouteDirectionality.DEST_TO_SOURCE.value,
-            "origin_label": "West Relay",
+            "source_origin_label": "East Relay",
+            "dest_origin_label": "West Relay",
         },
     )
     routes = _expand_route_config(rc, swap_direction=True)
     assert len(routes) == 1
     assert routes[0].source.origin_label == "West Relay"
+
+
+def test_forward_uses_source_origin_label() -> None:
+    """Forward expansion uses source_origin_label, not dest_origin_label."""
+    rc = RouteConfig.from_toml_dict(
+        "r3f",
+        {
+            "source_adapters": ["src-a"],
+            "dest_adapters": ["dst-b"],
+            "source_origin_label": "Forward Label",
+            "dest_origin_label": "Reverse Label",
+        },
+    )
+    routes = _expand_route_config(rc)
+    assert len(routes) == 1
+    assert routes[0].source.origin_label == "Forward Label"
 
 
 def test_multi_source_threads_label_to_each_leg() -> None:
@@ -134,7 +155,7 @@ def test_multi_source_threads_label_to_each_leg() -> None:
         {
             "source_adapters": ["src-a", "src-c"],
             "dest_adapters": ["dst-b"],
-            "origin_label": "Shared Label",
+            "source_origin_label": "Shared Label",
         },
     )
     routes = _expand_route_config(rc)

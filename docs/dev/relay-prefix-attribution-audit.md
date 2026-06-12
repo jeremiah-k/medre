@@ -493,7 +493,7 @@ string), the variable resolves to an empty string.
 | --------------------- | ----------------- | ---------------------------- | ---------------------------- |
 | `origin_label`        | `{origin_label}`  | Source adapter config        | MEDRE-generic operator label |
 | `source_sender_id`    | `{sender_id}`     | Source event native metadata | Per-transport native ID      |
-| `source_display_name` | —                 | Source event native metadata | Per-transport display name   |
+| `source_sender_label` | `{sender}`        | Source event native metadata | Per-transport display name   |
 
 ---
 

@@ -1236,7 +1236,7 @@ from the source adapter config via the runtime source-attribution registry.
 | --------------------- | ----------------- | ------------------------------------------- | --------------------------------------------------------------- |
 | `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                                 |
 | `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata | Per-transport native identity                                   |
-| `source_display_name` | —                 | Best-effort human-readable display name     | Per-transport native name                                       |
+| `source_sender_label` | `{sender}`        | Primary human-readable sender label         | Per-transport display name / long name                          |
 | `route_id`            | `{route_id}`      | Matched route                               | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.

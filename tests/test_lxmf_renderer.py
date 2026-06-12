@@ -617,7 +617,7 @@ class TestLxmfRelayPrefix:
 
     async def test_matrix_prefix_with_display_name(self) -> None:
         """Matrix -> LXMF prefix uses display name from native metadata."""
-        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
             native_data={
@@ -687,7 +687,7 @@ class TestLxmfRelayPrefix:
 
     async def test_missing_vars_no_none_in_output(self) -> None:
         """Missing attribution variables produce empty string, not 'None'."""
-        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         # Event with no native metadata — display_name will be empty
         event = _make_event_with_native(
             source_adapter="unknown-source",
@@ -706,7 +706,7 @@ class TestLxmfRelayPrefix:
         """Prefix prepended before body; degraded relations appended after."""
         renderer = LxmfRenderer(
             metadata_embedding=True,
-            relay_prefix="[{source_display_name}] ",
+            relay_prefix="[{sender}] ",
         )
         rel = EventRelation(
             relation_type="reply",
@@ -803,7 +803,7 @@ class TestLxmfRelayPrefix:
         """Prefix is human-readable only; metadata envelope is separate."""
         renderer = LxmfRenderer(
             metadata_embedding=True,
-            relay_prefix="[{source_display_name}] ",
+            relay_prefix="[{sender}] ",
         )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
@@ -841,7 +841,7 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_a": LxmfConfig(
                 adapter_id="lxmf_a",
                 connection_type="fake",
-                lxmf_relay_prefix="[{source_display_name}] ",
+                lxmf_relay_prefix="[{sender}] ",
             ),
         }
         renderer = LxmfRenderer(configs=configs)
@@ -865,7 +865,7 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_alpha": LxmfConfig(
                 adapter_id="lxmf_alpha",
                 connection_type="fake",
-                lxmf_relay_prefix="[{source_display_name}] ",
+                lxmf_relay_prefix="[{sender}] ",
             ),
             "lxmf_beta": LxmfConfig(
                 adapter_id="lxmf_beta",
@@ -917,7 +917,7 @@ class TestLxmfTargetAwareConfigs:
 
     async def test_fallback_to_relay_prefix_when_no_configs(self) -> None:
         """relay_prefix fallback used when configs mapping is empty."""
-        renderer = LxmfRenderer(relay_prefix="[{source_display_name}] ")
+        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
             native_data={"displayname": "Alice"},
@@ -940,7 +940,7 @@ class TestLxmfTargetAwareConfigs:
         }
         renderer = LxmfRenderer(
             configs=configs,
-            relay_prefix="[{source_display_name}] ",
+            relay_prefix="[{sender}] ",
         )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",

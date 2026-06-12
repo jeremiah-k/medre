@@ -1,17 +1,17 @@
-"""Cross-transport relay attribution model, extraction, and safe prefix
-formatting.
+"""Cross-transport relay attribution model, formatter, and generic builder.
 
 This module provides the shared foundation that adapter renderers (Matrix,
 Meshtastic, MeshCore, LXMF) use to build human-readable relay prefix
 strings.  It intentionally imports **no adapter packages** — all transport-
-specific data arrives through the :class:`CanonicalEvent` metadata envelope
-and optional config maps.
+specific data arrives through adapter projection helpers and is passed to
+the generic builder as pre-projected fields.
 
 Public symbols
 --------------
 * :class:`RelayAttribution` — immutable, JSON-safe attribution snapshot.
 * :class:`PrefixFormatterResult` — result of safe template formatting.
-* :func:`extract_relay_attribution` — data-driven extraction from events.
+* :func:`build_relay_attribution` — generic builder from event envelope
+  fields and pre-projected adapter fields.
 * :func:`format_relay_prefix` — safe, never-raises template formatter.
 """
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PrefixFormatterResult",
     "RelayAttribution",
-    "extract_relay_attribution",
+    "build_relay_attribution",
     "format_relay_prefix",
 ]
 
@@ -52,7 +52,6 @@ _CANONICAL_NAMES = frozenset(
         "source_sender_label",
         "source_sender_short_label",
         "source_sender_handle",
-        "source_display_name",
         "source_room_or_channel",
         "source_origin_label",
         "source_native_message_id",
@@ -115,8 +114,6 @@ class RelayAttribution:
         Abbreviated sender label (localpart, short name, etc.).
     source_sender_handle:
         Sender handle or address (Matrix handle, callsign, etc.).
-    source_display_name:
-        Best-effort human-readable display name.
     source_room_or_channel:
         Room / channel ID from the source (``event.source_channel_id``).
     source_origin_label:
@@ -139,7 +136,6 @@ class RelayAttribution:
     source_sender_label: str | None = None
     source_sender_short_label: str | None = None
     source_sender_handle: str | None = None
-    source_display_name: str | None = None
     source_room_or_channel: str | None = None
     source_origin_label: str | None = None
     source_native_message_id: str | None = None
@@ -183,7 +179,6 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
         "source_sender_handle": (
             attr.source_sender_handle if attr.source_sender_handle is not None else ""
         ),
-        "source_display_name": attr.source_display_name or "",
         "source_room_or_channel": attr.source_room_or_channel or "",
         "source_origin_label": (
             attr.source_origin_label if attr.source_origin_label is not None else ""
@@ -324,258 +319,78 @@ def format_relay_prefix(
 
 
 # ---------------------------------------------------------------------------
-# Extraction helpers
+# Generic builder
 # ---------------------------------------------------------------------------
 
-# Platform heuristics keyed on source_adapter substring.
-_PLATFORM_HEURISTICS: dict[str, str] = {
-    "matrix": "matrix",
-    "meshtastic": "meshtastic",
-    "meshcore": "meshcore",
-    "lxmf": "lxmf",
-}
 
-
-def _guess_platform(source_adapter: str) -> str | None:
-    """Guess the platform from the adapter identifier string."""
-    lowered = source_adapter.lower()
-    for fragment, platform in _PLATFORM_HEURISTICS.items():
-        if fragment in lowered:
-            return platform
-    return None
-
-
-def _detect_platform_from_native(native_data: dict[str, object]) -> str | None:
-    """Detect the source platform by inspecting native metadata keys.
-
-    This provides a fallback when the adapter ID does not contain a
-    recognizable platform substring (e.g. ``"radio-a"``, ``"base"``).
-    Each platform is identified by the presence of characteristic
-    keys in the native data dict.
-
-    Priority order:
-    1. MeshCore — namespaced ``meshcore.*`` keys.
-    2. Matrix — ``sender``, ``event_id``, ``room_id``.
-    3. Meshtastic — ``longname``, ``shortname``, ``from_id``, etc.
-    4. LXMF — ``source_hash``, ``destination_hash``.
-
-    Matrix is checked before Meshtastic because Matrix native data may be
-    enriched with Meshtastic-style bare keys (``longname``, ``shortname``)
-    by the relay pipeline.  The Matrix-specific keys (``sender``,
-    ``event_id``, ``room_id``) are a stronger signal than bare keys that
-    overlap with Meshtastic terminology.
-    """
-    # MeshCore: namespaced keys from MeshCoreCodec.
-    meshcore_keys = {
-        "meshcore.pubkey_prefix",
-        "meshcore.sender_id",
-        "meshcore.channel",
-        "meshcore.packet_id",
-    }
-    if any(k in native_data for k in meshcore_keys):
-        return "meshcore"
-
-    # Matrix: characteristic keys — checked before Meshtastic because
-    # Matrix native metadata may carry Meshtastic-enriched bare keys.
-    matrix_keys = {"sender", "event_id", "room_id"}
-    if any(k in native_data for k in matrix_keys):
-        return "matrix"
-
-    # Meshtastic: characteristic bare keys.
-    meshtastic_keys = {"longname", "shortname", "from_id", "packet_id", "channel"}
-    if any(k in native_data for k in meshtastic_keys):
-        return "meshtastic"
-
-    # LXMF: characteristic keys.
-    lxmf_keys = {"source_hash", "destination_hash"}
-    if any(k in native_data for k in lxmf_keys):
-        return "lxmf"
-
-    return None
-
-
-def _extract_localpart(mxid: str) -> str:
-    """Extract the localpart from a Matrix MXID (``@user:domain``)."""
-    if mxid.startswith("@"):
-        rest = mxid[1:]
-        colon = rest.find(":")
-        if colon > 0:
-            return rest[:colon]
-        return rest
-    return mxid
-
-
-def _extract_matrix_fields(
-    native_data: dict[str, object],
-) -> dict[str, str | None]:
-    """Extract Matrix-specific fields from native metadata."""
-    sender = native_data.get("sender")
-    sender_str = str(sender) if sender is not None else None
-
-    display_name = native_data.get("displayname") or native_data.get("display_name")
-    display_str = str(display_name) if display_name is not None else None
-
-    # Localpart fallback for short label.
-    short_label: str | None = None
-    if sender_str:
-        short_label = _extract_localpart(sender_str)
-
-    return {
-        "source_sender_id": sender_str,
-        "source_display_name": display_str,
-        # Generic fields.
-        "source_sender_label": display_str,
-        "source_sender_short_label": short_label,
-        "source_sender_handle": sender_str,
-    }
-
-
-def _extract_meshtastic_fields(
-    native_data: dict[str, object],
-) -> dict[str, str | None]:
-    """Extract Meshtastic-specific fields from native metadata."""
-    longname = native_data.get("longname")
-    shortname = native_data.get("shortname")
-    from_id = native_data.get("from_id")
-
-    longname_str = str(longname) if longname is not None else None
-    shortname_str = str(shortname) if shortname is not None else None
-    from_id_str = str(from_id) if from_id is not None else None
-
-    return {
-        "source_sender_id": from_id_str,
-        "source_display_name": longname_str,
-        # Generic fields.
-        "source_sender_label": longname_str,
-        "source_sender_short_label": shortname_str,
-    }
-
-
-def _extract_meshcore_fields(
-    native_data: dict[str, object],
-) -> dict[str, str | None]:
-    """Extract MeshCore-specific fields from native metadata.
-
-    Prefers namespaced keys produced by ``MeshCoreCodec``
-    (``meshcore.pubkey_prefix``, ``meshcore.sender_id``,
-    ``meshcore.channel``, ``meshcore.packet_id``).  Falls back to bare
-    fixture keys (``pubkey_prefix``, ``channel_idx``) for backward
-    compatibility with test fixtures and older data.
-    """
-    # sender_id: prefer meshcore.pubkey_prefix, then meshcore.sender_id,
-    # then bare pubkey_prefix for fixture tolerance.
-    sender_val = (
-        native_data.get("meshcore.pubkey_prefix")
-        or native_data.get("meshcore.sender_id")
-        or native_data.get("pubkey_prefix")
-    )
-    sender_str = str(sender_val) if sender_val is not None else None
-
-    # channel: prefer meshcore.channel, then bare channel_idx.
-    _ch = native_data.get("meshcore.channel")
-    channel_val = _ch if _ch is not None else native_data.get("channel_idx")
-    channel_str = str(channel_val) if channel_val is not None else None
-
-    # packet_id: prefer meshcore.packet_id.
-    pkt_val = native_data.get("meshcore.packet_id")
-    pkt_str = str(pkt_val) if pkt_val is not None else None
-
-    return {
-        "source_sender_id": sender_str,
-        "source_native_channel_id": channel_str,
-        "source_native_message_id": pkt_str,
-    }
-
-
-def _extract_lxmf_fields(
-    native_data: dict[str, object],
-) -> dict[str, str | None]:
-    """Extract LXMF-specific fields from native metadata."""
-    source_hash = native_data.get("source_hash")
-
-    sender_str = str(source_hash) if source_hash is not None else None
-
-    return {
-        "source_sender_id": sender_str,
-    }
-
-
-def _extract_platform_fields(
-    platform: str | None,
-    native_data: dict[str, object],
-) -> dict[str, str | None]:
-    """Dispatch to the platform-specific extractor."""
-    if platform == "matrix":
-        return _extract_matrix_fields(native_data)
-    if platform == "meshtastic":
-        return _extract_meshtastic_fields(native_data)
-    if platform == "meshcore":
-        return _extract_meshcore_fields(native_data)
-    if platform == "lxmf":
-        return _extract_lxmf_fields(native_data)
-    return {}
-
-
-def extract_relay_attribution(
+def build_relay_attribution(
     event: CanonicalEvent,
     *,
-    source_platform: str | None = None,
     source_origin_label: str | None = None,
     route_id: str | None = None,
+    projected_fields: dict[str, str | None] | None = None,
 ) -> RelayAttribution:
-    """Extract relay attribution from a canonical event.
+    """Build relay attribution from generic event envelope fields and
+    pre-projected adapter fields.
 
-    Data-driven extraction that inspects ``event.metadata.native.data``
-    using namespaced keys appropriate for each transport platform.
-    The platform is detected from the source adapter name or may be
-    supplied explicitly.
+    This function copies generic envelope fields (adapter ID, transport,
+    channel, native refs, route trace) and merges pre-projected source
+    sender fields.  It does **not** inspect native transport keys —
+    adapter renderers must call their adapter's projection helper first
+    and pass the result via *projected_fields*.
+
+    **Merge precedence:**
+
+    1. Generic envelope fields from the event.
+    2. Projected adapter fields (overwrite envelope defaults for sender
+       identity fields).
+    3. ``source_native_ref`` IDs are authoritative and restore any
+       values that projection may have overwritten.
+    4. *route_id* parameter or routing metadata.
+    5. *source_origin_label* parameter.
 
     Parameters
     ----------
     event:
-        The canonical event to extract attribution from.
-    source_platform:
-        Override platform detection.  When ``None``, the platform is
-        guessed from ``event.source_adapter``.
+        The canonical event to extract envelope fields from.
     source_origin_label:
-        Override origin label.  When not ``None``, takes precedence over
-        any value extracted from native metadata.  Typically sourced
-        from the :class:`SourceAttributionConfig` registry.
+        Human-readable origin label.  When not ``None``, takes precedence
+        over any value in *projected_fields*.  Typically sourced from the
+        ``RenderingContext`` or source attribution config registry.
     route_id:
-        Route identifier, typically from the delivery pipeline.
+        Route identifier.  When not ``None``, takes precedence over
+        ``event.metadata.routing.route_trace``.
+    projected_fields:
+        Pre-projected generic attribution fields from an adapter
+        projection helper.  Keys must match ``RelayAttribution`` field
+        names.  Typically the return value of
+        :func:`~medre.adapters._attribution_dispatch.project_source_fields`
+        or an adapter-specific projection helper.
 
     Returns
     -------
     RelayAttribution
         Immutable attribution snapshot with all fields resolved.
     """
-    platform = source_platform or _guess_platform(event.source_adapter)
-
-    # Native metadata for extraction and platform detection fallback.
-    native_data: dict[str, object] = {}
-    if event.metadata.native is not None and event.metadata.native.data:
-        native_data = dict(event.metadata.native.data)
-
-    # When adapter-ID heuristic fails, inspect native metadata keys.
-    if platform is None and native_data:
-        platform = _detect_platform_from_native(native_data)
-
-    # Base fields from the event envelope.
     fields: dict[str, str | None] = {
         "source_adapter_id": event.source_adapter,
-        "source_platform": platform,
         "source_transport": event.source_transport_id,
         "source_room_or_channel": event.source_channel_id,
     }
 
-    # Native message / channel IDs from source_native_ref.
-    _auth_msg_id: str | None = None
-    _auth_chan_id: str | None = None
+    # Merge projected adapter fields (sender identity, platform, etc.).
+    if projected_fields:
+        fields.update(projected_fields)
+
+    # source_native_ref IDs are authoritative — restore them if the
+    # projection helper overwrote them with raw metadata values.
     if event.source_native_ref is not None:
-        _auth_msg_id = event.source_native_ref.native_message_id
-        _auth_chan_id = event.source_native_ref.native_channel_id
-        fields["source_native_message_id"] = _auth_msg_id
-        fields["source_native_channel_id"] = _auth_chan_id
+        _msg_id = event.source_native_ref.native_message_id
+        _chan_id = event.source_native_ref.native_channel_id
+        if _msg_id is not None:
+            fields["source_native_message_id"] = _msg_id
+        if _chan_id is not None:
+            fields["source_native_channel_id"] = _chan_id
 
     # Route ID from parameter or routing metadata.
     if route_id is not None:
@@ -583,19 +398,8 @@ def extract_relay_attribution(
     elif event.metadata.routing is not None and event.metadata.routing.route_trace:
         fields["route_id"] = event.metadata.routing.route_trace[0]
 
-    # Platform-specific extraction from native metadata.
-    platform_fields = _extract_platform_fields(platform, native_data)
-    fields.update(platform_fields)
-
-    # source_native_ref IDs are authoritative — restore them if the
-    # platform extractor overwrote them with raw metadata values.
-    if _auth_msg_id is not None:
-        fields["source_native_message_id"] = _auth_msg_id
-    if _auth_chan_id is not None:
-        fields["source_native_channel_id"] = _auth_chan_id
-
     # Origin label: explicit parameter wins, never overwritten by
-    # platform extraction.
+    # projection.
     if source_origin_label is not None:
         fields["source_origin_label"] = source_origin_label
 

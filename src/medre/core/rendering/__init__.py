@@ -38,8 +38,8 @@ Exported names
   immutable cross-transport attribution snapshot.
 * :class:`~medre.core.rendering.attribution.PrefixFormatterResult` -
   result of safe relay-prefix template formatting.
-* :func:`~medre.core.rendering.attribution.extract_relay_attribution` -
-  data-driven extraction from canonical events.
+* :func:`~medre.core.rendering.attribution.build_relay_attribution` -
+  generic builder from event envelope and pre-projected fields.
 * :func:`~medre.core.rendering.attribution.format_relay_prefix` -
   safe, never-raises template formatter.
 """
@@ -47,7 +47,7 @@ Exported names
 from medre.core.rendering.attribution import (
     PrefixFormatterResult,
     RelayAttribution,
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 from medre.core.rendering.evidence import RenderingEvidence
@@ -79,7 +79,7 @@ __all__ = [
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
-    "extract_relay_attribution",
+    "build_relay_attribution",
     "extract_relation_text",
     "format_relay_prefix",
     "truncate_text",

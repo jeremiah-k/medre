@@ -375,9 +375,9 @@ def test_lxmf_relay_prefix_empty_string_is_valid() -> None:
 def test_lxmf_relay_prefix_valid_string_accepted() -> None:
     config = LxmfConfig(
         adapter_id="lxmf-1",
-        lxmf_relay_prefix="[{source_display_name}] ",
+        lxmf_relay_prefix="[{sender}] ",
     )
-    assert config.validate().lxmf_relay_prefix == "[{source_display_name}] "
+    assert config.validate().lxmf_relay_prefix == "[{sender}] "
 
 
 def test_lxmf_relay_prefix_bool_true_rejected() -> None:

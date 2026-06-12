@@ -48,9 +48,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.attribution import (
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 from medre.core.rendering.relations import degrade_relations_inline
@@ -221,9 +222,21 @@ class MeshCoreRenderer:
                 if src_attr_cfg is not None:
                     source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
-            attr = extract_relay_attribution(
+            # Project source identity from native metadata via dispatch.
+            native_data: dict[str, object] = {}
+            if event.metadata and event.metadata.native:
+                native_data = dict(event.metadata.native.data)
+
+            projected = project_source_fields(
+                native_data,
+                source_adapter=event.source_adapter,
+                source_transport_id=event.source_transport_id,
+            )
+
+            attr = build_relay_attribution(
                 event,
                 source_origin_label=source_origin_label,
+                projected_fields=projected,
             )
             prefix_result = format_relay_prefix(prefix_template, attr)
             rendered_prefix = prefix_result.rendered_prefix

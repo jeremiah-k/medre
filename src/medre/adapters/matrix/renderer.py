@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 from medre.core.rendering.renderer import (
@@ -529,7 +530,7 @@ class MatrixRenderer:
     ) -> tuple[str, dict[str, object]]:
         """Format the configured relay prefix for a reaction emote body.
 
-        Uses the shared core attribution extractor and safe prefix formatter.
+        Uses the shared generic attribution builder and safe prefix formatter.
 
         Returns a ``(prefix_str, formatter_meta)`` tuple.
         ``prefix_str`` may be empty when no prefix template is configured.
@@ -544,9 +545,21 @@ class MatrixRenderer:
         source_origin_label = self._resolve_source_origin_label(event)
         if ctx is not None and ctx.source_origin_label:
             source_origin_label = ctx.source_origin_label
-        attr = extract_relay_attribution(
+
+        # Project source identity from native metadata.
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+        )
+
+        attr = build_relay_attribution(
             event,
             source_origin_label=source_origin_label,
+            projected_fields=projected,
         )
         fmt_result = format_relay_prefix(template, attr)
 
@@ -706,11 +719,15 @@ class MatrixRenderer:
     ) -> tuple[str, dict[str, object]]:
         """Prepend the configured relay prefix template to *body*.
 
-        Uses the shared core attribution extractor and safe prefix formatter
-        from :mod:`medre.core.rendering.attribution`.  Variables available
-        in templates include all canonical ``source_*`` fields plus
-        preferred aliases (``{sender}``, ``{sender_short}``, ``{sender_id}``,
-        ``{origin_label}``, ``{platform}``, ``{channel}``, ``{route_id}``).
+        Uses the shared generic attribution builder and safe prefix formatter
+        from :mod:`medre.core.rendering.attribution`.  Source identity is
+        projected via the adapter attribution dispatch, keeping core free
+        of native transport key knowledge.
+
+        Variables available in templates include all canonical ``source_*``
+        fields plus preferred aliases (``{sender}``, ``{sender_short}``,
+        ``{sender_id}``, ``{origin_label}``, ``{platform}``, ``{channel}``,
+        ``{route_id}``).
 
         Returns a ``(prefixed_body, formatter_meta)`` tuple.
         ``formatter_meta`` is empty when no prefix is configured or a
@@ -725,9 +742,21 @@ class MatrixRenderer:
         source_origin_label = self._resolve_source_origin_label(event)
         if ctx is not None and ctx.source_origin_label:
             source_origin_label = ctx.source_origin_label
-        attr = extract_relay_attribution(
+
+        # Project source identity from native metadata.
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+        )
+
+        attr = build_relay_attribution(
             event,
             source_origin_label=source_origin_label,
+            projected_fields=projected,
         )
         fmt_result = format_relay_prefix(template, attr)
 

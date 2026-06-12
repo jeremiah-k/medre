@@ -1068,10 +1068,10 @@ class TestMeshCoreRendererRelayPrefix:
     pytestmark = pytest.mark.asyncio
 
     async def test_matrix_prefix_with_display_name(self) -> None:
-        """Matrix source: prefix template resolves {source_display_name}."""
+        """Matrix source: prefix template resolves {sender}."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{source_display_name}] ",
+            meshcore_relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1084,7 +1084,7 @@ class TestMeshCoreRendererRelayPrefix:
         )
         assert result.payload["text"] == "[Alice] hello world"
         assert result.metadata["relay_prefix_rendered"] == "[Alice] "
-        assert result.metadata["relay_prefix_template"] == "[{source_display_name}] "
+        assert result.metadata["relay_prefix_template"] == "[{sender}] "
 
     async def test_meshtastic_prefix_with_sender_short(self) -> None:
         """Meshtastic source: prefix template resolves {sender_short}."""
@@ -1112,7 +1112,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Missing attribution variables produce empty strings, not 'None'."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{source_display_name}] ",
+            meshcore_relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         # Event with no native data — display_name will be empty.
@@ -1135,7 +1135,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=15,
-            meshcore_relay_prefix="[{source_display_name}] ",
+            meshcore_relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1226,7 +1226,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=0,
-            meshcore_relay_prefix="[{source_display_name}] ",
+            meshcore_relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1247,7 +1247,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=6,
-            meshcore_relay_prefix="[{source_display_name}] ",
+            meshcore_relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(

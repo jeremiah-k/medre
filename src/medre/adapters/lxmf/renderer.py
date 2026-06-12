@@ -47,11 +47,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.attribution import (
     RelayAttribution,
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 from medre.core.rendering.relations import degrade_relations_inline
@@ -299,10 +300,10 @@ class LxmfRenderer:
         event: CanonicalEvent,
         ctx: RenderingContext | None = None,
     ) -> RelayAttribution:
-        """Extract relay attribution, enriching with source origin_label.
+        """Extract relay attribution using adapter projection dispatch.
 
-        Extracts standard relay attribution from the event, then resolves
-        origin_label with precedence:
+        Projects source identity via the adapter attribution dispatch,
+        then builds the generic attribution with origin_label precedence:
         ``ctx.source_origin_label`` (route/context) > source_attribution
         registry > ``None``.
 
@@ -329,9 +330,21 @@ class LxmfRenderer:
             if source_info is not None:
                 source_origin_label = getattr(source_info, "origin_label", None)
 
-        attr = extract_relay_attribution(
+        # Project source identity from native metadata via dispatch.
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+        )
+
+        attr = build_relay_attribution(
             event,
             source_origin_label=source_origin_label,
+            projected_fields=projected,
         )
 
         return attr

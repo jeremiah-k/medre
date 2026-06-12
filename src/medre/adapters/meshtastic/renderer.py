@@ -59,13 +59,13 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.rendering.attribution import (
     PrefixFormatterResult,
-    extract_relay_attribution,
+    build_relay_attribution,
     format_relay_prefix,
 )
 from medre.core.rendering.renderer import (
@@ -171,14 +171,13 @@ class MeshtasticRenderer:
         compact: bool = False,
         source_origin_label: str | None = None,
     ) -> PrefixFormatterResult:
-        """Format a prefix template using shared attribution extraction.
+        """Format a prefix template using adapter projection and the shared
+        generic builder.
 
-        Delegates to :func:`~medre.core.rendering.attribution.extract_relay_attribution`
-        for data extraction and :func:`~medre.core.rendering.attribution.format_relay_prefix`
-        for safe template rendering.  Falls back to reading flat
-        Meshtastic-style keys (``longname``, ``shortname``, ``from_id``)
-        directly from native metadata when the platform-specific extractor
-        does not populate them.
+        Delegates to :func:`~medre.adapters._attribution_dispatch.project_source_fields`
+        for source-identity projection and
+        :func:`~medre.core.rendering.attribution.build_relay_attribution` for
+        generic envelope assembly.
 
         Available template variables:
 
@@ -238,48 +237,36 @@ class MeshtasticRenderer:
             if src_attr_cfg is not None:
                 source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
-        attr = extract_relay_attribution(
-            event,
-            source_origin_label=source_origin_label,
-        )
-
-        # Flat-key fallback: the codec pipeline may store
-        # Meshtastic-style flat keys (longname, shortname, from_id)
-        # in native_data regardless of source platform.  Patch any
-        # generic attribution fields that the platform extractor left
-        # empty.
+        # Project source identity from native metadata via dispatch.
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        patches: dict[str, str | None] = {}
-        if not attr.source_sender_label:
-            ln = native_data.get("longname")
-            patches["source_sender_label"] = str(ln) if ln is not None else None
-        if not attr.source_sender_short_label:
-            sn = native_data.get("shortname")
-            patches["source_sender_short_label"] = str(sn) if sn is not None else None
-        if not attr.source_sender_id:
-            fid = native_data.get("from_id", event.source_transport_id)
-            patches["source_sender_id"] = str(fid) if fid is not None else None
-        if patches.get("source_sender_label") and not attr.source_display_name:
-            patches["source_display_name"] = patches["source_sender_label"]
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+        )
 
-        if patches:
-            attr = replace(attr, **patches)
+        # Meshtastic-specific: fallback sender_id to source_transport_id.
+        # The dispatch flat-key fallback reads from_id from native_data;
+        # this additional fallback uses source_transport_id when from_id
+        # is absent (matches old MeshtasticRenderer flat-key behaviour).
+        if not projected.get("source_sender_id"):
+            projected["source_sender_id"] = event.source_transport_id
 
+        # Apply compact mode: strip spaces from label fields.
         if compact:
-            sender_compact = (attr.source_sender_label or "").replace(" ", "") or None
-            short_compact = (attr.source_sender_short_label or "").replace(
-                " ", ""
-            ) or None
-            display_compact = (attr.source_display_name or "").replace(" ", "") or None
-            attr = replace(
-                attr,
-                source_display_name=display_compact,
-                source_sender_label=sender_compact,
-                source_sender_short_label=short_compact,
-            )
+            for key in ("source_sender_label", "source_sender_short_label"):
+                val = projected.get(key)
+                if val:
+                    projected[key] = val.replace(" ", "") or None
+
+        attr = build_relay_attribution(
+            event,
+            source_origin_label=source_origin_label,
+            projected_fields=projected,
+        )
 
         return format_relay_prefix(radio_relay_prefix, attr)
 
