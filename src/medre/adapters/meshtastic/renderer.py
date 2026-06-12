@@ -500,7 +500,16 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        if not is_structured_reaction and not is_descriptive_reaction:
+        if is_structured_reaction and prefix:
+            # Native tapback: do NOT prepend prefix to text, but still
+            # populate relay-prefix metadata so downstream consumers can
+            # see the resolved prefix.
+            prefix_result = self._format_prefix_for(
+                event,
+                prefix,
+                source_origin_label=effective_origin_label,
+            )
+        elif not is_structured_reaction and not is_descriptive_reaction:
             prefix_result = self._format_prefix_for(
                 event,
                 prefix,

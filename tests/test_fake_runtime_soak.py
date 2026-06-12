@@ -225,9 +225,10 @@ class TestFullFakeRuntimeHappyPath:
 
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
+            expected_text = "Full pipeline integration test"
             assert (
-                "text" in payload.payload
-            )  # TextRenderer produces {"text": ...} (fake adapters skip MatrixRenderer)
+                payload.payload["body"] == expected_text
+            )  # MatrixRenderer produces {"body": ..., "msgtype": ...}
             assert payload.target_adapter == "mx_beta"
 
             # -- DeliveryReceipt with full field verification --

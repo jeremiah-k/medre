@@ -338,6 +338,22 @@ def _register_adapter_renderers(
                 and getattr(_rtc, "config", None) is not None
             ):
                 _matrix_configs[_adapter_id] = _rtc.config
+        # Fallback: synthesize default MatrixConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.matrix:
+            for adapter_id in config.adapters.matrix:
+                if adapter_id not in _matrix_configs:
+                    import importlib
+
+                    _matrix_mod = importlib.import_module(
+                        "medre.config.adapters.matrix"
+                    )
+                    _MXConfig = _matrix_mod.MatrixConfig
+                    _matrix_configs[adapter_id] = _MXConfig(
+                        adapter_id=adapter_id,
+                        homeserver="",
+                        user_id="",
+                    )
     _all_config_maps: list[tuple[str, dict[str, Any]]] = [
         ("meshtastic", meshtastic_configs),
         ("meshcore", meshcore_configs),

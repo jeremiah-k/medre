@@ -102,7 +102,7 @@ connection_type = "fake"
 origin_label = "RenderNet"
 default_channel = 3
 max_text_bytes = 50
-radio_relay_prefix = "[RenderNet] "
+radio_relay_prefix = "[{origin_label}] "
 
 [adapters.matrix.matrix-fake]
 enabled = true
@@ -110,6 +110,7 @@ adapter_kind = "fake"
 homeserver = "https://fake.local"
 user_id = "@fake:local"
 access_token = "fake_token"
+origin_label = "RenderNet"
 
 [routes.matrix-to-radio-b]
 source_adapters = ["matrix-fake"]
@@ -278,13 +279,22 @@ class TestMeshtasticRuntimeMulti:
                 pass
 
     @pytest.mark.asyncio
-    async def test_render_to_radio_b_uses_config_defaults(self, tmp_path: Path) -> None:
+    async def test_render_to_radio_b_uses_config_defaults(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Matrix→radio-b without target_channel uses radio-b config.
 
         Verifies that the rendering pipeline honours radio-b's
         ``default_channel``, ``max_text_bytes``, and ``radio_relay_prefix``
         when no explicit target_channel is provided.
         """
+        # The config uses [{origin_label}] template syntax in
+        # radio_relay_prefix.  Bypass _expand_paths_in_dict so the
+        # template string survives config loading intact.
+        monkeypatch.setattr(
+            "medre.config.loader._expand_paths_in_dict",
+            lambda d, _p: d,
+        )
         config_path = _write_config(tmp_path, content=_RENDER_VERIFY_CONFIG)
         config, _source, paths = load_config(str(config_path))
 
@@ -299,7 +309,7 @@ class TestMeshtasticRuntimeMulti:
             assert cfg_b is not None
             assert cfg_b.default_channel == 3
             assert cfg_b.max_text_bytes == 50
-            assert cfg_b.radio_relay_prefix == "[RenderNet] "
+            assert cfg_b.radio_relay_prefix == "[{origin_label}] "
             assert cfg_b.origin_label == "RenderNet"
 
             # Render a Matrix event targeting radio-b without target_channel.

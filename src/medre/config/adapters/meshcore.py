@@ -84,6 +84,9 @@ class MeshCoreConfig:
         Host-level pairing via ``bluetoothctl`` remains the
         recommended path; this field exists for automated/headless
         deployments.
+    origin_label:
+        Platform-neutral source label for relay prefixes.  Default:
+        ``""`` (no label).
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:

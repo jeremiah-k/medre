@@ -520,6 +520,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `port`            | `MEDRE_ADAPTER__RADIO__PORT=4403`                 |
 | `serial_port`     | `MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0`  |
 | `outbound_mode`   | `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only` |
+| `origin_label`    | `MEDRE_ADAPTER__RADIO__ORIGIN_LABEL=MyMesh`       |
 
 **MeshCore** (`MeshCoreConfig`):
 
@@ -531,6 +532,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `port`            | `MEDRE_ADAPTER__RADIO__PORT=4000`               |
 | `identity`        | `MEDRE_ADAPTER__RADIO__IDENTITY=my-node`        |
 | `pubkey`          | `MEDRE_ADAPTER__RADIO__PUBKEY=abcdef0123456789` |
+| `origin_label`    | `MEDRE_ADAPTER__RADIO__ORIGIN_LABEL=MyMesh`     |
 
 **LXMF** (`LxmfConfig`):
 
@@ -540,6 +542,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `connection_type` | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE=reticulum`           |
 | `display_name`    | `MEDRE_ADAPTER__LOCAL__DISPLAY_NAME=MEDRE`                  |
 | `identity_path`   | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
+| `origin_label`    | `MEDRE_ADAPTER__LOCAL__ORIGIN_LABEL=MyMesh`                 |
 
 Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use TOML instead.
 

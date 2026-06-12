@@ -134,28 +134,16 @@ space for message content.
 ### Metadata Keys
 
 When a prefix is rendered, the following diagnostic keys are set on the
-`RenderingResult.metadata`:
+`RenderingResult.metadata` (normalized keys, consistent across all renderers):
 
-**Legacy keys** (retained for backward compatibility):
-
-| Key                        | Value                                                 |
-| -------------------------- | ----------------------------------------------------- |
-| `radio_relay_prefix`       | The rendered prefix string                            |
-| `prefix_template_used`     | The original template string                          |
-| `prefix_variables_used`    | Variables resolved (value found, even if empty)       |
-| `prefix_missing_variables` | Variables in template whose value was `None` or empty |
-
-**Normalized keys** (consistent across all renderers):
-
-| Key                              | Value                                                                                         |
-| -------------------------------- | --------------------------------------------------------------------------------------------- |
-| `relay_prefix_template`          | The original template string                                                                  |
-| `relay_prefix_rendered`          | The rendered prefix string                                                                    |
-| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)                                               |
-| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty                                         |
-| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix                                    |
-| `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered                                   |
-| `relay_prefix_origin_label`      | Source adapter origin label resolved from source-attribution registry (recorded when present) |
+| Key                              | Value                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `relay_prefix_template`          | The raw template string from adapter config                                               |
+| `relay_prefix_rendered`          | The fully resolved prefix after variable substitution                                     |
+| `relay_prefix_variables_used`    | Variables that were resolved from event context                                           |
+| `relay_prefix_missing_variables` | Variables whose source values were `None` or absent                                       |
+| `relay_prefix_unknown_variables` | Placeholders not recognized by the formatter                                              |
+| `relay_prefix_formatting_error`  | Non-`None` when a formatting exception occurred                                           |
 
 ### Matrix-Bound Prefix
 

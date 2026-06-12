@@ -2,12 +2,12 @@
 
 When ``format_relay_prefix`` catches an internal exception, it returns the
 raw template as ``rendered_prefix`` with ``formatting_error`` starting with
-``"formatting_exception:"``.  The renderers must NOT prepend the raw
-template to user-facing text, but MUST still record all 6 normalized
+``"formatting_exception:"``.  Renderers should avoid prepending the raw
+template to user-facing text, but still record all six normalized
 metadata keys.
 
 Since the formatter uses regex-based substitution (not ``str.format()``),
-unmatched braces do NOT trigger exceptions.  Tests trigger real exceptions
+unmatched braces do not trigger exceptions.  Tests trigger real exceptions
 by patching the internal ``_build_variable_map`` helper in the defining
 module, so ``format_relay_prefix`` exercises its own try/except handler.
 """

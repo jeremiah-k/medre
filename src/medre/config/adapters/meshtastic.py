@@ -61,7 +61,6 @@ class MeshtasticConfig:
         ``{sender_id}``, ``{origin_label}``, ``{platform}``,
         ``{channel}``, ``{route_id}``.
         Default: ``"{sender_short}: "``.
-        Matches mmrelay's ``DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "``.
 
         Example: ``"{sender_short}: "``
     mmrelay_compatibility:
@@ -256,5 +255,13 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"origin_label must be a str, "
                 f"got {type(self.origin_label).__name__}"
+            )
+        # --- radio_relay_prefix ---
+        if isinstance(self.radio_relay_prefix, bool):
+            raise MeshtasticConfigError("radio_relay_prefix must be a str, got bool")
+        if not isinstance(self.radio_relay_prefix, str):
+            raise MeshtasticConfigError(
+                f"radio_relay_prefix must be a str, "
+                f"got {type(self.radio_relay_prefix).__name__}"
             )
         return self

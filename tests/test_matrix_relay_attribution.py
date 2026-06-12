@@ -19,15 +19,16 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingContext
 from tests.helpers.matrix_events import (
-    StubMeshtasticConfig,
     make_matrix_event,
     make_meshtastic_event,
 )
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 
 # Module-level aliases for concise call-sites in this test file.
 _make_event = make_matrix_event
 _make_meshtastic_event = make_meshtastic_event
-_StubMeshtasticConfig = StubMeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers specific to relay attribution / prefix tests
@@ -792,32 +793,6 @@ class TestMatrixCoreAttributionIntegration:
 # ---------------------------------------------------------------------------
 # Target-local prefix (MatrixConfig.relay_prefix) tests
 # ---------------------------------------------------------------------------
-
-
-class _StubMatrixConfig:
-    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
-
-    def __init__(
-        self,
-        adapter_id: str = "matrix-1",
-        relay_prefix: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.relay_prefix = relay_prefix
-
-
-class _StubSourceAttribution:
-    """Minimal duck-typed SourceAttributionConfig."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio-alpha",
-        origin_label: str = "",
-        meshnet_name: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-        self.meshnet_name = meshnet_name
 
 
 class TestMatrixTargetLocalPrefix:

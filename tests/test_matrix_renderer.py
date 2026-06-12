@@ -16,15 +16,16 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from tests.helpers.matrix_events import (
-    StubMeshtasticConfig,
     make_matrix_event,
     make_meshtastic_event,
 )
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 
 # Module-level aliases so existing test call-sites stay concise.
 _make_event = make_matrix_event
 _make_meshtastic_event = make_meshtastic_event
-_StubMeshtasticConfig = StubMeshtasticConfig
 
 
 class TestMatrixRenderer:
@@ -473,30 +474,6 @@ class TestMatrixRendererReplySender:
 # ---------------------------------------------------------------------------
 # Multi-radio source-adapter config resolution tests
 # ---------------------------------------------------------------------------
-
-
-class _StubSourceAttribution:
-    """Minimal duck-typed SourceAttributionConfig for Matrix renderer tests."""
-
-    def __init__(
-        self,
-        adapter_id: str = "",
-        origin_label: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-
-
-class _StubMatrixConfig:
-    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
-
-    def __init__(
-        self,
-        adapter_id: str = "matrix-1",
-        relay_prefix: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.relay_prefix = relay_prefix
 
 
 class TestMultiRadioSourceConfig:

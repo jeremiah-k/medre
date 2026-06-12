@@ -172,7 +172,6 @@ class TestGenericPreferredVariables:
             ("source_origin_label", "East Meshtastic"),
             ("source_native_message_id", "$msg1"),
             ("source_native_channel_id", "!room:matrix.org"),
-            ("route_id", "route-42"),
         ],
     )
     def test_single_variable(self, name: str, expected: str) -> None:

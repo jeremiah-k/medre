@@ -133,27 +133,34 @@ class TestRouteConfigValid:
         r = RouteConfig.from_toml_dict("my-route_id-123", data)
         assert r.route_id == "my-route_id-123"
 
-    def test_origin_label_parsed(self) -> None:
-        """origin_label is parsed as a source-side route label string."""
-        data = {
-            "source_adapters": ["a"],
-            "dest_adapters": ["b"],
-            "origin_label": "East Relay",
-        }
-        r = RouteConfig.from_toml_dict("labelled_route", data)
-        assert r.origin_label == "East Relay"
-
-    def test_origin_label_defaults_none(self) -> None:
-        """origin_label defaults to None when not configured."""
-        data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
-        r = RouteConfig.from_toml_dict("plain_route", data)
-        assert r.origin_label is None
-
     def test_frozen(self) -> None:
         data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
         r = RouteConfig.from_toml_dict("frozen_test", data)
         with pytest.raises(AttributeError):
             r.route_id = "changed"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# RouteConfig — origin_label (function-style)
+# ---------------------------------------------------------------------------
+
+
+def test_origin_label_parsed() -> None:
+    """origin_label is parsed as a source-side route label string."""
+    data = {
+        "source_adapters": ["a"],
+        "dest_adapters": ["b"],
+        "origin_label": "East Relay",
+    }
+    r = RouteConfig.from_toml_dict("labelled_route", data)
+    assert r.origin_label == "East Relay"
+
+
+def test_origin_label_defaults_none() -> None:
+    """origin_label defaults to None when not configured."""
+    data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
+    r = RouteConfig.from_toml_dict("plain_route", data)
+    assert r.origin_label is None
 
 
 # ---------------------------------------------------------------------------

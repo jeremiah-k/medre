@@ -1106,7 +1106,7 @@ dest_adapters = ["b"]
 directionality = "source_to_dest"
 enabled = true
 
-[routes.dup_id_2]
+[routes.dup_id]
 source_adapters = ["b"]
 dest_adapters = ["a"]
 directionality = "source_to_dest"
@@ -1115,11 +1115,10 @@ enabled = true
         cfg_path = _write_config(tmp_path / "config.toml", dup_cfg)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
-        # Should load fine — duplicate IDs are checked during validation,
-        # not during parsing. Verify the config loads.
-        config, _, _ = load_config(None)
-        route_ids = [r.route_id for r in config.routes.routes]
-        assert len(route_ids) == 2
+        # Duplicate TOML table headers are a parse error, so load_config
+        # should raise rather than silently merging or accepting the config.
+        with pytest.raises(Exception):
+            load_config(None)
 
 
 # ===================================================================

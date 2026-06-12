@@ -117,8 +117,7 @@ class TestMeshtasticRenderingConformance:
             target_platform="meshtastic",
         )
         result = await meshtastic_renderer.render(event, ctx)
-        assert "text" in result.payload
-        assert result.payload.get("channel_index") == 0
+        assert set(result.payload.keys()) == {"text", "channel_index"}
         assert "meshnet_name" not in result.payload
 
     @pytest.mark.asyncio

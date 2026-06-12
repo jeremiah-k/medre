@@ -40,48 +40,13 @@ from medre.interop.mmrelay import (
     PORTNUM_TEXT,
 )
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "mesh-1",
-        meshnet_name: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
-class _StubSourceAttribution:
-    """Minimal duck-typed config for MatrixRenderer source_attribution."""
-
-    def __init__(
-        self,
-        adapter_id: str = "mesh-1",
-        origin_label: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-
-
-class _StubMatrixConfig:
-    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
-
-    def __init__(
-        self,
-        adapter_id: str = "matrix-1",
-        relay_prefix: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.relay_prefix = relay_prefix
 
 
 # Source-config mappings for common test patterns.

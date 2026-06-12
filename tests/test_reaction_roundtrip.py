@@ -59,35 +59,12 @@ _ROOM = "!room:server"
 _MESHNET = "testnet"
 
 
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+
 # ===================================================================
 # Shared helper for source_configs construction
 # ===================================================================
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio",
-        meshnet_name: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
-class _StubMatrixConfig:
-    """Minimal duck-typed config for MatrixRenderer target-local configs."""
-
-    def __init__(self, relay_prefix: str = "") -> None:
-        self.relay_prefix = relay_prefix
-
-
-# =========================================================================
-# Helpers
-# =========================================================================
 
 
 def _make_matrix_config(**overrides):

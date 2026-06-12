@@ -1277,7 +1277,27 @@ Formatting rules: `None`/missing values format as empty strings. Unknown
 placeholders are left unchanged in the output and recorded in diagnostic
 metadata. The formatter never raises exceptions.
 
-### 17.5.6 False Delivery Claims
+### 17.5.6 Relay-Prefix Metadata Keys
+
+Every renderer that supports a relay prefix MUST emit the following
+normalized metadata keys when a prefix template is configured on the
+target adapter. The keys are always present when the prefix template is
+non-empty, regardless of whether the prefix is prepended to the payload
+text (e.g. native tapbacks populate metadata without modifying text).
+
+| Key                              | Type              | Description                                            |
+| -------------------------------- | ----------------- | ------------------------------------------------------ |
+| `relay_prefix_template`          | `str`             | The raw template string from adapter config.           |
+| `relay_prefix_rendered`          | `str`             | The fully resolved prefix after variable substitution. |
+| `relay_prefix_variables_used`    | `tuple[str, ...]` | Variables that were resolved from event context.       |
+| `relay_prefix_missing_variables` | `tuple[str, ...]` | Variables whose source values were `None` or absent.   |
+| `relay_prefix_unknown_variables` | `tuple[str, ...]` | Placeholders not recognized by the formatter.          |
+| `relay_prefix_formatting_error`  | `str \| None`     | Non-`None` when a formatting exception occurred.       |
+
+Transport-specific metadata keys (e.g. Meshtastic `channel_index`) are
+optional additions that do not conflict with the normalized set above.
+
+### 17.5.7 False Delivery Claims
 
 No relay prefix, regardless of its content, constitutes a delivery claim.
 Prefixes are prepended to message text for human readability only. The

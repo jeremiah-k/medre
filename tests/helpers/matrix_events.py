@@ -35,27 +35,6 @@ def make_matrix_event(
     )
 
 
-class StubMeshtasticConfig:
-    """Minimal duck-typed MeshtasticConfig for source-config resolution tests.
-
-    NOTE: ``meshnet_name`` is vestigial — the renderer no longer uses it as a
-    template variable, but the field is kept here because some tests still
-    reference it via attribute access.
-    """
-
-    def __init__(
-        self,
-        adapter_id: str = "radio-alpha",
-        meshnet_name: str = "",  # vestigial — no longer consumed by renderer
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
 def make_meshtastic_event(
     source_adapter: str = "radio-alpha",
     payload: dict | None = None,

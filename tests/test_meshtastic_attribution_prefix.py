@@ -67,85 +67,6 @@ def _make_matrix_event(
     )
 
 
-# ===================================================================
-# Meshtastic-origin events: clean rendering
-# ===================================================================
-
-
-class TestMeshtasticOriginNoNonsense:
-    """Meshtastic-origin events rendered back to Meshtastic produce clean output."""
-
-    async def test_meshtastic_loop_prefix_clean(self) -> None:
-        """Meshtastic-origin event with prefix produces no 'None' or garbled output."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
-        event = CanonicalEvent(
-            event_id="mesh-evt-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="mesh-1",
-            source_transport_id="!node1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello from mesh"},
-            metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={
-                        "longname": "MeshNode1",
-                        "shortname": "Mesh1",
-                        "from_id": "1234567890",
-                    }
-                )
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert text.startswith("Mesh1: ")
-        assert "None" not in text
-        assert "hello from mesh" in text
-
-    async def test_routed_meshtastic_no_prefix_nonsense(self) -> None:
-        """Routed Meshtastic event without prefix renders cleanly."""
-        renderer = _make_renderer("mesh-1")
-        event = CanonicalEvent(
-            event_id="mesh-evt-2",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="mesh-other",
-            source_transport_id="!node2",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "routed msg"},
-            metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={
-                        "longname": "OtherNode",
-                        "shortname": "Othr",
-                        "from_id": "9876543210",
-                    }
-                )
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert "None" not in text
-        assert "routed msg" in text
-
-
-# ===================================================================
-# Source origin_label from source_attribution registry
-# ===================================================================
-
-
 def _make_renderer_with_attribution(
     target_adapter: str = "mesh-1",
     *,
@@ -171,119 +92,195 @@ class _StubSourceAttribution:
     origin_label: str = ""
 
 
-class TestSourceOriginLabel:
-    """Meshtastic target prefix uses source origin_label from registry."""
+# ===================================================================
+# Meshtastic-origin events: clean rendering
+# ===================================================================
 
-    async def test_source_origin_label_in_prefix(self) -> None:
-        """Source origin_label from registry appears in prefix."""
-        renderer = _make_renderer_with_attribution(
-            "mesh-1",
-            radio_relay_prefix="[{origin_label}]: ",
-            source_attribution={
-                "matrix-1": _StubSourceAttribution(
-                    adapter_id="matrix-1",
-                    origin_label="Matrix Server",
-                ),
-            },
-        )
-        event = CanonicalEvent(
-            event_id="mx-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="@alice:example.com",
-            source_channel_id="!room:example.com",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={
-                        "longname": "Alice",
-                        "shortname": "A",
-                        "from_id": "@alice:example.com",
-                    }
-                )
+
+async def test_meshtastic_loop_prefix_clean() -> None:
+    """Meshtastic-origin event with prefix produces no 'None' or garbled output."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="mesh-evt-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="mesh-1",
+        source_transport_id="!node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from mesh"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "longname": "MeshNode1",
+                    "shortname": "Mesh1",
+                    "from_id": "1234567890",
+                }
+            )
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("Mesh1: ")
+    assert "None" not in text
+    assert "hello from mesh" in text
+
+
+async def test_routed_meshtastic_no_prefix_nonsense() -> None:
+    """Routed Meshtastic event without prefix renders cleanly."""
+    renderer = _make_renderer("mesh-1")
+    event = CanonicalEvent(
+        event_id="mesh-evt-2",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="mesh-other",
+        source_transport_id="!node2",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "routed msg"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "longname": "OtherNode",
+                    "shortname": "Othr",
+                    "from_id": "9876543210",
+                }
+            )
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert "None" not in text
+    assert "routed msg" in text
+
+
+# ===================================================================
+# Source origin_label from source_attribution registry
+# ===================================================================
+
+
+async def test_source_origin_label_in_prefix() -> None:
+    """Source origin_label from registry appears in prefix."""
+    renderer = _make_renderer_with_attribution(
+        "mesh-1",
+        radio_relay_prefix="[{origin_label}]: ",
+        source_attribution={
+            "matrix-1": _StubSourceAttribution(
+                adapter_id="matrix-1",
+                origin_label="Matrix Server",
             ),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
-        )
-        assert "[Matrix Server]: " in result.payload["text"]
-        assert "hello" in result.payload["text"]
+        },
+    )
+    event = CanonicalEvent(
+        event_id="mx-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="matrix-1",
+        source_transport_id="@alice:example.com",
+        source_channel_id="!room:example.com",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "longname": "Alice",
+                    "shortname": "A",
+                    "from_id": "@alice:example.com",
+                }
+            )
+        ),
+    )
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+    )
+    assert "[Matrix Server]: " in result.payload["text"]
+    assert "hello" in result.payload["text"]
 
-    async def test_matrix_to_meshtastic_uses_source_origin_label(self) -> None:
-        """Matrix→Meshtastic: Matrix source origin_label appears in Meshtastic prefix."""
-        renderer = _make_renderer_with_attribution(
-            "mesh-1",
-            radio_relay_prefix="[{origin_label}/{sender_short}]: ",
-            source_attribution={
-                "matrix-1": _StubSourceAttribution(
-                    adapter_id="matrix-1",
-                    origin_label="Home Matrix",
-                ),
-            },
-        )
-        event = _make_matrix_event(display_name="TestUser")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
-        )
-        text = result.payload["text"]
-        assert "Home Matrix" in text
-        # sender_short from display name (no explicit shortname)
-        assert "TestU" in text
 
-    async def test_mesh_to_mesh_uses_source_origin_label(self) -> None:
-        """MeshtasticA→MeshtasticB: source A's origin_label, not B's."""
-        renderer = MeshtasticRenderer(
-            configs={
-                "radio-alpha": MeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    radio_relay_prefix="",
-                ),
-                "radio-bravo": MeshtasticConfig(
-                    adapter_id="radio-bravo",
-                    radio_relay_prefix="[{origin_label}]: ",
-                ),
-            },
-            source_attribution={
-                "radio-alpha": _StubSourceAttribution(
-                    adapter_id="radio-alpha",
-                    origin_label="East Radio",
-                ),
-                "radio-bravo": _StubSourceAttribution(
-                    adapter_id="radio-bravo",
-                    origin_label="West Radio",
-                ),
-            },
-        )
-        event = CanonicalEvent(
-            event_id="evt-a2b",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="radio-alpha",
-            source_transport_id="!nodeA",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello from A"},
-            metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={"longname": "NodeA", "shortname": "NA", "from_id": "!nodeA"}
-                )
+async def test_matrix_to_meshtastic_uses_source_origin_label() -> None:
+    """Matrix→Meshtastic: Matrix source origin_label appears in Meshtastic prefix."""
+    renderer = _make_renderer_with_attribution(
+        "mesh-1",
+        radio_relay_prefix="[{origin_label}/{sender_short}]: ",
+        source_attribution={
+            "matrix-1": _StubSourceAttribution(
+                adapter_id="matrix-1",
+                origin_label="Home Matrix",
             ),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
-        )
-        text = result.payload["text"]
-        # Should use radio-alpha's origin_label ("East Radio"), NOT bravo's
-        assert "[East Radio]: " in text
-        assert "West Radio" not in text
+        },
+    )
+    event = _make_matrix_event(display_name="TestUser")
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+    )
+    text = result.payload["text"]
+    assert "Home Matrix" in text
+    # sender_short from display name (no explicit shortname)
+    assert "TestU" in text
+
+
+async def test_mesh_to_mesh_uses_source_origin_label() -> None:
+    """MeshtasticA→MeshtasticB: source A's origin_label, not B's."""
+    renderer = MeshtasticRenderer(
+        configs={
+            "radio-alpha": MeshtasticConfig(
+                adapter_id="radio-alpha",
+                radio_relay_prefix="",
+            ),
+            "radio-bravo": MeshtasticConfig(
+                adapter_id="radio-bravo",
+                radio_relay_prefix="[{origin_label}]: ",
+            ),
+        },
+        source_attribution={
+            "radio-alpha": _StubSourceAttribution(
+                adapter_id="radio-alpha",
+                origin_label="East Radio",
+            ),
+            "radio-bravo": _StubSourceAttribution(
+                adapter_id="radio-bravo",
+                origin_label="West Radio",
+            ),
+        },
+    )
+    event = CanonicalEvent(
+        event_id="evt-a2b",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="radio-alpha",
+        source_transport_id="!nodeA",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from A"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={"longname": "NodeA", "shortname": "NA", "from_id": "!nodeA"}
+            )
+        ),
+    )
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
+    )
+    text = result.payload["text"]
+    # Should use radio-alpha's origin_label ("East Radio"), NOT bravo's
+    assert "[East Radio]: " in text
+    assert "West Radio" not in text
