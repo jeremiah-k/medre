@@ -62,16 +62,10 @@ The Matrix renderer (`MatrixRenderer` in
 `src/medre/adapters/matrix/renderer.py`) applies a relay prefix to the
 message body via `_apply_matrix_relay_prefix`.
 
-**Prefix configuration source (two paths):**
-
-1. **Target-local (preferred):** `MatrixConfig.relay_prefix` (string, default
-   `""`). When non-empty, this template is used for all Matrix outbound
-   renders. The prefix lives on the adapter that owns the rendering.
-
-2. **Backward-compat fallback:** When `MatrixConfig.relay_prefix` is empty,
-   the renderer falls back to the source adapter config resolved via the
-   `source_configs` mapping. This preserves legacy behavior where
-   the source adapter's config controlled the Matrix-bound prefix.
+**Prefix configuration source:** `MatrixConfig.relay_prefix` (string, default
+`""`). When non-empty, this template is used for all Matrix outbound
+renders. The prefix lives on the adapter that owns the rendering.
+When empty, no prefix is prepended.
 
 The `{origin_label}` template variable is resolved from the source adapter's
 `origin_label` config via the runtime source-attribution registry.
@@ -97,7 +91,7 @@ They are left unchanged in the rendered output and reported in
 
 **Default prefix** (from `MatrixConfig.relay_prefix`):
 `""` (no prefix by default). Operators configure the prefix template on the
-Matrix adapter config (target-local).
+Matrix adapter config (target-local). When empty, no prefix is prepended.
 
 **Application points:**
 
@@ -107,10 +101,6 @@ Matrix adapter config (target-local).
    469–496)
 
 The prefix is applied **before** any truncation.
-
-**When no source config is found** (e.g. event from an adapter not in
-the `source_configs` mapping), the prefix resolves to empty string and
-no prefix is prepended.
 
 **Source-origin label enrichment:** The Matrix renderer looks up the source
 adapter's `origin_label` from the source-attribution registry and populates
@@ -427,7 +417,7 @@ non-empty):
 | `KEY_TEXT`         | `"meshtastic_text"`         | Matrix renderer injection         |
 | `KEY_REPLY_ID`     | `"meshtastic_replyId"`      | Matrix renderer reply + reaction  |
 | `KEY_EMOJI`        | `"meshtastic_emoji"`        | Matrix renderer reaction fallback |
-| `KEY_REACTION_KEY` | `"meshtastic_reaction_key`" | MEDRE extension, not standard     |
+| `KEY_REACTION_KEY` | `"meshtastic_reaction_key"` | MEDRE extension, not standard     |
 | `PORTNUM_TEXT`     | `"TEXT_MESSAGE_APP"`        | Hardcoded injection value         |
 | `EMOJI_FLAG_VALUE` | `1`                         | Reaction flag                     |
 
@@ -526,7 +516,7 @@ MeshCore uses `meshcore.sender_id` (hex pubkey prefix). LXMF uses
 
 Consequence: prefix templates referencing `{sender}` or `{sender_short}`
 resolve to empty string when the source is MeshCore or LXMF. Operators
-SHOULD prefer `{origin_label}` or `{sender_id}` for cross-platform templates.
+should prefer `{origin_label}` or `{sender_id}` for cross-platform templates.
 
 ### 3. Prefix config ownership is target-local for Matrix, target-owned for others
 
@@ -565,7 +555,7 @@ layer. For MeshCore and LXMF sources, sender labels are empty but
 
 `{origin_label}` is the MEDRE-generic source label available on all
 adapter configs. It resolves to the operator-defined label for any
-transport source. Operators SHOULD prefer `{origin_label}` in
+transport source. Operators should prefer `{origin_label}` in
 cross-platform templates.
 
 ### 6. `mmrelay_compatibility` is Meshtastic-only

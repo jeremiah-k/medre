@@ -70,69 +70,68 @@ def _make_event(
 # ===================================================================
 
 
-class TestMeshCoreFormattingExceptionGuard:
-    """MeshCore renderer does not prepend raw template on formatting_exception."""
-
-    async def test_mocked_exception_guard(self) -> None:
-        """On formatting_exception, raw template is NOT prepended to text."""
-        template = "[{origin_label}]: "
-        cfg = _make_meshcore_config(meshcore_relay_prefix=template)
-        renderer = MeshCoreRenderer(configs={"mc-1": cfg})
-        event = _make_event()
-        # Patch inside the defining module so the real format_relay_prefix
-        # exercises its own try/except handler.  Avoids brittle imported
-        # binding patches that may not take effect in some CI environments.
-        with patch(
-            "medre.core.rendering.attribution._build_variable_map",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = await renderer.render(
-                event,
-                RenderingContext(target_adapter="mc-1", delivery_strategy="direct"),
-            )
-        text = result.payload["text"]
-        # Raw template NOT prepended — only original body text
-        assert template not in text
-        assert text == "hello world"
-
-    async def test_mocked_metadata_records_all_six_keys(self) -> None:
-        """All 6 normalized metadata keys are recorded even on exception."""
-        template = "[{origin_label}]: "
-        cfg = _make_meshcore_config(meshcore_relay_prefix=template)
-        renderer = MeshCoreRenderer(configs={"mc-1": cfg})
-        event = _make_event()
-        with patch(
-            "medre.core.rendering.attribution._build_variable_map",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = await renderer.render(
-                event,
-                RenderingContext(target_adapter="mc-1", delivery_strategy="direct"),
-            )
-        meta = result.metadata
-        assert meta["relay_prefix_template"] == template
-        assert meta["relay_prefix_rendered"] == template
-        assert meta["relay_prefix_variables_used"] == ()
-        assert meta["relay_prefix_missing_variables"] == ()
-        assert meta["relay_prefix_unknown_variables"] == ()
-        assert meta["relay_prefix_formatting_error"] is not None
-        assert meta["relay_prefix_formatting_error"].startswith("formatting_exception:")
-
-    async def test_normal_unknown_placeholder_still_prepended(self) -> None:
-        """Non-exception formatting (unknown placeholder) still prepends prefix."""
-        # {meshnet_name} is unknown → rendered as literal, no exception
-        template = "[{meshnet_name}]: "
-        cfg = _make_meshcore_config(meshcore_relay_prefix=template)
-        renderer = MeshCoreRenderer(configs={"mc-1": cfg})
-        event = _make_event()
+async def test_meshcore_mocked_exception_guard() -> None:
+    """On formatting_exception, raw template is NOT prepended to text."""
+    template = "[{origin_label}]: "
+    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    renderer = MeshCoreRenderer(configs={"mc-1": cfg})
+    event = _make_event()
+    # Patch inside the defining module so the real format_relay_prefix
+    # exercises its own try/except handler.  Avoids brittle imported
+    # binding patches that may not take effect in some CI environments.
+    with patch(
+        "medre.core.rendering.attribution._build_variable_map",
+        side_effect=RuntimeError("boom"),
+    ):
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="mc-1", delivery_strategy="direct"),
         )
-        text = result.payload["text"]
-        # Unknown placeholder → prefix prepended with literal {meshnet_name}
-        assert text.startswith("[{meshnet_name}]: ")
-        assert "hello world" in text
+    text = result.payload["text"]
+    # Raw template NOT prepended — only original body text
+    assert template not in text
+    assert text == "hello world"
+
+
+async def test_meshcore_mocked_metadata_records_all_six_keys() -> None:
+    """All 6 normalized metadata keys are recorded even on exception."""
+    template = "[{origin_label}]: "
+    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    renderer = MeshCoreRenderer(configs={"mc-1": cfg})
+    event = _make_event()
+    with patch(
+        "medre.core.rendering.attribution._build_variable_map",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-1", delivery_strategy="direct"),
+        )
+    meta = result.metadata
+    assert meta["relay_prefix_template"] == template
+    assert meta["relay_prefix_rendered"] == template
+    assert meta["relay_prefix_variables_used"] == ()
+    assert meta["relay_prefix_missing_variables"] == ()
+    assert meta["relay_prefix_unknown_variables"] == ()
+    assert meta["relay_prefix_formatting_error"] is not None
+    assert meta["relay_prefix_formatting_error"].startswith("formatting_exception:")
+
+
+async def test_meshcore_normal_unknown_placeholder_still_prepended() -> None:
+    """Non-exception formatting (unknown placeholder) still prepends prefix."""
+    # {meshnet_name} is unknown → rendered as literal, no exception
+    template = "[{meshnet_name}]: "
+    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    renderer = MeshCoreRenderer(configs={"mc-1": cfg})
+    event = _make_event()
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="mc-1", delivery_strategy="direct"),
+    )
+    text = result.payload["text"]
+    # Unknown placeholder → prefix prepended with literal {meshnet_name}
+    assert text.startswith("[{meshnet_name}]: ")
+    assert "hello world" in text
 
 
 # ===================================================================
@@ -140,62 +139,61 @@ class TestMeshCoreFormattingExceptionGuard:
 # ===================================================================
 
 
-class TestLxmfFormattingExceptionGuard:
-    """LXMF renderer does not prepend raw template on formatting_exception."""
-
-    async def test_mocked_exception_guard(self) -> None:
-        """On formatting_exception, raw template is NOT prepended to text."""
-        template = "[{origin_label}]: "
-        renderer = LxmfRenderer(relay_prefix=template)
-        event = _make_event()
-        # Patch inside the defining module so the real format_relay_prefix
-        # exercises its own try/except handler.  Avoids brittle imported
-        # binding patches that may not take effect in some CI environments.
-        with patch(
-            "medre.core.rendering.attribution._build_variable_map",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = await renderer.render(
-                event,
-                RenderingContext(target_adapter="lxmf-1", delivery_strategy="direct"),
-            )
-        text = result.payload["content"]
-        # Raw template NOT prepended — only original body text
-        assert template not in text
-        assert text == "hello world"
-
-    async def test_mocked_metadata_records_all_six_keys(self) -> None:
-        """All 6 normalized metadata keys are recorded even on exception."""
-        template = "[{origin_label}]: "
-        renderer = LxmfRenderer(relay_prefix=template)
-        event = _make_event()
-        with patch(
-            "medre.core.rendering.attribution._build_variable_map",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = await renderer.render(
-                event,
-                RenderingContext(target_adapter="lxmf-1", delivery_strategy="direct"),
-            )
-        meta = result.metadata
-        assert meta["relay_prefix_template"] == template
-        assert meta["relay_prefix_rendered"] == template
-        assert meta["relay_prefix_variables_used"] == ()
-        assert meta["relay_prefix_missing_variables"] == ()
-        assert meta["relay_prefix_unknown_variables"] == ()
-        assert meta["relay_prefix_formatting_error"] is not None
-        assert meta["relay_prefix_formatting_error"].startswith("formatting_exception:")
-
-    async def test_normal_unknown_placeholder_still_prepended(self) -> None:
-        """Non-exception formatting (unknown placeholder) still prepends prefix."""
-        template = "[{meshnet_name}]: "
-        renderer = LxmfRenderer(relay_prefix=template)
-        event = _make_event()
+async def test_lxmf_mocked_exception_guard() -> None:
+    """On formatting_exception, raw template is NOT prepended to text."""
+    template = "[{origin_label}]: "
+    renderer = LxmfRenderer(relay_prefix=template)
+    event = _make_event()
+    # Patch inside the defining module so the real format_relay_prefix
+    # exercises its own try/except handler.  Avoids brittle imported
+    # binding patches that may not take effect in some CI environments.
+    with patch(
+        "medre.core.rendering.attribution._build_variable_map",
+        side_effect=RuntimeError("boom"),
+    ):
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf-1", delivery_strategy="direct"),
         )
-        text = result.payload["content"]
-        # Unknown placeholder → prefix prepended with literal {meshnet_name}
-        assert text.startswith("[{meshnet_name}]: ")
-        assert "hello world" in text
+    text = result.payload["content"]
+    # Raw template NOT prepended — only original body text
+    assert template not in text
+    assert text == "hello world"
+
+
+async def test_lxmf_mocked_metadata_records_all_six_keys() -> None:
+    """All 6 normalized metadata keys are recorded even on exception."""
+    template = "[{origin_label}]: "
+    renderer = LxmfRenderer(relay_prefix=template)
+    event = _make_event()
+    with patch(
+        "medre.core.rendering.attribution._build_variable_map",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf-1", delivery_strategy="direct"),
+        )
+    meta = result.metadata
+    assert meta["relay_prefix_template"] == template
+    assert meta["relay_prefix_rendered"] == template
+    assert meta["relay_prefix_variables_used"] == ()
+    assert meta["relay_prefix_missing_variables"] == ()
+    assert meta["relay_prefix_unknown_variables"] == ()
+    assert meta["relay_prefix_formatting_error"] is not None
+    assert meta["relay_prefix_formatting_error"].startswith("formatting_exception:")
+
+
+async def test_lxmf_normal_unknown_placeholder_still_prepended() -> None:
+    """Non-exception formatting (unknown placeholder) still prepends prefix."""
+    template = "[{meshnet_name}]: "
+    renderer = LxmfRenderer(relay_prefix=template)
+    event = _make_event()
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="lxmf-1", delivery_strategy="direct"),
+    )
+    text = result.payload["content"]
+    # Unknown placeholder → prefix prepended with literal {meshnet_name}
+    assert text.startswith("[{meshnet_name}]: ")
+    assert "hello world" in text

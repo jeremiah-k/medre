@@ -483,12 +483,12 @@ class TestMultiRadioSourceConfig:
     def _source_configs() -> dict[str, _StubMeshtasticConfig]:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
-            meshnet_name="AlphaNet",
+            meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
-            meshnet_name="BravoNet",
+            meshnet_name="LEGACY-Bravo",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
@@ -537,6 +537,8 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
+        # Verify origin_label is used, not legacy meshnet_name
+        assert "LEGACY-Alpha" not in result.payload["body"]
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
         """Event from radio-bravo resolves origin_label=BravoNet in target-local prefix."""
@@ -550,6 +552,8 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
+        # Verify origin_label is used, not legacy meshnet_name
+        assert "LEGACY-Bravo" not in result.payload["body"]
 
     async def test_unknown_source_renders_plain_output(self) -> None:
         """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
@@ -701,12 +705,12 @@ class TestRuntimeAssemblySourceConfig:
     def _source_configs() -> dict[str, _StubMeshtasticConfig]:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
-            meshnet_name="AlphaNet",
+            meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
-            meshnet_name="BravoNet",
+            meshnet_name="LEGACY-Bravo",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
@@ -760,6 +764,8 @@ class TestRuntimeAssemblySourceConfig:
         assert result.payload["meshtastic_id"] == "42"
         # KEY_MESHNET sourced from origin_label in source_attribution
         assert result.payload["meshtastic_meshnet"] == "AlphaNet"
+        # Verify origin_label is used, not legacy meshnet_name
+        assert "LEGACY-Alpha" not in result.payload["body"]
 
     async def test_runtime_source_b_renders_with_bravo_metadata(self) -> None:
         """Runtime assembly: event from radio-bravo uses bravo's prefix, no mmrelay metadata."""
@@ -776,6 +782,8 @@ class TestRuntimeAssemblySourceConfig:
         # bravo has mmrelay_compat=False → no mesh metadata
         assert "meshtastic_id" not in result.payload
         assert "meshtastic_meshnet" not in result.payload
+        # Verify origin_label is used, not legacy meshnet_name
+        assert "LEGACY-Bravo" not in result.payload["body"]
 
     async def test_non_meshtastic_source_renders_plain_output(self) -> None:
         """Non-Meshtastic source renders plain Matrix output with no Meshtastic metadata."""

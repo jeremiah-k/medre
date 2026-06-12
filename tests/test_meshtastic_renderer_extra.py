@@ -6,7 +6,7 @@ rendering, and multi-radio scenarios.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -50,7 +50,7 @@ def _make_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
         source_transport_id="!node1",
         source_channel_id="0",
@@ -102,7 +102,7 @@ def _make_matrix_event(
         event_id=event_id,
         event_kind="message.reacted",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="@user:example.com",
         source_channel_id="!room:example.com",
@@ -292,7 +292,7 @@ class TestMatrixToMeshtasticNoMapping:
             event_id="evt-minimal",
             event_kind="message.reacted",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:server",
@@ -396,7 +396,7 @@ class TestMatrixDisplayNameInPrefix:
             event_id="mx-1",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@alice:example.com",
             source_channel_id="!room:example.com",
@@ -431,7 +431,7 @@ class TestMatrixDisplayNameInPrefix:
             event_id="mx-2",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@alice:example.com",
             source_channel_id="!room:example.com",
@@ -487,7 +487,7 @@ class TestByteBudgetTruncation:
             event_id="evt-trunc",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -875,7 +875,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-multi",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -987,7 +987,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-reply",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -1039,7 +1039,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-react",
             event_kind="message.reacted",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="radio-alpha",
             source_transport_id="!node1",
             source_channel_id="0",
@@ -1121,240 +1121,225 @@ class TestMultiRadioTargetAware:
 # ===================================================================
 
 
-class TestSharedAttributionMeshCore:
-    """MeshCore → Meshtastic prefix uses pubkey_prefix as sender fallback."""
-
-    async def test_pubkey_prefix_in_sender_id(self) -> None:
-        """MeshCore event with pubkey_prefix populates sender_id."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
-        event = CanonicalEvent(
-            event_id="mc-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="meshcore-1",
-            source_transport_id="!mc-node1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello from meshcore"},
-            metadata=EventMetadata(
-                native=NativeMetadata(data={"pubkey_prefix": "a1b2c3"})
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert text.startswith("a1b2c3: ")
-        assert "None" not in text
-
-    async def test_pubkey_prefix_in_sender_id_template(self) -> None:
-        """MeshCore event pubkey_prefix is available as {sender_id}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="<{sender_id}> ")
-        event = CanonicalEvent(
-            event_id="mc-2",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="meshcore-1",
-            source_transport_id="!mc-node1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hi"},
-            metadata=EventMetadata(
-                native=NativeMetadata(data={"pubkey_prefix": "abcdef12"})
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert text.startswith("<abcdef12> ")
+async def test_meshcore_pubkey_prefix_in_sender_id() -> None:
+    """MeshCore event with pubkey_prefix populates sender_id."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    event = CanonicalEvent(
+        event_id="mc-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="meshcore-1",
+        source_transport_id="!mc-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from meshcore"},
+        metadata=EventMetadata(native=NativeMetadata(data={"pubkey_prefix": "a1b2c3"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("a1b2c3: ")
+    assert "None" not in text
 
 
-class TestSharedAttributionLXMF:
-    """LXMF → Meshtastic prefix uses source_hash as sender fallback."""
-
-    async def test_source_hash_in_sender_id(self) -> None:
-        """LXMF event with source_hash populates {sender_id}."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
-        event = CanonicalEvent(
-            event_id="lx-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="lxmf-1",
-            source_transport_id="!lx-node1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello from lxmf"},
-            metadata=EventMetadata(
-                native=NativeMetadata(data={"source_hash": "deadbeef"})
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert text.startswith("deadbeef: ")
-
-    async def test_source_hash_in_sender_short(self) -> None:
-        """LXMF event with source_hash: sender_short is empty (no short label)."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
-        event = CanonicalEvent(
-            event_id="lx-2",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="lxmf-1",
-            source_transport_id="!lx-node1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(
-                native=NativeMetadata(data={"source_hash": "cafebaaa"})
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        # No short label → sender_short renders empty
-        assert text.startswith(": ")
+async def test_meshcore_pubkey_prefix_in_sender_id_template() -> None:
+    """MeshCore event pubkey_prefix is available as {sender_id}."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="<{sender_id}> ")
+    event = CanonicalEvent(
+        event_id="mc-2",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="meshcore-1",
+        source_transport_id="!mc-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hi"},
+        metadata=EventMetadata(
+            native=NativeMetadata(data={"pubkey_prefix": "abcdef12"})
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("<abcdef12> ")
 
 
-class TestMissingVarsNeverRenderNone:
-    """Missing template variables never render the literal 'None'."""
-
-    async def test_no_native_data_no_none_in_prefix(self) -> None:
-        """Event with no native metadata renders empty prefix vars, not 'None'."""
-        renderer = _make_renderer(
-            "mesh-1", radio_relay_prefix="[{sender}][{sender_short}]: "
-        )
-        event = CanonicalEvent(
-            event_id="evt-empty",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="",
-            source_channel_id="",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert "None" not in text
-        assert text == "[][]: hello"
-
-    async def test_partial_native_data_no_none(self) -> None:
-        """Event with only longname renders sender_short empty, not 'None'."""
-        renderer = _make_renderer(
-            "mesh-1", radio_relay_prefix="{sender}/{sender_short}: "
-        )
-        event = CanonicalEvent(
-            event_id="evt-partial",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="",
-            source_channel_id="",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hi"},
-            metadata=EventMetadata(native=NativeMetadata(data={"longname": "Alice"})),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        text = result.payload["text"]
-        assert "None" not in text
-        assert text.startswith("Alice/")
+async def test_lxmf_source_hash_in_sender_id() -> None:
+    """LXMF event with source_hash populates {sender_id}."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    event = CanonicalEvent(
+        event_id="lx-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="lxmf-1",
+        source_transport_id="!lx-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from lxmf"},
+        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "deadbeef"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("deadbeef: ")
 
 
-class TestPrefixFormatterMetadata:
-    """Prefix formatter metadata is recorded in rendering result."""
+async def test_lxmf_source_hash_in_sender_short() -> None:
+    """LXMF event with source_hash: sender_short is empty (no short label)."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="lx-2",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="lxmf-1",
+        source_transport_id="!lx-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "cafebaaa"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    # No short label → sender_short renders empty
+    assert text.startswith(": ")
 
-    async def test_metadata_records_prefix_template_and_variables(self) -> None:
-        """Result metadata includes relay_prefix_template and relay_prefix_variables_used."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
-        event = CanonicalEvent(
-            event_id="evt-meta",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="@user:example.com",
-            source_channel_id="!room:example.com",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={"shortname": "TestUser", "from_id": "@user:example.com"}
-                )
-            ),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        # Normalized keys
-        assert result.metadata["relay_prefix_template"] == "{sender_short}: "
-        assert result.metadata["relay_prefix_rendered"] == "TestUser: "
-        assert "relay_prefix_variables_used" in result.metadata
-        assert "sender_short" in result.metadata["relay_prefix_variables_used"]
-        assert "relay_prefix_missing_variables" in result.metadata
-        assert isinstance(result.metadata["relay_prefix_missing_variables"], tuple)
-        assert "relay_prefix_unknown_variables" in result.metadata
-        assert isinstance(result.metadata["relay_prefix_unknown_variables"], tuple)
-        assert "relay_prefix_formatting_error" in result.metadata
-        assert result.metadata["relay_prefix_formatting_error"] is None
 
-    async def test_metadata_no_prefix_keys_when_no_prefix(self) -> None:
-        """When no prefix is configured, no prefix metadata keys are present."""
-        renderer = _make_renderer("mesh-1")
-        event = _make_event()
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        assert "relay_prefix_template" not in result.metadata
-        assert "relay_prefix_rendered" not in result.metadata
+async def test_no_native_data_no_none_in_prefix() -> None:
+    """Event with no native metadata renders empty prefix vars, not 'None'."""
+    renderer = _make_renderer(
+        "mesh-1", radio_relay_prefix="[{sender}][{sender_short}]: "
+    )
+    event = CanonicalEvent(
+        event_id="evt-empty",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert "None" not in text
+    assert text == "[][]: hello"
 
-    async def test_metadata_records_missing_variables(self) -> None:
-        """Result metadata records variables that resolved to empty."""
-        renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}: ")
-        event = CanonicalEvent(
-            event_id="evt-miss",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="",
-            source_channel_id="",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        assert "relay_prefix_missing_variables" in result.metadata
-        assert "sender" in result.metadata["relay_prefix_missing_variables"]
+
+async def test_partial_native_data_no_none() -> None:
+    """Event with only longname renders sender_short empty, not 'None'."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}/{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="evt-partial",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hi"},
+        metadata=EventMetadata(native=NativeMetadata(data={"longname": "Alice"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert "None" not in text
+    assert text.startswith("Alice/")
+
+
+async def test_prefix_metadata_records_template_and_variables() -> None:
+    """Result metadata includes relay_prefix_template and relay_prefix_variables_used."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="evt-meta",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="@user:example.com",
+        source_channel_id="!room:example.com",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={"shortname": "TestUser", "from_id": "@user:example.com"}
+            )
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    # Normalized keys
+    assert result.metadata["relay_prefix_template"] == "{sender_short}: "
+    assert result.metadata["relay_prefix_rendered"] == "TestUser: "
+    assert "relay_prefix_variables_used" in result.metadata
+    assert "sender_short" in result.metadata["relay_prefix_variables_used"]
+    assert "relay_prefix_missing_variables" in result.metadata
+    assert isinstance(result.metadata["relay_prefix_missing_variables"], tuple)
+    assert "relay_prefix_unknown_variables" in result.metadata
+    assert isinstance(result.metadata["relay_prefix_unknown_variables"], tuple)
+    assert "relay_prefix_formatting_error" in result.metadata
+    assert result.metadata["relay_prefix_formatting_error"] is None
+
+
+async def test_prefix_metadata_no_prefix_keys_when_no_prefix() -> None:
+    """When no prefix is configured, no prefix metadata keys are present."""
+    renderer = _make_renderer("mesh-1")
+    event = _make_event()
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    assert "relay_prefix_template" not in result.metadata
+    assert "relay_prefix_rendered" not in result.metadata
+
+
+async def test_prefix_metadata_records_missing_variables() -> None:
+    """Result metadata records variables that resolved to empty."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}: ")
+    event = CanonicalEvent(
+        event_id="evt-miss",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    assert "relay_prefix_missing_variables" in result.metadata
+    assert "sender" in result.metadata["relay_prefix_missing_variables"]

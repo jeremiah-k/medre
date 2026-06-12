@@ -12,7 +12,7 @@ describe the source, not the target, via source-attribution registry.
   Prefix with six subsections: Purpose and Scope, origin_label definition,
   Label and Identity Distinctions, Renderer Lookup, Shared Formatter and
   Variable Schema, False Delivery Claims. Defines `origin_label` as the
-  Defines `origin_label` as the canonical platform-neutral operator label,
+  canonical platform-neutral operator label,
   distinct from `source_sender_id` (native ID) and `route_id`.
   Documents source-attribution registry lookup and target-local Matrix
   prefix model.
@@ -52,7 +52,7 @@ describe the source, not the target, via source-attribution registry.
   Default `""`. Used as `{origin_label}` in prefix templates.
 - `relay_prefix`: New string field on `MatrixConfig`. Default `""`.
   Target-local prefix template for Matrix outbound renders. When empty,
-  the renderer falls back to the source adapter config.
+  no prefix is prepended.
 
 Existing configs without these fields use defaults. No config migration
 required.

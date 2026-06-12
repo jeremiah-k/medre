@@ -11,6 +11,7 @@ Verifies:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from medre.adapters.matrix.renderer import MatrixRenderer
@@ -30,30 +31,21 @@ from medre.interop.mmrelay import KEY_MESHNET
 # ---------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
 class _StubSourceAttribution:
     """Minimal duck-typed SourceAttributionConfig for tests."""
 
-    def __init__(
-        self,
-        adapter_id: str = "",
-        origin_label: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
+    adapter_id: str = ""
+    origin_label: str = ""
 
 
+@dataclass(slots=True)
 class _StubMeshtasticConfig:
     """Minimal duck-typed MeshtasticConfig for Matrix source_configs."""
 
-    def __init__(
-        self,
-        adapter_id: str = "radio-alpha",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
+    adapter_id: str = "radio-alpha"
+    matrix_relay_prefix: str = ""
+    mmrelay_compatibility: bool = False
 
 
 def _make_meshtastic_event(

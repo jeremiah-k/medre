@@ -1116,8 +1116,8 @@ enabled = true
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Duplicate TOML table headers are a parse error, so load_config
-        # should raise rather than silently merging or accepting the config.
-        with pytest.raises(Exception):
+        # should raise ConfigFileError rather than silently merging.
+        with pytest.raises(ConfigFileError, match="[Dd]uplicate"):
             load_config(None)
 
 

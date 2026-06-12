@@ -4,6 +4,7 @@ target channel propagation, truncation, metadata, and edge cases.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pytest
@@ -1267,18 +1268,13 @@ class TestMeshCoreRendererRelayPrefix:
 # ===================================================================
 
 
+@dataclass(slots=True)
 class _StubSourceAttribution:
     """Minimal duck-typed SourceAttributionConfig for tests."""
 
-    def __init__(
-        self,
-        adapter_id: str = "",
-        origin_label: str = "",
-        meshnet_name: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-        self.meshnet_name = meshnet_name
+    adapter_id: str = ""
+    origin_label: str = ""
+    meshnet_name: str = ""
 
 
 class TestMeshCoreSourceOriginLabel:

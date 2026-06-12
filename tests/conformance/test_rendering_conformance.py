@@ -106,10 +106,10 @@ class TestMeshtasticRenderingConformance:
     """Assert Meshtastic renderer output matches MEDRE rendering contracts."""
 
     @pytest.mark.asyncio
-    async def test_meshtastic_direct_text_includes_text_channel_meshnet(
+    async def test_meshtastic_direct_text_includes_text_channel(
         self, meshtastic_renderer
     ):
-        """Meshtastic direct text includes text, channel_index."""
+        """Meshtastic direct text includes text, channel_index; excludes meshnet_name."""
         event = make_text_event(source_adapter=MESHTASTIC_ADAPTER_ID, body="Hello mesh")
         ctx = RenderingContext(
             delivery_strategy="direct",

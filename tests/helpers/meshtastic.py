@@ -28,7 +28,11 @@ def make_meshtastic_rendering_result(
         event_id=event_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        payload=payload or {"text": "hello mesh", "channel_index": 0},
+        payload=(
+            payload
+            if payload is not None
+            else {"text": "hello mesh", "channel_index": 0}
+        ),
     )
 
 

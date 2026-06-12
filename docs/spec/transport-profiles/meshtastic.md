@@ -136,14 +136,14 @@ space for message content.
 When a prefix is rendered, the following diagnostic keys are set on the
 `RenderingResult.metadata` (normalized keys, consistent across all renderers):
 
-| Key                              | Value                                                                                     |
-| -------------------------------- | ----------------------------------------------------------------------------------------- |
-| `relay_prefix_template`          | The raw template string from adapter config                                               |
-| `relay_prefix_rendered`          | The fully resolved prefix after variable substitution                                     |
-| `relay_prefix_variables_used`    | Variables that were resolved from event context                                           |
-| `relay_prefix_missing_variables` | Variables whose source values were `None` or absent                                       |
-| `relay_prefix_unknown_variables` | Placeholders not recognized by the formatter                                              |
-| `relay_prefix_formatting_error`  | Non-`None` when a formatting exception occurred                                           |
+| Key                              | Value                                                 |
+| -------------------------------- | ----------------------------------------------------- |
+| `relay_prefix_template`          | The raw template string from adapter config           |
+| `relay_prefix_rendered`          | The fully resolved prefix after variable substitution |
+| `relay_prefix_variables_used`    | Variables that were resolved from event context       |
+| `relay_prefix_missing_variables` | Variables whose source values were `None` or absent   |
+| `relay_prefix_unknown_variables` | Placeholders not recognized by the formatter          |
+| `relay_prefix_formatting_error`  | Non-`None` when a formatting exception occurred       |
 
 ### Matrix-Bound Prefix
 

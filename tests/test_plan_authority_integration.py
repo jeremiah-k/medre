@@ -50,11 +50,13 @@ from medre.core.routing import Route, RouteSource, RouteTarget
 
 
 class _RecordingPipeline:
-    """Rendering pipeline that records capability_level and delivery_strategy."""
+    """Rendering pipeline that records capability_level, delivery_strategy,
+    and source_origin_label."""
 
     def __init__(self) -> None:
         self.recorded_capability_level: str | None = None
         self.recorded_delivery_strategy: str | None = None
+        self.recorded_source_origin_label: str | None = None
 
     async def render(
         self,
@@ -71,6 +73,7 @@ class _RecordingPipeline:
     ) -> RenderingResult:
         self.recorded_capability_level = capability_level
         self.recorded_delivery_strategy = delivery_strategy
+        self.recorded_source_origin_label = source_origin_label
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
@@ -256,6 +259,45 @@ class TestRenderingContextCapabilityFromPlan:
 
         assert pipeline.recorded_capability_level == "fallback"
         assert pipeline.recorded_delivery_strategy == "fallback_text"
+
+    async def test_source_origin_label_propagated_to_pipeline(self) -> None:
+        """source_origin_label from RouteSource reaches the rendering pipeline."""
+        pipeline = _RecordingPipeline()
+        svc, _ = _make_service(pipeline=pipeline)
+        event = _make_event()
+        target = RouteTarget(adapter="plan_auth_adapter", channel=None)
+        route = Route(
+            id="route-origin-label",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.text",),
+                channel=None,
+                origin_label="East Radio",
+            ),
+            targets=[target],
+        )
+        plan = DeliveryPlan(
+            plan_id="plan-origin-label",
+            event_id="evt-plan-auth-001",
+            target=target,
+            primary_strategy=DeliveryStrategy(method="direct"),  # type: ignore[arg-type]
+            capability_level="native",
+        )
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert pipeline.recorded_source_origin_label == "East Radio"
+
+    async def test_source_origin_label_none_when_unset(self) -> None:
+        """source_origin_label is None when RouteSource has no origin_label."""
+        pipeline = _RecordingPipeline()
+        svc, _ = _make_service(pipeline=pipeline)
+        event = _make_event()
+        route, plan = _make_route_and_plan(capability_level="native")
+
+        await svc.deliver_to_target(event, route, plan)
+
+        assert pipeline.recorded_source_origin_label is None
 
 
 # ===================================================================

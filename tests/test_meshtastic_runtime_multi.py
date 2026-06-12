@@ -110,7 +110,7 @@ adapter_kind = "fake"
 homeserver = "https://fake.local"
 user_id = "@fake:local"
 access_token = "fake_token"
-origin_label = "RenderNet"
+origin_label = "MatrixBridge"
 
 [routes.matrix-to-radio-b]
 source_adapters = ["matrix-fake"]
@@ -331,11 +331,17 @@ class TestMeshtasticRuntimeMulti:
             assert result.metadata["max_text_bytes"] == 50
             assert len(result.payload["text"].encode("utf-8")) <= 50
 
-            # radio_relay_prefix template resolved with radio-b's origin_label.
+            # radio_relay_prefix template resolves with the source adapter's
+            # (matrix-fake) origin_label, not the target radio-b's origin_label.
             text = result.payload["text"]
             assert (
-                "[RenderNet] " in text
-            ), f"Expected '[RenderNet] ' prefix in text, got: {text!r}"
+                "[MatrixBridge] " in text
+            ), f"Expected '[MatrixBridge] ' prefix in text, got: {text!r}"
+
+            # Verify source (matrix) origin_label is used, not radio-b's.
+            assert (
+                "RenderNet" not in text
+            ), f"Target radio-b origin_label leaked into prefix: {text!r}"
 
         finally:
             try:

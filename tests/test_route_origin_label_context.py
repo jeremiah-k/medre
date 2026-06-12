@@ -2,10 +2,10 @@
 
 Verifies the minimal source-side origin-label foundation:
 
-* :class:`RouteConfig.origin_label` is threaded through the route engine
-  into :attr:`RouteSource.origin_label`.
-* :meth:`RenderingPipeline.render` threads ``source_origin_label`` into
-  the frozen :class:`RenderingContext` available to renderers.
+* ``RouteConfig.origin_label`` is threaded through the route engine
+  into ``RouteSource.origin_label``.
+* ``RenderingPipeline.render`` threads ``source_origin_label`` into
+  the frozen ``RenderingContext`` available to renderers.
 * Precedence intent: when a route label is set it appears on the context
   (overriding the adapter origin label, which renderers resolve in a
   later wave); when unset the context field is ``None`` so renderers
@@ -88,58 +88,58 @@ class _CapturingRenderer:
 # ---------------------------------------------------------------------------
 
 
-class TestRouteEngineOriginLabelThreading:
-    """The route engine carries origin_label onto the source descriptor."""
+def test_standard_expansion_threads_origin_label() -> None:
+    rc = RouteConfig.from_toml_dict(
+        "r1",
+        {
+            "source_adapters": ["src-a"],
+            "dest_adapters": ["dst-b"],
+            "origin_label": "East Relay",
+        },
+    )
+    routes = _expand_route_config(rc)
+    assert len(routes) == 1
+    assert routes[0].source.origin_label == "East Relay"
 
-    def test_standard_expansion_threads_origin_label(self) -> None:
-        rc = RouteConfig.from_toml_dict(
-            "r1",
-            {
-                "source_adapters": ["src-a"],
-                "dest_adapters": ["dst-b"],
-                "origin_label": "East Relay",
-            },
-        )
-        routes = _expand_route_config(rc)
-        assert len(routes) == 1
-        assert routes[0].source.origin_label == "East Relay"
 
-    def test_standard_expansion_none_when_unset(self) -> None:
-        rc = RouteConfig.from_toml_dict(
-            "r2",
-            {"source_adapters": ["src-a"], "dest_adapters": ["dst-b"]},
-        )
-        routes = _expand_route_config(rc)
-        assert len(routes) == 1
-        assert routes[0].source.origin_label is None
+def test_standard_expansion_none_when_unset() -> None:
+    rc = RouteConfig.from_toml_dict(
+        "r2",
+        {"source_adapters": ["src-a"], "dest_adapters": ["dst-b"]},
+    )
+    routes = _expand_route_config(rc)
+    assert len(routes) == 1
+    assert routes[0].source.origin_label is None
 
-    def test_swap_direction_keeps_origin_label(self) -> None:
-        """dest_to_source reverse leg still carries the route label."""
-        rc = RouteConfig.from_toml_dict(
-            "r3",
-            {
-                "source_adapters": ["src-a"],
-                "dest_adapters": ["dst-b"],
-                "directionality": RouteDirectionality.DEST_TO_SOURCE.value,
-                "origin_label": "West Relay",
-            },
-        )
-        routes = _expand_route_config(rc, swap_direction=True)
-        assert len(routes) == 1
-        assert routes[0].source.origin_label == "West Relay"
 
-    def test_multi_source_threads_label_to_each_leg(self) -> None:
-        rc = RouteConfig.from_toml_dict(
-            "r4",
-            {
-                "source_adapters": ["src-a", "src-c"],
-                "dest_adapters": ["dst-b"],
-                "origin_label": "Shared Label",
-            },
-        )
-        routes = _expand_route_config(rc)
-        assert len(routes) == 2
-        assert all(r.source.origin_label == "Shared Label" for r in routes)
+def test_swap_direction_keeps_origin_label() -> None:
+    """dest_to_source reverse leg still carries the route label."""
+    rc = RouteConfig.from_toml_dict(
+        "r3",
+        {
+            "source_adapters": ["src-a"],
+            "dest_adapters": ["dst-b"],
+            "directionality": RouteDirectionality.DEST_TO_SOURCE.value,
+            "origin_label": "West Relay",
+        },
+    )
+    routes = _expand_route_config(rc, swap_direction=True)
+    assert len(routes) == 1
+    assert routes[0].source.origin_label == "West Relay"
+
+
+def test_multi_source_threads_label_to_each_leg() -> None:
+    rc = RouteConfig.from_toml_dict(
+        "r4",
+        {
+            "source_adapters": ["src-a", "src-c"],
+            "dest_adapters": ["dst-b"],
+            "origin_label": "Shared Label",
+        },
+    )
+    routes = _expand_route_config(rc)
+    assert len(routes) == 2
+    assert all(r.source.origin_label == "Shared Label" for r in routes)
 
 
 # ---------------------------------------------------------------------------
@@ -147,16 +147,14 @@ class TestRouteEngineOriginLabelThreading:
 # ---------------------------------------------------------------------------
 
 
-class TestRouteSourceOriginLabel:
-    """RouteSource defaults origin_label to None and is frozen."""
+def test_route_source_origin_label_default_none() -> None:
+    rs = RouteSource(adapter="a", event_kinds=(), channel=None)
+    assert rs.origin_label is None
 
-    def test_default_none(self) -> None:
-        rs = RouteSource(adapter="a", event_kinds=(), channel=None)
-        assert rs.origin_label is None
 
-    def test_set_value(self) -> None:
-        rs = RouteSource(adapter="a", event_kinds=(), channel=None, origin_label="L")
-        assert rs.origin_label == "L"
+def test_route_source_origin_label_set_value() -> None:
+    rs = RouteSource(adapter="a", event_kinds=(), channel=None, origin_label="L")
+    assert rs.origin_label == "L"
 
 
 # ---------------------------------------------------------------------------
@@ -164,57 +162,56 @@ class TestRouteSourceOriginLabel:
 # ---------------------------------------------------------------------------
 
 
-class TestPipelineSourceOriginLabelContext:
-    """The pipeline threads source_origin_label into the render context."""
+async def test_route_label_appears_on_context() -> None:
+    """A route-level label reaches the renderer's context."""
+    pipeline = RenderingPipeline()
+    renderer = _CapturingRenderer()
+    pipeline.register(renderer, priority=10)
 
-    async def test_route_label_appears_on_context(self) -> None:
-        """A route-level label reaches the renderer's context."""
-        pipeline = RenderingPipeline()
-        renderer = _CapturingRenderer()
-        pipeline.register(renderer, priority=10)
+    await pipeline.render(
+        _make_event(),
+        "dst-b",
+        source_origin_label="Route Override Label",
+    )
 
-        await pipeline.render(
-            _make_event(),
-            "dst-b",
-            source_origin_label="Route Override Label",
-        )
+    assert renderer.captured is not None
+    assert renderer.captured.source_origin_label == "Route Override Label"
 
-        assert renderer.captured is not None
-        assert renderer.captured.source_origin_label == "Route Override Label"
 
-    async def test_no_route_label_is_none_on_context(self) -> None:
-        """When no route label is set, the context field is None (safe)."""
-        pipeline = RenderingPipeline()
-        renderer = _CapturingRenderer()
-        pipeline.register(renderer, priority=10)
+async def test_no_route_label_is_none_on_context() -> None:
+    """When no route label is set, the context field is None (safe)."""
+    pipeline = RenderingPipeline()
+    renderer = _CapturingRenderer()
+    pipeline.register(renderer, priority=10)
 
-        await pipeline.render(_make_event(), "dst-b")
+    await pipeline.render(_make_event(), "dst-b")
 
-        assert renderer.captured is not None
-        assert renderer.captured.source_origin_label is None
+    assert renderer.captured is not None
+    assert renderer.captured.source_origin_label is None
 
-    async def test_route_label_overrides_adapter_label_intent(self) -> None:
-        """Precedence proof at the context level.
 
-        The route/context label is the highest-precedence source for
-        origin attribution.  When present on the context, a renderer
-        (later wave) MUST prefer it over the adapter origin label from
-        the source-attribution registry.  This test asserts the context
-        carries the route label so that the override is observable; the
-        adapter-label fallback case is covered by the None test above.
-        """
-        pipeline = RenderingPipeline()
-        renderer = _CapturingRenderer()
-        pipeline.register(renderer, priority=10)
+async def test_route_label_overrides_adapter_label_intent() -> None:
+    """Precedence proof at the context level.
 
-        # Simulate the delivery pipeline handing the route label through.
-        await pipeline.render(
-            _make_event(),
-            "dst-b",
-            source_origin_label="Route Label Wins",
-        )
+    The route/context label is the highest-precedence source for
+    origin attribution.  When present on the context, a renderer
+    (later wave) MUST prefer it over the adapter origin label from
+    the source-attribution registry.  This test asserts the context
+    carries the route label so that the override is observable; the
+    adapter-label fallback case is covered by the None test above.
+    """
+    pipeline = RenderingPipeline()
+    renderer = _CapturingRenderer()
+    pipeline.register(renderer, priority=10)
 
-        assert renderer.captured is not None
-        # The context exposes the route label; renderers resolve precedence
-        # as: context label > adapter origin_label > native > empty.
-        assert renderer.captured.source_origin_label == "Route Label Wins"
+    # Simulate the delivery pipeline handing the route label through.
+    await pipeline.render(
+        _make_event(),
+        "dst-b",
+        source_origin_label="Route Label Wins",
+    )
+
+    assert renderer.captured is not None
+    # The context exposes the route label; renderers resolve precedence
+    # as: context label > adapter origin_label > native > empty.
+    assert renderer.captured.source_origin_label == "Route Label Wins"

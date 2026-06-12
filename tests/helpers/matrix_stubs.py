@@ -7,7 +7,10 @@ MeshtasticRenderer) inspects via duck-typed attribute access.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 
+
+@dataclass(slots=True)
 class StubMeshtasticConfig:
     """Minimal duck-typed MeshtasticConfig for source-config resolution.
 
@@ -16,38 +19,23 @@ class StubMeshtasticConfig:
     reference it via attribute access.
     """
 
-    def __init__(
-        self,
-        adapter_id: str = "mesh-1",
-        meshnet_name: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.mmrelay_compatibility = mmrelay_compatibility
+    adapter_id: str = "mesh-1"
+    meshnet_name: str = ""
+    mmrelay_compatibility: bool = False
 
 
+@dataclass(slots=True)
 class StubSourceAttribution:
     """Minimal duck-typed SourceAttributionConfig for renderer tests."""
 
-    def __init__(
-        self,
-        adapter_id: str = "",
-        origin_label: str = "",
-        meshnet_name: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.origin_label = origin_label
-        self.meshnet_name = meshnet_name
+    adapter_id: str = ""
+    origin_label: str = ""
+    meshnet_name: str = ""
 
 
+@dataclass(slots=True)
 class StubMatrixConfig:
     """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
 
-    def __init__(
-        self,
-        adapter_id: str = "matrix-1",
-        relay_prefix: str = "",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.relay_prefix = relay_prefix
+    adapter_id: str = "matrix-1"
+    relay_prefix: str = ""

@@ -429,177 +429,163 @@ class TestCrossPlatformReactionDescriptive:
 # ===================================================================
 
 
-class TestDescriptiveReactionPrefixMetadata:
-    """When descriptive/cross-platform reactions use a compact prefix,
-    RenderingResult.metadata reports the actual PrefixFormatterResult
-    instead of an empty sentinel.
-    """
+async def test_direct_descriptive_reaction_metadata_has_real_template() -> None:
+    """Direct-mode cross-platform reaction metadata includes
+    prefix_template_used, not blank."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(
+        key="👍",
+        fallback_text="hello mesh",
+        meshtastic_reply_id="42",
+    )
+    event = _make_matrix_event(
+        display_name="Alpha Bravo",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
 
-    async def test_direct_descriptive_reaction_metadata_has_real_template(
-        self,
-    ) -> None:
-        """Direct-mode cross-platform reaction metadata includes
-        prefix_template_used, not blank."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(
-            key="👍",
-            fallback_text="hello mesh",
-            meshtastic_reply_id="42",
-        )
-        event = _make_matrix_event(
-            display_name="Alpha Bravo",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
+    # The template is the configured one, not blank
+    assert result.metadata["relay_prefix_template"] == "[{sender}] "
 
-        # The template is the configured one, not blank
-        assert result.metadata["relay_prefix_template"] == "[{sender}] "
 
-    async def test_direct_descriptive_reaction_metadata_has_rendered_prefix(
-        self,
-    ) -> None:
-        """Direct-mode descriptive reaction metadata reports the compact
-        rendered prefix (spaces stripped from display name)."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(
-            key="👍",
-            fallback_text="hello mesh",
-        )
-        event = _make_matrix_event(
-            display_name="Alpha Bravo",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
+async def test_direct_descriptive_reaction_metadata_has_rendered_prefix() -> None:
+    """Direct-mode descriptive reaction metadata reports the compact
+    rendered prefix (spaces stripped from display name)."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(
+        key="👍",
+        fallback_text="hello mesh",
+    )
+    event = _make_matrix_event(
+        display_name="Alpha Bravo",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
 
-        # relay_prefix_rendered is the compact rendered prefix (spaces stripped)
-        assert result.metadata["relay_prefix_rendered"] == "[AlphaBravo] "
+    # relay_prefix_rendered is the compact rendered prefix (spaces stripped)
+    assert result.metadata["relay_prefix_rendered"] == "[AlphaBravo] "
 
-    async def test_direct_descriptive_reaction_metadata_has_variables_used(
-        self,
-    ) -> None:
-        """Direct-mode descriptive reaction metadata records sender in
-        prefix_variables_used."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
-        event = _make_matrix_event(
-            display_name="TestUser",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
 
-        assert "relay_prefix_variables_used" in result.metadata
-        assert "sender" in result.metadata["relay_prefix_variables_used"]
+async def test_direct_descriptive_reaction_metadata_has_variables_used() -> None:
+    """Direct-mode descriptive reaction metadata records sender in
+    prefix_variables_used."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
+    event = _make_matrix_event(
+        display_name="TestUser",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
 
-    async def test_direct_descriptive_reaction_metadata_not_blank_sentinel(
-        self,
-    ) -> None:
-        """Direct-mode descriptive reaction metadata is NOT the empty sentinel:
-        template_used is non-empty and variables_used is non-empty when
-        the template has variables."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
-        event = _make_matrix_event(
-            display_name="User",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
+    assert "relay_prefix_variables_used" in result.metadata
+    assert "sender" in result.metadata["relay_prefix_variables_used"]
 
-        meta = result.metadata
-        # Not blank sentinel (which would be "" for template and () for vars)
-        assert meta["relay_prefix_template"] != ""
-        assert len(meta["relay_prefix_variables_used"]) > 0
 
-    async def test_fallback_descriptive_reaction_metadata_has_real_prefix(
-        self,
-    ) -> None:
-        """Fallback-mode cross-platform reaction metadata includes the compact
-        prefix formatter result, not blank sentinel."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(
-            key="👍",
-            fallback_text="original msg",
-        )
-        event = _make_matrix_event(
-            display_name="Fallback User",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="mesh-1", delivery_strategy="fallback_text"
-            ),
-        )
+async def test_direct_descriptive_reaction_metadata_not_blank_sentinel() -> None:
+    """Direct-mode descriptive reaction metadata is NOT the empty sentinel:
+    template_used is non-empty and variables_used is non-empty when
+    the template has variables."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
+    event = _make_matrix_event(
+        display_name="User",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
 
-        meta = result.metadata
-        # Metadata should contain real prefix diagnostics
-        assert meta["relay_prefix_template"] == "[{sender}] "
-        assert meta["relay_prefix_rendered"] == "[FallbackUser] "
-        assert "sender" in meta["relay_prefix_variables_used"]
+    meta = result.metadata
+    # Not blank sentinel (which would be "" for template and () for vars)
+    assert meta["relay_prefix_template"] != ""
+    assert len(meta["relay_prefix_variables_used"]) > 0
 
-    async def test_fallback_descriptive_reaction_metadata_includes_descriptive_flag(
-        self,
-    ) -> None:
-        """Fallback-mode descriptive reaction sets descriptive_reaction=True
-        and delivery_strategy."""
-        renderer = _make_renderer(
-            "mesh-1",
-            radio_relay_prefix="[{sender}] ",
-        )
-        rel = _make_cross_platform_relation(
-            key="👍",
-            fallback_text="msg",
-        )
-        event = _make_matrix_event(
-            display_name="User",
-            relations=(rel,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="mesh-1", delivery_strategy="fallback_text"
-            ),
-        )
 
-        assert result.metadata.get("descriptive_reaction") is True
-        assert result.metadata.get("delivery_strategy") == "fallback_text"
+async def test_fallback_descriptive_reaction_metadata_has_real_prefix() -> None:
+    """Fallback-mode cross-platform reaction metadata includes the compact
+    prefix formatter result, not blank sentinel."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(
+        key="👍",
+        fallback_text="original msg",
+    )
+    event = _make_matrix_event(
+        display_name="Fallback User",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="mesh-1", delivery_strategy="fallback_text"),
+    )
 
-    async def test_no_prefix_config_no_metadata_keys(self) -> None:
-        """Descriptive reaction without a configured prefix still omits
-        prefix metadata keys (same as before, regression guard)."""
-        renderer = _make_renderer("mesh-1")
-        rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
-        event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
+    meta = result.metadata
+    # Metadata should contain real prefix diagnostics
+    assert meta["relay_prefix_template"] == "[{sender}] "
+    assert meta["relay_prefix_rendered"] == "[FallbackUser] "
+    assert "sender" in meta["relay_prefix_variables_used"]
 
-        assert "relay_prefix_rendered" not in result.metadata
-        assert "relay_prefix_template" not in result.metadata
-        # descriptive_reaction flag still set
-        assert result.metadata.get("descriptive_reaction") is True
+
+async def test_fallback_descriptive_reaction_metadata_includes_descriptive_flag() -> (
+    None
+):
+    """Fallback-mode descriptive reaction sets descriptive_reaction=True
+    and delivery_strategy."""
+    renderer = _make_renderer(
+        "mesh-1",
+        radio_relay_prefix="[{sender}] ",
+    )
+    rel = _make_cross_platform_relation(
+        key="👍",
+        fallback_text="msg",
+    )
+    event = _make_matrix_event(
+        display_name="User",
+        relations=(rel,),
+    )
+    result = await renderer.render(
+        event,
+        RenderingContext(target_adapter="mesh-1", delivery_strategy="fallback_text"),
+    )
+
+    assert result.metadata.get("descriptive_reaction") is True
+    assert result.metadata.get("delivery_strategy") == "fallback_text"
+
+
+async def test_no_prefix_config_no_metadata_keys() -> None:
+    """Descriptive reaction without a configured prefix still omits
+    prefix metadata keys (same as before, regression guard)."""
+    renderer = _make_renderer("mesh-1")
+    rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
+    event = _make_matrix_event(relations=(rel,))
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+
+    assert "relay_prefix_rendered" not in result.metadata
+    assert "relay_prefix_template" not in result.metadata
+    # descriptive_reaction flag still set
+    assert result.metadata.get("descriptive_reaction") is True
 
 
 # ===================================================================

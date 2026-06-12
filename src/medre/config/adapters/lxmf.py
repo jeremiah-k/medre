@@ -89,12 +89,12 @@ class LxmfConfig:
         Path to a Reticulum identity file.  Required for non-fake
         connection types if the identity is not auto-generated.
         Must be a non-empty string when provided.
-        storage_path:
-            Path to a directory used by ``LXMF.LXMRouter`` for persistent
-            message and peer storage.  **Required** when
-            ``connection_type="reticulum"`` — the validated LXMF
-            LXMRouter behavior raises ``ValueError`` if ``storagepath``
-            is ``None``.  Ignored in fake mode.
+    storage_path:
+        Path to a directory used by ``LXMF.LXMRouter`` for persistent
+        message and peer storage.  **Required** when
+        ``connection_type="reticulum"`` — the validated LXMF
+        LXMRouter behavior raises ``ValueError`` if ``storagepath``
+        is ``None``.  Ignored in fake mode.
     announce_interval_seconds:
         Interval in seconds between periodic LXMF announces for mesh
         path discovery.  ``0`` disables periodic announce.  Default
