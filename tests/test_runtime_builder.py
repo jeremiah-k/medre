@@ -623,7 +623,7 @@ class TestLxmfRelayPrefixWiring:
         config = RuntimeConfig(
             storage=StorageConfig(backend="memory"),
             adapters=AdapterConfigSet(
-                lxmf={"alpha": rt_a, "beta": rt_b},
+                lxmf={"beta": rt_a, "alpha": rt_b},
             ),
         )
         builder = RuntimeBuilder(config, tmp_paths)

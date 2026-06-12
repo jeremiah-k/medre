@@ -318,7 +318,10 @@ The LXMF renderer (`LxmfRenderer` in
 prefix when `lxmf_relay_prefix` is non-empty on the `LxmfConfig`.
 
 **Prefix configuration source:** `LxmfConfig.lxmf_relay_prefix` (string,
-default `""`).
+default `""`). The runtime builder collapses all per-adapter LXMF configs into
+a single `relay_prefix` passed to `LxmfRenderer`. In multi-adapter setups the
+builder picks the first non-empty prefix in sorted adapter-ID order; that
+prefix applies to **all** LXMF renders regardless of the target adapter.
 
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):

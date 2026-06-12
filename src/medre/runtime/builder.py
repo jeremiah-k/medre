@@ -245,6 +245,8 @@ def _register_adapter_renderers(
     lxmf_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
+            if not rtc.enabled:
+                continue
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
             if _transport == "meshcore" and getattr(rtc, "config", None) is not None:

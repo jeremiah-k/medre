@@ -558,9 +558,13 @@ def extract_relay_attribution(
     }
 
     # Native message / channel IDs from source_native_ref.
+    _auth_msg_id: str | None = None
+    _auth_chan_id: str | None = None
     if event.source_native_ref is not None:
-        fields["source_native_message_id"] = event.source_native_ref.native_message_id
-        fields["source_native_channel_id"] = event.source_native_ref.native_channel_id
+        _auth_msg_id = event.source_native_ref.native_message_id
+        _auth_chan_id = event.source_native_ref.native_channel_id
+        fields["source_native_message_id"] = _auth_msg_id
+        fields["source_native_channel_id"] = _auth_chan_id
 
     # Route ID from parameter or routing metadata.
     if route_id is not None:
@@ -571,6 +575,13 @@ def extract_relay_attribution(
     # Platform-specific extraction from native metadata.
     platform_fields = _extract_platform_fields(platform, native_data)
     fields.update(platform_fields)
+
+    # source_native_ref IDs are authoritative — restore them if the
+    # platform extractor overwrote them with raw metadata values.
+    if _auth_msg_id is not None:
+        fields["source_native_message_id"] = _auth_msg_id
+    if _auth_chan_id is not None:
+        fields["source_native_channel_id"] = _auth_chan_id
 
     # Meshnet name: explicit parameter wins over native data.
     if source_meshnet_name is not None:

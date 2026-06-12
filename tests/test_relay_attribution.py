@@ -328,15 +328,13 @@ class TestBraceEdgeCases:
         result = format_relay_prefix(
             "{{longname}}", RelayAttribution(source_long_name="X")
         )
-        # The regex only matches {word}, so {{longname}} has {longname} inside
-        # the outer braces. The outer braces remain.
-        assert "X" in result.rendered_prefix
+        assert result.rendered_prefix == "{X}"
 
     def test_nested_braces_not_matched(self) -> None:
         """{name{inner}} is not a valid placeholder."""
         result = format_relay_prefix("{a{b}}", RelayAttribution())
-        # {b} would match as a placeholder name "b", but {a{ is just text
-        assert "b" in result.unknown_variables or result.rendered_prefix != "{a{b}}"
+        assert result.rendered_prefix == "{a{b}}"
+        assert result.unknown_variables == ("b",)
 
     def test_template_with_literal_text(self) -> None:
         attr = RelayAttribution(source_short_name="SN")
@@ -648,6 +646,27 @@ class TestExtractionCommon:
         event = _make_event(source_adapter="custom-adapter")
         attr = extract_relay_attribution(event, source_platform="matrix")
         assert attr.source_platform == "matrix"
+
+    def test_source_native_ref_wins_over_meshcore_packet_id(self) -> None:
+        """source_native_ref IDs are authoritative over platform metadata."""
+        ref = NativeRef(
+            adapter="meshcore-1",
+            native_channel_id="ch-envelope",
+            native_message_id="$envelope-msg-id",
+        )
+        event = _make_event(
+            source_adapter="meshcore-node",
+            source_native_ref=ref,
+            native_data={
+                "meshcore.packet_id": 99999,
+                "meshcore.channel": 7,
+                "meshcore.pubkey_prefix": "pk1",
+            },
+        )
+        attr = extract_relay_attribution(event)
+        # source_native_ref values must win, not the raw meshcore metadata.
+        assert attr.source_native_message_id == "$envelope-msg-id"
+        assert attr.source_native_channel_id == "ch-envelope"
 
 
 # ===================================================================
