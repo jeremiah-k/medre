@@ -160,6 +160,7 @@ session's node database. When node info is unavailable, `longname` and
 `shortname` are empty strings.
 
 ### Meshtastic Outbound Prefix Behavior
+
 `src/medre/adapters/meshtastic/renderer.py`) prepends
 `radio_relay_prefix` via `_format_prefix_for` (lines 158–228).
 
@@ -225,21 +226,47 @@ identity is a hex pubkey prefix, not a human-readable name.
 ### MeshCore Outbound Prefix Behavior
 
 The MeshCore renderer (`MeshCoreRenderer` in
-`src/medre/adapters/meshcore/renderer.py`, lines 59–296) has **no
-relay prefix support**. There is no `_format_prefix_for` method, no
-prefix template configuration, and no prefix prepend logic.
+`src/medre/adapters/meshcore/renderer.py`, lines 208–221) prepends a relay
+prefix when `meshcore_relay_prefix` is non-empty on the target adapter's
+`MeshCoreConfig`.
 
-Rendering flow: extract text → apply fallback-text degradation if
-needed → UTF-8 byte-budget truncation → output payload.
+**Prefix configuration source:** `MeshCoreConfig.meshcore_relay_prefix`
+(string, default `""`).
+
+**Available template variables** — same shared set as all transports (see
+attribution.py `_ALL_KNOWN_NAMES`):
+
+| Variable         | Source                                               |
+| ---------------- | ---------------------------------------------------- |
+| `{longname}`     | Attribution extractor (empty for MeshCore sources)   |
+| `{shortname}`    | Attribution extractor (empty for MeshCore sources)   |
+| `{shortname5}`   | First 5 chars of shortname, or sender_id             |
+| `{meshnet_name}` | Target adapter config `meshnet_name`                 |
+| `{from_id}`      | Attribution extractor (`pubkey_prefix` for MeshCore) |
+
+**Default prefix:** `""` (no prefix).
+
+**Application:** Prefix is prepended before UTF-8 byte-budget truncation.
+The rendered prefix counts toward `max_text_bytes`.
+
+**Metadata keys** (conditional, only when `meshcore_relay_prefix` is
+non-empty):
+
+| Key                       | Value                                |
+| ------------------------- | ------------------------------------ |
+| `relay_prefix_template`   | Original template string             |
+| `rendered_relay_prefix`   | Rendered prefix string               |
+| `prefix_formatting_error` | Error string if unknown placeholders |
 
 ### MeshCoreConfig Prefix-Relevant Fields
 
-`src/medre/config/adapters/meshcore.py`: **No prefix template fields.**
+`src/medre/config/adapters/meshcore.py`:
 
-| Field            | Default | Note                                                         |
-| ---------------- | ------- | ------------------------------------------------------------ |
-| `meshnet_name`   | `""`    | Included in payload dict but not used as a template variable |
-| `max_text_bytes` | `512`   | UTF-8 byte budget                                            |
+| Field                   | Default | Note                                             |
+| ----------------------- | ------- | ------------------------------------------------ |
+| `meshnet_name`          | `""`    | Available as `{meshnet_name}` in prefix template |
+| `max_text_bytes`        | `512`   | UTF-8 byte budget (prefix counts toward it)      |
+| `meshcore_relay_prefix` | `""`    | Prefix template; empty = no prefix prepended     |
 
 ---
 
@@ -271,23 +298,48 @@ envelope in `fields[0xFD]` via `_reconstruct_relations` (codec.py lines
 ### LXMF Outbound Prefix Behavior
 
 The LXMF renderer (`LxmfRenderer` in
-`src/medre/adapters/lxmf/renderer.py`, lines 43–214) has **no relay
-prefix support**. There is no prefix template configuration or prefix
-prepend logic.
+`src/medre/adapters/lxmf/renderer.py`, lines 168–183) prepends a relay
+prefix when `lxmf_relay_prefix` is non-empty on the `LxmfConfig`.
 
-Rendering flow: extract text + title → embed MEDRE envelope in fields →
-degrade relations inline if fallback_text → character truncation via
-`max_text_chars` → output payload.
+**Prefix configuration source:** `LxmfConfig.lxmf_relay_prefix` (string,
+default `""`).
+
+**Available template variables** — same shared set as all transports (see
+attribution.py `_ALL_KNOWN_NAMES`):
+
+| Variable         | Source                                         |
+| ---------------- | ---------------------------------------------- |
+| `{longname}`     | Attribution extractor (empty for LXMF sources) |
+| `{shortname}`    | Attribution extractor (empty for LXMF sources) |
+| `{shortname5}`   | First 5 chars of shortname, or sender_id       |
+| `{meshnet_name}` | Config `meshnet_name`                          |
+| `{from_id}`      | Attribution extractor (`source_hash` for LXMF) |
+
+**Default prefix:** `""` (no prefix).
+
+**Application:** Prefix is prepended to the content body before
+character-budget truncation (`max_text_chars`) and before envelope
+handling. The rendered prefix counts toward the character budget.
+
+**Metadata keys** (conditional, only when `lxmf_relay_prefix` is
+non-empty):
+
+| Key                             | Value                                |
+| ------------------------------- | ------------------------------------ |
+| `relay_prefix_template`         | Original template string             |
+| `relay_prefix_rendered`         | Rendered prefix string               |
+| `relay_prefix_formatting_error` | Error string if unknown placeholders |
 
 ### LxmfConfig Prefix-Relevant Fields
 
-`src/medre/config/adapters/lxmf.py`: **No prefix template fields.**
+`src/medre/config/adapters/lxmf.py`:
 
-| Field                | Default | Note                                     |
-| -------------------- | ------- | ---------------------------------------- |
-| `meshnet_name`       | `""`    | Present on config but unused by renderer |
-| `metadata_embedding` | `True`  | Controls MEDRE envelope in fields        |
-| `display_name`       | `""`    | For LXMF announces, not prefixing        |
+| Field                | Default | Note                                             |
+| -------------------- | ------- | ------------------------------------------------ |
+| `meshnet_name`       | `""`    | Available as `{meshnet_name}` in prefix template |
+| `metadata_embedding` | `True`  | Controls MEDRE envelope in fields                |
+| `display_name`       | `""`    | For LXMF announces, not prefixing                |
+| `lxmf_relay_prefix`  | `""`    | Prefix template; empty = no prefix prepended     |
 
 ---
 
@@ -334,12 +386,14 @@ renders as `m.emote` with `KEY_EMOJI=1`, `KEY_REPLY_ID`,
 
 ## Cross-Transport Gaps
 
-### 1. No prefix support on MeshCore or LXMF
+### 1. Prefix defaults differ across transports
 
-MeshCore and LXMF have no relay prefix template config, no prefix
-rendering logic, and no `_format_prefix_for` equivalent. Messages
-relayed from MeshCore or LXMF to any other transport arrive without a
-sender attribution prefix.
+MeshCore and LXMF have relay prefix support via `meshcore_relay_prefix`
+and `lxmf_relay_prefix`, but both default to `""` (no prefix). Meshtastic
+defaults to `"{shortname5}[M]: "` for radio and
+`"[{longname}/{meshnet_name}]: "` for Matrix. Operators must explicitly
+configure MeshCore and LXMF prefixes to get attribution on those
+transports.
 
 ### 2. No `longname`/`shortname` on MeshCore or LXMF native metadata
 
@@ -352,11 +406,12 @@ resolve to empty string when the source is MeshCore or LXMF.
 
 ### 3. Prefix config ownership is asymmetric
 
-Both `matrix_relay_prefix` and `radio_relay_prefix` live exclusively on
-`MeshtasticConfig`. The Matrix renderer resolves the prefix from the
-source adapter's config. MatrixConfig, MeshCoreConfig, and LxmfConfig
-have no prefix fields. If MeshCore or LXMF needed prefix behavior, a
-new config field would be required.
+`matrix_relay_prefix` and `radio_relay_prefix` live on `MeshtasticConfig`.
+The Matrix renderer resolves the prefix from the source adapter's config.
+`MeshCoreConfig.meshcore_relay_prefix` and `LxmfConfig.lxmf_relay_prefix`
+are on their respective configs, resolved by their own renderers. Matrix
+has no prefix field on its own config — it always reads from the source
+adapter.
 
 ### 4. Matrix display-name enrichment is post-codec
 

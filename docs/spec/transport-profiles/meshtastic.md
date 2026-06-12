@@ -60,7 +60,106 @@ Machine-readable capability declaration: [`meshtastic-capabilities.json`](meshta
 
 ---
 
-## Supported Inbound Event Kinds
+## Relay Attribution Prefix
+
+The Meshtastic renderer prepends a human-readable relay attribution prefix to
+outbound radio text when `radio_relay_prefix` is non-empty on the target
+adapter's `MeshtasticConfig`. The prefix is applied for plain text messages
+and replies. It is **not** applied for structured native reactions
+(`emoji=1`) or cross-platform descriptive reactions (which embed their own
+compact prefix in the text body).
+
+**Configuration:** `radio_relay_prefix` (string, default
+`"{shortname5}[M]: "`).
+
+**Template syntax:** `{placeholder}` variables resolved by the shared core
+formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
+the source event.
+
+### Supported Template Variables
+
+The shared prefix formatter (`format_relay_prefix` in
+`src/medre/core/rendering/attribution.py`) defines all available template
+variables. This is the authoritative list used by all four transport
+renderers (Matrix, Meshtastic, MeshCore, LXMF).
+
+**Canonical fields** (from `RelayAttribution`):
+
+| Variable                     | Source                                                 |
+| ---------------------------- | ------------------------------------------------------ |
+| `{source_adapter_id}`        | Adapter instance ID                                    |
+| `{source_platform}`          | Platform name (`matrix`, `meshtastic`, etc.)           |
+| `{source_transport}`         | Transport identifier                                   |
+| `{source_sender_id}`         | Native sender ID (MXID, node ID, pubkey, hash)         |
+| `{source_display_name}`      | Best-effort human-readable display name                |
+| `{source_long_name}`         | Long display name                                      |
+| `{source_short_name}`        | Short display name                                     |
+| `{source_short_name_5}`      | First 5 chars of short name, falling back to sender ID |
+| `{source_room_or_channel}`   | Room or channel ID from source                         |
+| `{source_meshnet_name}`      | Mesh network name                                      |
+| `{source_native_message_id}` | Native message ID from source                          |
+| `{source_native_channel_id}` | Native channel ID from source                          |
+| `{route_id}`                 | Route identifier                                       |
+
+**Aliases** (derived from canonical fields):
+
+| Alias            | Canonical field       |
+| ---------------- | --------------------- |
+| `{longname}`     | `source_long_name`    |
+| `{shortname}`    | `source_short_name`   |
+| `{shortname5}`   | `source_short_name_5` |
+| `{from_id}`      | `source_sender_id`    |
+| `{meshnet_name}` | `source_meshnet_name` |
+
+### Formatting Rules
+
+- **None/missing values** format as empty strings. The literal text
+  `"None"` is never rendered.
+- **Unknown placeholders** (not in the tables above) are left unchanged in
+  the output (e.g. `{bogus}` stays `{bogus}`) and recorded in
+  `unknown_variables` with `formatting_error` set.
+- **Deterministic:** Same inputs always produce the same output.
+- **Never raises:** All internal errors are captured in `formatting_error`.
+
+### Truncation
+
+The prefix is prepended **before** UTF-8 byte-budget truncation
+(`max_text_bytes`, default 227). The rendered prefix counts toward the byte
+budget. Multi-byte UTF-8 codepoints are never split. Operators should
+consider prefix length when setting `max_text_bytes` — long prefixes reduce
+space for message content.
+
+### Metadata Keys
+
+When a prefix is rendered, the following diagnostic keys are set on the
+`RenderingResult.metadata`:
+
+| Key                        | Value                                                 |
+| -------------------------- | ----------------------------------------------------- |
+| `radio_relay_prefix`       | The rendered prefix string                            |
+| `prefix_template_used`     | The original template string                          |
+| `prefix_variables_used`    | Variables resolved (value found, even if empty)       |
+| `prefix_missing_variables` | Variables in template whose value was `None` or empty |
+
+### Matrix-Bound Prefix
+
+When the Meshtastic adapter is the **source** of a relay to a Matrix target,
+the Matrix renderer uses the source adapter's `matrix_relay_prefix`
+(currently `MeshtasticConfig.matrix_relay_prefix`, default
+`"[{longname}/{meshnet_name}]: "`). This is resolved by the Matrix renderer
+from its `source_configs` mapping, not from the Meshtastic config directly.
+The same shared variable table applies. The Matrix renderer has no
+constrained radio byte budget — prefix length is unconstrained in the
+renderer, though Matrix homeservers impose their own event size limits.
+
+### Attribution Caveat
+
+The prefix is human-readable attribution only. It does not constitute
+delivery evidence. The MEDRE metadata namespace remains the authoritative
+source for machine-readable provenance. Local queue acceptance does not
+confirm Meshtastic RF transmission.
+
+---
 
 The packet classifier (`MeshtasticPacketClassifier`) applies a 10-step conservative policy:
 
@@ -88,7 +187,7 @@ Relayed packets are decoded by `MeshtasticCodec` into:
 
 The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
-- **Plain text** — body text with configurable `radio_relay_prefix`, UTF-8 byte-budget truncation.
+- **Plain text** — body text with configurable `radio_relay_prefix` (see §Relay Attribution Prefix), UTF-8 byte-budget truncation.
 - **Native reply** — `reply_id` (int) set from relation's Meshtastic native ref; plain text body.
 - **Native reaction** — `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; text is the emoji key.
 - **Cross-platform descriptive reaction** — MMRelay-style text `"reacted {emoji} to \"{text}\""` with `reply_id` but NO `emoji=1`.

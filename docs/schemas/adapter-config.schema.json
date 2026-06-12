@@ -276,6 +276,11 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Optional BLE pairing PIN. Sensitive; forwarded only to the SDK create_ble call; never exposed in diagnostics or logs."
+        },
+        "meshcore_relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template prepended to outbound text before byte-budget truncation. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id"],
@@ -344,6 +349,17 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Path for LXMF LXMRouter persistent storage. Required for 'reticulum' mode."
+        },
+        "announce_interval_seconds": {
+          "type": "number",
+          "default": 600.0,
+          "minimum": 0,
+          "description": "Interval in seconds between periodic LXMF announces for mesh path discovery. 0 disables."
+        },
+        "lxmf_relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template prepended to outbound LXMF message body text. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id"],

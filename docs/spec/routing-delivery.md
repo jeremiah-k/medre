@@ -1198,6 +1198,32 @@ When route configuration is reloaded at runtime:
 
 Routes register in the same order they appear in configuration. Registration is deterministic. `validate_route_adapter_refs` runs before any route is registered. If any enabled route references an adapter ID not present in the assembled runtime, startup fails.
 
+## 17.5 Relay Attribution Prefix — Single Authority Caveat
+
+Transport renderers MAY prepend a human-readable relay attribution prefix to
+outbound message text. The prefix is derived from a template string
+configured per adapter (e.g. `radio_relay_prefix`, `meshcore_relay_prefix`,
+`lxmf_relay_prefix`) or per source adapter direction (e.g.
+`matrix_relay_prefix` on `MeshtasticConfig`).
+
+The prefix is **human-readable attribution only**. It does not constitute
+delivery evidence and MUST NOT be interpreted as provenance by downstream
+consumers. The authoritative source for machine-readable provenance is the
+MEDRE metadata namespace (`medre.envelope` on Matrix, `fields[0xFD]` on
+LXMF, `RenderingResult.metadata` on all transports).
+
+The shared prefix formatter (`format_relay_prefix` in
+`src/medre/core/rendering/attribution.py`) defines a single set of template
+variables (canonical `source_*` fields plus aliases `longname`, `shortname`,
+`shortname5`, `from_id`, `meshnet_name`). All four transport renderers use
+the same formatter and the same variable schema. The authoritative variable
+list is documented in the Meshtastic Transport Profile §Relay Attribution
+Prefix.
+
+Formatting rules: `None`/missing values format as empty strings. Unknown
+placeholders are left unchanged in the output and recorded in diagnostic
+metadata. The formatter never raises exceptions.
+
 ## 18. Non-Goals
 
 This specification explicitly does **not** provide:

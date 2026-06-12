@@ -52,7 +52,50 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 
 ---
 
-## Supported Inbound Event Kinds
+## Relay Attribution Prefix
+
+The Matrix renderer prepends a human-readable relay attribution prefix to the
+message body when the **source adapter's** config provides a prefix template.
+The prefix is NOT configured on `MatrixConfig` — it comes from the source
+adapter's configuration, resolved via the renderer's `source_configs` mapping.
+
+**Current config source:** When the source is a Meshtastic adapter, the
+template is `MeshtasticConfig.matrix_relay_prefix` (default
+`"[{longname}/{meshnet_name}]: "`). When no source config is found (e.g.
+event from an adapter not in the `source_configs` mapping), no prefix is
+prepended.
+
+**Template syntax:** `{placeholder}` variables resolved by the shared core
+formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
+the source event. See the Meshtastic Transport Profile §Relay Attribution
+Prefix for the authoritative list of supported template variables and
+formatting rules.
+
+**Application points:**
+
+1. Direct mode body (before truncation).
+2. Fallback-text mode body (before truncation).
+3. Reaction emote body (via `_format_reaction_prefix`).
+
+**Truncation:** The Matrix renderer has no constrained radio byte budget.
+Prefix length is unconstrained in the renderer, though Matrix homeservers
+impose their own event size limits. When a `RenderingContext` text budget is
+active (`max_text_chars` or `max_text_bytes`), the prefix counts toward that
+budget.
+
+**Metadata keys** (when prefix is configured):
+
+| Key                | Value                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `prefix_formatter` | Sub-dict with `template_used`, `variables_used`, `missing_variables`, `unknown_variables`, `formatting_error` |
+
+**Attribution caveat:** The prefix is human-readable attribution only. It
+does not constitute delivery evidence. The MEDRE metadata envelope
+(`medre.envelope`) remains the authoritative source for machine-readable
+provenance. Matrix `room_send` success confirms local homeserver acceptance
+only — it does not confirm remote delivery or federation fan-out.
+
+---
 
 The Matrix codec (`MatrixCodec`) decodes three inbound categories:
 
