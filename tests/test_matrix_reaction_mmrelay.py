@@ -53,12 +53,10 @@ class _StubMeshtasticConfig:
         self,
         adapter_id: str = "mesh-1",
         meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
         self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
 
 
@@ -72,6 +70,18 @@ class _StubSourceAttribution:
     ) -> None:
         self.adapter_id = adapter_id
         self.origin_label = origin_label
+
+
+class _StubMatrixConfig:
+    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "matrix-1",
+        relay_prefix: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.relay_prefix = relay_prefix
 
 
 # Source-config mappings for common test patterns.
@@ -862,7 +872,12 @@ class TestMMRelayReactionBodyFormat:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     meshnet_name="mynet",
-                    matrix_relay_prefix="[{sender}] ",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1218,7 +1233,12 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{sender}] ",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1237,7 +1257,12 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{sender}] ",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -1256,7 +1281,12 @@ class TestReactionPrefixPreservesLongname:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    matrix_relay_prefix="[{sender}] ",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )

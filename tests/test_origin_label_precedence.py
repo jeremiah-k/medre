@@ -85,12 +85,22 @@ class _StubMeshtasticConfig:
     def __init__(
         self,
         adapter_id: str = "",
-        matrix_relay_prefix: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
-        self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
+
+
+class _StubMatrixConfig:
+    """Duck-typed MatrixConfig for target-local relay_prefix in tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "",
+        relay_prefix: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.relay_prefix = relay_prefix
 
 
 # ===================================================================
@@ -104,10 +114,10 @@ class TestMatrixOriginLabelPrecedence:
     async def test_route_label_overrides_adapter_label(self) -> None:
         """Route context origin_label overrides adapter registry label."""
         renderer = MatrixRenderer(
-            source_configs={
-                "src-a": _StubMeshtasticConfig(
-                    adapter_id="src-a",
-                    matrix_relay_prefix="[{origin_label}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{origin_label}] ",
                 ),
             },
             source_attribution={
@@ -132,10 +142,10 @@ class TestMatrixOriginLabelPrecedence:
     async def test_adapter_label_used_when_no_route_label(self) -> None:
         """Adapter registry label used when ctx.source_origin_label is None."""
         renderer = MatrixRenderer(
-            source_configs={
-                "src-a": _StubMeshtasticConfig(
-                    adapter_id="src-a",
-                    matrix_relay_prefix="[{origin_label}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{origin_label}] ",
                 ),
             },
             source_attribution={
@@ -160,10 +170,10 @@ class TestMatrixOriginLabelPrecedence:
     async def test_missing_label_safe(self) -> None:
         """Missing label renders empty, not 'None'."""
         renderer = MatrixRenderer(
-            source_configs={
-                "src-a": _StubMeshtasticConfig(
-                    adapter_id="src-a",
-                    matrix_relay_prefix="[{origin_label}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{origin_label}] ",
                 ),
             },
         )
@@ -194,7 +204,6 @@ class TestMatrixMmrelayMeshnetPrecedence:
             source_configs={
                 "src-a": _StubMeshtasticConfig(
                     adapter_id="src-a",
-                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=True,
                 ),
             },
@@ -226,7 +235,6 @@ class TestMatrixMmrelayMeshnetPrecedence:
             source_configs={
                 "src-a": _StubMeshtasticConfig(
                     adapter_id="src-a",
-                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=True,
                 ),
             },
@@ -459,10 +467,10 @@ class TestGenericVariablesMeshtasticToMatrix:
 
     async def test_sender_and_origin_label(self) -> None:
         renderer = MatrixRenderer(
-            source_configs={
-                "src-a": _StubMeshtasticConfig(
-                    adapter_id="src-a",
-                    matrix_relay_prefix="[{sender}/{origin_label}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}/{origin_label}] ",
                 ),
             },
             source_attribution={

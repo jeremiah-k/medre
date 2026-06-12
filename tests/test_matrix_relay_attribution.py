@@ -87,10 +87,8 @@ def _make_lxmf_event(
 class _StubMeshCoreConfig:
     """Minimal duck-typed config for MeshCore source.
 
-    Intentionally omits ``matrix_relay_prefix`` — real ``MeshCoreConfig``
-    does not have this attribute.  Matrix outbound prefix policy resolves
-    from ``MeshtasticConfig.matrix_relay_prefix`` only; MeshCore/LXMF
-    origins do not contribute a Matrix outbound prefix in this release.
+    Matrix outbound prefix is target-local via ``MatrixConfig.relay_prefix``
+    only; MeshCore/LXMF origins do not contribute a Matrix outbound prefix.
     """
 
     def __init__(
@@ -107,10 +105,8 @@ class _StubMeshCoreConfig:
 class _StubLXMFConfig:
     """Minimal duck-typed config for LXMF source.
 
-    Intentionally omits ``matrix_relay_prefix`` — real ``LxmfConfig``
-    does not have this attribute.  Matrix outbound prefix policy resolves
-    from ``MeshtasticConfig.matrix_relay_prefix`` only; MeshCore/LXMF
-    origins do not contribute a Matrix outbound prefix in this release.
+    Matrix outbound prefix is target-local via ``MatrixConfig.relay_prefix``
+    only; MeshCore/LXMF origins do not contribute a Matrix outbound prefix.
     """
 
     def __init__(
@@ -350,10 +346,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_missing_longname_no_none(self) -> None:
         """Missing sender renders as empty, never the literal 'None'."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}]: ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}]: ",
                 ),
             },
         )
@@ -373,10 +369,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_missing_shortname_no_none(self) -> None:
         """Missing sender_short renders as empty, never 'None'."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender_short}]: ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender_short}]: ",
                 ),
             },
         )
@@ -395,10 +391,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_missing_all_vars_no_none(self) -> None:
         """All prefix variables missing: no 'None' anywhere in body."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="<{sender}/{sender_short}/{sender_id}> ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="<{sender}/{sender_short}/{sender_id}> ",
                 ),
             },
         )
@@ -417,11 +413,10 @@ class TestMatrixCoreAttributionIntegration:
     # -- MeshCore prefix: uses pubkey/from_id/source_sender_id --
 
     async def test_meshcore_prefix_uses_pubkey(self) -> None:
-        """MeshCore event renders without prefix (no matrix_relay_prefix on MeshCoreConfig).
+        """MeshCore event renders without prefix (no relay_prefix configured for MeshCore).
 
-        Matrix outbound prefix policy resolves from
-        MeshtasticConfig.matrix_relay_prefix only.  MeshCoreConfig does not
-        have this attribute, so MeshCore-origin events produce no prefix.
+        The prefix is target-local via ``MatrixConfig.relay_prefix`` only.
+        MeshCoreConfig does not contribute a Matrix outbound prefix.
         The renderer must not crash on non-Meshtastic sources.
         """
         renderer = MatrixRenderer(
@@ -446,7 +441,7 @@ class TestMatrixCoreAttributionIntegration:
     async def test_meshcore_prefix_source_sender_id_alias(self) -> None:
         """MeshCore event with namespaced keys renders without prefix.
 
-        Same as above — MeshCoreConfig does not carry matrix_relay_prefix.
+        MeshCoreConfig does not contribute a Matrix outbound prefix.
         The renderer handles MeshCore native keys gracefully without crash.
         """
         renderer = MatrixRenderer(
@@ -470,11 +465,10 @@ class TestMatrixCoreAttributionIntegration:
     # -- LXMF prefix: falls back to safe sender id --
 
     async def test_lxmf_prefix_uses_source_hash(self) -> None:
-        """LXMF event renders without prefix (no matrix_relay_prefix on LxmfConfig).
+        """LXMF event renders without prefix (no relay_prefix configured for LXMF).
 
-        Matrix outbound prefix policy resolves from
-        MeshtasticConfig.matrix_relay_prefix only.  LxmfConfig does not
-        have this attribute, so LXMF-origin events produce no prefix.
+        Matrix outbound prefix is target-local via ``MatrixConfig.relay_prefix``
+        only.  LxmfConfig does not contribute a Matrix outbound prefix.
         The renderer must not crash on non-Meshtastic sources.
         """
         renderer = MatrixRenderer(
@@ -520,10 +514,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_unknown_placeholder_left_unchanged(self) -> None:
         """Unknown template variable {bogus} is left as {bogus} in output."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{bogus}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{bogus}] ",
                 ),
             },
         )
@@ -548,10 +542,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_unknown_placeholder_mixed_with_known(self) -> None:
         """Mixed known + unknown variables: known resolved, unknown left."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}/{weird}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}/{weird}] ",
                 ),
             },
         )
@@ -574,8 +568,13 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=True,
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -609,9 +608,19 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    meshnet_name="AlphaNet",
-                    matrix_relay_prefix="[{sender}/AlphaNet]: ",
                     mmrelay_compatibility=True,
+                ),
+            },
+            source_attribution={
+                "radio-alpha": _StubSourceAttribution(
+                    adapter_id="radio-alpha",
+                    origin_label="AlphaNet",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}/AlphaNet]: ",
                 ),
             },
         )
@@ -630,10 +639,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_prefix_formatter_metadata_recorded(self) -> None:
         """PrefixFormatterResult metadata is recorded in RenderingResult.metadata."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -673,8 +682,13 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=False,
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -713,8 +727,13 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=False,
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -749,10 +768,10 @@ class TestMatrixCoreAttributionIntegration:
     async def test_plain_text_prefix_metadata_unchanged(self) -> None:
         """Plain text event with prefix: metadata unchanged by reaction fix."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -859,16 +878,9 @@ class TestMatrixTargetLocalPrefix:
         assert "West Net" in body
         assert "!42" in body
 
-    async def test_target_local_prefix_fallback_to_source_config(self) -> None:
-        """Without target-local prefix, falls back to source config matrix_relay_prefix."""
-        renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{sender}]: ",
-                ),
-            },
-        )
+    async def test_no_prefix_without_target_local_config(self) -> None:
+        """Without target-local relay_prefix, no prefix is prepended."""
+        renderer = MatrixRenderer()
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
@@ -877,5 +889,5 @@ class TestMatrixTargetLocalPrefix:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        # Falls back to source config prefix (no target-local prefix)
-        assert result.payload["body"] == "[Alice]: hello mesh"
+        assert result.payload["body"] == "hello mesh"
+        assert "relay_prefix_template" not in result.metadata

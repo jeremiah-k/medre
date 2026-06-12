@@ -213,15 +213,18 @@ class TestMultiAdapterDefaultChannel:
         assert result.truncated is True
 
     async def test_radio_b_prefix_applied(self) -> None:
-        """radio-b config radio_relay_prefix is applied."""
+        """radio-b config radio_relay_prefix is applied with source-origin label."""
         renderer = _make_renderer_multi(
             radio_b_prefix="[{origin_label}] ",
-            radio_b_origin_label="NetB",
         )
         event = _make_event(body="msg")
         result = await renderer.render(
             event,
-            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
+            RenderingContext(
+                target_adapter="radio-b",
+                delivery_strategy="direct",
+                source_origin_label="NetB",
+            ),
         )
         assert result.payload["text"].startswith("[NetB] ")
 

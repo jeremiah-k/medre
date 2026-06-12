@@ -120,8 +120,7 @@ class MatrixRenderer:
 
         Resolution order:
         1. Target adapter config (``configs``) ``relay_prefix`` — target-local.
-        2. Source adapter config (``source_configs``) ``matrix_relay_prefix``.
-        3. Empty string (neutral default).
+        2. Empty string (neutral default).
         """
         # Target-local: look up target adapter in Matrix configs
         if target_adapter and self._configs:
@@ -130,10 +129,6 @@ class MatrixRenderer:
                 rp = getattr(target_cfg, "relay_prefix", "")
                 if rp:
                     return rp
-        # Legacy: look up source adapter in Meshtastic configs
-        cfg = self._resolve_source_config(event)
-        if cfg is not None:
-            return getattr(cfg, "matrix_relay_prefix", "")
         return ""
 
     def _get_mmrelay_compat(self, event: CanonicalEvent) -> bool:

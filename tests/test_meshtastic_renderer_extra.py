@@ -1291,7 +1291,7 @@ class TestPrefixFormatterMetadata:
     """Prefix formatter metadata is recorded in rendering result."""
 
     async def test_metadata_records_prefix_template_and_variables(self) -> None:
-        """Result metadata includes prefix_template_used, prefix_variables_used."""
+        """Result metadata includes relay_prefix_template and relay_prefix_variables_used."""
         renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
         event = CanonicalEvent(
             event_id="evt-meta",
@@ -1314,11 +1314,6 @@ class TestPrefixFormatterMetadata:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        # Legacy keys (backward compatibility)
-        assert result.metadata["radio_relay_prefix"] == "TestUser: "
-        assert result.metadata["prefix_template_used"] == "{sender_short}: "
-        assert "prefix_variables_used" in result.metadata
-        assert "sender_short" in result.metadata["prefix_variables_used"]
         # Normalized keys
         assert result.metadata["relay_prefix_template"] == "{sender_short}: "
         assert result.metadata["relay_prefix_rendered"] == "TestUser: "
@@ -1338,8 +1333,6 @@ class TestPrefixFormatterMetadata:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert "radio_relay_prefix" not in result.metadata
-        assert "prefix_template_used" not in result.metadata
         assert "relay_prefix_template" not in result.metadata
         assert "relay_prefix_rendered" not in result.metadata
 
@@ -1363,8 +1356,5 @@ class TestPrefixFormatterMetadata:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert "prefix_missing_variables" in result.metadata
-        assert "sender" in result.metadata["prefix_missing_variables"]
-        # Normalized key also present
         assert "relay_prefix_missing_variables" in result.metadata
         assert "sender" in result.metadata["relay_prefix_missing_variables"]

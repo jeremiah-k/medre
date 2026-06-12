@@ -390,7 +390,7 @@ class TestCrossPlatformReactionDescriptive:
         )
         assert result.metadata.get("descriptive_reaction") is True
 
-    async def test_no_radio_relay_prefix_in_metadata_for_descriptive(self) -> None:
+    async def test_no_relay_prefix_rendered_in_metadata_for_descriptive(self) -> None:
         """Descriptive reactions without a configured prefix omit prefix metadata."""
         renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
@@ -401,7 +401,7 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert "radio_relay_prefix" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
 
     async def test_mmrelay_metadata_reply_id_still_works(self) -> None:
         """Cross-platform reaction with mmrelay metadata gets reply_id."""
@@ -458,7 +458,6 @@ class TestDescriptiveReactionPrefixMetadata:
         )
 
         # The template is the configured one, not blank
-        assert result.metadata["prefix_template_used"] == "[{sender}] "
         assert result.metadata["relay_prefix_template"] == "[{sender}] "
 
     async def test_direct_descriptive_reaction_metadata_has_rendered_prefix(
@@ -482,8 +481,7 @@ class TestDescriptiveReactionPrefixMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
 
-        # radio_relay_prefix is the compact rendered prefix (spaces stripped)
-        assert result.metadata["radio_relay_prefix"] == "[AlphaBravo] "
+        # relay_prefix_rendered is the compact rendered prefix (spaces stripped)
         assert result.metadata["relay_prefix_rendered"] == "[AlphaBravo] "
 
     async def test_direct_descriptive_reaction_metadata_has_variables_used(
@@ -504,8 +502,6 @@ class TestDescriptiveReactionPrefixMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
 
-        assert "prefix_variables_used" in result.metadata
-        assert "sender" in result.metadata["prefix_variables_used"]
         assert "relay_prefix_variables_used" in result.metadata
         assert "sender" in result.metadata["relay_prefix_variables_used"]
 
@@ -530,8 +526,6 @@ class TestDescriptiveReactionPrefixMetadata:
 
         meta = result.metadata
         # Not blank sentinel (which would be "" for template and () for vars)
-        assert meta["prefix_template_used"] != ""
-        assert len(meta["prefix_variables_used"]) > 0
         assert meta["relay_prefix_template"] != ""
         assert len(meta["relay_prefix_variables_used"]) > 0
 
@@ -561,10 +555,8 @@ class TestDescriptiveReactionPrefixMetadata:
 
         meta = result.metadata
         # Metadata should contain real prefix diagnostics
-        assert meta["prefix_template_used"] == "[{sender}] "
-        assert meta["radio_relay_prefix"] == "[FallbackUser] "
+        assert meta["relay_prefix_template"] == "[{sender}] "
         assert meta["relay_prefix_rendered"] == "[FallbackUser] "
-        assert "sender" in meta["prefix_variables_used"]
         assert "sender" in meta["relay_prefix_variables_used"]
 
     async def test_fallback_descriptive_reaction_metadata_includes_descriptive_flag(
@@ -604,9 +596,8 @@ class TestDescriptiveReactionPrefixMetadata:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
 
-        assert "radio_relay_prefix" not in result.metadata
-        assert "prefix_template_used" not in result.metadata
         assert "relay_prefix_rendered" not in result.metadata
+        assert "relay_prefix_template" not in result.metadata
         # descriptive_reaction flag still set
         assert result.metadata.get("descriptive_reaction") is True
 

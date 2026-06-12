@@ -397,15 +397,14 @@ class MeshtasticRenderer:
         }
 
         # Resolve origin_label precedence:
-        # ctx.source_origin_label (route/context) > adapter registry >
-        # target adapter config origin_label > None.
+        # ctx.source_origin_label (route/context) > source_attribution registry > None.
+        # NOTE: The target adapter config's origin_label is intentionally NOT used
+        # as a fallback — origin_label describes the message SOURCE, not the target.
         effective_origin_label: str | None = ctx.source_origin_label
         if not effective_origin_label:
             src_attr_cfg = self._source_attribution.get(event.source_adapter)
             if src_attr_cfg is not None:
                 effective_origin_label = getattr(src_attr_cfg, "origin_label", None)
-        if not effective_origin_label:
-            effective_origin_label = adapter_config.origin_label or None
 
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
@@ -534,11 +533,6 @@ class MeshtasticRenderer:
         }
         formatted_prefix = prefix_result.rendered_prefix
         if prefix:
-            # Legacy keys (backward compatibility with existing tests)
-            metadata["radio_relay_prefix"] = formatted_prefix
-            metadata["prefix_template_used"] = prefix_result.template_used
-            metadata["prefix_variables_used"] = prefix_result.variables_used
-            metadata["prefix_missing_variables"] = prefix_result.missing_variables
             # Normalized keys (consistent across all renderers)
             metadata["relay_prefix_template"] = prefix_result.template_used
             metadata["relay_prefix_rendered"] = formatted_prefix

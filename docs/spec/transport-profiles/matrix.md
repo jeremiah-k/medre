@@ -57,19 +57,13 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 ## Relay Attribution Prefix
 
 The Matrix renderer prepends a human-readable relay attribution prefix to the
-message body when a prefix template is available. The prefix template source
-depends on the configuration model:
+message body when a prefix template is available. The prefix template is
+resolved from the target-local configuration:
 
-1. **Target-local (preferred):** `MatrixConfig.relay_prefix` (string, default
-   `""`). When non-empty, this template is used for all Matrix outbound
-   renders. This is the target-local prefix — it lives on the adapter that
-   owns the rendering, not on the source adapter.
-
-2. **Backward-compat fallback:** When `MatrixConfig.relay_prefix` is empty,
-   the renderer falls back to the source adapter config resolved
-   via the `source_configs` mapping. This preserves legacy behavior where
-   the source adapter's config controlled the Matrix-bound prefix. New
-   configurations SHOULD use `MatrixConfig.relay_prefix`.
+1. **Target-local:** `MatrixConfig.relay_prefix` (string, default `""`). When
+   non-empty, this template is used for all Matrix outbound renders. This is
+   the target-local prefix — it lives on the adapter that owns the rendering,
+   not on the source adapter.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
@@ -90,8 +84,8 @@ empty string.
 2. Fallback-text mode body (before truncation).
 3. Reaction emote body (via `_format_reaction_prefix`).
 
-**When no prefix is found** (both `MatrixConfig.relay_prefix` is empty and no
-source config fallback matches), no prefix is prepended.
+**When no prefix is found** (`MatrixConfig.relay_prefix` is empty), no prefix
+is prepended.
 
 **Truncation:** The Matrix renderer has no constrained radio byte budget.
 Prefix length is unconstrained in the renderer, though Matrix homeservers

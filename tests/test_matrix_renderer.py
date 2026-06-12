@@ -343,12 +343,12 @@ class TestMatrixRendererReplySender:
         assert "> <" not in body
 
     async def test_reply_body_with_relay_prefix(self) -> None:
-        """Reply body includes relay prefix when configured via source_configs."""
+        """Reply body includes relay prefix when configured via target-local configs."""
         renderer = MatrixRenderer(
-            source_configs={
-                "transport": _StubMeshtasticConfig(
-                    adapter_id="transport",
-                    matrix_relay_prefix="[{sender}] ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -487,6 +487,18 @@ class _StubSourceAttribution:
         self.origin_label = origin_label
 
 
+class _StubMatrixConfig:
+    """Minimal duck-typed MatrixConfig for target-local relay_prefix tests."""
+
+    def __init__(
+        self,
+        adapter_id: str = "matrix-1",
+        relay_prefix: str = "",
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.relay_prefix = relay_prefix
+
+
 class TestMultiRadioSourceConfig:
     """MatrixRenderer resolves per-source-adapter config for multi-radio setups."""
 
@@ -495,16 +507,24 @@ class TestMultiRadioSourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             meshnet_name="AlphaNet",
-            matrix_relay_prefix="[{sender}/AlphaNet]: ",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
             meshnet_name="BravoNet",
-            matrix_relay_prefix="[{sender}/BravoNet]: ",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
+
+    @staticmethod
+    def _configs() -> dict[str, _StubMatrixConfig]:
+        """Target-local configs with per-origin prefix via origin_label variable."""
+        return {
+            "matrix-1": _StubMatrixConfig(
+                adapter_id="matrix-1",
+                relay_prefix="[{sender}/{origin_label}]: ",
+            ),
+        }
 
     @staticmethod
     def _source_attribution() -> dict[str, _StubSourceAttribution]:
@@ -524,11 +544,12 @@ class TestMultiRadioSourceConfig:
         return MatrixRenderer(
             source_configs=self._source_configs(),
             source_attribution=self._source_attribution(),
+            configs=self._configs(),
             **kwargs,  # type: ignore[arg-type]
         )
 
     async def test_alpha_source_uses_alpha_prefix(self) -> None:
-        """Event from radio-alpha uses alpha's matrix_relay_prefix."""
+        """Event from radio-alpha resolves origin_label=AlphaNet in target-local prefix."""
         renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
@@ -541,7 +562,7 @@ class TestMultiRadioSourceConfig:
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
-        """Event from radio-bravo uses bravo's matrix_relay_prefix."""
+        """Event from radio-bravo resolves origin_label=BravoNet in target-local prefix."""
         renderer = self._make_renderer()
         event = _make_meshtastic_event(
             source_adapter="radio-bravo",
@@ -555,7 +576,12 @@ class TestMultiRadioSourceConfig:
 
     async def test_unknown_source_renders_plain_output(self) -> None:
         """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
-        renderer = self._make_renderer()
+        # No target-local prefix — test that unknown source gets no prefix
+        # and no mmrelay metadata.
+        renderer = MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+        )
         event = _make_meshtastic_event(
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie"},
@@ -599,7 +625,7 @@ class TestMultiRadioSourceConfig:
         assert "meshtastic_id" not in result.payload
 
     async def test_reaction_prefix_resolves_per_source(self) -> None:
-        """Reaction emote prefix resolves per source adapter config."""
+        """Reaction emote prefix resolves via target-local template with per-source origin_label."""
         renderer = self._make_renderer()
         relation = EventRelation(
             relation_type="reaction",
@@ -657,7 +683,12 @@ class TestMultiRadioSourceConfig:
 
     async def test_non_meshtastic_source_ignores_meshtastic_configs(self) -> None:
         """Non-Meshtastic source with Meshtastic source_configs renders plain output."""
-        renderer = self._make_renderer()
+        # No target-local prefix — test that non-Meshtastic source gets no
+        # Meshtastic metadata contamination.
+        renderer = MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+        )
         event = _make_event(
             event_id="evt-plain-1",
             payload={"body": "Hello from elsewhere"},
@@ -694,16 +725,24 @@ class TestRuntimeAssemblySourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             meshnet_name="AlphaNet",
-            matrix_relay_prefix="[{sender}/AlphaNet]: ",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
             meshnet_name="BravoNet",
-            matrix_relay_prefix="[{sender}/BravoNet]: ",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
+
+    @staticmethod
+    def _configs() -> dict[str, _StubMatrixConfig]:
+        """Target-local configs with per-origin prefix via origin_label variable."""
+        return {
+            "matrix-1": _StubMatrixConfig(
+                adapter_id="matrix-1",
+                relay_prefix="[{sender}/{origin_label}]: ",
+            ),
+        }
 
     @staticmethod
     def _source_attribution() -> dict[str, _StubSourceAttribution]:
@@ -723,6 +762,7 @@ class TestRuntimeAssemblySourceConfig:
         return MatrixRenderer(
             source_configs=self._source_configs(),
             source_attribution=self._source_attribution(),
+            configs=self._configs(),
             **kwargs,  # type: ignore[arg-type]
         )
 
@@ -762,7 +802,12 @@ class TestRuntimeAssemblySourceConfig:
 
     async def test_non_meshtastic_source_renders_plain_output(self) -> None:
         """Non-Meshtastic source renders plain Matrix output with no Meshtastic metadata."""
-        renderer = self._make_renderer()
+        # No target-local prefix — test that non-Meshtastic source gets
+        # no Meshtastic metadata contamination.
+        renderer = MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+        )
         event = _make_event(
             event_id="evt-matrix-1",
             payload={"body": "Hello from Matrix"},
@@ -784,7 +829,12 @@ class TestRuntimeAssemblySourceConfig:
 
     async def test_unknown_meshtastic_source_renders_plain_output(self) -> None:
         """Unknown Meshtastic source (not in source_configs) renders plain output."""
-        renderer = self._make_renderer()
+        # No target-local prefix — test that unknown source gets no
+        # mmrelay metadata.
+        renderer = MatrixRenderer(
+            source_configs=self._source_configs(),
+            source_attribution=self._source_attribution(),
+        )
         event = _make_meshtastic_event(
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie", "packet_id": "77"},
@@ -885,10 +935,10 @@ class TestMatrixFallbackText:
     async def test_fallback_text_truncation_respects_max_text_chars(self) -> None:
         """Truncation applies to the final body including relay prefix."""
         renderer = MatrixRenderer(
-            source_configs={
-                "transport": _StubMeshtasticConfig(
-                    adapter_id="transport",
-                    matrix_relay_prefix="[Alice]: ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[Alice]: ",
                 ),
             },
         )
@@ -917,10 +967,10 @@ class TestMatrixFallbackText:
         """original_length metadata reflects the full pre-truncate body (prefix + text)."""
         prefix = "[Alice]: "
         renderer = MatrixRenderer(
-            source_configs={
-                "transport": _StubMeshtasticConfig(
-                    adapter_id="transport",
-                    matrix_relay_prefix=prefix,
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix=prefix,
                 ),
             },
         )
@@ -947,10 +997,10 @@ class TestMatrixFallbackText:
     async def test_fallback_text_no_truncation_when_within_budget(self) -> None:
         """No truncation when the prefixed body fits within max_text_chars."""
         renderer = MatrixRenderer(
-            source_configs={
-                "transport": _StubMeshtasticConfig(
-                    adapter_id="transport",
-                    matrix_relay_prefix="[Al]: ",
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[Al]: ",
                 ),
             },
         )
