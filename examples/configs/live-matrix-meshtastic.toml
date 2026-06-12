@@ -96,5 +96,7 @@ directionality = "bidirectional"
 enabled = true
 source_room = "!room:example.com" # Matrix room to listen on (forward); delivered to in reverse
 dest_channel = "0"                # Meshtastic channel index (forward dest; reverse source)
+# source_origin_label = "Matrix Bridge"  # override adapter origin_label for forward leg
+# dest_origin_label = "Mesh Radio"       # override adapter origin_label for reverse leg
 
 # Retry disabled for bring-up simplicity

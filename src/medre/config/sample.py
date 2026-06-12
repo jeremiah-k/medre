@@ -140,6 +140,10 @@ display_name = "MEDRE"
 #                         as source_origin_label but applied when direction
 #                         is swapped during expansion.
 #
+#   Per-channel origin labels (different labels per channel within a single
+#   route) are not supported.  Use separate routes per channel with their own
+#   source_origin_label/dest_origin_label as a workaround.
+#
 # Policy ([routes.<id>.policy]):
 #   allowed_event_types      — event kinds to permit (e.g. ["message.created",
 #                              "message.text"]). Enforced as structural

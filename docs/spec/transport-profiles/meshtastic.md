@@ -73,7 +73,12 @@ compact prefix in the text body).
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
-the source event.
+the source event. `{origin_label}` is resolved through a precedence chain:
+route-level `source_origin_label` (or `dest_origin_label` for reverse legs)
+from the matched route's expansion context takes priority; when no route-level
+label is set, the renderer falls back to the source adapter's `origin_label`
+config via the runtime source-attribution registry; when neither source
+provides a label, the variable resolves to empty string.
 
 ### Supported Template Variables
 
@@ -153,8 +158,10 @@ the renderer falls back to an empty string (no prefix). Matrix prefix is now
 target-local only — there is no `matrix_relay_prefix` on MeshtasticConfig.
 
 For cross-platform prefix templates, operators SHOULD prefer `{origin_label}`
-— the MEDRE-generic source label populated on all adapter configs. `{origin_label}` is resolved from
-the source adapter config via the runtime source-attribution registry.
+— the MEDRE-generic source label populated on all adapter configs. `{origin_label}` is resolved
+through a precedence chain: route-level `source_origin_label` (or
+`dest_origin_label` for reverse legs) takes priority over the source adapter's
+config-level `origin_label`.
 
 The same shared variable table applies. The Matrix renderer has no
 constrained radio byte budget — prefix length is unconstrained in the

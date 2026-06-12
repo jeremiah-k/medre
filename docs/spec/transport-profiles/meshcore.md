@@ -112,9 +112,11 @@ empty, no prefix is prepended.
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
 the source event. Operators SHOULD prefer `{origin_label}` for
 cross-platform prefix templates — `origin_label` is the MEDRE-generic source
-label resolved from the source-attribution registry. See the Meshtastic
-Transport Profile §Relay Attribution Prefix for the authoritative list of
-supported template variables.
+label. `{origin_label}` is resolved through a precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) takes
+priority over the source adapter's config-level `origin_label`. See the
+Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
+list of supported template variables.
 
 **Default:** `""` (no prefix). MeshCore does not have a convention for a default prefix because sender identity is a hex pubkey prefix, not a human-readable name — templates referencing `{sender}` or `{sender_short}` resolve to empty strings for MeshCore-origin events. Operators SHOULD prefer `{origin_label}` or `{sender_id}` for MeshCore-bound prefixes.
 

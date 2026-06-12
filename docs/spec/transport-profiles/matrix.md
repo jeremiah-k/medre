@@ -73,10 +73,12 @@ on all adapter configs. See the Meshtastic Transport Profile
 §Relay Attribution Prefix for the authoritative list of supported template
 variables and formatting rules.
 
-**Renderer lookup:** `{origin_label}` is resolved from the source adapter's
-`origin_label` config via the runtime source-attribution registry. When the
-source adapter has no `origin_label` configured, the variable resolves to an
-empty string.
+**Renderer lookup:** `{origin_label}` is resolved through a precedence chain:
+route-level `source_origin_label` (or `dest_origin_label` for reverse legs)
+from the matched route's expansion context takes priority; when no route-level
+label is set, the renderer falls back to the source adapter's `origin_label`
+config via the runtime source-attribution registry; when neither source
+provides a label, the variable resolves to empty string.
 
 **Application points:**
 

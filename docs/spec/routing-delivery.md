@@ -1217,9 +1217,26 @@ LXMF, `RenderingResult.metadata` on all transports).
 ### 17.5.2 origin_label
 
 `origin_label` is the platform-neutral, operator-defined source label for
-relay prefixes. Each adapter config declares an `origin_label` field
-(string, default `""`), set by the operator to a short human-readable name
-for the adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
+relay prefixes. It can be set at two levels:
+
+1. **Route level** — `source_origin_label` and `dest_origin_label` on
+   `RouteConfig`. These direction-aware labels override the adapter-level
+   `origin_label` for deliveries on that route. `source_origin_label` applies
+   to forward legs (source→dest); `dest_origin_label` applies to reverse legs
+   (dest→source) after bidirectional expansion. Both default to `None`
+   (unset).
+2. **Adapter level** — `origin_label` on each adapter config (string, default
+   `""`), set by the operator to a short human-readable name for the
+   adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
+
+The precedence chain for `source_origin_label` on `RelayAttribution` is:
+
+1. Route-level label (`source_origin_label` or `dest_origin_label` after
+   expansion) from the matched route.
+2. Adapter config `origin_label` from the source-attribution registry.
+3. Empty string (no fallback to native metadata).
+
+Properties:
 
 - `origin_label` is NOT delivery evidence.
 - `origin_label` is NOT a routing key.
@@ -1227,8 +1244,7 @@ for the adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
   MXID, pubkey prefix, or Reticulum hash).
 
 The canonical field on `RelayAttribution` is `source_origin_label`. The
-template alias is `{origin_label}`. Renderers look up `source_origin_label`
-from the source adapter config via the runtime source-attribution registry.
+template alias is `{origin_label}`.
 
 ### 17.5.3 Label and Identity Distinctions
 
@@ -1245,11 +1261,17 @@ configs.
 
 ### 17.5.4 Renderer Lookup
 
-Renderers resolve `source_origin_label` through the runtime
-source-attribution registry. The registry maps adapter instance names to
-their `origin_label` config value. When a source adapter has no
-`origin_label` configured (empty string), the template variable resolves to
-an empty string — no label is rendered.
+Renderers resolve `source_origin_label` through the precedence chain
+described in §17.5.2. When the matched route carries a route-level label
+(`source_origin_label` for forward legs, `dest_origin_label` for reverse
+legs), that value is used directly. When the route has no direction-aware
+label, the renderer falls back to the source adapter's `origin_label` config
+via the runtime source-attribution registry. When neither source provides a
+label, the variable resolves to empty string.
+
+The source-attribution registry maps adapter instance names to their
+`origin_label` config value. It is constructed at assembly time and consulted
+by all renderers.
 
 For the Matrix outbound prefix specifically, `MatrixConfig.relay_prefix`
 (string, default `""`) is the target-local prefix template. The Matrix
@@ -1304,6 +1326,32 @@ Prefixes are prepended to message text for human readability only. The
 metadata namespace remains the authoritative source for machine-readable
 provenance and delivery evidence. Operators MUST NOT rely on prefix text for
 routing decisions, delivery confirmation, or identity verification.
+
+### 17.5.8 Projection Architecture and Core Boundary
+
+The relay-prefix system has a structural boundary between the core rendering
+pipeline and adapter-adjacent projection logic.
+
+**Core rendering** operates exclusively on the generic `RelayAttribution`
+struct with transport-agnostic fields (`source_sender_label`,
+`source_sender_short_label`, `source_sender_id`, `source_sender_handle`,
+`source_origin_label`, `source_platform`, `source_room_or_channel`,
+`route_id`). The shared prefix formatter (`format_relay_prefix`) and all
+core rendering code use only these generic fields. Core does not inspect
+native identity keys from Matrix, Meshtastic, MeshCore, or LXMF.
+
+**Adapter-adjacent projection** maps transport-specific native metadata onto
+the generic `RelayAttribution` fields. Each adapter owns its projection logic
+within its adapter package. This is where Matrix MXID display names,
+Meshtastic node info longname/shortname, MeshCore pubkey prefixes, and LXMF
+identity hashes are mapped to the generic fields. Adding a new transport
+requires implementing projection from that transport's native metadata to
+the generic fields. Core renderers and the shared formatter need no changes.
+
+**Channel-specific labels** (different `origin_label` values per channel
+within a single route) are not implemented. Operators who need per-channel
+labels SHOULD use separate routes per channel, each with its own
+direction-aware `source_origin_label`/`dest_origin_label`.
 
 ## 18. Non-Goals
 

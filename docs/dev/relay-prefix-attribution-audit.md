@@ -102,10 +102,12 @@ Matrix adapter config (target-local). When empty, no prefix is prepended.
 
 The prefix is applied **before** any truncation.
 
-**Source-origin label enrichment:** The Matrix renderer looks up the source
-adapter's `origin_label` from the source-attribution registry and populates
-`source_origin_label` on the `RelayAttribution` used for prefix formatting.
-When the source adapter has no `origin_label`, the value is empty string.
+**Source-origin label enrichment:** The Matrix renderer populates
+`source_origin_label` on the `RelayAttribution` for prefix formatting. The
+value follows the precedence chain: route-level `source_origin_label` (or
+`dest_origin_label` for reverse legs) from the matched route's expansion
+context, falling back to the source adapter's `origin_label` from the
+source-attribution registry, falling back to empty string.
 
 ### Matrix Metadata Envelope
 
@@ -181,10 +183,12 @@ session's node database. When node info is unavailable, `longname` and
 `src/medre/adapters/meshtastic/renderer.py`) prepends
 `radio_relay_prefix` via `_format_prefix_for` (lines 158–228).
 
-The renderer looks up the source adapter's `origin_label` from the
-source-attribution registry to populate `source_origin_label` on the
-`RelayAttribution`. When the source adapter has no `origin_label`, the
-value is empty string.
+The renderer populates `source_origin_label` on the `RelayAttribution` for
+prefix formatting. The value follows the precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) from the
+matched route's expansion context, falling back to the source adapter's
+`origin_label` from the source-attribution registry, falling back to empty
+string.
 
 **Available template variables:**
 
@@ -258,10 +262,12 @@ The MeshCore renderer (`MeshCoreRenderer` in
 prefix when `meshcore_relay_prefix` is non-empty on the target adapter's
 `MeshCoreConfig`.
 
-The renderer looks up the source adapter's `origin_label` from the
-source-attribution registry to populate `source_origin_label` on the
-`RelayAttribution`. When the source adapter has no `origin_label`, the
-value is empty string.
+The renderer populates `source_origin_label` on the `RelayAttribution` for
+prefix formatting. The value follows the precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) from the
+matched route's expansion context, falling back to the source adapter's
+`origin_label` from the source-attribution registry, falling back to empty
+string.
 
 **Prefix configuration source:** `MeshCoreConfig.meshcore_relay_prefix`
 (string, default `""`).
@@ -346,9 +352,12 @@ prefix when a relay prefix is configured on the target `LxmfConfig`.
 
 The LXMF renderer is **target-aware**: the prefix template comes from the
 target LXMF adapter's `lxmf_relay_prefix` config, resolved per delivery
-target. The renderer looks up the source adapter's `origin_label` from the
-source-attribution registry to populate `source_origin_label` on the
-`RelayAttribution`.
+target. The renderer populates `source_origin_label` on the `RelayAttribution`
+for prefix formatting. The value follows the precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) from the
+matched route's expansion context, falling back to the source adapter's
+`origin_label` from the source-attribution registry, falling back to empty
+string.
 
 **Prefix configuration source:** `LxmfConfig.lxmf_relay_prefix` (string,
 default `""`).
@@ -465,19 +474,87 @@ renders as `m.emote` with `KEY_EMOJI=1`, `KEY_REPLY_ID`,
 
 ---
 
+## Projection Architecture and Core Boundary
+
+### Core Formatter and Model
+
+The core rendering pipeline uses a generic `RelayAttribution` struct with
+transport-agnostic fields: `source_sender_label`, `source_sender_short_label`,
+`source_sender_id`, `source_sender_handle`, `source_platform`,
+`source_origin_label`, `source_room_or_channel`, `route_id`, and related
+canonical fields. The shared prefix formatter (`format_relay_prefix` in
+`src/medre/core/rendering/attribution.py`) operates exclusively on these
+generic fields.
+
+Core does not inspect native identity keys from any transport. It has no
+knowledge of Matrix MXIDs, Meshtastic node info longname/shortname,
+MeshCore pubkey prefixes, or LXMF identity hashes.
+
+### Adapter-Adjacent Native Projection
+
+Each adapter owns its own native-to-generic projection logic. These live in
+adapter-adjacent modules (attribution helpers within each adapter package)
+that map transport-specific native metadata keys onto the generic
+`RelayAttribution` fields:
+
+- **Matrix** — projects `sender_display_name` → `source_sender_label`,
+  MXID localpart → `source_sender_short_label`, full MXID →
+  `source_sender_id`.
+- **Meshtastic** — projects `longname` → `source_sender_label`,
+  `shortname` → `source_sender_short_label`, `from_id` →
+  `source_sender_id`.
+- **MeshCore** — projects `meshcore.sender_id` (pubkey prefix) →
+  `source_sender_id`. `source_sender_label` and
+  `source_sender_short_label` are empty (pubkey prefixes are not
+  human-readable).
+- **LXMF** — projects `source_hash` → `source_sender_id`.
+  `source_sender_label` and `source_sender_short_label` are empty
+  (32-char hex hashes are not human-readable).
+
+This boundary is structural. Adding a new transport requires implementing
+projection from that transport's native metadata to the generic fields.
+Core renderers and the shared formatter need no changes.
+
+### origin_label Projection
+
+`source_origin_label` on `RelayAttribution` is populated through a
+precedence chain, not a single lookup:
+
+1. **Route-level label** — When the matched route has `source_origin_label`
+   (forward leg) or `dest_origin_label` (reverse leg, swapped during
+   bidirectional expansion), that value is used directly. This is the
+   highest-precedence source.
+2. **Adapter config fallback** — When the route has no direction-aware label,
+   the renderer falls back to the source adapter's `origin_label` config via
+   the runtime source-attribution registry.
+3. **Empty string** — When neither route nor adapter config provides a label,
+   `source_origin_label` is empty. There is no native/platform projection for
+   `origin_label` — it is an operator-defined field, not derived from native
+   metadata.
+
+---
+
 ## origin_label
 
 ### Concept
 
-`origin_label` is a platform-neutral, operator-defined source label stored on
-each adapter config (`MatrixConfig.origin_label`, `MeshtasticConfig.origin_label`,
-`MeshCoreConfig.origin_label`, `LxmfConfig.origin_label`). All four configs
-declare it as a string with default `""`.
+`origin_label` is a platform-neutral, operator-defined source label. It can be
+set at two levels:
+
+1. **Route level** — `source_origin_label` and `dest_origin_label` on
+   `RouteConfig`. These are direction-aware: `source_origin_label` applies to
+   the forward leg (source→dest), `dest_origin_label` applies to the reverse
+   leg (dest→source) after bidirectional expansion. When set, they override the
+   adapter-level `origin_label` for that route's deliveries.
+2. **Adapter level** — `origin_label` on each adapter config
+   (`MatrixConfig.origin_label`, `MeshtasticConfig.origin_label`,
+   `MeshCoreConfig.origin_label`, `LxmfConfig.origin_label`). All four configs
+   declare it as a string with default `""`.
 
 The canonical field on `RelayAttribution` is `source_origin_label`. The
-template alias is `{origin_label}`. It is resolved through the runtime
-source-attribution registry, which maps adapter instance names to their
-`origin_label` config value.
+template alias is `{origin_label}`. It is resolved through the precedence
+chain described in the Projection Architecture section above: route-level
+label > adapter-level fallback via source-attribution registry > empty string.
 
 ### Source-Attribution Registry
 
@@ -579,6 +656,14 @@ There is no mechanism to resolve a human-readable name from a MeshCore
 pubkey prefix or LXMF identity hash into `source_sender_label` or
 `source_sender_short_label` for downstream prefix templates. Node info
 lookup exists only for Meshtastic (via the SDK node database).
+
+### 9. No per-channel origin labels
+
+Route-level `source_origin_label` and `dest_origin_label` apply to all
+deliveries on that route, regardless of channel. Per-channel origin labels
+(different labels for different channels in a `channel_room_map` route) are
+not implemented. The workaround is to use separate routes per channel, each
+with its own direction-aware label.
 
 ---
 
