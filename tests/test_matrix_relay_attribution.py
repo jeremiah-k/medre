@@ -18,14 +18,16 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext
-
-# Shared helpers that remain in the original test file — import rather than
-# duplicate so that any future change to the stubs is picked up everywhere.
-from tests.test_matrix_renderer import (
-    _make_event,
-    _make_meshtastic_event,
-    _StubMeshtasticConfig,
+from tests.helpers.matrix_events import (
+    StubMeshtasticConfig,
+    make_matrix_event,
+    make_meshtastic_event,
 )
+
+# Module-level aliases for concise call-sites in this test file.
+_make_event = make_matrix_event
+_make_meshtastic_event = make_meshtastic_event
+_StubMeshtasticConfig = StubMeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers specific to relay attribution / prefix tests

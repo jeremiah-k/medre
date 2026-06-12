@@ -15,27 +15,16 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from tests.helpers.matrix_events import (
+    StubMeshtasticConfig,
+    make_matrix_event,
+    make_meshtastic_event,
+)
 
-
-def _make_event(
-    event_id: str = "evt-1",
-    payload: dict | None = None,
-    relations: tuple | None = None,
-) -> CanonicalEvent:
-    return CanonicalEvent(
-        event_id=event_id,
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="transport",
-        source_transport_id="node-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=relations or (),
-        payload=payload or {"body": "hello"},
-        metadata=EventMetadata(),
-    )
+# Module-level aliases so existing test call-sites stay concise.
+_make_event = make_matrix_event
+_make_meshtastic_event = make_meshtastic_event
+_StubMeshtasticConfig = StubMeshtasticConfig
 
 
 class TestMatrixRenderer:
@@ -484,48 +473,6 @@ class TestMatrixRendererReplySender:
 # ---------------------------------------------------------------------------
 # Multi-radio source-adapter config resolution tests
 # ---------------------------------------------------------------------------
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed MeshtasticConfig for source-config resolution tests."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio-alpha",
-        meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
-def _make_meshtastic_event(
-    source_adapter: str = "radio-alpha",
-    payload: dict | None = None,
-    relations: tuple | None = None,
-    native_data: dict | None = None,
-) -> CanonicalEvent:
-    """Build a CanonicalEvent simulating a Meshtastic source."""
-    metadata = EventMetadata()
-    if native_data:
-        metadata = EventMetadata(native=NativeMetadata(data=native_data))
-    return CanonicalEvent(
-        event_id="evt-mesh-1",
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter=source_adapter,
-        source_transport_id="node-42",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=relations or (),
-        payload=payload or {"body": "hello mesh"},
-        metadata=metadata,
-    )
 
 
 class TestMultiRadioSourceConfig:
