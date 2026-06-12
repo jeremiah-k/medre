@@ -43,11 +43,18 @@ class RouteSource:
     channel:
         Source channel / conversation ID, or ``None`` to match any
         channel.
+    origin_label:
+        Optional source-context human-readable label carried from the
+        route configuration.  When set, this is the source-side
+        origin label threaded into the rendering context so renderers
+        can apply route-level precedence over the source adapter's
+        ``origin_label``.  ``None`` means "unset".
     """
 
     adapter: str | None
     event_kinds: tuple[str, ...]
     channel: str | None
+    origin_label: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -461,6 +461,7 @@ def _expand_route_config(
             adapter=src_id,
             event_kinds=event_kinds,
             channel=source_channel,
+            origin_label=rc.origin_label,
         )
 
         route = Route(
@@ -604,6 +605,7 @@ def _expand_channel_room_map_route(
                         adapter=matrix_id,
                         event_kinds=event_kinds,
                         channel=room_id,
+                        origin_label=rc.origin_label,
                     ),
                     targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
                     enabled=rc.enabled,
@@ -621,6 +623,7 @@ def _expand_channel_room_map_route(
                         adapter=meshtastic_id,
                         event_kinds=event_kinds,
                         channel=ch,
+                        origin_label=rc.origin_label,
                     ),
                     targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
                     enabled=rc.enabled,

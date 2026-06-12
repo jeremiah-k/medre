@@ -399,6 +399,14 @@ class RouteConfig:
         ``dest_channel`` directly.  Mutually exclusive with
         ``source_channel``, ``dest_channel``, ``source_room``, and
         ``dest_room``.  Requires exactly one source and one dest adapter.
+    origin_label:
+        Optional source-side human-readable label for this route.  When
+        set, it is threaded into the rendering context as the
+        source-context origin label, giving renderers a route-level
+        override for relay-prefix attribution.  ``None`` means "unset" —
+        renderers fall back to the source adapter's ``origin_label``.
+        This is source-context metadata, **not** a routing key and
+        **not** delivery evidence.
     """
 
     route_id: str
@@ -414,6 +422,7 @@ class RouteConfig:
     policy: BridgePolicy | None = None
     retry: RouteRetryConfig | None = None
     channel_room_map: dict[str, str] | None = None
+    origin_label: str | None = None
 
     @classmethod
     def from_toml_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
@@ -542,6 +551,18 @@ class RouteConfig:
             source_channel = source_room
         if dest_channel is None and dest_room is not None:
             dest_channel = dest_room
+
+        # --- origin_label (source-side route label) ---
+        raw_origin_label = data.pop("origin_label", None)
+        origin_label: str | None = None
+        if raw_origin_label is not None:
+            if not isinstance(raw_origin_label, str):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'origin_label' must be a string, "
+                    f"got {type(raw_origin_label).__name__}",
+                    section_path=section_path,
+                )
+            origin_label = raw_origin_label
 
         # --- channel_room_map ---
         raw_crm = data.pop("channel_room_map", None)
@@ -742,6 +763,7 @@ class RouteConfig:
             policy=policy,
             retry=retry,
             channel_room_map=channel_room_map,
+            origin_label=origin_label,
         )
 
 

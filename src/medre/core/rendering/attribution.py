@@ -42,16 +42,17 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 # ---------------------------------------------------------------------------
 
 # Canonical field names (as they appear on RelayAttribution).
+# Generic, platform-neutral naming — no transport-specific terminology.
 _CANONICAL_NAMES = frozenset(
     {
         "source_adapter_id",
         "source_platform",
         "source_transport",
         "source_sender_id",
+        "source_sender_label",
+        "source_sender_short_label",
+        "source_sender_handle",
         "source_display_name",
-        "source_long_name",
-        "source_short_name",
-        "source_short_name_5",
         "source_room_or_channel",
         "source_origin_label",
         "source_native_message_id",
@@ -60,16 +61,34 @@ _CANONICAL_NAMES = frozenset(
     }
 )
 
-# Alias mappings: alias -> canonical name.
-_ALIASES: dict[str, str] = {
-    "longname": "source_long_name",
-    "shortname": "source_short_name",
-    "shortname5": "source_short_name_5",
-    "from_id": "source_sender_id",
+# Preferred formatter aliases — generic, platform-neutral short names
+# for use in new templates.
+_PREFERRED_ALIASES: dict[str, str] = {
+    "sender": "source_sender_label",
+    "sender_short": "source_sender_short_label",
+    "sender_id": "source_sender_id",
+    "sender_handle": "source_sender_handle",
+    "platform": "source_platform",
+    "route_id": "route_id",
+    "channel": "source_room_or_channel",
     "origin_label": "source_origin_label",
 }
 
-_ALL_KNOWN_NAMES = _CANONICAL_NAMES | frozenset(_ALIASES.keys())
+# Compatibility aliases — retained for backward-compatible templates only.
+# **Do NOT use in new code.**  These map Meshtastic-era template names to
+# the new generic canonical fields.
+_COMPAT_ALIASES: dict[str, str] = {
+    "from_id": "source_sender_id",  # compat: use {sender_id}
+    "longname": "source_sender_label",  # compat: use {sender}
+    "shortname": "source_sender_short_label",  # compat: use {sender_short}
+}
+
+_ALL_KNOWN_NAMES = (
+    _CANONICAL_NAMES
+    | frozenset(_PREFERRED_ALIASES.keys())
+    | frozenset(_COMPAT_ALIASES.keys())
+    | frozenset({"shortname5"})  # compat: derived, not a direct alias
+)
 
 
 # ---------------------------------------------------------------------------
@@ -85,10 +104,28 @@ class RelayAttribution:
     safe prefix formatter coalesces ``None`` to the empty string so that
     templates never render the literal text ``"None"``.
 
-    Aliases (``longname``, ``shortname``, ``shortname5``, ``from_id``,
-    ``origin_label``) are **not** stored here — they are derived by the
-    formatter from the canonical ``source_*`` fields.  This avoids
-    competing sources of truth.
+    **Canonical generic fields** (use these in new code):
+
+    * ``source_sender_label`` — primary human-readable sender label.
+    * ``source_sender_short_label`` — abbreviated sender label.
+    * ``source_sender_handle`` — sender handle / address.
+    * ``source_origin_label`` — human-readable origin label.
+
+    **Deprecated adapter-compat fields** (retained on the dataclass for
+    adapter code that directly accesses or constructs with these names;
+    not exposed as formatter variables):
+
+    * ``source_long_name`` — maps to ``source_sender_label``.
+    * ``source_short_name`` — maps to ``source_sender_short_label``.
+    * ``source_short_name_5`` — removed from the formatter; ``shortname5``
+      is derived at format time from ``source_sender_short_label`` or
+      ``source_sender_id``.
+
+    .. note::
+
+       ``__post_init__`` propagates deprecated fields to their generic
+       replacements so that adapter code constructing with old field names
+       still produces correct formatter output.
 
     Attributes
     ----------
@@ -102,15 +139,14 @@ class RelayAttribution:
         Transport identifier (``event.source_transport_id``).
     source_sender_id:
         Native sender identifier (MXID, node ID, pubkey prefix, hash).
+    source_sender_label:
+        Primary human-readable sender label (display name, long name, etc.).
+    source_sender_short_label:
+        Abbreviated sender label (localpart, short name, etc.).
+    source_sender_handle:
+        Sender handle or address (Matrix handle, callsign, etc.).
     source_display_name:
         Best-effort human-readable display name.
-    source_long_name:
-        Long display name (Meshtastic ``longname``, Matrix display name).
-    source_short_name:
-        Short display name (Meshtastic ``shortname``, Matrix localpart).
-    source_short_name_5:
-        First 5 characters of ``source_short_name`` falling back to
-        ``source_sender_id``.
     source_room_or_channel:
         Room / channel ID from the source (``event.source_channel_id``).
     source_origin_label:
@@ -125,19 +161,42 @@ class RelayAttribution:
         Route identifier that triggered this relay, if available.
     """
 
+    # Generic canonical fields (platform-neutral).
     source_adapter_id: str | None = None
     source_platform: str | None = None
     source_transport: str | None = None
     source_sender_id: str | None = None
+    source_sender_label: str | None = None
+    source_sender_short_label: str | None = None
+    source_sender_handle: str | None = None
     source_display_name: str | None = None
-    source_long_name: str | None = None
-    source_short_name: str | None = None
-    source_short_name_5: str | None = None
     source_room_or_channel: str | None = None
     source_origin_label: str | None = None
     source_native_message_id: str | None = None
     source_native_channel_id: str | None = None
     route_id: str | None = None
+
+    # Deprecated adapter-compat fields — retained for adapter code that
+    # directly accesses or constructs with these names.  Propagated to
+    # their generic replacements via __post_init__.
+    source_long_name: str | None = None
+    source_short_name: str | None = None
+    source_short_name_5: str | None = None
+
+    def __post_init__(self) -> None:
+        """Propagate deprecated adapter-compat fields to generic fields.
+
+        When an adapter constructs a ``RelayAttribution`` using the old
+        field names (``source_long_name``, ``source_short_name``), this
+        copies their values to the new generic fields so that the
+        formatter produces correct output without adapter changes.
+        """
+        if self.source_long_name is not None:
+            object.__setattr__(self, "source_sender_label", self.source_long_name)
+        if self.source_short_name is not None:
+            object.__setattr__(
+                self, "source_sender_short_label", self.source_short_name
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -151,16 +210,27 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
     Every value is coalesced from ``None`` to ``""`` so that string
     operations never encounter ``None``.  Derived fields (``shortname5``)
     are computed from their source fields when not explicitly set.
+
+    Uses ``is not None`` checks for label fields to preserve explicitly
+    empty strings without fallback.
     """
-    short_name = attr.source_short_name or ""
     sender_id = attr.source_sender_id or ""
 
-    # Derive short_name_5 when not explicitly set: first 5 chars of
-    # short_name, falling back to first 5 chars of sender_id.
-    if attr.source_short_name_5 is not None:
-        short5 = attr.source_short_name_5
-    elif short_name:
-        short5 = short_name[:5]
+    # Use is-not-None to preserve explicit empty strings.
+    sender_label = (
+        attr.source_sender_label if attr.source_sender_label is not None else ""
+    )
+    sender_short_label = (
+        attr.source_sender_short_label
+        if attr.source_sender_short_label is not None
+        else ""
+    )
+
+    # Compat: derive shortname5 from sender_short_label / sender_id.
+    # When sender_short_label is explicitly "" (is not None), do NOT
+    # fall back to sender_id — the empty value is intentional.
+    if attr.source_sender_short_label is not None:
+        short5 = attr.source_sender_short_label[:5]
     elif sender_id:
         short5 = sender_id[:5]
     else:
@@ -171,19 +241,32 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
         "source_platform": attr.source_platform or "",
         "source_transport": attr.source_transport or "",
         "source_sender_id": sender_id,
+        "source_sender_label": sender_label,
+        "source_sender_short_label": sender_short_label,
+        "source_sender_handle": (
+            attr.source_sender_handle if attr.source_sender_handle is not None else ""
+        ),
         "source_display_name": attr.source_display_name or "",
-        "source_long_name": attr.source_long_name or "",
-        "source_short_name": short_name,
-        "source_short_name_5": short5 or "",
         "source_room_or_channel": attr.source_room_or_channel or "",
-        "source_origin_label": attr.source_origin_label or "",
+        "source_origin_label": (
+            attr.source_origin_label if attr.source_origin_label is not None else ""
+        ),
         "source_native_message_id": attr.source_native_message_id or "",
         "source_native_channel_id": attr.source_native_channel_id or "",
         "route_id": attr.route_id or "",
     }
-    # Add aliases pointing to the coalesced canonical values.
-    for alias, canonical in _ALIASES.items():
+
+    # Add preferred aliases pointing to coalesced canonical values.
+    for alias, canonical in _PREFERRED_ALIASES.items():
         canon[alias] = canon[canonical]
+
+    # Add compat aliases pointing to coalesced canonical values.
+    for alias, canonical in _COMPAT_ALIASES.items():
+        canon[alias] = canon[canonical]
+
+    # Compat: shortname5 is derived, not a direct alias.
+    canon["shortname5"] = short5
+
     return canon
 
 
@@ -270,10 +353,6 @@ def format_relay_prefix(
         missing_variables: list[str] = []
         unknown_variables: list[str] = []
 
-        # Build substitution map for safe replacement.
-        # We do a character-by-character scan to handle unmatched braces
-        # correctly, but for simplicity we use the regex approach and
-        # leave non-matching brace text untouched.
         def _replace(m: re.Match) -> str:  # type: ignore[type-arg]
             name = m.group(1)
             if name in _ALL_KNOWN_NAMES:
@@ -399,16 +478,20 @@ def _extract_matrix_fields(
     display_name = native_data.get("displayname") or native_data.get("display_name")
     display_str = str(display_name) if display_name is not None else None
 
-    # Localpart fallback for short name.
-    short_name: str | None = None
+    # Localpart fallback for short label.
+    short_label: str | None = None
     if sender_str:
-        short_name = _extract_localpart(sender_str)
+        short_label = _extract_localpart(sender_str)
 
     return {
         "source_sender_id": sender_str,
         "source_display_name": display_str,
+        # Generic fields.
+        "source_sender_label": display_str,
+        "source_sender_short_label": short_label,
+        # Deprecated compat fields (populated for adapter code).
         "source_long_name": display_str,
-        "source_short_name": short_name,
+        "source_short_name": short_label,
     }
 
 
@@ -424,19 +507,15 @@ def _extract_meshtastic_fields(
     shortname_str = str(shortname) if shortname is not None else None
     from_id_str = str(from_id) if from_id is not None else None
 
-    # shortname5 convention: first 5 chars of shortname, fallback to from_id.
-    short5: str | None = None
-    if shortname_str:
-        short5 = shortname_str[:5]
-    elif from_id_str:
-        short5 = from_id_str[:5]
-
     return {
         "source_sender_id": from_id_str,
         "source_display_name": longname_str,
+        # Generic fields.
+        "source_sender_label": longname_str,
+        "source_sender_short_label": shortname_str,
+        # Deprecated compat fields (populated for adapter code).
         "source_long_name": longname_str,
         "source_short_name": shortname_str,
-        "source_short_name_5": short5,
     }
 
 
@@ -587,14 +666,5 @@ def extract_relay_attribution(
     # platform extraction.
     if source_origin_label is not None:
         fields["source_origin_label"] = source_origin_label
-
-    # Compute source_short_name_5 if not already set.
-    if fields.get("source_short_name_5") is None:
-        sn = fields.get("source_short_name")
-        sid = fields.get("source_sender_id")
-        if sn:
-            fields["source_short_name_5"] = sn[:5]
-        elif sid:
-            fields["source_short_name_5"] = sid[:5]
 
     return RelayAttribution(**fields)  # type: ignore[arg-type]
