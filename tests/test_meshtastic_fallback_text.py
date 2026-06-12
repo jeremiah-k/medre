@@ -221,7 +221,7 @@ class TestFallbackTextReaction:
         """
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{shortname} ",
+            radio_relay_prefix="{sender_short} ",
         )
         rel = _make_relation(
             key="😂",

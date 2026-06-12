@@ -12,13 +12,13 @@ field.
   aliases" tables from Matrix, Meshtastic, MeshCore, and LXMF sections.
   Replaced with explicit statement that old variables are unknown placeholders.
   Updated Meshtastic default from `"{shortname5}[M]: "` to
-  `"{sender_short}[M]: "`. Added KEY_MESHNET isolation section documenting
+  `"{sender_short}: "`. Added KEY_MESHNET isolation section documenting
   it as temporary mmrelay wire compatibility only. Updated origin_label
   distinction table to use `{sender_id}` instead of `{from_id}`. Updated
   Cross-Transport Gaps to reference canonical variable names.
 - `docs/spec/transport-profiles/meshtastic.md`: Rewrote template variable
   tables to list actual canonical fields and preferred aliases from source.
-  Updated default from `"{shortname5}[M]: "` to `"{sender_short}[M]: "`.
+  Updated default from `"{shortname5}[M]: "` to `"{sender_short}: "`.
   Updated known limitation to reference `source_sender_label`.
 - `docs/spec/transport-profiles/meshcore.md`: Updated prefix default note
   to reference `{sender}`/`{sender_short}` instead of `{longname}`/
@@ -32,7 +32,7 @@ field.
   `route_id`, `channel`, `origin_label`) instead of old aliases.
 - `docs/schemas/adapter-config.schema.json`: Updated Meshtastic
   `radio_relay_prefix` default from `"{shortname5}[M]: "` to
-  `"{sender_short}[M]: "`.
+  `"{sender_short}: "`.
 - `examples/configs/live-matrix-meshtastic.toml`: Updated prefix examples
   from `{longname}` to `{sender}` and `{shortname5}` to `{sender_short}`.
 - `examples/configs/live-matrix-meshtastic-channel-map.toml`: Updated

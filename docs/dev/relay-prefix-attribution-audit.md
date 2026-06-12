@@ -291,8 +291,8 @@ attribution.py `_ALL_KNOWN_NAMES`):
 | `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
-and `{meshnet_name}` are **unknown placeholders** — they resolve to empty
-for MeshCore sources and are left unchanged in the rendered output.
+and `{meshnet_name}` are **unknown placeholders** — they are left unchanged
+in the rendered output.
 
 **Default prefix:** `""` (no prefix).
 

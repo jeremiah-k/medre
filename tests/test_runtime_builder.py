@@ -611,7 +611,7 @@ class TestLxmfRelayPrefixWiring:
         cfg_b = LxmfConfig(
             adapter_id="lxmf_beta",
             connection_type="fake",
-            lxmf_relay_prefix="<{shortname}> ",
+            lxmf_relay_prefix="<{sender_short}> ",
         ).validate()
         rt_a = LxmfRuntimeConfig(
             adapter_id="lxmf_alpha",
@@ -640,7 +640,7 @@ class TestLxmfRelayPrefixWiring:
         assert "lxmf_alpha" in renderer._configs
         assert "lxmf_beta" in renderer._configs
         assert renderer._configs["lxmf_alpha"].lxmf_relay_prefix == ""
-        assert renderer._configs["lxmf_beta"].lxmf_relay_prefix == "<{shortname}> "
+        assert renderer._configs["lxmf_beta"].lxmf_relay_prefix == "<{sender_short}> "
 
 
 # ---------------------------------------------------------------------------

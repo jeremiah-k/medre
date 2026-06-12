@@ -492,9 +492,9 @@ class TestMatrixConfigRelayPrefix:
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="s3cret",
-            relay_prefix="[{origin_label}/{from_id}]: ",
+            relay_prefix="[{origin_label}/{sender_id}]: ",
         )
-        assert config.validate().relay_prefix == "[{origin_label}/{from_id}]: "
+        assert config.validate().relay_prefix == "[{origin_label}/{sender_id}]: "
 
     def test_empty_string_is_valid(self) -> None:
         """Empty relay_prefix passes validation."""

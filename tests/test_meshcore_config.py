@@ -754,11 +754,11 @@ class TestMeshCoreConfigRelayPrefix:
     def test_template_with_multiple_placeholders(self) -> None:
         config = MeshCoreConfig(
             adapter_id="meshcore-1",
-            meshcore_relay_prefix="<{source_platform}:{shortname}> ",
+            meshcore_relay_prefix="<{source_platform}:{sender_short}> ",
         )
         assert (
             config.validate().meshcore_relay_prefix
-            == "<{source_platform}:{shortname}> "
+            == "<{source_platform}:{sender_short}> "
         )
 
 
