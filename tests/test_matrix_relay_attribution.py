@@ -348,18 +348,18 @@ class TestMatrixCoreAttributionIntegration:
     # -- Missing variables: no 'None' in output --
 
     async def test_missing_longname_no_none(self) -> None:
-        """Missing longname renders as empty, never the literal 'None'."""
+        """Missing sender renders as empty, never the literal 'None'."""
         renderer = MatrixRenderer(
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}]: ",
+                    matrix_relay_prefix="[{sender}]: ",
                 ),
             },
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"shortname": "A"},  # no longname
+            native_data={"shortname": "A"},  # no longname → sender empty
         )
         result = await renderer.render(
             event,
@@ -371,18 +371,18 @@ class TestMatrixCoreAttributionIntegration:
         assert body == "[]: hello mesh"
 
     async def test_missing_shortname_no_none(self) -> None:
-        """Missing shortname renders as empty, never 'None'."""
+        """Missing sender_short renders as empty, never 'None'."""
         renderer = MatrixRenderer(
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{shortname}]: ",
+                    matrix_relay_prefix="[{sender_short}]: ",
                 ),
             },
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"longname": "Alice"},  # no shortname
+            native_data={"longname": "Alice"},  # no shortname → sender_short empty
         )
         result = await renderer.render(
             event,
@@ -398,7 +398,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="<{longname}/{shortname}/{from_id}> ",
+                    matrix_relay_prefix="<{sender}/{sender_short}/{sender_id}> ",
                 ),
             },
         )
@@ -551,7 +551,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}/{weird}] ",
+                    matrix_relay_prefix="[{sender}/{weird}] ",
                 ),
             },
         )
@@ -574,7 +574,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=True,
                 ),
             },
@@ -588,7 +588,7 @@ class TestMatrixCoreAttributionIntegration:
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"shortname": "A"},  # no longname
+            native_data={"shortname": "A"},  # no longname → sender empty
             payload={"body": "👍"},
             relations=(relation,),
         )
@@ -598,7 +598,7 @@ class TestMatrixCoreAttributionIntegration:
         )
         body = result.payload["body"]
         assert "None" not in body
-        # Empty longname → "[]" prefix in reaction emote
+        # Empty sender → "[]" prefix in reaction emote
         assert "[]" in body
 
     # -- Meshtastic prefix unchanged (regression guard) --
@@ -610,7 +610,7 @@ class TestMatrixCoreAttributionIntegration:
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
                     meshnet_name="AlphaNet",
-                    matrix_relay_prefix="[{longname}/AlphaNet]: ",
+                    matrix_relay_prefix="[{sender}/AlphaNet]: ",
                     mmrelay_compatibility=True,
                 ),
             },
@@ -633,7 +633,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -646,8 +646,8 @@ class TestMatrixCoreAttributionIntegration:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert "relay_prefix_template" in result.metadata
-        assert result.metadata["relay_prefix_template"] == "[{longname}] "
-        assert "longname" in result.metadata["relay_prefix_variables_used"]
+        assert result.metadata["relay_prefix_template"] == "[{sender}] "
+        assert "sender" in result.metadata["relay_prefix_variables_used"]
         assert result.metadata["relay_prefix_formatting_error"] is None
         assert result.metadata["relay_prefix_unknown_variables"] == ()
 
@@ -673,7 +673,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=False,
                 ),
             },
@@ -699,9 +699,9 @@ class TestMatrixCoreAttributionIntegration:
         assert result.payload["msgtype"] == "m.emote"
         # Reaction prefix metadata must be present and correct
         assert "relay_prefix_template" in result.metadata
-        assert result.metadata["relay_prefix_template"] == "[{longname}] "
+        assert result.metadata["relay_prefix_template"] == "[{sender}] "
         assert "relay_prefix_rendered" in result.metadata
-        assert "longname" in result.metadata["relay_prefix_variables_used"]
+        assert "sender" in result.metadata["relay_prefix_variables_used"]
 
     async def test_reaction_true_annotation_no_stale_prefix_metadata(self) -> None:
         """True m.reaction annotation carries no stale body prefix metadata.
@@ -713,7 +713,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                     mmrelay_compatibility=False,
                 ),
             },
@@ -752,7 +752,7 @@ class TestMatrixCoreAttributionIntegration:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}] ",
+                    matrix_relay_prefix="[{sender}] ",
                 ),
             },
         )
@@ -765,7 +765,7 @@ class TestMatrixCoreAttributionIntegration:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert "relay_prefix_template" in result.metadata
-        assert result.metadata["relay_prefix_template"] == "[{longname}] "
+        assert result.metadata["relay_prefix_template"] == "[{sender}] "
         assert result.metadata["relay_prefix_rendered"] == "[Bob] "
         assert result.payload["body"] == "[Bob] hello mesh"
 
@@ -843,7 +843,7 @@ class TestMatrixTargetLocalPrefix:
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
-                    relay_prefix="[{origin_label}/{from_id}]: ",
+                    relay_prefix="[{origin_label}/{sender_id}]: ",
                 ),
             },
         )
@@ -865,7 +865,7 @@ class TestMatrixTargetLocalPrefix:
             source_configs={
                 "radio-alpha": _StubMeshtasticConfig(
                     adapter_id="radio-alpha",
-                    matrix_relay_prefix="[{longname}]: ",
+                    matrix_relay_prefix="[{sender}]: ",
                 ),
             },
         )
