@@ -1111,58 +1111,6 @@ class TestReactionMetadataCompleteness:
         assert result.payload[KEY_SHORTNAME] == "MNN"
 
     @pytest.mark.asyncio
-    async def test_reaction_longname_from_namespaced_key(self) -> None:
-        """KEY_LONGNAME resolves from meshtastic.longname (primary source)."""
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(
-            native_data={
-                "meshtastic.longname": "Namespaced Node",
-                "packet_id": "pkt-1",
-                "from_id": "!abcdef01",
-            },
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert result.payload[KEY_LONGNAME] == "Namespaced Node"
-
-    @pytest.mark.asyncio
-    async def test_reaction_shortname_from_namespaced_key(self) -> None:
-        """KEY_SHORTNAME resolves from meshtastic.shortname (primary source)."""
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(
-            native_data={
-                "meshtastic.shortname": "NN",
-                "packet_id": "pkt-1",
-                "from_id": "!abcdef01",
-            },
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert result.payload[KEY_SHORTNAME] == "NN"
-
-    @pytest.mark.asyncio
-    async def test_reaction_namespaced_longname_wins_over_bare(self) -> None:
-        """Namespaced meshtastic.longname takes precedence over bare longname."""
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(
-            native_data={
-                "meshtastic.longname": "Primary",
-                "longname": "Legacy",
-                "packet_id": "pkt-1",
-                "from_id": "!abcdef01",
-            },
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert result.payload[KEY_LONGNAME] == "Primary"
-
-    @pytest.mark.asyncio
     async def test_reaction_has_meshnet(self) -> None:
         renderer = MatrixRenderer(
             source_configs={

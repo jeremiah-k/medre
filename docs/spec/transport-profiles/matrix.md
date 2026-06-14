@@ -118,7 +118,7 @@ only — it does not confirm remote delivery or federation fan-out.
 
 The Matrix adapter projects Matrix-native sender identity into the
 generic `RelayAttribution` sender fields (see
-[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
 Projection is owned by `project_matrix_attribution` in the Matrix
 adapter package; core rendering consumes only the generic fields.
 

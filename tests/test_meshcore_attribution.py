@@ -259,9 +259,15 @@ def test_contact_short_label_empty_falls_back_to_compact() -> None:
     assert result["source_sender_short_label"] == "Node"
 
 
-def test_non_string_contact_label_coerced_safely() -> None:
-    """Non-string contact labels are coerced via _str without raising."""
-    # Integer: coerced to its string representation.
+def test_non_string_contact_label_not_coerced() -> None:
+    """Non-string contact labels yield None rather than str()-coerced text.
+
+    Contact labels are human-readable names resolved from the local
+    contacts store.  Integer, dict, and other non-string inputs are
+    rejected by the strict ``_contact_label_str`` helper so that
+    ``str(123)``-style rendering never pollutes ``source_sender_label``.
+    """
+    # Integer: rejected (no longer coerced to "12345").
     result_int = project_meshcore_attribution(
         {
             "meshcore.pubkey_prefix": "pk",
@@ -269,7 +275,18 @@ def test_non_string_contact_label_coerced_safely() -> None:
             "meshcore.contact_label": 12345,
         }
     )
-    assert result_int["source_sender_label"] == "12345"
+    assert result_int["source_sender_label"] is None
+    assert result_int["source_sender_short_label"] is None
+
+    # Dict: rejected (no longer coerced to "{...}").
+    result_dict = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": {"x": 1},
+        }
+    )
+    assert result_dict["source_sender_label"] is None
 
     # None: treated as absent.
     result_none = project_meshcore_attribution(
@@ -280,6 +297,51 @@ def test_non_string_contact_label_coerced_safely() -> None:
         }
     )
     assert result_none["source_sender_label"] is None
+
+
+def test_int_contact_label_not_coerced() -> None:
+    """An integer contact label is rejected, sender_id still resolves."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2",
+            "meshcore.contact_label": 123,
+        }
+    )
+    assert result["source_sender_label"] is None
+    assert result["source_sender_id"] == "a1b2"
+
+
+def test_dict_contact_label_not_coerced() -> None:
+    """A dict contact label is rejected rather than rendered as '{...}'."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2",
+            "meshcore.contact_label": {"x": 1},
+        }
+    )
+    assert result["source_sender_label"] is None
+
+
+def test_whitespace_contact_label_trimmed() -> None:
+    """Surrounding whitespace on a contact label is trimmed."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2",
+            "meshcore.contact_label": "  Alice  ",
+        }
+    )
+    assert result["source_sender_label"] == "Alice"
+
+
+def test_none_contact_label_is_none() -> None:
+    """An explicit None contact label projects to None."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2",
+            "meshcore.contact_label": None,
+        }
+    )
+    assert result["source_sender_label"] is None
 
 
 def test_pubkey_prefix_never_becomes_sender_label() -> None:

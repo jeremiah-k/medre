@@ -385,14 +385,14 @@ the policy.
 
 ### Enrichment entry points
 
-| File                                       | Focus                                              |
-| ------------------------------------------ | -------------------------------------------------- |
-| `src/medre/adapters/matrix/adapter.py`     | Room-member display-name enrichment at ingress     |
-| `src/medre/adapters/meshtastic/session.py` | `get_node_info` (SDK `nodes` dict read)            |
-| `src/medre/adapters/meshtastic/adapter.py` | `_enrich_with_node_info` ingress wiring            |
+| File                                       | Focus                                                             |
+| ------------------------------------------ | ----------------------------------------------------------------- |
+| `src/medre/adapters/matrix/adapter.py`     | Room-member display-name enrichment at ingress                    |
+| `src/medre/adapters/meshtastic/session.py` | `get_node_info` (SDK `nodes` dict read)                           |
+| `src/medre/adapters/meshtastic/adapter.py` | `_enrich_with_node_info` ingress wiring                           |
 | `src/medre/adapters/meshtastic/codec.py`   | `decode(node_info=...)` namespaced-key embedding (`meshtastic.*`) |
-| `src/medre/adapters/meshcore/session.py`   | `resolve_contact_label` (SDK contacts dict lookup) |
-| `src/medre/adapters/meshcore/adapter.py`   | Contact-label resolution at ingress                |
-| `src/medre/adapters/meshcore/codec.py`     | `meshcore.contact_label` native metadata           |
-| `src/medre/adapters/lxmf/session.py`       | `_normalise_inbound_message` `source_name` capture |
-| `src/medre/adapters/lxmf/codec.py`         | `source_name` → `lxmf.display_name` mapping        |
+| `src/medre/adapters/meshcore/session.py`   | `resolve_contact_label` (SDK contacts dict lookup)                |
+| `src/medre/adapters/meshcore/adapter.py`   | Contact-label resolution at ingress                               |
+| `src/medre/adapters/meshcore/codec.py`     | `meshcore.contact_label` native metadata                          |
+| `src/medre/adapters/lxmf/session.py`       | `_normalise_inbound_message` `source_name` capture                |
+| `src/medre/adapters/lxmf/codec.py`         | `source_name` → `lxmf.display_name` mapping                       |

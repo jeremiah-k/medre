@@ -40,13 +40,17 @@ Resolution order
 
 ``source_sender_label``
     ``meshcore.contact_label``.  Only non-empty real human labels
-    populate this field.  The adapter injects this key at ingress when
-    the session's local contacts store recognises the sender pubkey.
+    populate this field.  Values are validated with a strict string-only
+    helper (:func:`_contact_label_str` in this module): non-string inputs
+    (ints, dicts, etc.) yield ``None`` rather than being coerced via
+    ``str()``.  The adapter injects this key at ingress when the
+    session's local contacts store recognises the sender pubkey.
 
 ``source_sender_short_label``
     ``meshcore.contact_short_label`` → first whitespace-delimited token
     of ``meshcore.contact_label``.  ``None`` when no contact label is
-    available.
+    available.  Subject to the same strict string-only validation as
+    ``source_sender_label``.
 """
 
 from __future__ import annotations
@@ -147,9 +151,15 @@ def project_meshcore_attribution(
     # --- packet_id: meshcore.packet_id ------------------------------
     packet_id: str | None = _str(native_data.get("meshcore.packet_id"))
 
-    # --- sender_label: contact_label only (human labels, never pubkeys)
-    contact_label: str | None = _str(native_data.get("meshcore.contact_label"))
-    contact_short_label: str | None = _str(
+    # --- sender_label: contact_label only (human labels, never pubkeys).
+    # Contact labels are human-readable names resolved from the session's
+    # local contacts store.  They are validated with the strict
+    # ``_contact_label_str`` helper so that non-string values (ints, dicts,
+    # etc.) never become rendered sender text — they yield ``None`` instead.
+    contact_label: str | None = _contact_label_str(
+        native_data.get("meshcore.contact_label")
+    )
+    contact_short_label: str | None = _contact_label_str(
         native_data.get("meshcore.contact_short_label")
     )
 
@@ -172,11 +182,32 @@ def project_meshcore_attribution(
 
 
 def _str(value: object) -> str | None:
-    """Coerce *value* to ``str`` or return ``None`` for missing/empty."""
+    """Coerce *value* to ``str`` or return ``None`` for missing/empty.
+
+    Used for non-label native fields (sender_id, channel, packet_id) where
+    coercion of integer-typed codec outputs (e.g. channel=3 -> "3") is the
+    intended behaviour.  Human contact labels must use
+    :func:`_contact_label_str` instead.
+    """
     if value is None:
         return None
     s = str(value)
     return s if s else None
+
+
+def _contact_label_str(value: object) -> str | None:
+    """Strict contact-label coercion.
+
+    Accept only genuine ``str`` values, trim surrounding whitespace, and
+    return ``None`` for any non-string input (int, dict, list, etc.) or
+    for empty/whitespace-only strings.  This prevents accidental
+    ``str(123)``-style rendering of non-human data into ``source_sender_label``
+    or ``source_sender_short_label``.
+    """
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
 
 
 def _first_token(value: str | None) -> str | None:

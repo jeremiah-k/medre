@@ -1178,9 +1178,7 @@ class TestSenderInfoEnrichment:
             relations=(),
             payload={"body": "Msg"},
             metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={"meshtastic.longname": "AlphaNode"}
-                )
+                native=NativeMetadata(data={"meshtastic.longname": "AlphaNode"})
             ),
         )
         await temp_storage.append(prior_event)

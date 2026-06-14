@@ -3,16 +3,19 @@
 Function-style tests covering:
 - ``project_lxmf_attribution`` main entry point (dict return).
 - ``normalize_source_hash`` bytes/str normalisation.
-- Display-name-driven label projection.
-- Edge cases: absent keys, empty values, non-string types, bytes
+- Display-name-driven label projection with strict label typing:
+  only ``str`` / ``bytes`` / ``bytearray`` values populate label
+  fields; other types (int, dict, list, ...) yield ``None`` rather
+  than being coerced via ``str()``.
+- Edge cases: absent keys, empty values, non-text types, bytes
   source_hash.
 
 Policy under test: the opaque ``source_hash`` projects to
 ``source_sender_id`` only and is never used as a human-readable label.
 ``source_sender_label`` / ``source_sender_short_label`` are populated
-from ``lxmf.display_name`` / ``lxmf.short_name`` when present and remain
-``None`` otherwise so that ``{sender}`` renders empty rather than a
-truncated hash.
+from ``lxmf.display_name`` / ``lxmf.short_name`` when present (and
+text-bearing) and remain ``None`` otherwise so that ``{sender}``
+renders empty rather than a truncated hash.
 """
 
 from __future__ import annotations
@@ -240,26 +243,54 @@ def test_project_display_name_bytes() -> None:
     assert fields["source_sender_label"] == "Café"
 
 
-def test_project_display_name_int_coerced() -> None:
-    """Non-string display_name (int) is coerced via str() without raising."""
+def test_int_display_name_not_coerced() -> None:
+    """Non-text display_name (int) is not coerced; label stays None."""
     native = {
         "source_hash": "ab" * 16,
         "lxmf.display_name": 12345,
     }
     fields = project_lxmf_attribution(native)
-    assert fields["source_sender_label"] == "12345"
+    # Strict label typing: int is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
-def test_project_display_name_dict_coerced() -> None:
-    """Dict display_name is coerced via str() without raising."""
+def test_dict_display_name_not_coerced() -> None:
+    """Non-text display_name (dict) is not coerced; label stays None."""
     native = {
         "source_hash": "ab" * 16,
         "lxmf.display_name": {"key": "val"},
     }
     fields = project_lxmf_attribution(native)
-    # str(dict) is safe, never raises, though semantically meaningless.
-    assert fields["source_sender_label"] is not None
-    assert isinstance(fields["source_sender_label"], str)
+    # Strict label typing: dict is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_bytes_display_name_decoded() -> None:
+    """bytes display_name is decoded as UTF-8 to a real label."""
+    native = {
+        "source_hash": b"\xab",
+        "lxmf.display_name": b"Alice",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "ab"
+    assert fields["source_sender_label"] == "Alice"
+    assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_short_name_int_not_coerced() -> None:
+    """Non-text short_name (int) is not coerced; short label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Alice",
+        "lxmf.short_name": 99,
+    }
+    fields = project_lxmf_attribution(native)
+    # display_name still projects; int short_name is rejected.
+    assert fields["source_sender_label"] == "Alice"
+    # Falls back to compact form of display_name, not str(99).
+    assert fields["source_sender_short_label"] == "Alice"
 
 
 def test_project_short_name_empty_falls_back_to_compact() -> None:

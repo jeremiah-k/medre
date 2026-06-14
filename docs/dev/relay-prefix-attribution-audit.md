@@ -128,14 +128,14 @@ source-attribution registry, falling back to empty string.
 When `mmrelay_compatibility=True` on the source MeshtasticConfig, the
 renderer injects additional mesh metadata via `_inject_mmrelay_metadata`:
 
-| Injected key           | Value source                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| `meshtastic_id`        | `native_data["packet_id"]`                                                                              |
-| `meshtastic_longname`  | `native_data["meshtastic.longname"]` → `meshtastic_longname` (wire) → `KEY_LONGNAME` → bare `longname` (legacy tolerance) |
+| Injected key           | Value source                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `meshtastic_id`        | `native_data["packet_id"]`                                                                                                    |
+| `meshtastic_longname`  | `native_data["meshtastic.longname"]` → `meshtastic_longname` (wire) → `KEY_LONGNAME` → bare `longname` (legacy tolerance)     |
 | `meshtastic_shortname` | `native_data["meshtastic.shortname"]` → `meshtastic_shortname` (wire) → `KEY_SHORTNAME` → bare `shortname` (legacy tolerance) |
-| `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                                 |
-| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                                                          |
-| `meshtastic_text`      | Event payload `text` or `body`                                                                          |
+| `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                                                       |
+| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                                                                                |
+| `meshtastic_text`      | Event payload `text` or `body`                                                                                                |
 
 Matrix `displayname` is **not** used for `meshtastic_longname`/
 `meshtastic_shortname` — those fields are populated by
@@ -172,20 +172,20 @@ metadata with these identity-relevant keys. Identity keys are namespaced
 under `meshtastic.*` so transport-specific metadata stays namespaced by
 transport; non-identity keys remain bare.
 
-| Key                       | Source                                                    |
-| ------------------------- | --------------------------------------------------------- |
-| `packet_id`               | Classifier from packet `id` field (bare, non-identity)    |
-| `from_id`                 | Classifier `from_id` — numeric node ID (bare, retained)   |
-| `meshtastic.from_id`      | Same sender as `from_id` (namespaced identity key)        |
-| `channel`                 | Packet `channel` or config `default_channel` (bare)       |
-| `portnum`                 | Classifier portnum (bare)                                 |
-| `to_id`                   | Packet `toId` (bare)                                      |
-| `is_direct_message`       | Classifier flag (bare)                                    |
-| `meshtastic.longname`     | From `node_info["longname"]` (passed at decode)           |
-| `meshtastic.shortname`    | From `node_info["shortname"]` (passed at decode)          |
-| `reply_id`                | Classifier from `decoded.replyId` (bare)                  |
-| `emoji`                   | Raw `decoded.emoji` value (bare)                          |
-| `emoji_flag`              | Boolean from classifier (bare)                            |
+| Key                    | Source                                                  |
+| ---------------------- | ------------------------------------------------------- |
+| `packet_id`            | Classifier from packet `id` field (bare, non-identity)  |
+| `from_id`              | Classifier `from_id` — numeric node ID (bare, retained) |
+| `meshtastic.from_id`   | Same sender as `from_id` (namespaced identity key)      |
+| `channel`              | Packet `channel` or config `default_channel` (bare)     |
+| `portnum`              | Classifier portnum (bare)                               |
+| `to_id`                | Packet `toId` (bare)                                    |
+| `is_direct_message`    | Classifier flag (bare)                                  |
+| `meshtastic.longname`  | From `node_info["longname"]` (passed at decode)         |
+| `meshtastic.shortname` | From `node_info["shortname"]` (passed at decode)        |
+| `reply_id`             | Classifier from `decoded.replyId` (bare)                |
+| `emoji`                | Raw `decoded.emoji` value (bare)                        |
+| `emoji_flag`           | Boolean from classifier (bare)                          |
 
 Bare `from_id` is retained because non-identity consumers
 (`source_native_ref`, relation mapping) read it directly. Bare

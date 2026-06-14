@@ -62,8 +62,6 @@ _MESHTASTIC_NAMESPACED_KEYS: frozenset[str] = frozenset(
         "meshtastic.from_id",
         "meshtastic.longname",
         "meshtastic.shortname",
-        "meshtastic.packet_id",
-        "meshtastic.channel",
     }
 )
 

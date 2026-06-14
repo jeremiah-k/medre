@@ -180,7 +180,7 @@ confirm Meshtastic RF transmission.
 
 The Meshtastic adapter projects Meshtastic-native sender identity into
 the generic `RelayAttribution` sender fields (see
-[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
 Projection is owned by `project_meshtastic_attribution`; core rendering
 consumes only the generic fields.
 
@@ -237,12 +237,12 @@ namespacing). Within each fallback chain all namespaced candidates are
 tried before any bare candidate, so the namespaced shape wins when both
 are present.
 
-| Generic field               | Source                                                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------- |
-| `source_sender_id`          | `meshtastic.from_id` → bare `from_id` → `source_transport_id`                           |
-| `source_sender_label`       | `meshtastic.longname` → `meshtastic.shortname` → bare `longname` → bare `shortname` → `source_sender_id` |
+| Generic field               | Source                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `source_sender_id`          | `meshtastic.from_id` → bare `from_id` → `source_transport_id`                                                                       |
+| `source_sender_label`       | `meshtastic.longname` → `meshtastic.shortname` → bare `longname` → bare `shortname` → `source_sender_id`                            |
 | `source_sender_short_label` | `meshtastic.shortname` → compact(`meshtastic.longname`) → bare `shortname` → compact(bare `longname`) → compact(`source_sender_id`) |
-| `source_sender_handle`      | Not produced (Meshtastic has no handle or address concept)                              |
+| `source_sender_handle`      | Not produced (Meshtastic has no handle or address concept)                                                                          |
 
 "Compact" means `str.replace(" ", "")`. The fallback chains ensure a
 non-empty short label is available whenever any identifying field is

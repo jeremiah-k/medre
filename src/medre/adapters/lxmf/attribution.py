@@ -13,9 +13,13 @@ Core rendering has no LXMF-specific key knowledge.
 * ``source_hash`` (bytes, bytearray, or hex str) -> ``source_sender_id``
   (canonical hex string).  The opaque hash is exposed via
   ``{sender_id}`` and is never used as a human-readable label.
-* ``lxmf.display_name`` (str) -> ``source_sender_label`` when non-empty.
-* ``lxmf.short_name`` (str) -> ``source_sender_short_label`` when
-  non-empty, falling back to a compact form of the display name.
+* ``lxmf.display_name`` (str, or bytes/bytearray decoded as UTF-8) ->
+  ``source_sender_label`` when non-empty.  Only text-bearing values are
+  accepted; non-text types (int, dict, list, ...) yield ``None`` so that
+  ``str()`` coercion never produces a misleading label.
+* ``lxmf.short_name`` (str, or bytes/bytearray decoded as UTF-8) ->
+  ``source_sender_short_label`` when non-empty, falling back to a
+  compact form of the display name.  The same strict typing applies.
 * When no display name is present both label fields are ``None`` --
   the opaque ``source_hash`` does not become ``{sender}``.  Operators
   who want the hash in a prefix use ``{sender_id}``.
@@ -94,10 +98,13 @@ def project_lxmf_attribution(
       hex str).  Projected to ``source_sender_id``.
     * ``lxmf.display_name`` -- human-readable sender label captured at
       ingress from announce metadata or message identity.  Projected to
-      ``source_sender_label`` when non-empty.
+      ``source_sender_label`` when non-empty.  Only text-bearing values
+      (``str``, ``bytes``, ``bytearray``) are accepted; non-text types
+      yield ``None`` rather than being coerced via ``str()``.
     * ``lxmf.short_name`` -- abbreviated sender label.  Projected to
       ``source_sender_short_label`` when non-empty, falling back to a
-      compact form of ``lxmf.display_name``.
+      compact form of ``lxmf.display_name``.  The same strict typing
+      applies.
 
     The opaque ``source_hash`` is **never** projected to a label field.
     When no display name is available both label fields are ``None`` so
@@ -117,8 +124,8 @@ def project_lxmf_attribution(
     """
     sender_id = normalize_source_hash(native_data.get("source_hash"))
 
-    display_name = _str(native_data.get("lxmf.display_name"))
-    short_name = _str(native_data.get("lxmf.short_name"))
+    display_name = _label_str(native_data.get("lxmf.display_name"))
+    short_name = _label_str(native_data.get("lxmf.short_name"))
 
     # Label fields come from real display names only -- never from the
     # opaque source_hash.  When no display name is present both fields
@@ -138,25 +145,29 @@ def project_lxmf_attribution(
 # ---------------------------------------------------------------------------
 
 
-def _str(value: object) -> str | None:
-    """Coerce *value* to ``str`` or return ``None`` for missing/empty.
+def _label_str(value: object) -> str | None:
+    """Project *value* to a human-readable label string, strictly.
 
-    ``bytes`` and ``bytearray`` are decoded as UTF-8 (matching the
-    session's content/title normalisation).  Other non-``None`` types
-    are coerced via ``str()`` -- this never raises, though the result
-    may be semantically meaningless for exotic types.  An empty result
-    after coercion returns ``None``.
+    Only text-bearing values are accepted:
+
+    * :class:`str` -> returned as-is when non-empty, otherwise ``None``.
+    * :class:`bytes` / :class:`bytearray` -> decoded as UTF-8 with
+      ``errors="replace"`` (matching the session's content/title
+      normalisation); returned when non-empty, otherwise ``None``.
+
+    All other types (``int``, ``float``, ``bool``, ``dict``, ``list``,
+    ``None``, custom objects, ...) return ``None``.  This prevents
+    arbitrary object coercion (e.g. ``str(123) == "123"`` or
+    ``str({}) == "{}"``) from polluting display label fields such as
+    ``source_sender_label``.  Display labels must originate from real
+    text captured at ingress, not from runtime ``str()`` coercion.
     """
-    if value is None:
-        return None
+    if isinstance(value, str):
+        return value if value else None
     if isinstance(value, (bytes, bytearray)):
-        try:
-            s = bytes(value).decode("utf-8")
-        except UnicodeDecodeError:
-            s = bytes(value).decode("utf-8", errors="replace")
-    else:
-        s = str(value)
-    return s if s else None
+        s = bytes(value).decode("utf-8", errors="replace")
+        return s if s else None
+    return None
 
 
 def _compact(value: str | None) -> str | None:

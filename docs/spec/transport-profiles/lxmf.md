@@ -147,7 +147,7 @@ confirm remote delivery.
 
 The LXMF adapter projects LXMF-native sender identity into the generic
 `RelayAttribution` sender fields (see
-[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
 Projection is owned by `project_lxmf_attribution`; core rendering
 consumes only the generic fields.
 
@@ -182,7 +182,7 @@ in a prefix use `{sender_id}`. The default `lxmf_relay_prefix` is `""`;
 templates referencing `{sender}` or `{sender_short}` resolve to empty
 strings until a display name is captured.
 
-Per the opacity rule ([§17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)),
+Per the opacity rule ([§17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)),
 a Reticulum hash is not a label.
 
 ### Announce-Based Enrichment Deferred

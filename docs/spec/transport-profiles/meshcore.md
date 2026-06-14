@@ -146,7 +146,7 @@ locally-known contact whose advertised name enriches those fields (see
 
 The MeshCore adapter projects MeshCore-native sender identity into the
 generic `RelayAttribution` sender fields (see
-[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
 Projection is owned by `project_meshcore_attribution`; core rendering
 consumes only the generic fields.
 
@@ -187,7 +187,7 @@ Operators who want the pubkey prefix in a prefix use `{sender_id}`. The
 projection also emits `source_native_channel_id` and
 `source_native_message_id`.
 
-Per the opacity rule ([§17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)),
+Per the opacity rule ([§17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)),
 an opaque pubkey is not a label. When contact enrichment resolves a
 label, `{sender}` and `{sender_short}` populate for MeshCore-origin
 events; otherwise they resolve to empty strings.
