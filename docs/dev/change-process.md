@@ -10,7 +10,7 @@ rules, storage guarantees) require all of the following:
 1. Update the relevant `docs/spec/` page.
 2. Update the corresponding JSON Schema files in `docs/schemas/`.
 3. Add or update tests that validate the change.
-4. Add a change fragment under `docs/changes/unreleased/`.
+4. Append an entry to `docs/changes/unreleased.md`.
 
 All three artifacts (spec page, schema, test) must land in the same commit.
 
@@ -40,26 +40,13 @@ permitted when they simplify the model. When making a breaking change:
 1. Update all affected spec pages.
 2. Update all affected schemas.
 3. Update all affected tests.
-4. Add a change fragment noting the break.
+4. Append an entry to `docs/changes/unreleased.md` noting the break.
 5. Run the full test suite to confirm nothing is missed.
 
-## Change Fragments
+## Changelog
 
-Each change is tracked by a fragment file in `docs/changes/unreleased/`. Fragment
-files use the naming pattern `NNN-brief-description.md` where `NNN` is a
-zero-padded sequence number.
+Unreleased changes are tracked in a single file:
+[`docs/changes/unreleased.md`](../changes/unreleased.md).
 
-A fragment file contains:
-
-```markdown
-## Brief Description
-
-One-line summary of the change.
-
-### Changed
-
-- List of files or concepts modified.
-```
-
-During release preparation, fragments are consolidated into release notes and
-moved out of `unreleased/`.
+Append new entries to the bottom of that file. Do not create per-commit
+fragment files.

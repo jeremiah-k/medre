@@ -270,7 +270,7 @@ class TestSchemaFiles:
 
 
 class TestChangesStructure:
-    """docs/changes/ must exist with README.md and unreleased/ subdirectory."""
+    """docs/changes/ must exist with README.md and unreleased.md."""
 
     def test_changes_directory_exists(self) -> None:
         """docs/changes/ directory must exist."""
@@ -285,12 +285,12 @@ class TestChangesStructure:
             "changes README",
         )
 
-    def test_unreleased_subdirectory_exists(self) -> None:
-        """docs/changes/unreleased/ directory must exist."""
-        unreleased = CHANGES_DIR / "unreleased"
-        assert (
-            unreleased.is_dir()
-        ), f"Required directory missing: {unreleased.relative_to(_ROOT)}"
+    def test_unreleased_changelog_exists(self) -> None:
+        """docs/changes/unreleased.md must exist."""
+        _check_exists(
+            CHANGES_DIR / "unreleased.md",
+            "unreleased changelog",
+        )
 
 
 # ===========================================================================
