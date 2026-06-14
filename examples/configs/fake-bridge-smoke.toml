@@ -36,7 +36,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "smoke-radio"
+origin_label = "smoke-radio"
 
 # --- MeshCore (fake) ---
 [adapters.meshcore.fake_meshcore]
@@ -68,6 +68,8 @@ source_adapters = ["fake_matrix"]
 dest_adapters = ["fake_meshtastic"]
 directionality = "bidirectional"
 enabled = true
+# source_origin_label = "Matrix Side"  # route-level label for forward leg
+# dest_origin_label = "Mesh Side"      # route-level label for reverse leg
 
 # 4. Fanout: Matrix -> Meshtastic + MeshCore
 [routes.mx_fanout]

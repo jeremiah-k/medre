@@ -110,7 +110,7 @@ class TestMatrixRendersForMeshtastic:
 
     @pytest.mark.asyncio
     async def test_text_payload_shape(self) -> None:
-        """Rendered output is a dict with text, channel_index, meshnet_name."""
+        """Rendered output is a dict with text and channel_index."""
         event = _make_event(
             source_adapter="matrix-src",
             payload={"body": "Hello from Matrix", "text": "Hello from Matrix"},
@@ -120,11 +120,10 @@ class TestMatrixRendersForMeshtastic:
 
         assert result.target_adapter == "mesh-target"
         assert result.event_id == event.event_id
-        # MeshtasticRenderer produces: text, channel_index, meshnet_name
+        # MeshtasticRenderer produces: text, channel_index
         payload = result.payload
         assert "text" in payload
         assert "channel_index" in payload
-        assert "meshnet_name" in payload
         assert payload["text"] == "Hello from Matrix"
         assert isinstance(payload["channel_index"], int)
 
@@ -167,8 +166,8 @@ class TestMatrixRendersForMeshtastic:
         assert result.payload["channel_index"] == 0
 
     @pytest.mark.asyncio
-    async def test_meshnet_name_empty(self) -> None:
-        """meshnet_name is an empty string placeholder (tranche 1)."""
+    async def test_meshnet_name_not_in_payload(self) -> None:
+        """meshnet_name was removed from the payload (origin_label replaces it)."""
         event = _make_event(
             source_adapter="matrix-src",
             payload={"body": "test"},
@@ -176,7 +175,7 @@ class TestMatrixRendersForMeshtastic:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
-        assert result.payload["meshnet_name"] == ""
+        assert "meshnet_name" not in result.payload
 
 
 # ---------------------------------------------------------------------------

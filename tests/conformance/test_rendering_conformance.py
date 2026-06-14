@@ -7,7 +7,7 @@ Covers:
 * Matrix direct text renders native envelope (msgtype, body).
 * Matrix reply native relation includes m.relates_to.
 * Matrix fallback_text reply omits m.relates_to and preserves body.
-* Meshtastic direct text includes text, channel_index, meshnet_name.
+* Meshtastic direct text includes text, channel_index.
 * Meshtastic fallback_text reply preserves channel_index.
 * Meshtastic byte-budget truncation has correct byte limit and evidence.
 * RenderingEvidence includes renderer, target_adapter, target_platform,
@@ -106,10 +106,10 @@ class TestMeshtasticRenderingConformance:
     """Assert Meshtastic renderer output matches MEDRE rendering contracts."""
 
     @pytest.mark.asyncio
-    async def test_meshtastic_direct_text_includes_text_channel_meshnet(
+    async def test_meshtastic_direct_text_includes_text_channel(
         self, meshtastic_renderer
     ):
-        """Meshtastic direct text includes text, channel_index, meshnet_name."""
+        """Meshtastic direct text includes text, channel_index; excludes meshnet_name."""
         event = make_text_event(source_adapter=MESHTASTIC_ADAPTER_ID, body="Hello mesh")
         ctx = RenderingContext(
             delivery_strategy="direct",
@@ -117,9 +117,8 @@ class TestMeshtasticRenderingConformance:
             target_platform="meshtastic",
         )
         result = await meshtastic_renderer.render(event, ctx)
-        assert "text" in result.payload
-        assert result.payload.get("channel_index") == 0
-        assert "meshnet_name" in result.payload
+        assert set(result.payload.keys()) == {"text", "channel_index"}
+        assert "meshnet_name" not in result.payload
 
     @pytest.mark.asyncio
     async def test_meshtastic_fallback_text_reply_preserves_channel(

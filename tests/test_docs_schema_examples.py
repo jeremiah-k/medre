@@ -34,10 +34,9 @@ _EXAMPLES_DIR = _SCHEMAS_DIR / "examples"
 # ---------------------------------------------------------------------------
 
 try:
-    import jsonschema as _jsonschema
+    from importlib.util import find_spec as _find_spec
 
-    del _jsonschema
-    _HAS_JSONSCHEMA = True
+    _HAS_JSONSCHEMA = _find_spec("jsonschema") is not None
 except ImportError:
     _HAS_JSONSCHEMA = False
 

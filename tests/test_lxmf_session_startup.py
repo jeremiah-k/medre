@@ -2,7 +2,7 @@
 
 These tests verify the narrow startup/identity/router/callback/cleanup
 behaviour of ``LxmfSession._connect_real()`` against confirmed local
-RNS 1.2.5 and LXMF 0.9.7 API facts.
+RNS and LXMF SDK API facts.
 
 All tests use mocks — no real Reticulum/LXMF dependency required.
 
@@ -10,7 +10,7 @@ Covered scenarios
 -----------------
 * Identity load from file (success, failure, auto-create)
 * Missing SDK raises ``LxmfConnectionError``
-* Router construction requires ``storagepath`` (LXMF 0.9.7 fact)
+* Router construction requires ``storagepath`` (validated LXMF SDK behavior)
 * Delivery callback registration (success, failure handling)
 * Repeated ``stop()`` is idempotent
 * Reticulum singleton reuse via ``get_instance()``
@@ -54,11 +54,11 @@ def _make_session(**config_overrides: Any) -> LxmfSession:
 
 
 def _mock_rns_lxmf() -> tuple[MagicMock, MagicMock]:
-    """Build mock (RNS, lxmf) module pair mimicking RNS 1.2.5 / LXMF 0.9.7."""
+    """Build mock (RNS, lxmf) module pair mimicking validated RNS/LXMF SDK behavior."""
     mock_rns = MagicMock()
     mock_lxmf = MagicMock()
 
-    # RNS.Reticulum() — singleton pattern from RNS 1.2.5
+    # RNS.Reticulum() — singleton pattern (validated RNS SDK behavior)
     reticulum_instance = MagicMock()
     reticulum_instance.stop = MagicMock()
     mock_rns.Reticulum.return_value = reticulum_instance
@@ -110,7 +110,7 @@ class TestIdentityLoadCreate:
 
     async def test_identity_load_failure_raises_connection_error(self) -> None:
         """When identity_path is set but from_file returns None,
-        LxmfConnectionError is raised (RNS 1.2.5: from_file returns
+        LxmfConnectionError is raised (validated RNS behavior: from_file returns
         None on invalid/corrupt file)."""
         mock_rns, mock_lxmf = _mock_rns_lxmf()
         mock_rns.Identity.from_file.return_value = None
@@ -188,7 +188,7 @@ class TestMissingSDK:
 
 
 class TestRouterConstruction:
-    """LXMRouter receives required storagepath (LXMF 0.9.7 fact)."""
+    """LXMRouter receives required storagepath (validated LXMRouter behavior)."""
 
     async def test_router_receives_storagepath(self) -> None:
         """LXMRouter(identity=..., storagepath=...) is called with
@@ -359,7 +359,7 @@ class TestRepeatedStop:
 
 
 class TestReticulumSingleton:
-    """RNS 1.2.5 Reticulum singleton constraint handling."""
+    """RNS Reticulum singleton constraint handling."""
 
     async def test_creates_reticulum_when_no_existing_instance(self) -> None:
         """When get_instance() returns None, a new Reticulum() is created."""
@@ -387,7 +387,7 @@ class TestReticulumSingleton:
     async def test_reuses_existing_reticulum_instance(self) -> None:
         """When get_instance() returns an existing instance, it is reused
         instead of calling Reticulum() (which would raise OSError in
-        RNS 1.2.5)."""
+        validated RNS behavior)."""
         mock_rns, mock_lxmf = _mock_rns_lxmf()
         existing_instance = MagicMock()
         mock_rns.Reticulum.get_instance.return_value = existing_instance
@@ -414,7 +414,7 @@ class TestReticulumSingleton:
 
     async def test_second_reticulum_call_would_raise_oserror(self) -> None:
         """Verify that calling RNS.Reticulum() twice raises OSError
-        (RNS 1.2.5 singleton fact). This test confirms the mock
+        (RNS singleton constraint). This test confirms the mock
         accurately reflects the real RNS behaviour."""
         mock_rns, mock_lxmf = _mock_rns_rns_lxmf_for_singleton()
 
@@ -426,7 +426,7 @@ class TestReticulumSingleton:
         # After first call, get_instance returns the running instance.
         mock_rns.Reticulum.get_instance.return_value = r1
 
-        # Simulate RNS 1.2.5: second Reticulum() raises OSError.
+        # Simulate validated RNS behavior: second Reticulum() raises OSError.
         mock_rns.Reticulum.side_effect = OSError(
             "Attempt to reinitialise Reticulum, when it was already running"
         )
@@ -472,7 +472,7 @@ class TestReticulumSingleton:
 
 
 class TestStoragePathConfigValidation:
-    """storage_path is required for reticulum mode (LXMF 0.9.7 fact)."""
+    """storage_path is required for reticulum mode (validated LXMRouter behavior)."""
 
     def test_reticulum_without_storage_path_rejected(self) -> None:
         """LxmfConfig rejects reticulum mode without storage_path."""

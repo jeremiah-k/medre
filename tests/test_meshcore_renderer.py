@@ -4,13 +4,19 @@ target channel propagation, truncation, metadata, and edge cases.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pytest
 
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation
+from medre.core.events import (
+    CanonicalEvent,
+    EventMetadata,
+    EventRelation,
+    NativeMetadata,
+)
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
@@ -18,14 +24,14 @@ def _make_config(
     adapter_id: str = "meshcore_node",
     *,
     max_text_bytes: int = 512,
-    meshnet_name: str = "",
     default_channel: int = 0,
+    meshcore_relay_prefix: str = "",
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
-        meshnet_name=meshnet_name,
         default_channel=default_channel,
+        meshcore_relay_prefix=meshcore_relay_prefix,
     )
 
 
@@ -33,11 +39,8 @@ def _make_renderer(
     adapter_id: str = "meshcore_node",
     *,
     max_text_bytes: int = 512,
-    meshnet_name: str = "",
 ) -> MeshCoreRenderer:
-    cfg = _make_config(
-        adapter_id, max_text_bytes=max_text_bytes, meshnet_name=meshnet_name
-    )
+    cfg = _make_config(adapter_id, max_text_bytes=max_text_bytes)
     return MeshCoreRenderer(configs={adapter_id: cfg})
 
 
@@ -345,55 +348,20 @@ class TestMeshCoreRendererTargetResolution:
         """Multi-config renderer resolves correct adapter."""
         r = MeshCoreRenderer(
             configs={
-                "mc-a": _make_config("mc-a", max_text_bytes=100, meshnet_name="net-a"),
-                "mc-b": _make_config("mc-b", max_text_bytes=10, meshnet_name="net-b"),
+                "mc-a": _make_config("mc-a", max_text_bytes=100),
+                "mc-b": _make_config("mc-b", max_text_bytes=10),
             }
         )
         event = _make_event(payload={"body": "hello world"})
         result_a = await r.render(
             event, RenderingContext(target_adapter="mc-a", delivery_strategy="direct")
         )
-        assert result_a.payload["meshnet_name"] == "net-a"
         assert result_a.payload["text"] == "hello world"  # 11 bytes, under 100
 
         result_b = await r.render(
             event, RenderingContext(target_adapter="mc-b", delivery_strategy="direct")
         )
-        assert result_b.payload["meshnet_name"] == "net-b"
         assert result_b.payload["text"] == "hello worl"  # truncated to 10 bytes
-
-
-# ===================================================================
-# meshnet_name propagation
-# ===================================================================
-
-
-class TestMeshCoreRendererMeshnetName:
-    """meshnet_name comes from config, not hardcoded."""
-
-    pytestmark = pytest.mark.asyncio
-
-    async def test_render_meshnet_name_from_config(self) -> None:
-        renderer = _make_renderer(meshnet_name="testnet")
-        event = _make_event()
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == "testnet"
-
-    async def test_render_meshnet_name_default_empty(self) -> None:
-        renderer = _make_renderer()
-        event = _make_event()
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == ""
 
 
 # ===================================================================
@@ -714,33 +682,9 @@ class TestMeshCoreRendererTruncation:
 
 
 class TestMeshCoreRendererPrefixFormatting:
-    """Verify meshnet_name and channel_index propagate correctly in output."""
+    """Verify prefix formatting and channel_index propagate correctly in output."""
 
     pytestmark = pytest.mark.asyncio
-
-    async def test_meshnet_name_in_output(self) -> None:
-        """meshnet_name from config appears in rendered payload."""
-        renderer = _make_renderer(meshnet_name="testnet-alpha")
-        event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == "testnet-alpha"
-
-    async def test_empty_meshnet_name_default(self) -> None:
-        """Default meshnet_name is empty string."""
-        renderer = _make_renderer()
-        event = _make_event(payload={"body": "hello"})
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node", delivery_strategy="direct"
-            ),
-        )
-        assert result.payload["meshnet_name"] == ""
 
     async def test_channel_index_from_target_channel(self) -> None:
         """target_channel is parsed as channel_index in payload."""
@@ -766,8 +710,8 @@ class TestMeshCoreRendererPrefixFormatting:
         )
         assert result.payload["channel_index"] == 3
 
-    async def test_payload_has_exactly_three_keys(self) -> None:
-        """Rendered payload has text, channel_index, meshnet_name only."""
+    async def test_payload_has_exactly_two_keys(self) -> None:
+        """Rendered payload has text and channel_index only."""
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello"})
         result = await renderer.render(
@@ -776,7 +720,7 @@ class TestMeshCoreRendererPrefixFormatting:
                 target_adapter="meshcore_node", delivery_strategy="direct"
             ),
         )
-        assert set(result.payload.keys()) == {"text", "channel_index", "meshnet_name"}
+        assert set(result.payload.keys()) == {"text", "channel_index"}
 
     async def test_max_text_bytes_zero_with_multibyte(self) -> None:
         """max_text_bytes=0 produces empty text even with multibyte input."""
@@ -937,7 +881,7 @@ class TestMeshCoreTargetSelectionRules:
     - Both ``direct`` and ``fallback_text`` strategies produce the same
       relation-free payload for MeshCore (no native rendering path).
     - The payload always contains exactly ``text``, ``channel_index``,
-      and ``meshnet_name`` — never ``reply_id``, ``emoji``, or
+      ``text`` and ``channel_index`` — never ``reply_id``, ``emoji``, or
       ``m.relates_to``.
     """
 
@@ -992,7 +936,7 @@ class TestMeshCoreTargetSelectionRules:
         """MeshCore payload never contains native relation fields.
 
         Regardless of relation type or native ref presence, the payload
-        contains only text, channel_index, and meshnet_name.
+        contains only text and channel_index.
         """
         renderer = _make_renderer()
         rel = EventRelation(
@@ -1025,7 +969,7 @@ class TestMeshCoreTargetSelectionRules:
         )
         payload_keys = set(result.payload.keys())
         # Only these keys are ever emitted
-        assert payload_keys == {"text", "channel_index", "meshnet_name"}
+        assert payload_keys == {"text", "channel_index"}
         # Explicitly no native relation fields
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
@@ -1075,3 +1019,332 @@ class TestMeshCoreTargetSelectionRules:
         assert "emoji" not in result.payload
         # Just plain text (no degraded inline in direct mode)
         assert result.payload["text"] == "reply text"
+
+
+# ===================================================================
+# Relay prefix: outbound prefix formatting and truncation
+# ===================================================================
+
+
+def _make_event_with_native(
+    source_adapter: str = "matrix-bridge",
+    *,
+    payload: dict | None = None,
+    native_data: dict[str, object] | None = None,
+    source_channel_id: str = "!room:matrix.org",
+) -> CanonicalEvent:
+    """Build an event with optional native metadata for attribution extraction."""
+    native = NativeMetadata(data=native_data) if native_data else None
+    return CanonicalEvent(
+        event_id="evt-prefix-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="transport-abc",
+        source_channel_id=source_channel_id,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=payload or {"body": "hello world"},
+        metadata=EventMetadata(native=native),
+    )
+
+
+class TestMeshCoreRendererRelayPrefix:
+    """Relay prefix: prepended before truncation, counts toward budget.
+
+    These tests verify that:
+    - A non-empty ``meshcore_relay_prefix`` template triggers prefix
+      formatting via the shared attribution formatter.
+    - The rendered prefix is prepended to the body text before
+      byte-budget truncation, so the prefix counts toward
+      ``max_text_bytes``.
+    - Metadata records the template, rendered prefix, and formatting
+      errors when applicable.
+    - Default empty prefix preserves existing plain-text behaviour.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_matrix_prefix_with_display_name(self) -> None:
+        """Matrix source: prefix template resolves {sender}."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{sender}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "[Alice] hello world"
+        assert result.metadata["relay_prefix_rendered"] == "[Alice] "
+        assert result.metadata["relay_prefix_template"] == "[{sender}] "
+
+    async def test_meshtastic_prefix_with_sender_short(self) -> None:
+        """Meshtastic source: prefix template resolves {sender_short}."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="<{sender_short}> ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="meshtastic-radio",
+            native_data={
+                "longname": "Base Station",
+                "shortname": "BS",
+                "from_id": "!aabbcc",
+            },
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "<BS> hello world"
+        assert result.metadata["relay_prefix_rendered"] == "<BS> "
+
+    async def test_missing_vars_produce_empty_not_none(self) -> None:
+        """Missing attribution variables produce empty strings, not 'None'."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{sender}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        # Event with no native data — display_name will be empty.
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data=None,
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "None" not in str(result.payload["text"])
+        assert result.payload["text"] == "[] hello world"
+        assert result.metadata["relay_prefix_rendered"] == "[] "
+
+    async def test_prefix_counts_toward_max_text_bytes(self) -> None:
+        """Prefix bytes count toward max_text_bytes — body is truncated."""
+        # Prefix "[Alice] " = 8 bytes, budget = 15 bytes.
+        # "hello world" = 11 bytes. Total = 19 > 15, so truncation occurs.
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=15,
+            meshcore_relay_prefix="[{sender}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+            payload={"body": "hello world"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        text = str(result.payload["text"])
+        assert text.startswith("[Alice] ")
+        # 15 bytes total: "[Alice] " (8) + "hello wo" (8) -> only 15 bytes
+        assert len(text.encode("utf-8")) <= 15
+        assert result.truncated is True
+        assert result.metadata["truncated"] is True
+        assert result.metadata["original_text_bytes"] == len(
+            "[Alice] hello world".encode("utf-8")
+        )
+
+    async def test_metadata_includes_prefix_fields(self) -> None:
+        """Metadata records template and rendered prefix when configured."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{source_platform}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.metadata["relay_prefix_template"] == "[{source_platform}] "
+        assert result.metadata["relay_prefix_rendered"] == "[matrix] "
+        assert result.metadata["relay_prefix_formatting_error"] is None
+
+    async def test_metadata_records_formatting_error_for_unknown_placeholder(
+        self,
+    ) -> None:
+        """Unknown placeholder produces formatting_error in metadata."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{bogus_var}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.metadata["relay_prefix_formatting_error"] is not None
+        assert "unknown placeholder" in str(
+            result.metadata["relay_prefix_formatting_error"]
+        )
+
+    async def test_default_empty_prefix_no_metadata_keys(self) -> None:
+        """Default empty prefix: no prefix metadata keys in output."""
+        cfg = _make_config("mc-relay")
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(source_adapter="matrix-bridge")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "relay_prefix_template" not in result.metadata
+        assert "relay_prefix_rendered" not in result.metadata
+        assert "relay_prefix_formatting_error" not in result.metadata
+        assert result.payload["text"] == "hello world"
+
+    async def test_default_empty_prefix_preserves_current_behavior(self) -> None:
+        """Empty prefix preserves plain text output unchanged."""
+        cfg = _make_config("mc-relay", max_text_bytes=512)
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="meshcore-1",
+            payload={"body": "plain message"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "plain message"
+        assert result.truncated is False
+
+    async def test_prefix_with_zero_budget_produces_empty(self) -> None:
+        """Non-empty prefix with zero budget produces empty text."""
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=0,
+            meshcore_relay_prefix="[{sender}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == ""
+        assert result.truncated is True
+        assert result.metadata["relay_prefix_rendered"] == "[Alice] "
+
+    async def test_prefix_exact_budget_fits(self) -> None:
+        """Prefix + body exactly at budget: not truncated."""
+        # "[A] " = 4 bytes, "hi" = 2 bytes, total = 6 bytes.
+        cfg = _make_config(
+            "mc-relay",
+            max_text_bytes=6,
+            meshcore_relay_prefix="[{sender}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="matrix-bridge",
+            native_data={"sender": "@a:matrix.org", "displayname": "A"},
+            payload={"body": "hi"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert result.payload["text"] == "[A] hi"
+        assert result.truncated is False
+
+
+# ===================================================================
+# Source origin_label from source_attribution registry
+# ===================================================================
+
+
+@dataclass(slots=True)
+class _StubSourceAttribution:
+    """Minimal duck-typed SourceAttributionConfig for tests."""
+
+    adapter_id: str = ""
+    origin_label: str = ""
+
+
+class TestMeshCoreSourceOriginLabel:
+    """MeshCore target prefix uses source origin_label from registry."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_source_origin_label_in_prefix(self) -> None:
+        """MeshCore target prefix uses source origin_label from registry."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}]: ",
+        )
+        renderer = MeshCoreRenderer(
+            configs={"mc-relay": cfg},
+            source_attribution={
+                "meshcore-1": _StubSourceAttribution(
+                    adapter_id="meshcore-1",
+                    origin_label="Remote Node",
+                ),
+            },
+        )
+        event = _make_event_with_native(
+            source_adapter="meshcore-1",
+            native_data={"meshcore.pubkey_prefix": "a1b2c3"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "[Remote Node]: " in result.payload["text"]
+
+    async def test_lxmf_to_meshcore_origin_label(self) -> None:
+        """LXMF→MeshCore: source origin_label appears in prefix."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}] ",
+        )
+        renderer = MeshCoreRenderer(
+            configs={"mc-relay": cfg},
+            source_attribution={
+                "lxmf-1": _StubSourceAttribution(
+                    adapter_id="lxmf-1",
+                    origin_label="LXMF Relay",
+                ),
+            },
+        )
+        event = _make_event_with_native(
+            source_adapter="lxmf-1",
+            native_data={"source_hash": "feedface"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "[LXMF Relay] " in result.payload["text"]
+
+    async def test_no_registry_entry_uses_empty_origin_label(self) -> None:
+        """Missing source_attribution entry: origin_label is empty, not 'None'."""
+        cfg = _make_config(
+            "mc-relay",
+            meshcore_relay_prefix="[{origin_label}] ",
+        )
+        renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
+        event = _make_event_with_native(
+            source_adapter="unknown-source",
+            native_data=None,
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+        )
+        assert "None" not in result.payload["text"]
+        assert "[] " in result.payload["text"]

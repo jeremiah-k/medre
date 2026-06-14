@@ -60,7 +60,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "replay-surface"
+origin_label = "replay-surface"
 
 [routes.mx_to_mesh]
 source_adapters = ["fake_matrix"]

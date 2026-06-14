@@ -40,7 +40,7 @@ encryption_mode = "plaintext"
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.matrix_to_radio]
 source_adapters = ["main"]
@@ -297,7 +297,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 [routes.matrix_to_mesh]
 source_adapters = ["fake_matrix"]

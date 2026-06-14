@@ -24,13 +24,14 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 | `serial_baudrate`       | `int`                                  | `115200`     | Baud rate for serial                                                                                                                                               |
 | `ble_address`           | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)                                                                                                            |
 | `ble_pin`               | `str \| None`                          | `None`       | Optional BLE pairing PIN (used only for BLE); forwarded to MeshCore.create_ble(pin=...) only when configured; sensitive — never exposed in diagnostics/logs/errors |
-| `meshnet_name`          | `str`                                  | `""`         | Human-readable meshnet name                                                                                                                                        |
+| `origin_label`          | `str`                                  | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                                                                  |
 | `default_channel`       | `int`                                  | `0`          | Default channel index for outbound                                                                                                                                 |
 | `message_delay_seconds` | `float`                                | `0.5`        | Minimum delay between outbound messages                                                                                                                            |
 | `identity`              | `str \| None`                          | `None`       | Optional node identity string                                                                                                                                      |
 | `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                                                                                                                                   |
 | `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys                                                                                                                 |
 | `max_text_bytes`        | `int`                                  | `512`        | UTF-8 byte budget for rendered radio text                                                                                                                          |
+| `meshcore_relay_prefix` | `str`                                  | `""`         | Relay prefix template for outbound text (empty = no prefix; see §Relay Attribution Prefix)                                                                         |
 
 ---
 
@@ -90,11 +91,49 @@ Relayed packets are decoded by `MeshCoreCodec` into:
 
 The MeshCore renderer (`MeshCoreRenderer`) produces:
 
-- **Plain text** — body text with UTF-8 byte-budget truncation (no prefix support in current release scope).
+- **Plain text** — body text with optional `meshcore_relay_prefix`, UTF-8 byte-budget truncation.
 - **Channel messages** — `channel_index` determines target channel; sends via `session.send_text(channel_index=…)`.
 - **Direct messages** — `contact_id` (pubkey prefix) determines recipient; sends via `session.send_text(contact_id=…)`.
 
 No reply or reaction rendering — capabilities declare both as `"unsupported"`.
+
+---
+
+## Relay Attribution Prefix
+
+The MeshCore renderer prepends a human-readable relay attribution prefix to
+outbound text when `meshcore_relay_prefix` is non-empty on the target
+adapter's `MeshCoreConfig`.
+
+**Configuration:** `meshcore_relay_prefix` (string, default `""`). When
+empty, no prefix is prepended.
+
+**Template syntax:** `{placeholder}` variables resolved by the shared core
+formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
+the source event. Operators SHOULD prefer `{origin_label}` for
+cross-platform prefix templates — `origin_label` is the MEDRE-generic source
+label. `{origin_label}` is resolved through a precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) takes
+priority over the source adapter's config-level `origin_label`. See the
+Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
+list of supported template variables.
+
+**Default:** `""` (no prefix). MeshCore does not have a convention for a default prefix because sender identity is a hex pubkey prefix, not a human-readable name — templates referencing `{sender}` or `{sender_short}` resolve to empty strings for MeshCore-origin events. Operators SHOULD prefer `{origin_label}` or `{sender_id}` for MeshCore-bound prefixes.
+
+**Truncation:** The prefix is prepended before UTF-8 byte-budget truncation (`max_text_bytes`, default 512). The rendered prefix counts toward the byte budget. Multi-byte UTF-8 codepoints are never split.
+
+**Metadata keys** (conditional, only when prefix is configured):
+
+| Key                              | Value                                                       |
+| -------------------------------- | ----------------------------------------------------------- |
+| `relay_prefix_template`          | The original template string                                |
+| `relay_prefix_rendered`          | The rendered prefix string                                  |
+| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)             |
+| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty       |
+| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix  |
+| `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered |
+
+**Attribution caveat:** The prefix is human-readable attribution only. It does not constitute delivery evidence. The MEDRE metadata namespace remains the authoritative source for machine-readable provenance. Local send acceptance does not confirm MeshCore RF delivery.
 
 ---
 

@@ -426,11 +426,13 @@ def _expand_route_config(
         dest_ids = rc.source_adapters
         source_channel = rc.dest_channel
         dest_channel = rc.source_channel
+        origin_label = rc.dest_origin_label
     else:
         source_ids = rc.source_adapters
         dest_ids = rc.dest_adapters
         source_channel = rc.source_channel
         dest_channel = rc.dest_channel
+        origin_label = rc.source_origin_label
 
     # BridgePolicy event types → RouteSource event_kinds
     event_kinds: tuple[str, ...] = ()
@@ -461,6 +463,7 @@ def _expand_route_config(
             adapter=src_id,
             event_kinds=event_kinds,
             channel=source_channel,
+            origin_label=origin_label,
         )
 
         route = Route(
@@ -597,6 +600,12 @@ def _expand_channel_room_map_route(
         # Matrix→Meshtastic leg
         if create_matrix_to_mesh:
             fwd_id = f"{rc.route_id}__ch{ch}__matrix_to_meshtastic"
+            # Determine label: forward leg uses source_origin_label,
+            # reverse leg uses dest_origin_label.
+            if fwd_is_matrix_to_mesh:
+                fwd_label = rc.source_origin_label
+            else:
+                fwd_label = rc.dest_origin_label
             routes.append(
                 Route(
                     id=fwd_id,
@@ -604,6 +613,7 @@ def _expand_channel_room_map_route(
                         adapter=matrix_id,
                         event_kinds=event_kinds,
                         channel=room_id,
+                        origin_label=fwd_label,
                     ),
                     targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
                     enabled=rc.enabled,
@@ -614,6 +624,10 @@ def _expand_channel_room_map_route(
         # Meshtastic→Matrix leg
         if create_mesh_to_matrix:
             rev_id = f"{rc.route_id}__ch{ch}__meshtastic_to_matrix"
+            if fwd_is_matrix_to_mesh:
+                rev_label = rc.dest_origin_label
+            else:
+                rev_label = rc.source_origin_label
             routes.append(
                 Route(
                     id=rev_id,
@@ -621,6 +635,7 @@ def _expand_channel_room_map_route(
                         adapter=meshtastic_id,
                         event_kinds=event_kinds,
                         channel=ch,
+                        origin_label=rev_label,
                     ),
                     targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
                     enabled=rc.enabled,

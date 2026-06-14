@@ -294,6 +294,8 @@ class TestReusableAdapterModuleBoundary:
         # 2b. Cross-adapter isolation: reusable modules must not import
         #     other transport adapter packages (e.g. matrix/codec importing
         #     meshtastic/*).  interop modules are exempt.
+        #     Underscore-prefixed modules (e.g. _attribution_dispatch) are
+        #     shared infrastructure and exempt from the cross-adapter check.
         if transport:
             for r in all_imports_list:
                 if not r.module.startswith("medre.adapters."):
@@ -302,7 +304,11 @@ class TestReusableAdapterModuleBoundary:
                 parts = r.module.split(".")
                 if len(parts) >= 3:
                     other_transport = parts[2]
-                    if other_transport != transport and other_transport != "":
+                    if (
+                        other_transport != transport
+                        and other_transport != ""
+                        and not other_transport.startswith("_")
+                    ):
                         violations.append(
                             f"{rel}:{r.lineno}: imports {r.module} "
                             f"(cross-adapter: {transport} module importing "

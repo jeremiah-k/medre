@@ -12,19 +12,21 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 ## Configuration Fields
 
-| Field                     | Type                                                     | Default      | Description                                                                                             |
-| ------------------------- | -------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------- |
-| `adapter_id`              | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                      |
-| `connection_type`         | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                         |
-| `display_name`            | `str`                                                    | `""`         | Display name for LXMF announces                                                                         |
-| `stamp_cost`              | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                        |
-| `default_delivery_method` | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                            |
-| `meshnet_name`            | `str`                                                    | `""`         | Human-readable meshnet name (informational)                                                             |
-| `default_channel`         | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                      |
-| `message_delay_seconds`   | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                        |
-| `metadata_embedding`      | `bool`                                                   | `True`       | Embed MEDRE metadata envelopes in LXMF fields                                                           |
-| `identity_path`           | `str \| None`                                            | `None`       | Path to Reticulum identity file; auto-generated if `None`                                               |
-| `storage_path`            | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — LXMF 0.9.7 `LXMRouter` raises `ValueError` without it |
+| Field                       | Type                                                     | Default      | Description                                                                                                                                         |
+| --------------------------- | -------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`                | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                                                                  |
+| `connection_type`           | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                                                                     |
+| `display_name`              | `str`                                                    | `""`         | Display name for LXMF announces                                                                                                                     |
+| `stamp_cost`                | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                                                                    |
+| `default_delivery_method`   | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                                                                        |
+| `origin_label`              | `str`                                                    | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                                                   |
+| `default_channel`           | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                                                                  |
+| `message_delay_seconds`     | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                                                                    |
+| `metadata_embedding`        | `bool`                                                   | `True`       | Embed MEDRE metadata envelopes in LXMF fields                                                                                                       |
+| `identity_path`             | `str \| None`                                            | `None`       | Path to Reticulum identity file; auto-generated if `None`                                                                                           |
+| `storage_path`              | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — config validation raises `LxmfConfigError`; session start raises `LxmfConnectionError` without it |
+| `announce_interval_seconds` | `float`                                                  | `600.0`      | Interval in seconds between periodic LXMF announces; `0` disables                                                                                   |
+| `lxmf_relay_prefix`         | `str`                                                    | `""`         | Relay prefix template for outbound body text (empty = no prefix; see §Relay Attribution Prefix)                                                     |
 
 ---
 
@@ -85,7 +87,59 @@ The LXMF renderer (`LxmfRenderer`) produces:
 - **fallback_text envelope semantics** — under `delivery_strategy="fallback_text"`, the envelope's `relations` field is always an empty list (`[]`). Relations are represented **exclusively** as inline text in the content field (via `_degrade_relations_inline`). This prevents duplicate representation of relation data as both structured envelope fields and inline text, maintaining strict fallback semantics where the degraded text is the sole relation carrier.
 - **Destination hash** — empty string placeholder in current release scope; populated by the routing layer before delivery.
 
-No reply or reaction rendering — capabilities declare both `"unsupported"`.
+No reply or reaction rendering — capabilities declare both as `"unsupported"`.
+
+---
+
+## Relay Attribution Prefix
+
+The LXMF renderer prepends a human-readable relay attribution prefix to
+outbound message body text when a relay prefix is configured.
+
+**Configuration:** `lxmf_relay_prefix` (string, default `""`) on `LxmfConfig`.
+When empty, no prefix is prepended. The runtime resolves the prefix per target
+adapter — the LXMF renderer is **target-aware**: the prefix template comes from
+the target LXMF adapter's config, not from a collapsed single-prefix model.
+`{origin_label}` within the template is resolved from the source adapter's
+config via the runtime source-attribution registry.
+
+**Template syntax:** `{placeholder}` variables resolved by the shared core
+formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
+the source event. Operators SHOULD prefer `{origin_label}` for
+cross-platform prefix templates — `origin_label` is the MEDRE-generic source
+label. `{origin_label}` is resolved through a precedence chain: route-level
+`source_origin_label` (or `dest_origin_label` for reverse legs) takes
+priority over the source adapter's config-level `origin_label`. See the
+Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
+list of supported template variables.
+
+**Default:** `""` (no prefix). LXMF sender identity is a hex Reticulum
+identity hash — templates referencing `{sender}` or `{sender_short}` resolve
+to empty strings for LXMF-origin events. Operators SHOULD prefer
+`{origin_label}` or `{sender_id}` for LXMF-bound prefixes.
+
+**Order of operations:** The MEDRE metadata envelope is embedded in the
+LXMF `fields` dict first; the relay prefix is then prepended to the
+content body text; character-budget truncation (`max_text_chars`,
+default 16384) is applied last. The rendered prefix counts toward the
+character budget.
+
+**Metadata keys** (conditional, only when prefix is configured):
+
+| Key                              | Value                                                      |
+| -------------------------------- | ---------------------------------------------------------- |
+| `relay_prefix_template`          | The original template string                               |
+| `relay_prefix_rendered`          | The rendered prefix string                                 |
+| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)            |
+| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty      |
+| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix |
+| `relay_prefix_formatting_error`  | Error description when unknown placeholders encountered    |
+
+**Attribution caveat:** The prefix is human-readable attribution only. It
+does not constitute delivery evidence. The MEDRE metadata namespace
+(embedded in the LXMF `fields` envelope) remains the authoritative source
+for machine-readable provenance. Local LXMRouter acceptance does not
+confirm remote delivery.
 
 ---
 

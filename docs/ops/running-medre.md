@@ -285,7 +285,7 @@ enabled = true
 adapter_kind = "real"
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "LongFast Net"
+origin_label = "LongFast Net"
 default_channel = 0
 channel_mapping = {0 = "general", 1 = "alerts"}
 
@@ -295,7 +295,7 @@ adapter_kind = "real"
 connection_type = "tcp"
 host = "meshtastic-turbo.local"
 port = 4403
-meshnet_name = "ShortTurbo Net"
+origin_label = "ShortTurbo Net"
 default_channel = 0
 channel_mapping = {0 = "fast"}
 ```
@@ -330,7 +330,7 @@ enabled = true
 adapter_kind = "real"
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "LocalMesh"
+origin_label = "LocalMesh"
 default_channel = 0
 channel_mapping = {0 = "general"}
 ```
@@ -742,7 +742,9 @@ Messages are rendered by transport-specific renderers when bridging between tran
 
 - Included in Matrix renderer output via `medre.envelope.source_adapter`.
 - Included in LXMF renderer output via the fields envelope.
-- Not included in Meshtastic or MeshCore renderer output (plain text payloads with no metadata envelope in the current release scope).
+- Included in Meshtastic and MeshCore renderer output when `origin_label` is
+  set — the label is embedded in the relay prefix template via
+  `{origin_label}`.
 
 ## Soak and Validation
 

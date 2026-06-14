@@ -321,7 +321,7 @@ class TestMeshCoreFakeAdapterOperability:
             event_id="evt-boundary",
             target_adapter="test_op_deliver",
             target_channel="0",
-            payload={"text": "boundary test", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "boundary test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
         assert delivery is not None

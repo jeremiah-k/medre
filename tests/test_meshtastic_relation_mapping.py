@@ -50,26 +50,12 @@ from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
 # ===================================================================
 # Shared helper for source_configs construction
 # ===================================================================
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio",
-        meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
 
 
 # Fixed IDs used across both tests for traceability.
@@ -78,7 +64,6 @@ _MATRIX_ROOM = "!room:server"
 _MATRIX_MSG_ID = "$matrix-original"
 _RADIO_ADAPTER = "radio"
 _MATRIX_ADAPTER = "matrix"
-_MESHNET_NAME = "medre-radio"
 _RADIO_PKT_ID = 2728143522
 _REPLY_PKT_ID = 1186126098
 _REPLY_TEXT = "Replying"
@@ -376,8 +361,12 @@ class TestMeshtasticToMatrixReplyResolution:
                     _RADIO_ADAPTER: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
-                        meshnet_name=_MESHNET_NAME,
-                        matrix_relay_prefix="[{longname}] ",
+                        # mmrelay KEY_MESHNET wire compat
+                    ),
+                },
+                configs={
+                    _MATRIX_ADAPTER: _StubMatrixConfig(
+                        relay_prefix="[{sender}] ",
                     ),
                 },
             ),
@@ -486,7 +475,7 @@ class TestMeshtasticToMatrixReplyResolution:
                     _RADIO_ADAPTER: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
-                        meshnet_name=_MESHNET_NAME,
+                        # mmrelay KEY_MESHNET wire compat
                     ),
                 },
             ),

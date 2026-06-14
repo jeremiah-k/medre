@@ -1374,9 +1374,6 @@ class MeshtasticAdapter(AdapterContract):
         text = payload.get("text")
         if text is not None:
             meshtastic_meta["text"] = str(text)
-        meshnet_name = payload.get("meshnet_name")
-        if meshnet_name is not None and meshnet_name != "":
-            meshtastic_meta["meshnet_name"] = str(meshnet_name)
         channel_name = payload.get("channel_name")
         if channel_name is not None and channel_name != "":
             meshtastic_meta["channel_name"] = str(channel_name)

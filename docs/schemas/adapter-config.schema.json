@@ -69,6 +69,16 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Canonical Matrix room IDs ('!localpart:server') to auto-join on startup."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Target-local prefix template for Matrix outbound body text. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id", "homeserver", "user_id"],
@@ -109,10 +119,10 @@
           "default": null,
           "description": "BLE MAC address for BLE connections."
         },
-        "meshnet_name": {
+        "origin_label": {
           "type": "string",
           "default": "",
-          "description": "Human-readable meshnet name (informational)."
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "default_channel": {
           "type": "integer",
@@ -143,14 +153,9 @@
           "default": 30000,
           "description": "Timeout in milliseconds for sync operations."
         },
-        "matrix_relay_prefix": {
-          "type": "string",
-          "default": "[{longname}/{meshnet_name}]: ",
-          "description": "Template prepended to messages relayed from Meshtastic to Matrix."
-        },
         "radio_relay_prefix": {
           "type": "string",
-          "default": "{shortname5}[M]: ",
+          "default": "{sender_short}: ",
           "description": "Template prepended to messages relayed from Matrix to Meshtastic radio."
         },
         "mmrelay_compatibility": {
@@ -220,10 +225,10 @@
           "default": null,
           "description": "BLE MAC address for BLE connections."
         },
-        "meshnet_name": {
+        "origin_label": {
           "type": "string",
           "default": "",
-          "description": "Human-readable meshnet name (informational)."
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "default_channel": {
           "type": "integer",
@@ -276,6 +281,11 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Optional BLE pairing PIN. Sensitive; forwarded only to the SDK create_ble call; never exposed in diagnostics or logs."
+        },
+        "meshcore_relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template prepended to outbound text before byte-budget truncation. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id"],
@@ -313,10 +323,10 @@
           "default": "direct",
           "description": "Default LXMF delivery method."
         },
-        "meshnet_name": {
+        "origin_label": {
           "type": "string",
           "default": "",
-          "description": "Human-readable meshnet name (informational)."
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "default_channel": {
           "type": "integer",
@@ -344,6 +354,17 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Path for LXMF LXMRouter persistent storage. Required for 'reticulum' mode."
+        },
+        "announce_interval_seconds": {
+          "type": "number",
+          "default": 600.0,
+          "minimum": 0,
+          "description": "Interval in seconds between periodic LXMF announces for mesh path discovery. 0 disables."
+        },
+        "lxmf_relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template prepended to outbound LXMF message body text. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
         }
       },
       "required": ["adapter_id"],

@@ -163,7 +163,7 @@ Convention: `metadata.matrix`, `metadata.meshtastic`, `metadata.meshcore`, `meta
 
 - **Inbound**: copy of `event.metadata.native.data` — preserves the codec's raw adapter data shape for traceability (e.g. Meshtastic `packet_id`, `from_id`, `channel` at top level of the adapter data dict). This is NOT namespaced as `metadata[<transport>]`; it mirrors whatever the codec produced in `native.data`, keeping the original flat structure intact so that the inbound evidence chain can be audited back to the transport SDK output without namespace transformation.
 - **Outbound (synchronous adapters)**: transport-namespaced from `AdapterDeliveryResult.metadata` — follows the `metadata[<transport>]` convention.
-- **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `meshnet_name`, `channel_name`, `reply_id`, `emoji`, plus defensively normalised legacy/non-namespaced delivery keys.
+- **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `origin_label`, `channel_name`, `reply_id`, `emoji`, plus defensively normalised legacy/non-namespaced delivery keys.
 
 ---
 

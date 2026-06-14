@@ -38,8 +38,6 @@ class MeshtasticConfig:
     ble_address:
         BLE MAC address for BLE connections.  Required when
         *connection_type* is ``"ble"``.
-    meshnet_name:
-        Human-readable meshnet name (informational).
     default_channel:
         Default radio channel index for outbound messages.
     channel_mapping:
@@ -56,25 +54,15 @@ class MeshtasticConfig:
         Seconds after start to suppress stale backlog packets.
     sync_timeout_ms:
         Timeout in milliseconds for sync operations.
-    matrix_relay_prefix:
-        Template string prepended to messages relayed **from** Meshtastic
-        **to** Matrix.  Uses Python ``str.format()`` syntax with variables:
-        ``{longname}``, ``{shortname}``, ``{meshnet_name}``, ``{from_id}``.
-        Default: ``"[{longname}/{meshnet_name}]: "``.
-        Matches mmrelay's ``DEFAULT_MATRIX_PREFIX = "[{long}/{mesh}]: "``.
-
-        Example: ``"[{longname}/{meshnet_name}]: "``
     radio_relay_prefix:
         Template string prepended to messages relayed **from** Matrix
-        **to** Meshtastic radio.  Uses Python ``str.format()`` syntax with
-        variables: ``{longname}``, ``{shortname}``, ``{shortname5}``,
-        ``{meshnet_name}``, ``{from_id}``.  ``{shortname5}`` resolves to
-        the first 5 characters of ``{shortname}`` (or ``{from_id}`` if
-        shortname is empty).
-        Default: ``"{shortname5}[M]: "``.
-        Matches mmrelay's ``DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "``.
+        **to** Meshtastic radio.  Uses Python ``str.format()`` syntax
+        with generic variables: ``{sender}``, ``{sender_short}``,
+        ``{sender_id}``, ``{origin_label}``, ``{platform}``,
+        ``{channel}``, ``{route_id}``.
+        Default: ``"{sender_short}: "``.
 
-        Example: ``"{shortname5}[M]: "``
+        Example: ``"{sender_short}: "``
     mmrelay_compatibility:
         When ``True``, the Matrix renderer embeds mmrelay-compatible
         Meshtastic metadata into the Matrix event content payload.  This
@@ -131,14 +119,13 @@ class MeshtasticConfig:
     port: int | None = None
     serial_port: str | None = None
     ble_address: str | None = None
-    meshnet_name: str = ""
+    origin_label: str = ""
     default_channel: int = 0
     channel_mapping: dict[int, str] = field(default_factory=dict)
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    matrix_relay_prefix: str = "[{longname}/{meshnet_name}]: "
-    radio_relay_prefix: str = "{shortname5}[M]: "
+    radio_relay_prefix: str = "{sender_short}: "
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
@@ -260,5 +247,21 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"detection_sensor_relay must be a bool, "
                 f"got {type(self.detection_sensor_relay).__name__}"
+            )
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise MeshtasticConfigError("origin_label must be a str, got bool")
+        if not isinstance(self.origin_label, str):
+            raise MeshtasticConfigError(
+                f"origin_label must be a str, "
+                f"got {type(self.origin_label).__name__}"
+            )
+        # --- radio_relay_prefix ---
+        if isinstance(self.radio_relay_prefix, bool):
+            raise MeshtasticConfigError("radio_relay_prefix must be a str, got bool")
+        if not isinstance(self.radio_relay_prefix, str):
+            raise MeshtasticConfigError(
+                f"radio_relay_prefix must be a str, "
+                f"got {type(self.radio_relay_prefix).__name__}"
             )
         return self

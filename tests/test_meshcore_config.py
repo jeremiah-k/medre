@@ -27,7 +27,6 @@ class TestMeshCoreConfigValid:
             port=4000,
             default_channel=1,
             message_delay_seconds=1.0,
-            meshnet_name="testnet",
             identity="node-alpha",
             pubkey="aabbccdd",
             node_config={"freq": 868.0},
@@ -692,4 +691,138 @@ def test_ble_pin_bool_true_raises() -> None:
     """Non-string truthy values must be rejected — bool is not a valid PIN."""
     config = MeshCoreConfig(adapter_id="meshcore-1", ble_pin=True)  # type: ignore[arg-type]
     with pytest.raises(MeshCoreConfigError, match="ble_pin"):
+        config.validate()
+
+
+# --- meshcore_relay_prefix validation: str, default "", bool rejected ---
+
+
+def test_meshcore_relay_prefix_default_is_empty_string() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1")
+    assert config.meshcore_relay_prefix == ""
+
+
+def test_meshcore_relay_prefix_default_validates() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1")
+    assert config.validate().meshcore_relay_prefix == ""
+
+
+def test_meshcore_relay_prefix_non_empty_string_is_valid() -> None:
+    config = MeshCoreConfig(
+        adapter_id="meshcore-1",
+        meshcore_relay_prefix="[{sender}] ",
+    )
+    assert config.validate().meshcore_relay_prefix == "[{sender}] "
+
+
+def test_meshcore_relay_prefix_empty_string_is_valid() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix="")
+    assert config.validate().meshcore_relay_prefix == ""
+
+
+def test_meshcore_relay_prefix_bool_true_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=True)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="meshcore_relay_prefix must be a str, got bool",
+    ):
+        config.validate()
+
+
+def test_meshcore_relay_prefix_bool_false_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=False)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="meshcore_relay_prefix must be a str, got bool",
+    ):
+        config.validate()
+
+
+def test_meshcore_relay_prefix_int_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=42)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="meshcore_relay_prefix must be a str, got int",
+    ):
+        config.validate()
+
+
+def test_meshcore_relay_prefix_none_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", meshcore_relay_prefix=None)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="meshcore_relay_prefix must be a str, got NoneType",
+    ):
+        config.validate()
+
+
+def test_meshcore_relay_prefix_template_with_multiple_placeholders() -> None:
+    config = MeshCoreConfig(
+        adapter_id="meshcore-1",
+        meshcore_relay_prefix="<{source_platform}:{sender_short}> ",
+    )
+    assert (
+        config.validate().meshcore_relay_prefix == "<{source_platform}:{sender_short}> "
+    )
+
+
+# --- origin_label validation: str, default "", bool rejected ---
+
+
+def test_meshcore_origin_label_default_is_empty_string() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1")
+    assert config.origin_label == ""
+
+
+def test_meshcore_origin_label_default_validates() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1")
+    assert config.validate().origin_label == ""
+
+
+def test_meshcore_origin_label_non_empty_string_is_valid() -> None:
+    config = MeshCoreConfig(
+        adapter_id="meshcore-1",
+        origin_label="MeshCore Hub",
+    )
+    assert config.validate().origin_label == "MeshCore Hub"
+
+
+def test_meshcore_origin_label_empty_string_is_valid() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", origin_label="")
+    assert config.validate().origin_label == ""
+
+
+def test_meshcore_origin_label_bool_true_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=True)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="origin_label must be a str, got bool",
+    ):
+        config.validate()
+
+
+def test_meshcore_origin_label_bool_false_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=False)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="origin_label must be a str, got bool",
+    ):
+        config.validate()
+
+
+def test_meshcore_origin_label_int_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=42)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="origin_label must be a str, got int",
+    ):
+        config.validate()
+
+
+def test_meshcore_origin_label_none_raises() -> None:
+    config = MeshCoreConfig(adapter_id="meshcore-1", origin_label=None)  # type: ignore[arg-type]
+    with pytest.raises(
+        MeshCoreConfigError,
+        match="origin_label must be a str, got NoneType",
+    ):
         config.validate()

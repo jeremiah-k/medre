@@ -971,7 +971,7 @@ class TestWheelArtifactContract:
         except ImportError:
             pytest.skip("python 'build' package not installed")
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture(scope="module")
     def _wheel_path(self: "TestWheelArtifactContract") -> object:
         """Build wheel once per class and return its path."""
         import tempfile

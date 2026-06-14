@@ -1,8 +1,8 @@
 """Meshtastic renderer for target-specific event rendering.
 
 The :class:`MeshtasticRenderer` converts canonical events into
-Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
-and optional ``meshnet_name``).
+Meshtastic-ready content payloads (dicts with ``text`` and
+``channel_index``).
 
 The renderer is initialised with a **required** mapping of adapter IDs to
 :class:`~medre.config.adapters.meshtastic.MeshtasticConfig` instances.
@@ -13,14 +13,16 @@ mapping — there is no fallback or default.  An empty mapping raises
 
 When the resolved config contains a non-empty ``radio_relay_prefix``,
 the renderer prepends a formatted prefix to the message text.  The prefix
-template uses Python ``str.format()`` syntax with the following variables:
+template uses Python ``str.format()`` syntax with generic variables:
 
-* ``{longname}`` — sender long name (from event native metadata, if available).
-* ``{shortname}`` — sender short name (from event native metadata, if available).
-* ``{shortname5}`` — first 5 characters of ``{shortname}`` (or ``{from_id}``
-  if shortname is empty).
-* ``{meshnet_name}`` — the mesh network name from the adapter config.
-* ``{from_id}`` — the sender's numeric node ID.
+* ``{sender}`` — primary sender label (generic, preferred).
+* ``{sender_short}`` — abbreviated sender label.
+* ``{sender_id}`` — sender node/transport ID.
+* ``{origin_label}`` — source origin label (from route context or adapter
+  registry).
+* ``{platform}`` — source platform name.
+* ``{channel}`` — source channel/room.
+* ``{route_id}`` — route identifier.
 
 This renderer is owned by the Meshtastic adapter package and is registered
 with the rendering pipeline.
@@ -57,9 +59,15 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
+from medre.core.rendering.attribution import (
+    PrefixFormatterResult,
+    build_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -72,15 +80,13 @@ if TYPE_CHECKING:
 class MeshtasticRenderer:
     """Renderer for Meshtastic transport targets.
 
-    Produces content dicts with ``text``, ``channel_index``, and optional
-    ``meshnet_name``.
+    Produces content dicts with ``text`` and ``channel_index``.
 
     **Target-aware rendering.** The renderer is initialised with a
     mapping of adapter IDs to :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
     instances.  At render time the config for *target_adapter* is resolved
     from this mapping.  This allows multi-radio setups where each adapter
-    has different ``max_text_bytes``, ``radio_relay_prefix``, and
-    ``meshnet_name`` values.
+    has different ``max_text_bytes`` and ``radio_relay_prefix`` values.
 
     An empty *configs* mapping raises :class:`ValueError`.  An unknown
     *target_adapter* at render time raises :class:`KeyError`.
@@ -99,6 +105,7 @@ class MeshtasticRenderer:
         self,
         *,
         configs: Mapping[str, MeshtasticConfig],
+        source_attribution: dict[str, Any] | None = None,
     ) -> None:
         if not configs:
             raise ValueError(
@@ -106,6 +113,7 @@ class MeshtasticRenderer:
                 "Pass a non-empty configs mapping."
             )
         self._configs: dict[str, MeshtasticConfig] = dict(configs)
+        self._source_attribution: dict[str, Any] = dict(source_attribution or {})
 
     # ------------------------------------------------------------------
     # Capability check
@@ -155,29 +163,40 @@ class MeshtasticRenderer:
     # Prefix formatting
     # ------------------------------------------------------------------
 
-    @staticmethod
     def _format_prefix_for(
+        self,
         event: CanonicalEvent,
         radio_relay_prefix: str,
-        meshnet_name: str,
         *,
         compact: bool = False,
-    ) -> str:
-        """Format a prefix template using event source metadata.
+        source_origin_label: str | None = None,
+    ) -> PrefixFormatterResult:
+        """Format a prefix template using adapter projection and the shared
+        generic builder.
+
+        Delegates to :func:`~medre.adapters._attribution_dispatch.project_source_fields`
+        for source-identity projection and
+        :func:`~medre.core.rendering.attribution.build_relay_attribution` for
+        generic envelope assembly.
 
         Available template variables:
 
-        * ``{longname}`` — sender long name from native metadata.
-        * ``{shortname}`` — sender short name from native metadata.
-        * ``{shortname5}`` — first 5 chars of shortname (or from_id if empty).
-        * ``{meshnet_name}`` — mesh network name from adapter config.
-        * ``{from_id}`` — sender node ID from native metadata.
+        * ``{sender}`` — sender label (generic, preferred).
+        * ``{sender_short}`` — sender short label (generic, preferred).
+        * ``{sender_id}`` — sender node/transport ID.
+        * ``{origin_label}`` — source origin label.
+        * ``{platform}`` — source platform name.
+        * ``{channel}`` — source channel/room.
+        * ``{route_id}`` — route identifier.
+
+        ``{meshnet_name}`` is not a known variable — it passes through
+        unchanged in templates (recorded as an unknown field).
 
         Falls back to empty strings for any unavailable variables.
-        If the template is invalid, returns the raw template unchanged.
+        Never renders the literal text ``"None"``.
 
         When *compact* is ``True``, spaces are stripped from display-name
-        tokens (longname, shortname) before template substitution.
+        tokens before template substitution.
 
         Parameters
         ----------
@@ -185,47 +204,69 @@ class MeshtasticRenderer:
             The canonical event whose source metadata is used for formatting.
         radio_relay_prefix:
             The prefix template string.
-        meshnet_name:
-            The mesh network name for ``{meshnet_name}`` substitution.
         compact:
             When ``True``, strip spaces from display-name tokens.
+        source_origin_label:
+            Pre-resolved origin label.  When non-empty, takes precedence
+            over the source_attribution registry value.  Typically
+            resolved from ``RenderingContext.source_origin_label`` by the
+            caller in :meth:`render`.
 
         Returns
         -------
-        str
-            The formatted prefix string.
+        PrefixFormatterResult
+            Frozen result with rendered prefix string and diagnostic
+            metadata.
         """
         if not radio_relay_prefix:
-            return ""
+            return PrefixFormatterResult(
+                rendered_prefix="",
+                template_used=radio_relay_prefix,
+                variables_used=(),
+                missing_variables=(),
+                unknown_variables=(),
+                formatting_error=None,
+            )
 
+        # origin_label precedence is resolved by the caller (render()).
+        # When the caller provides source_origin_label (non-None), it
+        # already reflects: ctx.source_origin_label > registry > None.
+        # Fall back to registry only when the caller did not resolve.
+        # Use 'is not None' to preserve explicit empty string labels.
+        src_attr_cfg = self._source_attribution.get(event.source_adapter)
+        if source_origin_label is None:
+            if src_attr_cfg is not None:
+                source_origin_label = getattr(src_attr_cfg, "origin_label", None)
+
+        # Project source identity from native metadata via dispatch.
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        shortname_raw = str(native_data.get("shortname", ""))
-        from_id = str(native_data.get("from_id", event.source_transport_id or ""))
-        shortname5 = (shortname_raw or from_id)[:5]
+        platform_hint = (
+            getattr(src_attr_cfg, "platform", None) if src_attr_cfg else None
+        )
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+            platform_hint=platform_hint,
+        )
 
-        longname = str(native_data.get("longname", ""))
-        shortname = shortname_raw
-
+        # Apply compact mode: strip spaces from label fields.
         if compact:
-            longname = longname.replace(" ", "")
-            shortname = shortname.replace(" ", "")
-            shortname5 = shortname[:5] if shortname else from_id[:5]
+            for key in ("source_sender_label", "source_sender_short_label"):
+                val = projected.get(key)
+                if val:
+                    projected[key] = val.replace(" ", "") or None
 
-        format_vars = {
-            "longname": longname,
-            "shortname": shortname,
-            "shortname5": shortname5,
-            "meshnet_name": meshnet_name,
-            "from_id": from_id,
-        }
+        attr = build_relay_attribution(
+            event,
+            source_origin_label=source_origin_label,
+            projected_fields=projected,
+        )
 
-        try:
-            return radio_relay_prefix.format(**format_vars)
-        except (KeyError, IndexError, ValueError):
-            return radio_relay_prefix
+        return format_relay_prefix(radio_relay_prefix, attr)
 
     # ------------------------------------------------------------------
     # Rendering
@@ -244,7 +285,6 @@ class MeshtasticRenderer:
           configured ``radio_relay_prefix`` prepended if set.
         * ``channel_index``: the adapter's ``default_channel``, overridden
           only when *ctx.target_channel* is a valid numeric value.
-        * ``meshnet_name``: the configured mesh network name.
 
         **Target-aware config resolution.** The renderer resolves the
         config for *ctx.target_adapter* from the ``configs`` mapping
@@ -257,7 +297,7 @@ class MeshtasticRenderer:
         fields (``reply_id``, ``emoji``) are suppressed; relation
         context is expressed as readable text instead.  All Meshtastic
         payload ownership is preserved: ``channel_index``,
-        ``meshnet_name``, prefix rules, and UTF-8 byte-safe truncation.
+        ``channel_index``, prefix rules, and UTF-8 byte-safe truncation.
 
         **Direct mode** — when ``ctx.delivery_strategy`` is ``"direct"``
         (or any non-fallback strategy), the renderer uses native
@@ -321,7 +361,6 @@ class MeshtasticRenderer:
             ) from None
 
         prefix = adapter_config.radio_relay_prefix
-        meshnet_name = adapter_config.meshnet_name
         max_text_bytes = (
             ctx.max_text_bytes
             if ctx.max_text_bytes is not None
@@ -340,25 +379,46 @@ class MeshtasticRenderer:
 
         content: dict[str, object] = {
             "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
         }
+
+        # Resolve origin_label precedence:
+        # ctx.source_origin_label (route/context) > source_attribution registry > None.
+        # NOTE: The target adapter config's origin_label is intentionally NOT used
+        # as a fallback — origin_label describes the message SOURCE, not the target.
+        # Use 'is not None' to preserve explicit empty string labels.
+        effective_origin_label: str | None = ctx.source_origin_label
+        if effective_origin_label is None:
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            if src_attr_cfg is not None:
+                effective_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
         is_descriptive_reaction = False
+        prefix_result: PrefixFormatterResult = PrefixFormatterResult(
+            rendered_prefix="",
+            template_used="",
+            variables_used=(),
+            missing_variables=(),
+            unknown_variables=(),
+            formatting_error=None,
+        )
 
         if event.relations:
             rel = event.relations[0]
 
             if is_fallback:
                 # -- fallback_text: degrade relations into plain text --------
-                content["text"] = self._render_fallback_text(
+                fallback_text, fallback_prefix = self._render_fallback_text(
                     event,
                     rel,
                     prefix,
-                    meshnet_name,
                     target_adapter,
+                    source_origin_label=effective_origin_label,
                 )
+                content["text"] = fallback_text
+                if fallback_prefix is not None:
+                    prefix_result = fallback_prefix
                 if rel.relation_type == "reaction" and not self._is_native_reaction(
                     event,
                     target_adapter,
@@ -390,12 +450,24 @@ class MeshtasticRenderer:
                     else:
                         # Cross-platform MMRelay-style descriptive reaction
                         orig_preview = self._abbreviated_original_text(event, rel)
-                        compact_prefix = self._format_prefix_for(
+                        compact_prefix_result = self._format_prefix_for(
                             event,
                             prefix,
-                            meshnet_name,
                             compact=True,
+                            source_origin_label=effective_origin_label,
                         )
+                        # On formatting_exception, use empty prefix to
+                        # avoid leaking raw template into reaction text.
+                        if (
+                            compact_prefix_result.formatting_error
+                            and compact_prefix_result.formatting_error.startswith(
+                                "formatting_exception:"
+                            )
+                        ):
+                            compact_prefix = ""
+                        else:
+                            compact_prefix = compact_prefix_result.rendered_prefix
+                        prefix_result = compact_prefix_result
                         sep = ""
                         if compact_prefix and not compact_prefix[-1:].isspace():
                             sep = " "
@@ -414,15 +486,29 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        formatted_prefix = ""
-        if not is_structured_reaction and not is_descriptive_reaction:
-            formatted_prefix = self._format_prefix_for(
+        if is_structured_reaction and prefix:
+            # Native tapback: do NOT prepend prefix to text, but still
+            # populate relay-prefix metadata so downstream consumers can
+            # see the resolved prefix.
+            prefix_result = self._format_prefix_for(
                 event,
                 prefix,
-                meshnet_name,
+                source_origin_label=effective_origin_label,
             )
-            if formatted_prefix:
-                content["text"] = f"{formatted_prefix}{content['text']}"
+        elif not is_structured_reaction and not is_descriptive_reaction:
+            prefix_result = self._format_prefix_for(
+                event,
+                prefix,
+                source_origin_label=effective_origin_label,
+            )
+            # On formatting_exception the rendered_prefix is the raw
+            # template — do NOT prepend it to user-facing text.
+            is_prefix_exception = (
+                prefix_result.formatting_error
+                and prefix_result.formatting_error.startswith("formatting_exception:")
+            )
+            if prefix_result.rendered_prefix and not is_prefix_exception:
+                content["text"] = f"{prefix_result.rendered_prefix}{content['text']}"
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         final_text = str(content.get("text", ""))
@@ -440,8 +526,15 @@ class MeshtasticRenderer:
             "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
-        if formatted_prefix:
-            metadata["radio_relay_prefix"] = formatted_prefix
+        formatted_prefix = prefix_result.rendered_prefix
+        if prefix:
+            # Normalized keys (consistent across all renderers)
+            metadata["relay_prefix_template"] = prefix_result.template_used
+            metadata["relay_prefix_rendered"] = formatted_prefix
+            metadata["relay_prefix_variables_used"] = prefix_result.variables_used
+            metadata["relay_prefix_missing_variables"] = prefix_result.missing_variables
+            metadata["relay_prefix_unknown_variables"] = prefix_result.unknown_variables
+            metadata["relay_prefix_formatting_error"] = prefix_result.formatting_error
         if is_descriptive_reaction:
             metadata["descriptive_reaction"] = True
         if is_fallback:
@@ -466,9 +559,9 @@ class MeshtasticRenderer:
         event: CanonicalEvent,
         rel: EventRelation,
         prefix: str,
-        meshnet_name: str,
         target_adapter: str,
-    ) -> str:
+        source_origin_label: str | None = None,
+    ) -> tuple[str, PrefixFormatterResult | None]:
         """Render relation semantics as degraded text for fallback_text mode.
 
         In fallback_text mode, native relation fields (``reply_id``,
@@ -483,15 +576,18 @@ class MeshtasticRenderer:
             The first relation on the event.
         prefix:
             Radio relay prefix template from adapter config.
-        meshnet_name:
-            Mesh network name from adapter config.
         target_adapter:
             The target adapter identifier.
+        source_origin_label:
+            Pre-resolved origin label for prefix formatting.
 
         Returns
         -------
-        str
-            Text with relation semantics degraded into readable form.
+        tuple[str, PrefixFormatterResult | None]
+            ``(text, prefix_result)`` where *text* has relation semantics
+            degraded into readable form and *prefix_result* is the compact
+            prefix formatter result when a cross-platform reaction was
+            rendered, or ``None`` otherwise.
         """
         if rel.relation_type == "reply":
             # Reply degraded to text: include "[replying to: …]" prefix.
@@ -499,53 +595,64 @@ class MeshtasticRenderer:
             # When absent, resolve a deterministic marker from target_event_id
             # or target_native_ref so relation context is never lost.
             if rel.fallback_text:
-                return self._extract_text(event)
+                return (self._extract_text(event), None)
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
                 body = str(event.payload.get("text", event.payload.get("body", "")))
-                return f"[replying to: {target_marker}] {body}"
-            return self._extract_text(event)
+                return (f"[replying to: {target_marker}] {body}", None)
+            return (self._extract_text(event), None)
 
         if rel.relation_type == "reaction":
             emoji_text = self._resolve_emoji_text(rel, event) or ""
             if self._is_native_reaction(event, target_adapter):
                 # Native reaction degraded to readable text (no tapback).
-                return f"[reacted: {emoji_text}]"
+                return (f"[reacted: {emoji_text}]", None)
             # Cross-platform reaction: MMRelay-style descriptive text,
             # but without native reply_id.
             orig_preview = self._abbreviated_original_text(event, rel)
-            compact_prefix = self._format_prefix_for(
+            cp_result = self._format_prefix_for(
                 event,
                 prefix,
-                meshnet_name,
                 compact=True,
+                source_origin_label=source_origin_label,
             )
+            # On formatting_exception, use empty prefix to avoid
+            # leaking raw template into reaction text.
+            if cp_result.formatting_error and cp_result.formatting_error.startswith(
+                "formatting_exception:"
+            ):
+                compact_prefix = ""
+            else:
+                compact_prefix = cp_result.rendered_prefix
             sep = ""
             if compact_prefix and not compact_prefix[-1:].isspace():
                 sep = " "
-            return f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"'
+            return (
+                f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"',
+                cp_result,
+            )
 
         if rel.relation_type == "edit":
             payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             if payload_text:
-                return f"[edited] {payload_text}"
-            return "[edited]"
+                return (f"[edited] {payload_text}", None)
+            return ("[edited]", None)
 
         if rel.relation_type == "delete":
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
-                return f"[deleted: {target_marker}]"
-            return "[deleted]"
+                return (f"[deleted: {target_marker}]", None)
+            return ("[deleted]", None)
 
         if rel.relation_type == "thread":
             payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             target_marker = self._resolve_reply_target_marker(rel) or "?"
             if payload_text:
-                return f"[thread: {target_marker}] {payload_text}"
-            return f"[thread: {target_marker}]"
+                return (f"[thread: {target_marker}] {payload_text}", None)
+            return (f"[thread: {target_marker}]", None)
 
         # Unknown relation types: standard text extraction.
-        return self._extract_text(event)
+        return (self._extract_text(event), None)
 
     @staticmethod
     def _resolve_reply_target_marker(rel: EventRelation) -> str | None:

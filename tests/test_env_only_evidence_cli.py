@@ -169,7 +169,6 @@ def config_env_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__MESHNET_NAME", "RadioA")
 
     # Route (env-only).
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
@@ -198,6 +197,9 @@ async def seeded_env_only_db(tmp_path: Path) -> str:
 
 def _run_cli(*args: str) -> str:
     """Run CLI with given args, capture stdout, return output."""
+    import asyncio
+    import warnings as _warnings
+
     from medre.cli import main
 
     stdout = io.StringIO()
@@ -208,6 +210,25 @@ def _run_cli(*args: str) -> str:
     except SystemExit as e:
         if e.code not in (None, 0):
             raise
+    finally:
+        # pytest-asyncio's ``_temporary_event_loop_policy`` saves the
+        # event loop that existed before each async test and restores it
+        # on teardown.  The *first* async test creates a spare loop via
+        # ``get_event_loop()`` that is never closed, leaving an unclosed
+        # ``socket.socketpair()`` behind.  When ``asyncio.run()`` (called
+        # inside ``main()``) later runs from a sync test, the stale loop
+        # is still the current loop on the policy.  Closing it here
+        # prevents ``ResourceWarning`` / ``PytestUnraisableExceptionWarning``
+        # when GC eventually collects it during a later test.
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", DeprecationWarning)
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+        if loop is not None and not loop.is_running() and not loop.is_closed():
+            loop.close()
+            asyncio.set_event_loop(None)
     return stdout.getvalue()
 
 

@@ -73,7 +73,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "retry-radio"
+origin_label = "retry-radio"
 
 # ---------------------------------------------------------------------------
 # Routes

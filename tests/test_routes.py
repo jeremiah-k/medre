@@ -91,6 +91,8 @@ class TestRouteConfigValid:
         assert r.source_room is None
         assert r.dest_room is None
         assert r.policy is None
+        assert r.source_origin_label is None
+        assert r.dest_origin_label is None
 
     def test_full_route(self) -> None:
         data = {
@@ -137,6 +139,56 @@ class TestRouteConfigValid:
         r = RouteConfig.from_toml_dict("frozen_test", data)
         with pytest.raises(AttributeError):
             r.route_id = "changed"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# RouteConfig — source_origin_label / dest_origin_label (function-style)
+# ---------------------------------------------------------------------------
+
+
+def test_source_origin_label_parsed() -> None:
+    """source_origin_label is parsed as a forward-leg route label string."""
+    data = {
+        "source_adapters": ["a"],
+        "dest_adapters": ["b"],
+        "source_origin_label": "East Relay",
+    }
+    r = RouteConfig.from_toml_dict("labelled_route", data)
+    assert r.source_origin_label == "East Relay"
+    assert r.dest_origin_label is None
+
+
+def test_dest_origin_label_parsed() -> None:
+    """dest_origin_label is parsed as a reverse-leg route label string."""
+    data = {
+        "source_adapters": ["a"],
+        "dest_adapters": ["b"],
+        "dest_origin_label": "West Relay",
+    }
+    r = RouteConfig.from_toml_dict("labelled_route", data)
+    assert r.dest_origin_label == "West Relay"
+    assert r.source_origin_label is None
+
+
+def test_both_origin_labels_parsed() -> None:
+    """Both source_origin_label and dest_origin_label can be set."""
+    data = {
+        "source_adapters": ["a"],
+        "dest_adapters": ["b"],
+        "source_origin_label": "East Relay",
+        "dest_origin_label": "West Relay",
+    }
+    r = RouteConfig.from_toml_dict("labelled_route", data)
+    assert r.source_origin_label == "East Relay"
+    assert r.dest_origin_label == "West Relay"
+
+
+def test_origin_labels_default_none() -> None:
+    """source_origin_label and dest_origin_label default to None when not configured."""
+    data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
+    r = RouteConfig.from_toml_dict("plain_route", data)
+    assert r.source_origin_label is None
+    assert r.dest_origin_label is None
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +256,62 @@ class TestRouteConfigValidation:
         with pytest.raises(ConfigValidationError, match="must not be empty"):
             RouteConfig.from_toml_dict(
                 "", {"source_adapters": ["a"], "dest_adapters": ["b"]}
+            )
+
+    def test_source_origin_label_non_string_rejected(self) -> None:
+        """source_origin_label must be a string; non-string values are rejected."""
+        with pytest.raises(
+            ConfigValidationError, match="'source_origin_label' must be a string"
+        ):
+            RouteConfig.from_toml_dict(
+                "bad_label",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "source_origin_label": 42,
+                },
+            )
+
+    def test_source_origin_label_bool_rejected(self) -> None:
+        """source_origin_label must be a string; bool is rejected."""
+        with pytest.raises(
+            ConfigValidationError, match="'source_origin_label' must be a string"
+        ):
+            RouteConfig.from_toml_dict(
+                "bad_label",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "source_origin_label": True,
+                },
+            )
+
+    def test_dest_origin_label_non_string_rejected(self) -> None:
+        """dest_origin_label must be a string; non-string values are rejected."""
+        with pytest.raises(
+            ConfigValidationError, match="'dest_origin_label' must be a string"
+        ):
+            RouteConfig.from_toml_dict(
+                "bad_label",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "dest_origin_label": 42,
+                },
+            )
+
+    def test_dest_origin_label_bool_rejected(self) -> None:
+        """dest_origin_label must be a string; bool is rejected."""
+        with pytest.raises(
+            ConfigValidationError, match="'dest_origin_label' must be a string"
+        ):
+            RouteConfig.from_toml_dict(
+                "bad_label",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "dest_origin_label": True,
+                },
             )
 
     def test_invalid_route_id_spaces(self) -> None:

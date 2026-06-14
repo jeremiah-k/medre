@@ -87,7 +87,7 @@ encryption_mode = "plaintext"
 enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
-meshnet_name = "MyMesh"
+origin_label = "MyMesh"
 # max_text_bytes = 227  # UTF-8 byte budget for final radio text (default 227)
 # outbound_mode = "enabled"   # "enabled" (send) or "listen_only" (suppress outbound radio)
 
@@ -130,6 +130,19 @@ display_name = "MEDRE"
 #   dest_room        — Matrix room ID on the dest side (alias for
 #                       dest_channel)
 #   dest_channel     — channel/conversation ID on the dest side
+#   source_origin_label — source-side human-readable label for the forward
+#                         leg of this route (source→dest).  When set,
+#                         overrides the source adapter's origin_label in
+#                         relay-prefix attribution.  This is source-context
+#                         metadata, not a routing key or delivery evidence.
+#   dest_origin_label   — source-side human-readable label for the reverse
+#                         leg of this route (dest→source).  Same semantics
+#                         as source_origin_label but applied when direction
+#                         is swapped during expansion.
+#
+#   Per-channel origin labels (different labels per channel within a single
+#   route) are not supported.  Use separate routes per channel with their own
+#   source_origin_label/dest_origin_label as a workaround.
 #
 # Policy ([routes.<id>.policy]):
 #   allowed_event_types      — event kinds to permit (e.g. ["message.created",
@@ -188,7 +201,7 @@ allowed_event_types = ["message.created"]
 # connection_type = "tcp"
 # host = "192.168.1.50"
 # port = 4403
-# meshnet_name = "MyMesh"
+# origin_label = "MyMeshFanout"
 
 # [routes.matrix_fanout]
 # source_adapters = ["main"]

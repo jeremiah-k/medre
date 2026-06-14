@@ -399,11 +399,11 @@ class TestLxmflFallbackText:
 
 
 class TestMeshtasticFallbackText:
-    """Verify Meshtastic fallback_text preserves channel_index/meshnet_name,
+    """Verify Meshtastic fallback_text preserves channel_index,
     suppresses native reply_id/emoji, and respects byte-safe truncation.
 
     When delivery_strategy is ``"fallback_text"``, MeshtasticRenderer
-    produces its native payload (text, channel_index, meshnet_name) but
+    produces its native payload (text, channel_index) but
     suppresses native relation fields (reply_id, emoji).  UTF-8
     byte-budget truncation is still applied.
     """
@@ -412,11 +412,10 @@ class TestMeshtasticFallbackText:
     async def test_fallback_reply_preserves_channel_and_meshnet(
         self,
     ) -> None:
-        """Reply fallback: channel_index and meshnet_name preserved,
+        """Reply fallback: channel_index preserved,
         no reply_id or emoji."""
         config = MeshtasticConfig(
             adapter_id="mesh-1",
-            meshnet_name="TestNet",
             default_channel=3,
             max_text_bytes=227,
         )
@@ -433,7 +432,6 @@ class TestMeshtasticFallbackText:
 
         # Meshtastic payload shape preserved.
         assert result.payload["channel_index"] == 3
-        assert result.payload["meshnet_name"] == "TestNet"
 
         # Native relation fields suppressed.
         assert "reply_id" not in result.payload
@@ -452,7 +450,6 @@ class TestMeshtasticFallbackText:
         """Reaction fallback: no emoji=1, no reply_id, readable text instead."""
         config = MeshtasticConfig(
             adapter_id="mesh-1",
-            meshnet_name="TestNet",
             max_text_bytes=227,
         )
         renderer = MeshtasticRenderer(configs={"mesh-1": config})
@@ -473,9 +470,8 @@ class TestMeshtasticFallbackText:
         assert "emoji" not in result.payload
         assert "reply_id" not in result.payload
 
-        # Channel/meshnet preserved.
+        # Channel preserved.
         assert result.payload["channel_index"] == 0
-        assert result.payload["meshnet_name"] == "TestNet"
 
         # Text contains readable reaction info.
         text = str(result.payload["text"])
@@ -488,7 +484,6 @@ class TestMeshtasticFallbackText:
         """fallback_text still applies UTF-8 byte-budget truncation."""
         config = MeshtasticConfig(
             adapter_id="mesh-1",
-            meshnet_name="TestNet",
             max_text_bytes=10,  # Very tight budget
         )
         renderer = MeshtasticRenderer(configs={"mesh-1": config})
@@ -528,7 +523,6 @@ class TestMeshtasticFallbackText:
         (contrast with fallback suppression)."""
         config = MeshtasticConfig(
             adapter_id="mesh-1",
-            meshnet_name="TestNet",
             max_text_bytes=227,
         )
         renderer = MeshtasticRenderer(configs={"mesh-1": config})
@@ -582,16 +576,15 @@ class TestMeshCoreFallbackText:
     semantics.
 
     When delivery_strategy is ``"fallback_text"``, MeshCoreRenderer
-    produces its native payloads (text, channel_index, meshnet_name) with
+    produces its native payloads (text, channel_index) with
     degraded inline relation text.
     """
 
     @pytest.mark.asyncio
     async def test_fallback_preserves_channel_and_meshnet(self) -> None:
-        """Fallback text preserves channel_index and meshnet_name."""
+        """Fallback text preserves channel_index."""
         config = MeshCoreConfig(
             adapter_id="mc-1",
-            meshnet_name="CoreNet",
             default_channel=2,
             max_text_bytes=512,
         )
@@ -608,7 +601,6 @@ class TestMeshCoreFallbackText:
 
         # MeshCore payload shape preserved.
         assert result.payload["channel_index"] == 2
-        assert result.payload["meshnet_name"] == "CoreNet"
 
         # Text present.
         assert isinstance(result.payload.get("text"), str)
@@ -622,7 +614,6 @@ class TestMeshCoreFallbackText:
         relation degradation."""
         config = MeshCoreConfig(
             adapter_id="mc-1",
-            meshnet_name="CoreNet",
             max_text_bytes=512,
         )
         renderer = MeshCoreRenderer(configs={"mc-1": config})
@@ -658,7 +649,6 @@ class TestMeshCoreFallbackText:
         """fallback_text on MeshCore applies byte-budget truncation."""
         config = MeshCoreConfig(
             adapter_id="mc-1",
-            meshnet_name="CoreNet",
             max_text_bytes=15,
         )
         renderer = MeshCoreRenderer(configs={"mc-1": config})
@@ -681,7 +671,6 @@ class TestMeshCoreFallbackText:
         """Direct strategy: no fallback_applied marker."""
         config = MeshCoreConfig(
             adapter_id="mc-1",
-            meshnet_name="CoreNet",
         )
         renderer = MeshCoreRenderer(configs={"mc-1": config})
         event = _make_text_event(body="hello")

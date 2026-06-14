@@ -121,7 +121,6 @@ def _make_config(
         connection_type="tcp",
         host=env.host,
         port=env.port,
-        meshnet_name="MEDRE SDK Bridge CI",
         message_delay_seconds=0.0,
     ).validate()
 
@@ -240,7 +239,6 @@ class TestMeshtasticdSdkBridge:
                 payload={
                     "text": "docker sdk bridge outbound",
                     "channel_index": 0,
-                    "meshnet_name": "",
                 },
             )
             delivery = await adapter.deliver(result)
@@ -332,7 +330,6 @@ class TestMeshtasticdSdkBridge:
                     "sdk-bridge-fake-out": MeshtasticConfig(
                         adapter_id="sdk-bridge-fake-out",
                         radio_relay_prefix="",
-                        meshnet_name="",
                     )
                 }
             ),
@@ -383,7 +380,7 @@ class TestMeshtasticdSdkBridge:
             # MeshtasticRenderer was selected, not TextRenderer.
             assert result.metadata["renderer"] == "meshtastic"
             assert "channel_index" in result.payload
-            assert "meshnet_name" in result.payload
+            assert "meshnet_name" not in result.payload
 
             # Inbound native ref persisted in storage (public API).
             resolved = await temp_storage.resolve_native_ref(

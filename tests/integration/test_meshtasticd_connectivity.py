@@ -55,7 +55,6 @@ def _make_meshtastic_config(env: MeshtasticdEnvironment) -> MeshtasticConfig:
         connection_type="tcp",
         host=env.host,
         port=env.port,
-        meshnet_name="MEDRE CI Mesh",
     ).validate()
 
 

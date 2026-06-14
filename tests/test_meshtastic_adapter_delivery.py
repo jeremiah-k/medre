@@ -1340,7 +1340,7 @@ class TestDelayedOutboundNativeRef:
 
     async def test_payload_fields_in_metadata(self) -> None:
         """_record_delayed_outbound_ref includes reply_id, emoji,
-        meshnet_name, and channel_name from the queued payload in the
+        and channel_name from the queued payload in the
         meshtastic namespace — no transport keys at top level."""
         import logging
         from types import MappingProxyType
@@ -1376,7 +1376,6 @@ class TestDelayedOutboundNativeRef:
                 "channel_index": 2,
                 "reply_id": 42,
                 "emoji": 1,
-                "meshnet_name": "TestMesh",
                 "channel_name": "ch2",
             },
             "channel_index": 2,
@@ -1402,7 +1401,6 @@ class TestDelayedOutboundNativeRef:
         assert mesh_ns["text"] == "reaction text"
         assert mesh_ns["reply_id"] == 42
         assert mesh_ns["emoji"] == 1
-        assert mesh_ns["meshnet_name"] == "TestMesh"
         assert mesh_ns["channel_name"] == "ch2"
         # Delivery snapshot keys are merged inside meshtastic namespace.
         assert mesh_ns["packet_id"] == 555

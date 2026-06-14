@@ -65,7 +65,7 @@ adapter_kind = "real"
 connection_type = "tcp"
 host = "${MESHTASTIC_HOST}"
 port = 4403
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 
 # ---------------------------------------------------------------------------
 # Fake Matrix adapter — no SDK, no homeserver, no network

@@ -64,7 +64,7 @@ the `!opaque:server` format — for example `!abc123:example.com`. Room aliases
 [adapters.meshtastic.radio]
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "medre-radio"
+origin_label = "medre-radio"
 ```
 
 ### Route targeting fields

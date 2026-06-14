@@ -72,6 +72,7 @@ class _FakeRenderingPipeline:
         max_text_bytes: int | None = None,
         delivery_strategy: str | None = None,
         capability_level: str | None = None,
+        source_origin_label: str | None = None,
     ) -> RenderingResult:
         if self._error is not None:
             raise self._error

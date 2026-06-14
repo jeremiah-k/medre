@@ -187,7 +187,6 @@ class TestFakeMeshtasticAdapterDeliver:
             payload={
                 "text": "original",
                 "channel_index": 0,
-                "meshnet_name": "",
             }
         )
         await adapter.deliver(result)

@@ -26,6 +26,8 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `encryption_mode`         | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
 | `require_encrypted_rooms` | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
 | `auto_join_rooms`         | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
+| `origin_label`            | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
+| `relay_prefix`            | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
 
 ---
 
@@ -52,7 +54,65 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 
 ---
 
-## Supported Inbound Event Kinds
+## Relay Attribution Prefix
+
+The Matrix renderer prepends a human-readable relay attribution prefix to the
+message body when a prefix template is available. The prefix template is
+resolved from the target-local configuration:
+
+1. **Target-local:** `MatrixConfig.relay_prefix` (string, default `""`). When
+   non-empty, this template is used for all Matrix outbound renders. This is
+   the target-local prefix — it lives on the adapter that owns the rendering,
+   not on the source adapter.
+
+**Template syntax:** `{placeholder}` variables resolved by the shared core
+formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
+the source event. Operators SHOULD prefer `{origin_label}` in cross-platform
+prefix templates — `origin_label` is the MEDRE-generic source label available
+on all adapter configs. See the Meshtastic Transport Profile
+§Relay Attribution Prefix for the authoritative list of supported template
+variables and formatting rules.
+
+**Renderer lookup:** `{origin_label}` is resolved through a precedence chain:
+route-level `source_origin_label` (or `dest_origin_label` for reverse legs)
+from the matched route's expansion context takes priority; when no route-level
+label is set, the renderer falls back to the source adapter's `origin_label`
+config via the runtime source-attribution registry; when neither source
+provides a label, the variable resolves to empty string.
+
+**Application points:**
+
+1. Direct mode body (prefix only, no truncation).
+2. Fallback-text mode body (before truncation).
+3. Reaction emote body (via `_format_reaction_prefix`).
+
+**When no prefix is found** (`MatrixConfig.relay_prefix` is empty), no prefix
+is prepended.
+
+**Truncation:** The Matrix renderer has no constrained radio byte budget.
+Prefix length is unconstrained in the renderer, though Matrix homeservers
+impose their own event size limits. When a `RenderingContext` text budget is
+active (`max_text_chars` or `max_text_bytes`), the prefix counts toward that
+budget **in the fallback-text path**.
+
+**Metadata keys** (when prefix is configured):
+
+| Key                              | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `relay_prefix_template`          | Original template string               |
+| `relay_prefix_rendered`          | Rendered prefix string                 |
+| `relay_prefix_variables_used`    | Tuple of template variables resolved   |
+| `relay_prefix_missing_variables` | Tuple of variables that resolved empty |
+| `relay_prefix_unknown_variables` | Tuple of unknown placeholder names     |
+| `relay_prefix_formatting_error`  | Error string or `None`                 |
+
+**Attribution caveat:** The prefix is human-readable attribution only. It
+does not constitute delivery evidence. The MEDRE metadata envelope
+(`medre.envelope`) remains the authoritative source for machine-readable
+provenance. Matrix `room_send` success confirms local homeserver acceptance
+only — it does not confirm remote delivery or federation fan-out.
+
+---
 
 The Matrix codec (`MatrixCodec`) decodes three inbound categories:
 

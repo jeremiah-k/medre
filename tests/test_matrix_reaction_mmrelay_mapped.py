@@ -34,26 +34,12 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
 # ---------------------------------------------------------------------------
-# Helpers (duplicated from test_matrix_reaction_mmrelay.py for standalone use)
+# Helpers (imported from tests.helpers.matrix_stubs)
 # ---------------------------------------------------------------------------
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "mesh-1",
-        meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
 
 
 # Source-config mappings for common test patterns.
@@ -178,7 +164,6 @@ def _make_mesh_reaction(
         native_data
         if native_data is not None
         else {
-            "room_id": "!room:server",
             "longname": longname,
             "shortname": shortname,
             "packet_id": packet_id,
@@ -252,8 +237,12 @@ class TestMeshtasticToMatrixMappedReaction:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    meshnet_name="testnet",
-                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
+            configs={
+                "matrix-1": _StubMatrixConfig(
+                    adapter_id="matrix-1",
+                    relay_prefix="[{sender}] ",
                 ),
             },
         )

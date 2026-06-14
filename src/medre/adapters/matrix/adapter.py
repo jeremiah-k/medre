@@ -818,38 +818,20 @@ class MatrixAdapter(AdapterContract):
                 return
 
             # -- Enrich native metadata with Matrix display name -----------
-            # When the event has no existing MMRelay longname/shortname
-            # (populated by the codec from meshtastic_longname /
-            # meshtastic_shortname content keys), fill them from the
-            # Matrix room member display name so that downstream
-            # renderers (e.g. Meshtastic radio_relay_prefix {longname})
-            # show a human-readable name instead of a bare MXID.
-            # CanonicalEvent and its metadata are frozen (msgspec.Struct
-            # frozen=True), so we build replacement structs via
-            # msgspec.structs.replace instead of mutating in place.
+            # Add the Matrix room member display name to native metadata
+            # so that project_matrix_attribution can map it into generic
+            # sender fields (source_sender_label).  Do NOT fabricate bare
+            # Meshtastic-shaped longname/shortname keys — Matrix display
+            # identity is projected through Matrix-native keys only.
+            # External mmrelay wire fields (meshtastic_longname, etc.)
+            # are captured by the codec when present in event content.
             if canonical.metadata and canonical.metadata.native:
                 ndata = canonical.metadata.native.data
-                existing_longname = ndata.get("longname") or ndata.get(
-                    "meshtastic_longname"
-                )
-                existing_shortname = ndata.get("shortname") or ndata.get(
-                    "meshtastic_shortname"
-                )
-                if not existing_longname and not existing_shortname:
+                if not ndata.get("displayname") and not ndata.get("display_name"):
                     display_name = sender_display_name or sender
-
-                    # shortname: first 5 chars of display name, or
-                    # localpart of MXID if display_name is just the MXID.
-                    if display_name != sender:
-                        shortname = display_name[:5]
-                    else:
-                        localpart = sender.lstrip("@").split(":")[0]
-                        shortname = localpart[:5]
 
                     enriched = dict(ndata)
                     enriched["displayname"] = display_name
-                    enriched["longname"] = display_name
-                    enriched["shortname"] = shortname
 
                     new_native = NativeMetadata(data=enriched)
                     new_metadata = msgspec.structs.replace(

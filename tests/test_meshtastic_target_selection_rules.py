@@ -44,7 +44,6 @@ def _config(
     return MeshtasticConfig(
         adapter_id=adapter_id,
         radio_relay_prefix="",
-        meshnet_name="",
         max_text_bytes=max_text_bytes,
     )
 

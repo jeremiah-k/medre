@@ -254,7 +254,6 @@ class TestMeshCorePipelineIntegration:
         # CRITICAL: Prove MeshCoreRenderer rendered this, not TextRenderer.
         assert payload.metadata["renderer"] == "meshcore"
         assert "channel_index" in payload.payload
-        assert "meshnet_name" in payload.payload
 
 
 # ===================================================================
@@ -566,9 +565,8 @@ class TestMeshCorePlatformRendererSelection:
         # Proves MeshCoreRenderer was selected (not TextRenderer)
         assert result.metadata["renderer"] == "meshcore"
 
-        # Proves MeshCore payload shape (channel_index + meshnet_name)
+        # Proves MeshCore payload shape (channel_index)
         assert "channel_index" in result.payload
-        assert "meshnet_name" in result.payload
 
         # Outbound delivery returned a deterministic native_message_id
         assert out_adapter.fake_client.sent_count == 1

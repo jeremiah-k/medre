@@ -103,7 +103,7 @@ def _set_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__MESHNET_NAME", "RadioA")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ORIGIN_LABEL", "RadioA")
 
     # --- Route (token: RADIO_TO_MATRIX) ---
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
@@ -183,7 +183,7 @@ class TestEnvOnlyDeployment:
         assert "radio-a" in config.adapters.meshtastic
         mesh_cfg = config.adapters.meshtastic["radio-a"]
         assert mesh_cfg.config.connection_type == "fake"
-        assert mesh_cfg.config.meshnet_name == "RadioA"
+        assert mesh_cfg.config.origin_label == "RadioA"
 
         # Route created from env with correct source/dest.
         assert len(config.routes.routes) == 1

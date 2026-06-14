@@ -368,3 +368,248 @@ class TestMatrixConfigAutoJoinRooms:
         )
         with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
             config.validate()
+
+
+# ===================================================================
+# origin_label field
+# ===================================================================
+
+
+def test_matrix_origin_label_default_is_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default origin_label is empty string."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+    )
+    assert config.origin_label == ""
+
+
+def test_matrix_origin_label_valid_string_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-empty origin_label passes validation."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label="My Matrix Server",
+    )
+    assert config.validate().origin_label == "My Matrix Server"
+
+
+def test_matrix_origin_label_empty_string_is_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty origin_label passes validation."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label="",
+    )
+    assert config.validate().origin_label == ""
+
+
+def test_matrix_origin_label_bool_true_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bool origin_label is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label=True,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="origin_label must be a str, got bool"):
+        config.validate()
+
+
+def test_matrix_origin_label_bool_false_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bool False origin_label is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label=False,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="origin_label must be a str, got bool"):
+        config.validate()
+
+
+def test_matrix_origin_label_int_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Int origin_label is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label=42,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="origin_label must be a str, got int"):
+        config.validate()
+
+
+def test_matrix_origin_label_none_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """None origin_label is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        origin_label=None,  # type: ignore[arg-type]
+    )
+    with pytest.raises(
+        MatrixConfigError, match="origin_label must be a str, got NoneType"
+    ):
+        config.validate()
+
+
+# ===================================================================
+# relay_prefix field
+# ===================================================================
+
+
+def test_matrix_relay_prefix_default_is_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default relay_prefix is empty string."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+    )
+    assert config.relay_prefix == ""
+
+
+def test_matrix_relay_prefix_valid_string_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-empty relay_prefix passes validation."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        relay_prefix="[{origin_label}/{sender_id}]: ",
+    )
+    assert config.validate().relay_prefix == "[{origin_label}/{sender_id}]: "
+
+
+def test_matrix_relay_prefix_empty_string_is_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty relay_prefix passes validation."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        relay_prefix="",
+    )
+    assert config.validate().relay_prefix == ""
+
+
+def test_matrix_relay_prefix_bool_true_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bool relay_prefix is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        relay_prefix=True,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="relay_prefix must be a str, got bool"):
+        config.validate()
+
+
+def test_matrix_relay_prefix_bool_false_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bool False relay_prefix is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        relay_prefix=False,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="relay_prefix must be a str, got bool"):
+        config.validate()
+
+
+def test_matrix_relay_prefix_int_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Int relay_prefix is rejected."""
+    monkeypatch.setattr(
+        "medre.config.adapters.matrix_credentials.load_credentials_json",
+        lambda: None,
+    )
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        relay_prefix=42,  # type: ignore[arg-type]
+    )
+    with pytest.raises(MatrixConfigError, match="relay_prefix must be a str, got int"):
+        config.validate()

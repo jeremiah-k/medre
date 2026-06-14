@@ -6,7 +6,7 @@ rendering, and multi-radio scenarios.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -30,14 +30,12 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -52,7 +50,7 @@ def _make_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
         source_transport_id="!node1",
         source_channel_id="0",
@@ -96,15 +94,14 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
-        "longname": display_name,
-        "shortname": display_name.split()[0] if display_name else "",
-        "from_id": "@user:example.com",
+        "sender": "@user:example.com",
+        "displayname": display_name,
     }
     return CanonicalEvent(
         event_id=event_id,
         event_kind="message.reacted",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="@user:example.com",
         source_channel_id="!room:example.com",
@@ -163,8 +160,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """All Test D requirements in one test: spaces, casing, reply_id, no emoji."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
-            meshnet_name="mynet",
+            radio_relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(
@@ -225,7 +221,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """Prefix without trailing space gets separator space before 'reacted'."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]",
+            radio_relay_prefix="[{sender}]",
         )
 
         rel = _make_cross_platform_relation(
@@ -295,7 +291,7 @@ class TestMatrixToMeshtasticNoMapping:
             event_id="evt-minimal",
             event_kind="message.reacted",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:server",
@@ -388,18 +384,18 @@ class TestNativeReactionPreserved:
 class TestMatrixDisplayNameInPrefix:
     """Verify that Matrix display names flow through to the prefix template."""
 
-    async def test_longname_in_prefix_from_matrix_display_name(self) -> None:
-        """radio_relay_prefix {longname} uses Matrix display name."""
+    async def test_sender_in_prefix_from_matrix_display_name(self) -> None:
+        """radio_relay_prefix {sender} uses Matrix display name."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]: ",
+            radio_relay_prefix="[{sender}]: ",
         )
 
         event = CanonicalEvent(
             event_id="mx-1",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@alice:example.com",
             source_channel_id="!room:example.com",
@@ -410,9 +406,8 @@ class TestMatrixDisplayNameInPrefix:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "Alice Wonderland",
-                        "shortname": "Alice",
-                        "from_id": "@alice:example.com",
+                        "sender": "@alice:example.com",
+                        "displayname": "Alice Wonderland",
                     }
                 )
             ),
@@ -427,14 +422,14 @@ class TestMatrixDisplayNameInPrefix:
         """Prefix shows display name, not raw MXID like @user:server."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{longname}: ",
+            radio_relay_prefix="{sender}: ",
         )
 
         event = CanonicalEvent(
             event_id="mx-2",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@alice:example.com",
             source_channel_id="!room:example.com",
@@ -445,9 +440,8 @@ class TestMatrixDisplayNameInPrefix:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "Display Name",
-                        "shortname": "Displ",
-                        "from_id": "@alice:example.com",
+                        "sender": "@alice:example.com",
+                        "displayname": "Display Name",
                     }
                 )
             ),
@@ -482,7 +476,7 @@ class TestByteBudgetTruncation:
         """ASCII text over budget truncates to fit within max_text_bytes."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}]: ",
+            radio_relay_prefix="[{sender}]: ",
             max_text_bytes=20,
         )
 
@@ -490,7 +484,7 @@ class TestByteBudgetTruncation:
             event_id="evt-trunc",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -500,7 +494,7 @@ class TestByteBudgetTruncation:
             payload={"body": "A" * 200},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={"longname": "Test", "shortname": "T", "from_id": "1"}
+                    data={"sender": "@test:example.com", "displayname": "Test"}
                 )
             ),
         )
@@ -683,7 +677,7 @@ class TestDescriptiveReactionByteBudget:
         """Long descriptive reaction text is truncated to byte budget."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{longname}] ",
+            radio_relay_prefix="[{sender}] ",
             max_text_bytes=30,
         )
 
@@ -851,14 +845,12 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
         configs={
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
-                radio_relay_prefix="[{shortname5}@alpha] ",
-                meshnet_name="alpha-mesh",
+                radio_relay_prefix="[{sender_short}@alpha] ",
                 max_text_bytes=60,
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
-                radio_relay_prefix="[{shortname5}@bravo] ",
-                meshnet_name="bravo-mesh",
+                radio_relay_prefix="[{sender_short}@bravo] ",
                 max_text_bytes=200,
             ),
         }
@@ -867,7 +859,7 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
 
 class TestMultiRadioTargetAware:
     """A single MeshtasticRenderer with multiple configs renders differently
-    per target_adapter for prefix, meshnet_name, byte budget, replies,
+    per target_adapter for prefix, byte budget, replies,
     reactions, and unknown target behavior.
     """
 
@@ -880,7 +872,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-multi",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -891,9 +883,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -936,28 +927,6 @@ class TestMultiRadioTargetAware:
         assert result_a.payload["text"] != result_b.payload["text"]
         assert "[TestU@alpha]" in result_a.payload["text"]
         assert "[TestU@bravo]" in result_b.payload["text"]
-
-    # -- distinct meshnet_name -----------------------------------------
-
-    async def test_alpha_meshnet_name(self) -> None:
-        """Payload meshnet_name matches alpha config."""
-        renderer = _make_multi_radio_renderer()
-        event = self._event_with_native("msg")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-alpha", delivery_strategy="direct"),
-        )
-        assert result.payload["meshnet_name"] == "alpha-mesh"
-
-    async def test_bravo_meshnet_name(self) -> None:
-        """Payload meshnet_name matches bravo config."""
-        renderer = _make_multi_radio_renderer()
-        event = self._event_with_native("msg")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
-        )
-        assert result.payload["meshnet_name"] == "bravo-mesh"
 
     # -- distinct byte budgets -----------------------------------------
 
@@ -1014,7 +983,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-reply",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="matrix-1",
             source_transport_id="@user:example.com",
             source_channel_id="!room:example.com",
@@ -1025,9 +994,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -1066,7 +1034,7 @@ class TestMultiRadioTargetAware:
             event_id="evt-react",
             event_kind="message.reacted",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="radio-alpha",
             source_transport_id="!node1",
             source_channel_id="0",
@@ -1077,9 +1045,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -1113,8 +1080,8 @@ class TestMultiRadioTargetAware:
             RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
         )
         text = result.payload["text"]
-        # Compact prefix: shortname5 = "Cross" (first 5 of "Cross"), spaces stripped
-        assert "[Cross@bravo]" in text
+        # Compact prefix uses MXID localpart, spaces stripped
+        assert "[user@bravo]" in text
         assert "reacted 👍 to" in text
         assert result.payload["reply_id"] == 42
         assert "emoji" not in result.payload
@@ -1141,3 +1108,234 @@ class TestMultiRadioTargetAware:
         assert len(result.payload["text"].encode("utf-8")) <= 60
         assert result.truncated is True
         assert result.payload["reply_id"] == 10
+
+
+# ===================================================================
+# Shared attribution wiring: MeshCore / LXMF / missing vars / metadata
+# ===================================================================
+
+
+async def test_meshcore_pubkey_prefix_in_sender_id() -> None:
+    """MeshCore event with pubkey_prefix populates sender_id."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    event = CanonicalEvent(
+        event_id="mc-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="meshcore-1",
+        source_transport_id="!mc-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from meshcore"},
+        metadata=EventMetadata(native=NativeMetadata(data={"pubkey_prefix": "a1b2c3"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("a1b2c3: ")
+    assert "None" not in text
+
+
+async def test_meshcore_pubkey_prefix_in_sender_id_template() -> None:
+    """MeshCore event pubkey_prefix is available as {sender_id}."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="<{sender_id}> ")
+    event = CanonicalEvent(
+        event_id="mc-2",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="meshcore-1",
+        source_transport_id="!mc-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hi"},
+        metadata=EventMetadata(
+            native=NativeMetadata(data={"pubkey_prefix": "abcdef12"})
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("<abcdef12> ")
+
+
+async def test_lxmf_source_hash_in_sender_id() -> None:
+    """LXMF event with source_hash populates {sender_id}."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    event = CanonicalEvent(
+        event_id="lx-1",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="lxmf-1",
+        source_transport_id="!lx-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello from lxmf"},
+        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "deadbeef"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert text.startswith("deadbeef: ")
+
+
+async def test_lxmf_source_hash_in_sender_short() -> None:
+    """LXMF event with source_hash: sender_short is empty (no short label)."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="lx-2",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="lxmf-1",
+        source_transport_id="!lx-node1",
+        source_channel_id="0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "cafebaaa"})),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    # No short label → sender_short renders empty
+    assert text.startswith(": ")
+
+
+async def test_no_native_data_no_none_in_prefix() -> None:
+    """Event with no native metadata renders empty prefix vars, not 'None'."""
+    renderer = _make_renderer(
+        "mesh-1", radio_relay_prefix="[{sender}][{sender_short}]: "
+    )
+    event = CanonicalEvent(
+        event_id="evt-empty",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert "None" not in text
+    assert text == "[][]: hello"
+
+
+async def test_partial_native_data_no_none() -> None:
+    """Event with only longname renders sender_short empty, not 'None'."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}/{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="evt-partial",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hi"},
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={"sender": "@alice:example.com", "displayname": "Alice"}
+            )
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    text = result.payload["text"]
+    assert "None" not in text
+    assert text.startswith("Alice/")
+
+
+async def test_prefix_metadata_records_template_and_variables() -> None:
+    """Result metadata includes relay_prefix_template and relay_prefix_variables_used."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    event = CanonicalEvent(
+        event_id="evt-meta",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="@user:example.com",
+        source_channel_id="!room:example.com",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(
+            native=NativeMetadata(data={"sender": "@TestUser:example.com"})
+        ),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    # Normalized keys
+    assert result.metadata["relay_prefix_template"] == "{sender_short}: "
+    assert result.metadata["relay_prefix_rendered"] == "TestUser: "
+    assert "relay_prefix_variables_used" in result.metadata
+    assert "sender_short" in result.metadata["relay_prefix_variables_used"]
+    assert "relay_prefix_missing_variables" in result.metadata
+    assert isinstance(result.metadata["relay_prefix_missing_variables"], tuple)
+    assert "relay_prefix_unknown_variables" in result.metadata
+    assert isinstance(result.metadata["relay_prefix_unknown_variables"], tuple)
+    assert "relay_prefix_formatting_error" in result.metadata
+    assert result.metadata["relay_prefix_formatting_error"] is None
+
+
+async def test_prefix_metadata_no_prefix_keys_when_no_prefix() -> None:
+    """When no prefix is configured, no prefix metadata keys are present."""
+    renderer = _make_renderer("mesh-1")
+    event = _make_event()
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    assert "relay_prefix_template" not in result.metadata
+    assert "relay_prefix_rendered" not in result.metadata
+
+
+async def test_prefix_metadata_records_missing_variables() -> None:
+    """Result metadata records variables that resolved to empty."""
+    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}: ")
+    event = CanonicalEvent(
+        event_id="evt-miss",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="matrix-1",
+        source_transport_id="",
+        source_channel_id="",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=EventMetadata(),
+    )
+    result = await renderer.render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    assert "relay_prefix_missing_variables" in result.metadata
+    assert "sender" in result.metadata["relay_prefix_missing_variables"]

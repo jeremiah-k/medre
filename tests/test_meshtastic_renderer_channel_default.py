@@ -25,7 +25,7 @@ def _make_renderer_multi(
     radio_b_channel: int = 1,
     radio_b_max_bytes: int = 227,
     radio_b_prefix: str = "",
-    radio_b_meshnet: str = "RadioB",
+    radio_b_origin_label: str = "",
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with two adapter configs (radio-a, radio-b)."""
     cfg_a = MeshtasticConfig(
@@ -37,7 +37,7 @@ def _make_renderer_multi(
         default_channel=radio_b_channel,
         max_text_bytes=radio_b_max_bytes,
         radio_relay_prefix=radio_b_prefix,
-        meshnet_name=radio_b_meshnet,
+        origin_label=radio_b_origin_label,
     )
     return MeshtasticRenderer(configs={"radio-a": cfg_a, "radio-b": cfg_b})
 
@@ -200,16 +200,6 @@ class TestMultiAdapterDefaultChannel:
         )
         assert result.payload["channel_index"] == 1
 
-    async def test_radio_b_meshnet_name_preserved(self) -> None:
-        """radio-b config meshnet_name is used when rendering to radio-b."""
-        renderer = _make_renderer_multi(radio_b_meshnet="TestNet")
-        event = _make_event()
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
-        )
-        assert result.payload["meshnet_name"] == "TestNet"
-
     async def test_radio_b_max_text_bytes_enforced(self) -> None:
         """radio-b config max_text_bytes truncates output."""
         renderer = _make_renderer_multi(radio_b_max_bytes=10)
@@ -223,15 +213,18 @@ class TestMultiAdapterDefaultChannel:
         assert result.truncated is True
 
     async def test_radio_b_prefix_applied(self) -> None:
-        """radio-b config radio_relay_prefix is applied."""
+        """radio-b config radio_relay_prefix is applied with source-origin label."""
         renderer = _make_renderer_multi(
-            radio_b_prefix="[{meshnet_name}] ",
-            radio_b_meshnet="NetB",
+            radio_b_prefix="[{origin_label}] ",
         )
         event = _make_event(body="msg")
         result = await renderer.render(
             event,
-            RenderingContext(target_adapter="radio-b", delivery_strategy="direct"),
+            RenderingContext(
+                target_adapter="radio-b",
+                delivery_strategy="direct",
+                source_origin_label="NetB",
+            ),
         )
         assert result.payload["text"].startswith("[NetB] ")
 

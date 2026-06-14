@@ -225,8 +225,9 @@ class TestFullFakeRuntimeHappyPath:
 
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
+            expected_text = "Full pipeline integration test"
             assert (
-                "body" in payload.payload
+                payload.payload["body"] == expected_text
             )  # MatrixRenderer produces {"body": ..., "msgtype": ...}
             assert payload.target_adapter == "mx_beta"
 

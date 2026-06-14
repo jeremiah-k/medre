@@ -27,6 +27,9 @@ Validation rules
 - ``message_delay_seconds`` must be a non-negative finite number
   (≥ 0, finite), ``default_channel`` ≥ 0.
 - ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
+- ``meshcore_relay_prefix`` must be a string (``bool`` rejected explicitly).
+  Default ``""`` means no prefix is prepended.  When non-empty, the
+  string is a template for :func:`~medre.core.rendering.attribution.format_relay_prefix`.
 """
 
 from __future__ import annotations
@@ -81,8 +84,9 @@ class MeshCoreConfig:
         Host-level pairing via ``bluetoothctl`` remains the
         recommended path; this field exists for automated/headless
         deployments.
-    meshnet_name:
-        Human-readable meshnet name (informational).
+    origin_label:
+        Platform-neutral source label for relay prefixes.  Default:
+        ``""`` (no label).
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:
@@ -103,6 +107,14 @@ class MeshCoreConfig:
         rendering.  Default: ``512``.  ``0`` means the final text
         renders as an empty string.  Must be a non-negative integer;
         ``bool`` is rejected explicitly.
+    meshcore_relay_prefix:
+        Optional relay prefix template prepended to outbound text
+        before byte-budget truncation.  Default: ``""`` (no prefix).
+        When non-empty, the value is passed to
+        :func:`~medre.core.rendering.attribution.format_relay_prefix`
+        along with attribution extracted from the source event.
+        The rendered prefix counts toward ``max_text_bytes``.
+        Must be a string; ``bool`` is rejected explicitly.
     """
 
     adapter_id: str
@@ -113,13 +125,14 @@ class MeshCoreConfig:
     serial_baudrate: int = 115200
     ble_address: str | None = None
     ble_pin: str | None = None
-    meshnet_name: str = ""
+    origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
     identity: str | None = None
     pubkey: str | None = None
     node_config: dict[str, object] = field(default_factory=dict)
     max_text_bytes: int = 512
+    meshcore_relay_prefix: str = ""
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -172,6 +185,24 @@ class MeshCoreConfig:
         if self.max_text_bytes < 0:
             raise MeshCoreConfigError(
                 f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
+            )
+
+        # meshcore_relay_prefix: must be str, bool rejected
+        if isinstance(self.meshcore_relay_prefix, bool):
+            raise MeshCoreConfigError("meshcore_relay_prefix must be a str, got bool")
+        if not isinstance(self.meshcore_relay_prefix, str):
+            raise MeshCoreConfigError(
+                f"meshcore_relay_prefix must be a str, "
+                f"got {type(self.meshcore_relay_prefix).__name__}"
+            )
+
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise MeshCoreConfigError("origin_label must be a str, got bool")
+        if not isinstance(self.origin_label, str):
+            raise MeshCoreConfigError(
+                f"origin_label must be a str, "
+                f"got {type(self.origin_label).__name__}"
             )
 
         # Non-fake connection type validation

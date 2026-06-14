@@ -31,13 +31,11 @@ def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
     radio_relay_prefix: str = "",
-    meshnet_name: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     config = MeshtasticConfig(
         adapter_id=target_adapter,
         radio_relay_prefix=radio_relay_prefix,
-        meshnet_name=meshnet_name,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -163,8 +161,7 @@ class TestFallbackTextReaction:
         """
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{shortname}]",
-            meshnet_name="testnet",
+            radio_relay_prefix="[{sender_short}]",
         )
         rel = _make_relation(
             key="🔥",
@@ -183,7 +180,7 @@ class TestFallbackTextReaction:
             ),
         )
         text = result.payload["text"]
-        # Prefix resolves to "[]" (shortname empty) + sep " " + "reacted 🔥 to ..."
+        # Prefix resolves to "[]" (sender_short empty) + sep " " + "reacted 🔥 to ..."
         assert "reacted 🔥" in text
         assert "original message text here" in text
         # Verify separator was inserted (prefix "[]" ends with "]" not space)
@@ -224,7 +221,7 @@ class TestFallbackTextReaction:
         """
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{shortname} ",
+            radio_relay_prefix="{sender_short} ",
         )
         rel = _make_relation(
             key="😂",

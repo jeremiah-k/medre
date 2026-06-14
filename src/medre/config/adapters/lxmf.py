@@ -51,7 +51,6 @@ _ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset(
 _NO_SECRET_FIELDS: frozenset[str] = frozenset(
     {
         "display_name",
-        "meshnet_name",
     }
 )
 
@@ -77,8 +76,6 @@ class LxmfConfig:
     default_delivery_method:
         Default LXMF delivery method: ``"direct"``, ``"opportunistic"``,
         ``"propagated"``, or ``"paper"``.  Defaults to ``"direct"``.
-    meshnet_name:
-        Human-readable meshnet name (informational).
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:
@@ -95,14 +92,23 @@ class LxmfConfig:
     storage_path:
         Path to a directory used by ``LXMF.LXMRouter`` for persistent
         message and peer storage.  **Required** when
-        ``connection_type="reticulum"`` — LXMF 0.9.7 raises
-        ``ValueError`` if ``storagepath`` is ``None``.  Ignored in
-        fake mode.
+        ``connection_type="reticulum"`` — the validated LXMF
+        LXMRouter behavior raises ``ValueError`` if ``storagepath``
+        is ``None``.  Ignored in fake mode.
     announce_interval_seconds:
         Interval in seconds between periodic LXMF announces for mesh
         path discovery.  ``0`` disables periodic announce.  Default
         ``600`` (10 minutes).  Only used in non-fake connection modes —
         fake mode never creates network-visible announces.
+    lxmf_relay_prefix:
+        Optional template string for human-readable relay attribution
+        prefix prepended to outbound LXMF message body text.  Uses
+        ``{placeholder}`` syntax resolved by the shared
+        :func:`~medre.core.rendering.attribution.format_relay_prefix`
+        formatter against extracted relay attribution data.  Default
+        ``""`` (no prefix).  The prefix is for human readability only;
+        the MEDRE metadata envelope remains the authoritative provenance
+        source.
     """
 
     adapter_id: str
@@ -110,13 +116,14 @@ class LxmfConfig:
     display_name: str = ""
     stamp_cost: int = 8
     default_delivery_method: str = "direct"
-    meshnet_name: str = ""
+    origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
     metadata_embedding: bool = True
     identity_path: str | None = None
     storage_path: str | None = None
     announce_interval_seconds: float = 600.0
+    lxmf_relay_prefix: str = ""
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -214,7 +221,7 @@ class LxmfConfig:
         if self.connection_type == "reticulum" and not self.storage_path:
             raise LxmfConfigError(
                 "storage_path is required when connection_type='reticulum' "
-                "(LXMF 0.9.7 LXMRouter raises ValueError without it)"
+                "(required by the validated LXMF LXMRouter behavior)"
             )
 
         # --- announce_interval_seconds ---
@@ -233,6 +240,24 @@ class LxmfConfig:
             raise LxmfConfigError(
                 f"announce_interval_seconds must be >= 0, "
                 f"got {self.announce_interval_seconds}"
+            )
+
+        # --- lxmf_relay_prefix ---
+        if isinstance(self.lxmf_relay_prefix, bool):
+            raise LxmfConfigError("lxmf_relay_prefix must be a string, not a boolean")
+        if not isinstance(self.lxmf_relay_prefix, str):
+            raise LxmfConfigError(
+                f"lxmf_relay_prefix must be a string, "
+                f"got {type(self.lxmf_relay_prefix).__name__}"
+            )
+
+        # --- origin_label ---
+        if isinstance(self.origin_label, bool):
+            raise LxmfConfigError("origin_label must be a string, not a boolean")
+        if not isinstance(self.origin_label, str):
+            raise LxmfConfigError(
+                f"origin_label must be a string, "
+                f"got {type(self.origin_label).__name__}"
             )
 
         # --- metadata_embedding safety ---

@@ -70,6 +70,7 @@ adapter_id = "meshcore"
 connection_type = "serial"
 serial_port = "/dev/serial/by-id/usb-MeshCore_CDC_AABBCCDD"
 serial_baudrate = 115200
+origin_label = "MEDRE"
 default_channel = 0
 ```
 
@@ -98,6 +99,7 @@ adapter_kind = "real"
 adapter_id = "meshcore"
 connection_type = "ble"
 ble_address = "AA:BB:CC:DD:EE:FF"
+origin_label = "MEDRE"
 default_channel = 0
 ```
 
@@ -134,7 +136,7 @@ port matches the device identified in Step 2:
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "MEDRE"
+origin_label = "MEDRE"
 mmrelay_compatibility = true
 ```
 

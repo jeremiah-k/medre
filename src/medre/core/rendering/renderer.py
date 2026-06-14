@@ -151,6 +151,17 @@ class RenderingContext:
         ``"lenient"`` for best-effort).  ``None`` when no policy is
         set.  **Reserved**: not currently wired by the default
         pipeline.
+    source_origin_label:
+        Optional source-context origin label threaded from the matched
+        route's configuration.  This is a *source-side* label, not a
+        target-side one.  Renderers resolve origin attribution by
+        precedence: ``source_origin_label`` (route/context) takes
+        priority over the source adapter's ``origin_label`` (from the
+        source-attribution registry), which in turn takes priority over
+        a native/platform fallback, then empty.  ``None`` means "no
+        route-level label set" — renderers fall back to the adapter
+        origin label.  Populated by the delivery pipeline from the
+        route's source descriptor.
     """
 
     delivery_strategy: DeliveryStrategyMethod
@@ -161,6 +172,7 @@ class RenderingContext:
     max_text_bytes: int | None = None
     capability_level: CapabilityLevel = "native"
     capability_policy: str | None = None
+    source_origin_label: str | None = None
 
     _VALID_STRATEGIES: ClassVar[frozenset[str]] = frozenset(
         get_args(DeliveryStrategyMethod)
@@ -451,6 +463,7 @@ class RenderingPipeline:
         max_text_bytes: int | None = None,
         delivery_strategy: DeliveryStrategyMethod | None = None,
         capability_level: CapabilityLevel | None = None,
+        source_origin_label: str | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -486,6 +499,11 @@ class RenderingPipeline:
             The target's capability level for the event's relation type,
             populated from :class:`CapabilityDecision`.  When ``None``,
             defaults to ``"native"``.
+        source_origin_label:
+            Optional source-context origin label from the matched route.
+            Threaded verbatim into :attr:`RenderingContext.source_origin_label`.
+            When ``None``, the context field stays ``None`` and renderers
+            fall back to the adapter origin label.
 
         Returns
         -------
@@ -527,6 +545,7 @@ class RenderingPipeline:
             max_text_chars=max_text_chars,
             max_text_bytes=max_text_bytes,
             capability_level=cap_level,
+            source_origin_label=source_origin_label,
         )
 
         for _pri, _seq, renderer in self._renderers:

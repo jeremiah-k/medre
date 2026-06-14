@@ -54,7 +54,7 @@ from medre.runtime.errors import RuntimeConfigError
 if TYPE_CHECKING:
     from medre.core.planning.delivery_plan import RetryPolicy
 
-__all__ = ["RuntimeBuilder", "AdapterBuildFailure"]
+__all__ = ["AdapterBuildFailure", "RuntimeBuilder", "SourceAttributionConfig"]
 
 _logger = logging.getLogger(__name__)
 
@@ -62,6 +62,31 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Build result types
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SourceAttributionConfig:
+    """Platform-neutral source attribution for prefix formatting.
+
+    Built by :class:`RuntimeBuilder` from adapter configs.  Passed to
+    renderers so they can look up source adapter ``origin_label`` and
+    platform info when formatting relay prefixes.
+
+    Attributes
+    ----------
+    adapter_id:
+        Unique adapter identifier within the runtime.
+    platform:
+        Transport name (``"meshtastic"``, ``"meshcore"``, ``"lxmf"``,
+        ``"matrix"``).
+    origin_label:
+        Human-readable label for the source adapter.  Empty string when
+        not configured.
+    """
+
+    adapter_id: str
+    platform: str
+    origin_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -228,36 +253,49 @@ def _register_adapter_renderers(
     * ``MeshtasticRenderer`` receives a mapping of ALL Meshtastic adapter
       configs (``adapter_id → MeshtasticConfig``) so that rendering is
       target-adapter-aware in multi-radio setups.
-    * ``MatrixRenderer`` receives all Meshtastic adapter configs via
-      ``source_configs`` for per-source-adapter config resolution (multi-radio
-      support).  Unknown sources render plain Matrix output without
-      Meshtastic prefix or metadata contamination.
+    * ``MatrixRenderer`` receives Matrix adapter configs via ``configs``
+      for target-local ``relay_prefix`` resolution.  It registers whenever
+      Matrix configs exist.  Unknown sources render plain Matrix output
+      without prefix or metadata contamination.
+    * ``LxmfRenderer`` receives a mapping of ALL LXMF adapter configs
+      (``adapter_id → LxmfConfig``) so that rendering is target-adapter-aware
+      in multi-LXMF setups.  The prefix template is resolved from the
+      target adapter's ``lxmf_relay_prefix`` at render time.
+    * ``MeshCoreRenderer`` receives a mapping of ALL MeshCore adapter
+      configs (``adapter_id → MeshCoreConfig``) so that rendering is
+      target-adapter-aware in multi-node setups.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
     # Collect ALL MeshCoreConfigs for target-aware rendering.
     meshcore_configs: dict[str, Any] = {}
+    # Collect ALL LxmfConfigs for prefix extraction.
+    lxmf_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
+            if not rtc.enabled:
+                continue
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
             if _transport == "meshcore" and getattr(rtc, "config", None) is not None:
                 meshcore_configs[_adapter_id] = rtc.config
-        # Fallback: if no real configs but Meshtastic adapters exist (e.g.
-        # adapter_kind="fake" where rtc.config is None), synthesize defaults
-        # so the renderer is registered and target-aware rendering works.
-        if not meshtastic_configs and config.adapters.meshtastic:
-            import importlib
-
-            _meshtastic_mod = importlib.import_module(
-                "medre.config.adapters.meshtastic"
-            )
-            _MConfig = _meshtastic_mod.MeshtasticConfig
+            if _transport == "lxmf" and getattr(rtc, "config", None) is not None:
+                lxmf_configs[_adapter_id] = rtc.config
+        # Fallback: synthesize default MeshtasticConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.meshtastic:
             for adapter_id in config.adapters.meshtastic:
-                meshtastic_configs[adapter_id] = _MConfig(
-                    adapter_id=adapter_id,
-                    radio_relay_prefix="",
-                )
+                if adapter_id not in meshtastic_configs:
+                    import importlib
+
+                    _meshtastic_mod = importlib.import_module(
+                        "medre.config.adapters.meshtastic"
+                    )
+                    _MConfig = _meshtastic_mod.MeshtasticConfig
+                    meshtastic_configs[adapter_id] = _MConfig(
+                        adapter_id=adapter_id,
+                        radio_relay_prefix="",
+                    )
         # Fallback: synthesize default MeshCoreConfigs for adapters that
         # lack a real config (e.g. fake adapters in mixed configs).
         if config.adapters.meshcore:
@@ -272,6 +310,63 @@ def _register_adapter_renderers(
                     meshcore_configs[adapter_id] = _MCConfig(
                         adapter_id=adapter_id,
                     )
+        # Fallback: synthesize default LxmfConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.lxmf:
+            for adapter_id in config.adapters.lxmf:
+                if adapter_id not in lxmf_configs:
+                    import importlib
+
+                    _lxmf_mod = importlib.import_module("medre.config.adapters.lxmf")
+                    _LConfig = _lxmf_mod.LxmfConfig
+                    lxmf_configs[adapter_id] = _LConfig(
+                        adapter_id=adapter_id,
+                        connection_type="fake",
+                    )
+
+    # Build source attribution registry from all adapter configs.
+    # Maps adapter_id → SourceAttributionConfig for every enabled adapter
+    # across all transports.  Uses duck-typing (getattr) to avoid importing
+    # adapter config classes into core.
+    source_attribution: dict[str, SourceAttributionConfig] = {}
+    _matrix_configs: dict[str, Any] = {}
+    if config is not None:
+        for _transport, _adapter_id, _rtc in config.adapters.all_configs():
+            if (
+                _transport == "matrix"
+                and _rtc.enabled
+                and getattr(_rtc, "config", None) is not None
+            ):
+                _matrix_configs[_adapter_id] = _rtc.config
+        # Fallback: synthesize default MatrixConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.matrix:
+            for adapter_id in config.adapters.matrix:
+                if adapter_id not in _matrix_configs:
+                    import importlib
+
+                    _matrix_mod = importlib.import_module(
+                        "medre.config.adapters.matrix"
+                    )
+                    _MXConfig = _matrix_mod.MatrixConfig
+                    _matrix_configs[adapter_id] = _MXConfig(
+                        adapter_id=adapter_id,
+                        homeserver="",
+                        user_id="",
+                    )
+    _all_config_maps: list[tuple[str, dict[str, Any]]] = [
+        ("meshtastic", meshtastic_configs),
+        ("meshcore", meshcore_configs),
+        ("lxmf", lxmf_configs),
+        ("matrix", _matrix_configs),
+    ]
+    for _platform, _cfg_map in _all_config_maps:
+        for _aid, _cfg in _cfg_map.items():
+            source_attribution[_aid] = SourceAttributionConfig(
+                adapter_id=_aid,
+                platform=_platform,
+                origin_label=getattr(_cfg, "origin_label", ""),
+            )
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
@@ -284,23 +379,43 @@ def _register_adapter_renderers(
                 if not meshtastic_configs:
                     continue
                 pipeline.register(
-                    renderer_cls(configs=meshtastic_configs),
+                    renderer_cls(
+                        configs=meshtastic_configs,
+                        source_attribution=source_attribution,
+                    ),
                     priority=50,
                 )
             elif class_name == "MeshCoreRenderer":
                 if not meshcore_configs:
                     continue
                 pipeline.register(
-                    renderer_cls(configs=meshcore_configs),
+                    renderer_cls(
+                        configs=meshcore_configs,
+                        source_attribution=source_attribution,
+                    ),
                     priority=50,
                 )
-            elif class_name == "MatrixRenderer" and meshtastic_configs:
-                # MatrixRenderer uses all MeshtasticConfigs via source_configs
-                # for per-source-adapter config resolution (multi-radio
-                # support).  Unknown sources render plain Matrix output.
+            elif class_name == "MatrixRenderer":
+                # MatrixRenderer uses target-local MatrixConfig.relay_prefix
+                # for relay prefix resolution.  Register when Matrix configs
+                # exist.  Meshtastic configs are passed as source_configs
+                # for mmrelay wire compatibility only — they do not trigger
+                # registration.
+                if not _matrix_configs:
+                    continue
                 pipeline.register(
                     renderer_cls(
                         source_configs=meshtastic_configs,
+                        source_attribution=source_attribution,
+                        configs=_matrix_configs,
+                    ),
+                    priority=50,
+                )
+            elif class_name == "LxmfRenderer":
+                pipeline.register(
+                    renderer_cls(
+                        configs=lxmf_configs,
+                        source_attribution=source_attribution,
                     ),
                     priority=50,
                 )

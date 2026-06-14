@@ -4,6 +4,7 @@ disabled adapters, error handling."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,6 +38,9 @@ from tests.helpers.runtime_builder import (
     make_fake_meshcore_config,
     make_fake_meshtastic_config,
 )
+
+if TYPE_CHECKING:
+    from medre.adapters.lxmf.renderer import LxmfRenderer
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -516,3 +520,413 @@ class TestAdapterKindValidation:
             },
         )
         assert rt.adapter_kind == "fake"
+
+
+# ---------------------------------------------------------------------------
+# LXMF relay prefix wiring through runtime builder
+# ---------------------------------------------------------------------------
+
+
+class TestLxmfRelayPrefixWiring:
+    """Builder wires LxmfConfig mappings into LxmfRenderer for target-aware
+    prefix resolution.
+
+    LxmfRenderer resolves the prefix template from the target adapter's
+    config at render time.  The builder passes all LXMF configs as a
+    mapping keyed by adapter_id.
+    """
+
+    def _find_lxmf_renderer(self, app: MedreApp) -> LxmfRenderer | None:
+        """Return the LxmfRenderer registered in the rendering pipeline."""
+        from medre.adapters.lxmf.renderer import LxmfRenderer as _LxmfRenderer
+
+        for _pri, _seq, renderer in app.rendering_pipeline._renderers:
+            if getattr(renderer, "name", None) == "lxmf":
+                assert isinstance(renderer, _LxmfRenderer)
+                return renderer
+        return None
+
+    def test_configs_mapping_wired_into_renderer(self, tmp_paths: MedrePaths) -> None:
+        """LXMF configs mapping appears on the registered renderer."""
+        lxmf_cfg = LxmfConfig(
+            adapter_id="lxmf_a",
+            connection_type="fake",
+            lxmf_relay_prefix="[{sender}] ",
+        ).validate()
+        rt = LxmfRuntimeConfig(
+            adapter_id="lxmf_a",
+            enabled=True,
+            adapter_kind="fake",
+            config=lxmf_cfg,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(lxmf={"lxmf_a": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None, "LxmfRenderer not registered in pipeline"
+        assert "lxmf_a" in renderer._configs
+        assert renderer._configs["lxmf_a"].lxmf_relay_prefix == ("[{sender}] ")
+
+    def test_empty_configs_default_when_not_configured(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Default empty prefix when lxmf_relay_prefix is not set."""
+        lxmf_cfg = LxmfConfig(
+            adapter_id="lxmf_b",
+            connection_type="fake",
+        ).validate()
+        rt = LxmfRuntimeConfig(
+            adapter_id="lxmf_b",
+            enabled=True,
+            adapter_kind="fake",
+            config=lxmf_cfg,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(lxmf={"lxmf_b": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None
+        assert "lxmf_b" in renderer._configs
+        assert renderer._configs["lxmf_b"].lxmf_relay_prefix == ""
+
+    def test_multi_lxmf_adapters_each_get_own_config(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """With multiple LXMF adapters, each has its own config entry."""
+        cfg_a = LxmfConfig(
+            adapter_id="lxmf_alpha",
+            connection_type="fake",
+            lxmf_relay_prefix="",
+        ).validate()
+        cfg_b = LxmfConfig(
+            adapter_id="lxmf_beta",
+            connection_type="fake",
+            lxmf_relay_prefix="<{sender_short}> ",
+        ).validate()
+        rt_a = LxmfRuntimeConfig(
+            adapter_id="lxmf_alpha",
+            enabled=True,
+            adapter_kind="fake",
+            config=cfg_a,
+        )
+        rt_b = LxmfRuntimeConfig(
+            adapter_id="lxmf_beta",
+            enabled=True,
+            adapter_kind="fake",
+            config=cfg_b,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                lxmf={"beta": rt_a, "alpha": rt_b},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = self._find_lxmf_renderer(app)
+        assert renderer is not None
+        # Both adapter configs present with their own prefix templates
+        assert "lxmf_alpha" in renderer._configs
+        assert "lxmf_beta" in renderer._configs
+        assert renderer._configs["lxmf_alpha"].lxmf_relay_prefix == ""
+        assert renderer._configs["lxmf_beta"].lxmf_relay_prefix == "<{sender_short}> "
+
+
+# ---------------------------------------------------------------------------
+# Source attribution registry
+# ---------------------------------------------------------------------------
+
+
+def _find_renderer_by_name(app: MedreApp, name: str) -> Any:
+    """Return the renderer with the given name from the pipeline, or None."""
+    for _pri, _seq, renderer in app.rendering_pipeline._renderers:
+        if getattr(renderer, "name", None) == name:
+            return renderer
+    return None
+
+
+class TestSourceAttributionRegistry:
+    """Builder builds source_attribution registry from adapter configs."""
+
+    def test_registry_built_with_origin_label(self, tmp_paths: MedrePaths) -> None:
+        """Source attribution registry contains entries with correct fields."""
+        mesh_cfg = MeshtasticConfig(
+            adapter_id="radio_a",
+            connection_type="fake",
+            origin_label="MyRadio",
+        ).validate()
+        core_cfg = MeshCoreConfig(
+            adapter_id="node_b",
+            connection_type="fake",
+            origin_label="CoreNode",
+        ).validate()
+        lxmf_cfg = LxmfConfig(
+            adapter_id="lxmf_c",
+            connection_type="fake",
+            origin_label="LXMF Relay",
+        ).validate()
+        matrix_cfg = MatrixConfig(
+            adapter_id="mx_d",
+            homeserver="https://matrix.test",
+            user_id="@bot:test",
+            access_token="tok",
+            encryption_mode="plaintext",
+            origin_label="Matrix Bot",
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                meshtastic={
+                    "radio_a": MeshtasticRuntimeConfig(
+                        adapter_id="radio_a",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=mesh_cfg,
+                    ),
+                },
+                meshcore={
+                    "node_b": MeshCoreRuntimeConfig(
+                        adapter_id="node_b",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=core_cfg,
+                    ),
+                },
+                lxmf={
+                    "lxmf_c": LxmfRuntimeConfig(
+                        adapter_id="lxmf_c",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=lxmf_cfg,
+                    ),
+                },
+                matrix={
+                    "mx_d": MatrixRuntimeConfig(
+                        adapter_id="mx_d",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=matrix_cfg,
+                    ),
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        # Check MeshtasticRenderer has the registry.
+        mesh_renderer = _find_renderer_by_name(app, "meshtastic")
+        assert mesh_renderer is not None
+        sa = mesh_renderer._source_attribution
+        assert "radio_a" in sa
+        assert sa["radio_a"].adapter_id == "radio_a"
+        assert sa["radio_a"].platform == "meshtastic"
+        assert sa["radio_a"].origin_label == "MyRadio"
+
+        # Check MeshCoreRenderer has the registry.
+        core_renderer = _find_renderer_by_name(app, "meshcore")
+        assert core_renderer is not None
+        sa_core = core_renderer._source_attribution
+        assert "node_b" in sa_core
+        assert sa_core["node_b"].platform == "meshcore"
+        assert sa_core["node_b"].origin_label == "CoreNode"
+
+        # Check LxmfRenderer has the registry.
+        lxmf_renderer = _find_renderer_by_name(app, "lxmf")
+        assert lxmf_renderer is not None
+        sa_lxmf = lxmf_renderer._source_attribution
+        assert "lxmf_c" in sa_lxmf
+        assert sa_lxmf["lxmf_c"].platform == "lxmf"
+        assert sa_lxmf["lxmf_c"].origin_label == "LXMF Relay"
+
+        # Matrix renderer registered when meshtastic configs exist (this test
+        # has meshtastic adapters so it will be registered).
+        matrix_renderer = _find_renderer_by_name(app, "matrix")
+        assert matrix_renderer is not None
+        sa_mx = matrix_renderer._source_attribution
+        assert "mx_d" in sa_mx
+        assert sa_mx["mx_d"].platform == "matrix"
+        assert sa_mx["mx_d"].origin_label == "Matrix Bot"
+
+    def test_missing_config_defaults_empty_strings(self, tmp_paths: MedrePaths) -> None:
+        """Adapter without origin_label produces empty strings."""
+        mesh_cfg = MeshtasticConfig(
+            adapter_id="radio_plain",
+            connection_type="fake",
+        ).validate()
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                meshtastic={
+                    "radio_plain": MeshtasticRuntimeConfig(
+                        adapter_id="radio_plain",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=mesh_cfg,
+                    ),
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = _find_renderer_by_name(app, "meshtastic")
+        assert renderer is not None
+        sa = renderer._source_attribution
+        assert "radio_plain" in sa
+        assert sa["radio_plain"].origin_label == ""
+
+    def test_multi_adapter_same_transport(self, tmp_paths: MedrePaths) -> None:
+        """Two adapters of same transport produce two registry entries."""
+        cfg_a = MeshtasticConfig(
+            adapter_id="radio_alpha",
+            connection_type="fake",
+            origin_label="Alpha",
+        ).validate()
+        cfg_b = MeshtasticConfig(
+            adapter_id="radio_beta",
+            connection_type="fake",
+            origin_label="Beta",
+        ).validate()
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                meshtastic={
+                    "radio_alpha": MeshtasticRuntimeConfig(
+                        adapter_id="radio_alpha",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=cfg_a,
+                    ),
+                    "radio_beta": MeshtasticRuntimeConfig(
+                        adapter_id="radio_beta",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=cfg_b,
+                    ),
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = _find_renderer_by_name(app, "meshtastic")
+        assert renderer is not None
+        sa = renderer._source_attribution
+        assert len(sa) == 2
+        assert sa["radio_alpha"].origin_label == "Alpha"
+        assert sa["radio_beta"].origin_label == "Beta"
+
+    def test_matrix_renderer_registers_with_only_matrix_configs(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """MatrixRenderer registers when Matrix configs exist, even without
+        any Meshtastic adapters."""
+        matrix_cfg = MatrixConfig(
+            adapter_id="mx_only",
+            homeserver="https://matrix.test",
+            user_id="@bot:test",
+            access_token="tok",
+            encryption_mode="plaintext",
+            origin_label="Standalone Matrix",
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "mx_only": MatrixRuntimeConfig(
+                        adapter_id="mx_only",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=matrix_cfg,
+                    ),
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        matrix_renderer = _find_renderer_by_name(app, "matrix")
+        assert (
+            matrix_renderer is not None
+        ), "MatrixRenderer should register with Matrix configs only"
+        sa = matrix_renderer._source_attribution
+        assert "mx_only" in sa
+        assert sa["mx_only"].platform == "matrix"
+        assert sa["mx_only"].origin_label == "Standalone Matrix"
+
+    def test_mixed_real_and_configless_meshtastic_both_in_source_attribution(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """One Meshtastic adapter with a real config and one config-less fake
+        adapter both appear in source_attribution after builder synthesis.
+
+        Regression: the old code only synthesized fallback MeshtasticConfigs
+        when the *entire* ``meshtastic_configs`` map was empty, so a mixed
+        scenario would omit the config-less adapter.  The fix mirrors the
+        per-adapter fallback pattern already used by MeshCore/LXMF.
+        """
+        # Adapter with a full real config (has origin_label).
+        real_cfg = MeshtasticConfig(
+            adapter_id="radio_real",
+            connection_type="fake",
+            origin_label="RealRadio",
+        ).validate()
+        rt_real = MeshtasticRuntimeConfig(
+            adapter_id="radio_real",
+            enabled=True,
+            adapter_kind="fake",
+            config=real_cfg,
+        )
+
+        # Config-less fake adapter (config=None).
+        rt_fake = MeshtasticRuntimeConfig(
+            adapter_id="radio_fake",
+            enabled=True,
+            adapter_kind="fake",
+            config=None,
+        )
+
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                meshtastic={
+                    "radio_real": rt_real,
+                    "radio_fake": rt_fake,
+                },
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        renderer = _find_renderer_by_name(app, "meshtastic")
+        assert renderer is not None, "MeshtasticRenderer must be registered"
+        sa = renderer._source_attribution
+
+        # Both adapters must be present in source_attribution.
+        assert (
+            "radio_real" in sa
+        ), "Configured Meshtastic adapter missing from source_attribution"
+        assert (
+            "radio_fake" in sa
+        ), "Config-less fake Meshtastic adapter missing from source_attribution"
+
+        # Real adapter preserves its origin_label.
+        assert sa["radio_real"].platform == "meshtastic"
+        assert sa["radio_real"].origin_label == "RealRadio"
+
+        # Fake adapter gets empty origin_label (no config to read from).
+        assert sa["radio_fake"].platform == "meshtastic"
+        assert sa["radio_fake"].origin_label == ""
+
+        # Both adapter configs wired into renderer for target-aware rendering.
+        assert "radio_real" in renderer._configs
+        assert "radio_fake" in renderer._configs

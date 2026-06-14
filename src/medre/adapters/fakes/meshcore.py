@@ -88,7 +88,6 @@ class FakeMeshCoreClient:
         self,
         text: str,
         channel_index: int,
-        meshnet_name: str = "",
         dest_id: str | None = None,
     ) -> dict[str, Any]:
         """Send a text message and return a deterministic packet ID.
@@ -99,8 +98,6 @@ class FakeMeshCoreClient:
             The text payload.
         channel_index:
             Target channel index.
-        meshnet_name:
-            Optional meshnet name (unused by fake).
         dest_id:
             Optional destination node ID for DMs.
 
@@ -115,7 +112,6 @@ class FakeMeshCoreClient:
             {
                 "text": text,
                 "channel_index": channel_index,
-                "meshnet_name": meshnet_name,
                 "dest_id": dest_id,
                 "packet_id": packet_id,
             }
@@ -355,7 +351,6 @@ class FakeMeshCoreAdapter(AdapterContract):
         channel_index = result.payload.get("channel_index", 0)
         if not isinstance(channel_index, int):
             channel_index = 0
-        meshnet_name = str(result.payload.get("meshnet_name", ""))
         dest_id = result.payload.get("dest_id")
         if dest_id is not None:
             dest_id = str(dest_id)
@@ -363,7 +358,6 @@ class FakeMeshCoreAdapter(AdapterContract):
         send_result = await self._fake_client.send_text(
             text=text,
             channel_index=channel_index,
-            meshnet_name=meshnet_name,
             dest_id=dest_id,
         )
         packet_id = send_result["packet_id"]

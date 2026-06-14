@@ -134,7 +134,6 @@ def _make_mesh_config(env: MeshtasticdEnvironment) -> MeshtasticConfig:
         connection_type="tcp",
         host=env.host,
         port=env.port,
-        meshnet_name="MEDRE Cross-Adapter CI",
         message_delay_seconds=0.0,
     ).validate()
 

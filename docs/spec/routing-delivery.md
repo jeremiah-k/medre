@@ -1043,7 +1043,9 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | Megolm session not received                        | Transient                | Wait for session key from other device     |
 | `encryption_mode="e2ee_required"` + plaintext room | Permanent                | Adapter raises `AdapterPermanentError`     |
 
-#### Connection Failures (Meshtastic)
+### 14.2 Meshtastic
+
+#### Connection Failures — Meshtastic
 
 | Failure                 | Transient/Permanent                         | Reconnectable         |
 | ----------------------- | ------------------------------------------- | --------------------- |
@@ -1052,7 +1054,7 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | BLE pairing failure     | Transient                                   | Yes                   |
 | Radio firmware crash    | Transient                                   | Yes (if node reboots) |
 
-#### Send Failures (Meshtastic)
+#### Send Failures — Meshtastic
 
 | Failure                          | Transient/Permanent | Duplicate-Send Risk |
 | -------------------------------- | ------------------- | ------------------- |
@@ -1061,11 +1063,11 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | Channel busy                     | Transient           | Medium              |
 | Packet too large                 | Permanent           | None                |
 
-#### Queue-Drain Semantics (Meshtastic)
+#### Queue-Drain Semantics — Meshtastic
 
 Bounded-retry outbound queue (`MeshtasticOutboundQueue`). Transient send failures are retried up to `queue_send_max_attempts`. Exhausted retries and permanent failures are dropped. No persistence; queue contents are lost on adapter shutdown.
 
-#### Delivery Uncertainty Window (Meshtastic)
+#### Delivery Uncertainty Window — Meshtastic
 
 Unbounded. No end-to-end delivery confirmation exists in the Meshtastic protocol for text messages.
 
@@ -1079,7 +1081,7 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 
 ### 14.3 MeshCore
 
-#### Connection Failures (MeshCore)
+#### Connection Failures — MeshCore
 
 | Failure                 | Transient/Permanent   | Reconnectable   |
 | ----------------------- | --------------------- | --------------- |
@@ -1088,7 +1090,7 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 | BLE pairing failure     | Transient             | Yes             |
 | SDK connect timeout     | Transient             | Yes             |
 
-#### Send Failures (MeshCore)
+#### Send Failures — MeshCore
 
 | Failure                           | Transient/Permanent | Duplicate-Send Risk |
 | --------------------------------- | ------------------- | ------------------- |
@@ -1096,17 +1098,17 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 | `send_text` exception (permanent) | Permanent           | None                |
 | Channel index invalid             | Permanent           | None                |
 
-#### Queue-Drain Semantics (MeshCore)
+#### Queue-Drain Semantics — MeshCore
 
 No outbound queue. `send_text()` is called directly on the session.
 
-#### Delivery Uncertainty Window (MeshCore)
+#### Delivery Uncertainty Window — MeshCore
 
 Unbounded. No end-to-end delivery confirmation.
 
 ### 14.4 LXMF / Reticulum
 
-#### Connection Failures (LXMF)
+#### Connection Failures — LXMF
 
 | Failure                       | Transient/Permanent | Reconnectable      |
 | ----------------------------- | ------------------- | ------------------ |
@@ -1115,7 +1117,7 @@ Unbounded. No end-to-end delivery confirmation.
 | LXMRouter init failure        | Permanent           | No                 |
 | Transport interface down      | Transient           | Yes                |
 
-#### Send Failures (LXMF)
+#### Send Failures — LXMF
 
 | Failure                       | Transient/Permanent                        | Duplicate-Send Risk |
 | ----------------------------- | ------------------------------------------ | ------------------- |
@@ -1124,11 +1126,11 @@ Unbounded. No end-to-end delivery confirmation.
 | Message rejected by recipient | Permanent                                  | None                |
 | Propagation node unavailable  | Transient                                  | Low                 |
 
-#### Queue-Drain Semantics (LXMF)
+#### Queue-Drain Semantics — LXMF
 
 No outbound queue in MEDRE. `send()` calls `handle_outbound` directly on the LXMRouter. The router manages its own internal delivery queue.
 
-#### Delivery Uncertainty Window (LXMF)
+#### Delivery Uncertainty Window — LXMF
 
 Effectively unbounded for propagated delivery. Multi-hop Reticulum transport can introduce seconds to hours of delivery latency.
 
@@ -1197,6 +1199,163 @@ When route configuration is reloaded at runtime:
 ### 17.3 Route Registration Order
 
 Routes register in the same order they appear in configuration. Registration is deterministic. `validate_route_adapter_refs` runs before any route is registered. If any enabled route references an adapter ID not present in the assembled runtime, startup fails.
+
+## 17.5 Relay Attribution Prefix
+
+### 17.5.1 Purpose and Scope
+
+Transport renderers MAY prepend a human-readable relay attribution prefix to
+outbound message text. The prefix is derived from a template string
+configured per adapter (e.g. `radio_relay_prefix`, `meshcore_relay_prefix`,
+`lxmf_relay_prefix`) or per target adapter (e.g. `relay_prefix` on
+`MatrixConfig`).
+
+The prefix is **human-readable attribution only**. It does not constitute
+delivery evidence and MUST NOT be interpreted as provenance by downstream
+consumers. The authoritative source for machine-readable provenance is the
+MEDRE metadata namespace (`medre.envelope` on Matrix, `fields[0xFD]` on
+LXMF, `RenderingResult.metadata` on all transports).
+
+### 17.5.2 origin_label
+
+`origin_label` is the platform-neutral, operator-defined source label for
+relay prefixes. It can be set at two levels:
+
+1. **Route level** — `source_origin_label` and `dest_origin_label` on
+   `RouteConfig`. These direction-aware labels override the adapter-level
+   `origin_label` for deliveries on that route. `source_origin_label` applies
+   to forward legs (source→dest); `dest_origin_label` applies to reverse legs
+   (dest→source) after bidirectional expansion. Both default to `None`
+   (unset).
+2. **Adapter level** — `origin_label` on each adapter config (string, default
+   `""`), set by the operator to a short human-readable name for the
+   adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
+
+The precedence chain for `source_origin_label` on `RelayAttribution` is:
+
+1. Route-level label (`source_origin_label` or `dest_origin_label` after
+   expansion) from the matched route.
+2. Adapter config `origin_label` from the source-attribution registry.
+3. Empty string (no fallback to native metadata).
+
+Properties:
+
+- `origin_label` is NOT delivery evidence.
+- `origin_label` is NOT a routing key.
+- `origin_label` is NOT a native transport identity (it is not a node ID,
+  MXID, pubkey prefix, or Reticulum hash).
+
+The canonical field on `RelayAttribution` is `source_origin_label`. The
+template alias is `{origin_label}`.
+
+### 17.5.3 Label and Identity Distinctions
+
+| Concept               | Template variable | Source                                                       | Scope                                                           |
+| --------------------- | ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
+| `origin_label`        | `{origin_label}`  | Resolved source label (route-level > adapter config > empty) | Platform-neutral operator label                                 |
+| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata                  | Per-transport native identity                                   |
+| `source_sender_label` | `{sender}`        | Primary human-readable sender label                          | Per-transport display name / long name                          |
+| `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
+
+Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
+`origin_label` is the single MEDRE-generic label, resolved with
+precedence: route-level `source_origin_label`/`dest_origin_label`
+(after direction expansion) > adapter config `origin_label` > empty
+string. Adapter-level `origin_label` is fallback only.
+
+### 17.5.4 Renderer Lookup
+
+Renderers resolve `source_origin_label` through the precedence chain
+described in §17.5.2. When the matched route carries a route-level label
+(`source_origin_label` for forward legs, `dest_origin_label` for reverse
+legs), that value is used directly. When the route has no direction-aware
+label, the renderer falls back to the source adapter's `origin_label` config
+via the runtime source-attribution registry. When neither source provides a
+label, the variable resolves to empty string.
+
+The source-attribution registry maps adapter instance names to their
+`origin_label` config value. It is constructed at assembly time and consulted
+by all renderers.
+
+For the Matrix outbound prefix specifically, `MatrixConfig.relay_prefix`
+(string, default `""`) is the target-local prefix template. The Matrix
+renderer reads this field from its own config (target-local), not from the
+source adapter's config. New configurations SHOULD use `MatrixConfig.relay_prefix`.
+
+For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
+lives on the respective target adapter config (`radio_relay_prefix`,
+`meshcore_relay_prefix`, `lxmf_relay_prefix`). Variables within those
+templates are resolved from the source event's `RelayAttribution`, which
+includes `source_origin_label` from the source-attribution registry.
+
+### 17.5.5 Shared Formatter and Variable Schema
+
+The shared prefix formatter (`format_relay_prefix` in
+`src/medre/core/rendering/attribution.py`) defines a single set of template
+variables (canonical `source_*` fields plus preferred aliases
+`sender`, `sender_short`, `sender_id`, `sender_handle`, `platform`,
+`route_id`, `channel`, `origin_label`). All four transport
+renderers use the same formatter and the same variable schema. The
+authoritative variable list is documented in the Meshtastic Transport
+Profile §Relay Attribution Prefix.
+
+Formatting rules: `None`/missing values format as empty strings. Unknown
+placeholders are left unchanged in the output and recorded in diagnostic
+metadata. The formatter never raises exceptions.
+
+### 17.5.6 Relay-Prefix Metadata Keys
+
+Every renderer that supports a relay prefix MUST emit the following
+normalized metadata keys when a prefix template is configured on the
+target adapter. The keys are always present when the prefix template is
+non-empty, regardless of whether the prefix is prepended to the payload
+text (e.g. native tapbacks populate metadata without modifying text).
+
+| Key                              | Type              | Description                                                         |
+| -------------------------------- | ----------------- | ------------------------------------------------------------------- |
+| `relay_prefix_template`          | `str`             | The raw template string from adapter config.                        |
+| `relay_prefix_rendered`          | `str`             | The fully resolved prefix after variable substitution.              |
+| `relay_prefix_variables_used`    | `tuple[str, ...]` | Variables that were resolved from event context.                    |
+| `relay_prefix_missing_variables` | `tuple[str, ...]` | Variables whose source values were `None`, absent, or empty string. |
+| `relay_prefix_unknown_variables` | `tuple[str, ...]` | Placeholders not recognized by the formatter.                       |
+| `relay_prefix_formatting_error`  | `str \| None`     | Non-`None` when a formatting exception occurred.                    |
+
+Transport-specific metadata keys (e.g. Meshtastic `channel_index`) are
+optional additions that do not conflict with the normalized set above.
+
+### 17.5.7 False Delivery Claims
+
+No relay prefix, regardless of its content, constitutes a delivery claim.
+Prefixes are prepended to message text for human readability only. The
+metadata namespace remains the authoritative source for machine-readable
+provenance and delivery evidence. Operators MUST NOT rely on prefix text for
+routing decisions, delivery confirmation, or identity verification.
+
+### 17.5.8 Projection Architecture and Core Boundary
+
+The relay-prefix system has a structural boundary between the core rendering
+pipeline and adapter-adjacent projection logic.
+
+**Core rendering** operates exclusively on the generic `RelayAttribution`
+struct with transport-agnostic fields (`source_sender_label`,
+`source_sender_short_label`, `source_sender_id`, `source_sender_handle`,
+`source_origin_label`, `source_platform`, `source_room_or_channel`,
+`route_id`). The shared prefix formatter (`format_relay_prefix`) and all
+core rendering code use only these generic fields. Core does not inspect
+native identity keys from Matrix, Meshtastic, MeshCore, or LXMF.
+
+**Adapter-adjacent projection** maps transport-specific native metadata onto
+the generic `RelayAttribution` fields. Each adapter owns its projection logic
+within its adapter package. This is where Matrix MXID display names,
+Meshtastic node info longname/shortname, MeshCore pubkey prefixes, and LXMF
+identity hashes are mapped to the generic fields. Adding a new transport
+requires implementing projection from that transport's native metadata to
+the generic fields. Core renderers and the shared formatter need no changes.
+
+**Channel-specific labels** (different `origin_label` values per channel
+within a single route) are not implemented. Operators who need per-channel
+labels SHOULD use separate routes per channel, each with its own
+direction-aware `source_origin_label`/`dest_origin_label`.
 
 ## 18. Non-Goals
 

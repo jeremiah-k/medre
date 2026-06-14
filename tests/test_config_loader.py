@@ -75,7 +75,7 @@ encryption_mode = "e2ee_required"
 enabled = false
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "TestMesh"
+origin_label = "TestMesh"
 """
 
 INVALID_TOML = """\
@@ -227,7 +227,10 @@ class TestLoadMultiAdapter:
     def test_mixed_transport_types(self, multi_config_file: Path) -> None:
         config, _, _ = load_config(str(multi_config_file))
         assert "radio" in config.adapters.meshtastic
-        assert config.adapters.meshtastic["radio"].enabled is False
+        radio = config.adapters.meshtastic["radio"]
+        assert radio.enabled is False
+        assert radio.config is not None
+        assert radio.config.origin_label == "TestMesh"
 
     def test_disabled_adapter_still_parsed(self, multi_config_file: Path) -> None:
         config, _, _ = load_config(str(multi_config_file))

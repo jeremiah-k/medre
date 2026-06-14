@@ -1,8 +1,8 @@
 """MeshCore renderer for target-specific event rendering.
 
 The :class:`MeshCoreRenderer` converts canonical events into
-MeshCore-ready content payloads (dicts with ``text``, ``channel_index``,
-and optional ``meshnet_name``).
+MeshCore-ready content payloads (dicts with ``text`` and
+``channel_index``).
 
 The renderer is initialised with a **required** mapping of adapter IDs to
 :class:`~medre.config.adapters.meshcore.MeshCoreConfig` instances.
@@ -30,8 +30,8 @@ constraints, and text budgets.  No legacy signature parameters.
 
 When ``delivery_strategy == "fallback_text"``, relation semantics are
 degraded into inline text within the MeshCore content body while
-preserving MeshCore payload ownership (``text``, ``channel_index``,
-``meshnet_name``).  Contact/channel/destination semantics and target
+preserving MeshCore payload ownership (``text``, ``channel_index``).
+Contact/channel/destination semantics and target
 addressing are retained in the native MeshCore structure.  The result
 carries ``fallback_applied="strategy_fallback_text"``.
 
@@ -46,9 +46,14 @@ trimmed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
+from medre.adapters._attribution_dispatch import project_source_fields
 from medre.core.events import CanonicalEvent
+from medre.core.rendering.attribution import (
+    build_relay_attribution,
+    format_relay_prefix,
+)
 from medre.core.rendering.relations import degrade_relations_inline
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
@@ -59,14 +64,13 @@ if TYPE_CHECKING:
 class MeshCoreRenderer:
     """Renderer for MeshCore transport targets.
 
-    Produces content dicts with ``text``, ``channel_index``, and optional
-    ``meshnet_name``.
+    Produces content dicts with ``text`` and ``channel_index``.
 
     **Target-aware rendering.** The renderer is initialised with a
     mapping of adapter IDs to :class:`~medre.config.adapters.meshcore.MeshCoreConfig`
     instances.  At render time the config for *target_adapter* is resolved
     from this mapping.  This allows multi-node setups where each adapter
-    has different ``max_text_bytes`` and ``meshnet_name`` values.
+    has different ``max_text_bytes`` values.
 
     An empty *configs* mapping raises :class:`ValueError`.  An unknown
     *target_adapter* at render time raises :class:`KeyError`.
@@ -85,6 +89,7 @@ class MeshCoreRenderer:
         self,
         *,
         configs: Mapping[str, MeshCoreConfig],
+        source_attribution: dict[str, Any] | None = None,
     ) -> None:
         if not configs:
             raise ValueError(
@@ -92,6 +97,7 @@ class MeshCoreRenderer:
                 "Pass a non-empty configs mapping."
             )
         self._configs: dict[str, MeshCoreConfig] = dict(configs)
+        self._source_attribution: dict[str, Any] = dict(source_attribution or {})
 
     # ------------------------------------------------------------------
     # Capability check
@@ -140,12 +146,11 @@ class MeshCoreRenderer:
           to the configured ``max_text_bytes`` UTF-8 byte budget.
         * ``channel_index``: parsed from ``ctx.target_channel`` or
           ``config.default_channel``.
-        * ``meshnet_name``: the configured mesh network name.
 
         Under ``ctx.delivery_strategy == "fallback_text"``, relation
         semantics are degraded into inline text while the payload retains
-        MeshCore-native structure (``text``, ``channel_index``,
-        ``meshnet_name``).  Contact/channel/destination semantics and
+        MeshCore-native structure (``text``, ``channel_index``).
+        Contact/channel/destination semantics and
         target addressing are preserved.
 
         **Target-aware config resolution.** The renderer resolves the
@@ -177,7 +182,6 @@ class MeshCoreRenderer:
                 f"{sorted(self._configs.keys())}"
             ) from None
 
-        meshnet_name = adapter_config.meshnet_name
         # Use context budget if provided, else adapter config budget.
         # Clamp to non-negative to guard against misconfiguration.
         selected_max_text_bytes = (
@@ -201,6 +205,58 @@ class MeshCoreRenderer:
         if is_fallback:
             text = self._degrade_relations_inline(event, text)
 
+        # -- Optional relay prefix (prepended before truncation) ---------
+        prefix_template = adapter_config.meshcore_relay_prefix
+        rendered_prefix = ""
+        prefix_formatting_error: str | None = None
+        prefix_vars_used: tuple[str, ...] = ()
+        prefix_vars_missing: tuple[str, ...] = ()
+        prefix_vars_unknown: tuple[str, ...] = ()
+
+        if prefix_template:
+            # Resolve origin_label precedence:
+            # ctx.source_origin_label (route/context) > adapter registry > None.
+            # Use 'is not None' to preserve explicit empty string labels.
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            source_origin_label: str | None = ctx.source_origin_label
+            if source_origin_label is None:
+                if src_attr_cfg is not None:
+                    source_origin_label = getattr(src_attr_cfg, "origin_label", None)
+
+            # Project source identity from native metadata via dispatch.
+            native_data: dict[str, object] = {}
+            if event.metadata and event.metadata.native:
+                native_data = dict(event.metadata.native.data)
+
+            platform_hint = (
+                getattr(src_attr_cfg, "platform", None) if src_attr_cfg else None
+            )
+            projected = project_source_fields(
+                native_data,
+                source_adapter=event.source_adapter,
+                source_transport_id=event.source_transport_id,
+                platform_hint=platform_hint,
+            )
+
+            attr = build_relay_attribution(
+                event,
+                source_origin_label=source_origin_label,
+                projected_fields=projected,
+            )
+            prefix_result = format_relay_prefix(prefix_template, attr)
+            rendered_prefix = prefix_result.rendered_prefix
+            prefix_formatting_error = prefix_result.formatting_error
+            prefix_vars_used = prefix_result.variables_used
+            prefix_vars_missing = prefix_result.missing_variables
+            prefix_vars_unknown = prefix_result.unknown_variables
+            # On formatting_exception the rendered_prefix is the raw
+            # template — do NOT prepend it to user-facing text.
+            if not (
+                prefix_formatting_error
+                and prefix_formatting_error.startswith("formatting_exception:")
+            ):
+                text = rendered_prefix + text
+
         # -- UTF-8 byte-budget truncation after final rendering ------
         truncated_text, was_truncated, original_bytes, rendered_bytes = (
             self._truncate_utf8_bytes(text, max_text_bytes)
@@ -209,7 +265,6 @@ class MeshCoreRenderer:
         content: dict[str, object] = {
             "text": truncated_text,
             "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
         }
 
         metadata: dict[str, object] = {
@@ -221,6 +276,15 @@ class MeshCoreRenderer:
             "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
+
+        # Prefix-specific metadata (only when prefix is configured).
+        if prefix_template:
+            metadata["relay_prefix_template"] = prefix_template
+            metadata["relay_prefix_rendered"] = rendered_prefix
+            metadata["relay_prefix_variables_used"] = prefix_vars_used
+            metadata["relay_prefix_missing_variables"] = prefix_vars_missing
+            metadata["relay_prefix_unknown_variables"] = prefix_vars_unknown
+            metadata["relay_prefix_formatting_error"] = prefix_formatting_error
 
         return RenderingResult(
             event_id=event.event_id,
