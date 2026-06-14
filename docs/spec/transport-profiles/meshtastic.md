@@ -202,12 +202,23 @@ in-memory SDK state (no network call):
    keys `meshtastic.longname` and `meshtastic.shortname` into native
    metadata, alongside the namespaced `meshtastic.from_id`. Identity keys
    live under the `meshtastic.*` namespace so transport-specific metadata
-   stays namespaced by transport. Bare `from_id` is retained for
-   non-identity consumers (`source_native_ref`, relation mapping); the
-   non-identity keys (`packet_id`, `channel`, `to_id`, `reply_id`,
-   `emoji`) remain bare. Bare `longname`/`shortname` are read only as
-   legacy input tolerance for stored events and test fixtures produced
-   before namespacing — they are not emitted by the codec.
+   stays namespaced by transport. Non-identity packet metadata keys are
+   also emitted under `meshtastic.*` alongside retained bare forms:
+   `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
+   `meshtastic.to_id`, `meshtastic.is_direct_message`,
+   `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
+   The namespaced form is primary for new readers; the bare non-identity
+   duplicates are retained for inbound evidence shape preservation,
+   diagnostics, and legacy stored-event tolerance. `source_native_ref`
+   is built at decode from the classifier's packet id and channel, and
+   relation mapping uses the classifier's reply/reaction metadata; none
+   of those consumers reads bare `from_id` back out of the native dict.
+   Bare `from_id` is a transitional duplicate the codec still emits
+   alongside the namespaced form; its only live reader is the projection
+   legacy fallback for stored events and current projection tolerance.
+   Bare `longname`/`shortname` are read only as legacy input tolerance
+   for stored events and test fixtures produced before identity
+   namespacing and are not emitted by the codec.
 
 ### Platform Detection
 
@@ -217,7 +228,9 @@ native data through two key sets:
 
 - **Namespaced `meshtastic.*` keys** — primary, unambiguous signal:
   `meshtastic.from_id`, `meshtastic.longname`, `meshtastic.shortname`,
-  `meshtastic.packet_id`, `meshtastic.channel`.
+  `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
+  `meshtastic.to_id`, `meshtastic.is_direct_message`,
+  `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
 - **Legacy bare keys** — secondary signal for older data and test
   fixtures: `longname`, `shortname`, `from_id`, `packet_id`.
 
@@ -231,11 +244,13 @@ substring match takes precedence over native key-shape detection.
 
 Namespaced keys (`meshtastic.from_id`, `meshtastic.longname`,
 `meshtastic.shortname`) are the primary source and the shape emitted by
-the codec. Bare `from_id`/`longname`/`shortname` are accepted as legacy
-input tolerance only (stored events and test fixtures produced before
-namespacing). Within each fallback chain all namespaced candidates are
-tried before any bare candidate, so the namespaced shape wins when both
-are present.
+the codec. Bare `longname`/`shortname` are accepted only as legacy input
+tolerance (stored events and test fixtures produced before namespacing)
+and are not emitted by the codec. Bare `from_id` is a transitional
+duplicate that the codec still emits alongside the namespaced form; its
+only live reader is the projection legacy fallback. Within each fallback
+chain all namespaced candidates are tried before any bare candidate, so
+the namespaced shape wins when both are present.
 
 | Generic field               | Source                                                                                                                              |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |

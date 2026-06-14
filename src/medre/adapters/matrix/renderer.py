@@ -199,6 +199,25 @@ class MatrixRenderer:
         )
         return str(longname), str(shortname)
 
+    @staticmethod
+    def _resolve_mmrelay_packet_id(native_data: dict[str, object]) -> str:
+        """Resolve the Meshtastic packet ID for mmrelay :data:`KEY_ID`.
+
+        Reads the namespaced ``meshtastic.packet_id`` key first (the
+        current shape emitted by
+        :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec`); falls
+        back to the bare ``packet_id`` key for legacy stored events and
+        test fixtures produced before namespacing.  Returns the value as
+        a string, or an empty string when neither key is present.
+
+        Uses first-non-None-wins (not ``or``) so a valid packet id of
+        ``0`` is preserved rather than falling through to the legacy key.
+        """
+        pid = native_data.get("meshtastic.packet_id")
+        if pid is None:
+            pid = native_data.get("packet_id")
+        return str(pid) if pid is not None else ""
+
     def _build_source_attribution(
         self,
         event: CanonicalEvent,
@@ -739,7 +758,7 @@ class MatrixRenderer:
             if event.metadata and event.metadata.native:
                 native_data = dict(event.metadata.native.data)
 
-            content[KEY_ID] = str(native_data.get("packet_id", ""))
+            content[KEY_ID] = self._resolve_mmrelay_packet_id(native_data)
             _longname, _shortname = self._resolve_mmrelay_sender_names(native_data)
             content[KEY_LONGNAME] = _longname
             content[KEY_SHORTNAME] = _shortname
@@ -858,7 +877,7 @@ class MatrixRenderer:
 
         text = str(event.payload.get("text", event.payload.get("body", "")))
 
-        content[KEY_ID] = str(native_data.get("packet_id", ""))
+        content[KEY_ID] = self._resolve_mmrelay_packet_id(native_data)
         _longname, _shortname = self._resolve_mmrelay_sender_names(native_data)
         content[KEY_LONGNAME] = _longname
         content[KEY_SHORTNAME] = _shortname

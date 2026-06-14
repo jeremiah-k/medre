@@ -39,6 +39,16 @@ keys. Each adapter owns its native-to-generic projection helper
 (`_attribution_dispatch.project_source_fields`) only detects the
 platform and delegates.
 
+Core planning (relation enrichment) follows the same boundary. The
+`RelationEnricher` populates sender fields on relation metadata
+(`original_sender_displayname`, `original_sender`) from a generic
+`SenderProjectionFn` callback wired by the runtime builder. Core
+planning never reads transport-native identity keys such as
+`displayname`, `meshtastic.longname`, or bare `longname`. When no
+callback is wired, `original_sender` falls back only to the generic
+`source_transport_id` field (adapter-neutral, not an identity key) and
+`original_sender_displayname` stays unset.
+
 The four generic sender fields audited here:
 
 | Canonical field             | Template alias    | Meaning                                         |

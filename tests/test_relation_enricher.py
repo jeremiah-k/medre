@@ -21,7 +21,6 @@ from medre.core.events.canonical import (
     NativeRef,
 )
 from medre.core.events.metadata import EventMetadata, NativeMetadata
-
 from medre.core.planning.relation_enricher import RelationEnricher
 
 # ---------------------------------------------------------------------------
@@ -56,9 +55,7 @@ class FakeStorage:
             raise RuntimeError("simulated storage.get failure")
         return self._events.get(event_id)
 
-    async def list_native_refs_for_event(
-        self, event_id: str
-    ) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
         if self._list_raises:
             raise RuntimeError("simulated list_native_refs failure")
         return list(self._native_refs.get(event_id, []))
@@ -465,14 +462,22 @@ class TestOriginalTextMetadata:
 
 
 # ===================================================================
-# original_sender_displayname from displayname → longname
+# Sender metadata: native identity keys are NOT interpreted by core
 # ===================================================================
 
 
-class TestOriginalSenderDisplayname:
-    """original_sender_displayname from target native metadata."""
+class TestSenderMetadataNoNativeInterpretation:
+    """Core enrichment never reads transport-native identity keys.
 
-    async def test_displayname_used(self) -> None:
+    These tests lock the layering contract: when no projection callback
+    is wired, the enricher must NOT fall back to interpreting
+    ``displayname``, ``meshtastic.longname``, ``longname``, or bare
+    ``sender`` from target native metadata.  Only the generic
+    ``source_transport_id`` field is used as a terminal fallback for
+    ``original_sender``.
+    """
+
+    async def test_displayname_not_read_without_projection_fn(self) -> None:
         target = _make_target_event(
             event_id="target-001",
             native_data={"displayname": "Alice"},
@@ -486,9 +491,10 @@ class TestOriginalSenderDisplayname:
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel="0"
         )
-        assert result.relations[0].metadata.get("original_sender_displayname") == "Alice"
+        # Native displayname key must NOT be projected into the relation.
+        assert result.relations[0].metadata.get("original_sender_displayname") is None
 
-    async def test_longname_fallback(self) -> None:
+    async def test_longname_not_read_without_projection_fn(self) -> None:
         target = _make_target_event(
             event_id="target-001",
             native_data={"longname": "Bob"},
@@ -502,34 +508,26 @@ class TestOriginalSenderDisplayname:
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel="0"
         )
-        assert result.relations[0].metadata.get("original_sender_displayname") == "Bob"
+        assert result.relations[0].metadata.get("original_sender_displayname") is None
 
-    async def test_displayname_preferred_over_longname(self) -> None:
+    async def test_meshtastic_namespaced_longname_not_read(self) -> None:
         target = _make_target_event(
             event_id="target-001",
-            native_data={"displayname": "Alice", "longname": "!alice1234"},
+            native_data={"meshtastic.longname": "AlphaNode"},
         )
         storage = FakeStorage(events={"target-001": target})
         enricher = _make_enricher(storage)
         event = _make_event(
-            event_id="src-dn-pref",
+            event_id="src-dn-mesh",
             relations=(_rel(target_event_id="target-001", metadata={}),),
         )
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel="0"
         )
-        assert result.relations[0].metadata.get("original_sender_displayname") == "Alice"
+        assert result.relations[0].metadata.get("original_sender_displayname") is None
 
-
-# ===================================================================
-# original_sender from sender → source_transport_id
-# ===================================================================
-
-
-class TestOriginalSender:
-    """original_sender from target native metadata or source_transport_id."""
-
-    async def test_sender_from_native_data(self) -> None:
+    async def test_native_sender_key_not_read(self) -> None:
+        """Bare ``sender`` native key must not populate original_sender."""
         target = _make_target_event(
             event_id="target-001",
             source_transport_id="node-t",
@@ -544,7 +542,9 @@ class TestOriginalSender:
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel="0"
         )
-        assert result.relations[0].metadata.get("original_sender") == "alice@matrix"
+        # Bare ``sender`` is a native identity key and must not be used;
+        # only the generic source_transport_id fallback applies.
+        assert result.relations[0].metadata.get("original_sender") == "node-t"
 
     async def test_sender_fallback_to_source_transport_id(self) -> None:
         target = _make_target_event(

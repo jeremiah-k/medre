@@ -130,7 +130,7 @@ renderer injects additional mesh metadata via `_inject_mmrelay_metadata`:
 
 | Injected key           | Value source                                                                                                                  |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `meshtastic_id`        | `native_data["packet_id"]`                                                                                                    |
+| `meshtastic_id`        | `native_data["meshtastic.packet_id"]` → `native_data["packet_id"]` (bare legacy fallback)                                     |
 | `meshtastic_longname`  | `native_data["meshtastic.longname"]` → `meshtastic_longname` (wire) → `KEY_LONGNAME` → bare `longname` (legacy tolerance)     |
 | `meshtastic_shortname` | `native_data["meshtastic.shortname"]` → `meshtastic_shortname` (wire) → `KEY_SHORTNAME` → bare `shortname` (legacy tolerance) |
 | `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                                                       |
@@ -534,7 +534,10 @@ that map transport-specific native metadata keys onto the generic
 
 This boundary is structural. Adding a new transport requires implementing
 projection from that transport's native metadata to the generic fields.
-Core renderers and the shared formatter need no changes.
+Core renderers, the shared formatter, and core planning (relation
+enrichment) need no changes. The relation enricher receives a
+`SenderProjectionFn` callback wired by the runtime builder; it never
+reads transport-native identity keys directly.
 
 ### origin_label Projection
 

@@ -1026,15 +1026,20 @@ class TestStrictChannelStripsIncompatibleRef:
 
 
 class TestSenderInfoEnrichment:
-    """Pipeline _enrich_relations_for_target populates
-    original_sender_displayname and original_sender from the target
-    event's native metadata."""
+    """Pipeline-level sender metadata enrichment layering.
 
-    async def test_sender_displayname_enriched_from_target(
+    When no projection callback is wired into PipelineConfig, core
+    planning must NOT interpret transport-native identity keys
+    (``displayname``, ``meshtastic.longname``, bare ``longname``).
+    Only the generic ``source_transport_id`` terminal fallback applies
+    to ``original_sender``; ``original_sender_displayname`` stays unset.
+    """
+
+    async def test_pipeline_does_not_read_native_displayname(
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """Relation gets original_sender_displayname from target event native metadata."""
+        """Without a projection callback, native ``displayname`` is ignored."""
         ts = datetime.now(timezone.utc)
         prior_event = CanonicalEvent(
             event_id="prior-sender-001",
@@ -1091,17 +1096,19 @@ class TestSenderInfoEnrichment:
         result = await runner._enrich_relations_for_target(event, "target_adapter")
         enriched_rel = result.relations[0]
 
-        assert enriched_rel.metadata.get("original_sender_displayname") == "Alice"
-        assert enriched_rel.metadata.get("original_sender") == "@alice:server"
+        # Native identity keys are never read; only the generic
+        # source_transport_id terminal fallback applies.
+        assert enriched_rel.metadata.get("original_sender_displayname") is None
+        assert enriched_rel.metadata.get("original_sender") == "node-1"
         # Text enrichment should also have run.
         assert enriched_rel.fallback_text == "Hello"
         assert enriched_rel.metadata.get("original_text") == "Hello"
 
-    async def test_sender_uses_longname_when_no_displayname(
+    async def test_pipeline_does_not_read_native_longname(
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """original_sender_displayname falls back to 'longname' from native data."""
+        """Without a projection callback, bare ``longname`` is ignored."""
         ts = datetime.now(timezone.utc)
         prior_event = CanonicalEvent(
             event_id="prior-longname-001",
@@ -1154,16 +1161,15 @@ class TestSenderInfoEnrichment:
         result = await runner._enrich_relations_for_target(event, "target_adapter")
         enriched_rel = result.relations[0]
 
-        assert enriched_rel.metadata.get("original_sender_displayname") == "BobNode"
-        # sender falls back to source_transport_id
+        assert enriched_rel.metadata.get("original_sender_displayname") is None
+        # sender falls back to source_transport_id only
         assert enriched_rel.metadata.get("original_sender") == "node-42"
 
-    async def test_sender_uses_meshtastic_namespaced_longname_when_no_displayname(
+    async def test_pipeline_does_not_read_meshtastic_namespaced_longname(
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """original_sender_displayname falls back to the namespaced
-        'meshtastic.longname' native key when no displayname is present."""
+        """Without a projection callback, ``meshtastic.longname`` is ignored."""
         ts = datetime.now(timezone.utc)
         prior_event = CanonicalEvent(
             event_id="prior-mesh-longname-001",
@@ -1218,8 +1224,8 @@ class TestSenderInfoEnrichment:
         result = await runner._enrich_relations_for_target(event, "target_adapter")
         enriched_rel = result.relations[0]
 
-        assert enriched_rel.metadata.get("original_sender_displayname") == "AlphaNode"
-        # sender falls back to source_transport_id
+        assert enriched_rel.metadata.get("original_sender_displayname") is None
+        # sender falls back to source_transport_id only
         assert enriched_rel.metadata.get("original_sender") == "node-43"
 
     async def test_sender_not_overwritten_when_already_present(

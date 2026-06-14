@@ -16,11 +16,13 @@ Key reading
 Namespaced keys (``meshtastic.from_id``, ``meshtastic.longname``,
 ``meshtastic.shortname``) are the primary source and the shape emitted by
 :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec`.  Bare
-``from_id``/``longname``/``shortname`` keys are accepted as legacy input
-tolerance (e.g. test fixtures and stored events produced before
-namespacing); they are not present in newly produced native metadata.
-Identity label keys (``longname``/``shortname``) are read namespaced-only
-with bare-key legacy fallback.
+``longname``/``shortname`` are accepted only as legacy input tolerance
+(e.g. test fixtures and stored events produced before namespacing); the
+codec does not emit them.  Bare ``from_id`` is a transitional duplicate
+that the codec still emits alongside the namespaced form; the namespaced
+form wins in the projection fallback chain whenever both are present,
+and the bare form's only live reader is the projection legacy fallback
+for stored events and current projection tolerance.
 
 Generic fields produced
 -----------------------
@@ -78,9 +80,11 @@ def project_meshtastic_attribution(
     native_data:
         Raw Meshtastic native metadata dict.  Primary keys are the
         namespaced ``meshtastic.from_id``, ``meshtastic.longname``,
-        ``meshtastic.shortname``; bare ``from_id``/``longname``/
-        ``shortname`` are accepted as legacy input tolerance.  Missing
-        keys are treated as absent (not an error).
+        ``meshtastic.shortname``.  Bare ``from_id`` is a transitional
+        duplicate still emitted by the codec; bare ``longname``/
+        ``shortname`` are accepted only as legacy input tolerance (the
+        codec does not emit them).  Missing keys are treated as absent
+        (not an error).
     source_transport_id:
         Fallback sender identifier (typically from
         ``event.source_transport_id``).  Used when ``from_id`` is not

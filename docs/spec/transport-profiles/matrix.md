@@ -156,6 +156,16 @@ present; it does not synthesize them from the display name. mmrelay
 `KEY_LONGNAME` and `KEY_SHORTNAME` are isolated wire-compatibility
 fields, not MEDRE attribution variables.
 
+### mmrelay Packet-ID Resolution
+
+`MatrixRenderer._resolve_mmrelay_packet_id` resolves the Meshtastic
+packet ID for mmrelay `KEY_ID` by reading `meshtastic.packet_id` first
+(the current namespaced shape emitted by the Meshtastic codec), falling
+back to bare `packet_id` for legacy stored events and test fixtures
+produced before non-identity namespacing. The method uses
+first-non-None-wins semantics so a valid packet ID of `0` is preserved
+rather than falling through to the legacy key.
+
 ### Display-Name Staleness
 
 Matrix display names come from homeserver sync state held by the
