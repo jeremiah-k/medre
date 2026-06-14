@@ -23,6 +23,7 @@ from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
+    RelayAttribution,
     build_relay_attribution,
     format_relay_prefix,
 )
@@ -153,6 +154,47 @@ class MatrixRenderer:
         if sa is not None:
             return getattr(sa, "origin_label", None)
         return None
+
+    def _build_source_attribution(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext | None = None,
+    ) -> RelayAttribution:
+        """Build a ``RelayAttribution`` from the source_attribution registry
+        and native metadata.
+
+        Shared helper used by both :meth:`_apply_matrix_relay_prefix` and
+        :meth:`_format_reaction_prefix` to avoid duplicating the
+        origin_label / platform_hint / projection logic.
+
+        Origin_label precedence: ``ctx.source_origin_label`` (when not
+        ``None``, including explicit ``""``) > adapter registry > ``None``.
+        """
+
+        source_info = self._source_attribution.get(event.source_adapter)
+        source_origin_label = (
+            getattr(source_info, "origin_label", None) if source_info else None
+        )
+        if ctx is not None and ctx.source_origin_label is not None:
+            source_origin_label = ctx.source_origin_label
+
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+
+        platform_hint = getattr(source_info, "platform", None) if source_info else None
+        projected = project_source_fields(
+            native_data,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+            platform_hint=platform_hint,
+        )
+
+        return build_relay_attribution(
+            event,
+            source_origin_label=source_origin_label,
+            projected_fields=projected,
+        )
 
     # ------------------------------------------------------------------
     # Capability check
@@ -541,32 +583,7 @@ class MatrixRenderer:
         if not template:
             return "", {}
 
-        # Origin_label precedence: ctx.source_origin_label > registry.
-        # Use 'is not None' to preserve explicit empty string labels.
-        source_info = self._source_attribution.get(event.source_adapter)
-        source_origin_label = (
-            getattr(source_info, "origin_label", None) if source_info else None
-        )
-        if ctx is not None and ctx.source_origin_label is not None:
-            source_origin_label = ctx.source_origin_label
-
-        # Project source identity from native metadata.
-        native_data: dict[str, object] = {}
-        if event.metadata and event.metadata.native:
-            native_data = dict(event.metadata.native.data)
-        platform_hint = getattr(source_info, "platform", None) if source_info else None
-        projected = project_source_fields(
-            native_data,
-            source_adapter=event.source_adapter,
-            source_transport_id=event.source_transport_id,
-            platform_hint=platform_hint,
-        )
-
-        attr = build_relay_attribution(
-            event,
-            source_origin_label=source_origin_label,
-            projected_fields=projected,
-        )
+        attr = self._build_source_attribution(event, ctx)
         fmt_result = format_relay_prefix(template, attr)
 
         # On internal exception, return empty prefix (preserve safety).
@@ -744,32 +761,7 @@ class MatrixRenderer:
         if not template:
             return body, {}
 
-        # Origin_label precedence: ctx.source_origin_label > registry.
-        # Use 'is not None' to preserve explicit empty string labels.
-        source_info = self._source_attribution.get(event.source_adapter)
-        source_origin_label = (
-            getattr(source_info, "origin_label", None) if source_info else None
-        )
-        if ctx is not None and ctx.source_origin_label is not None:
-            source_origin_label = ctx.source_origin_label
-
-        # Project source identity from native metadata.
-        native_data: dict[str, object] = {}
-        if event.metadata and event.metadata.native:
-            native_data = dict(event.metadata.native.data)
-        platform_hint = getattr(source_info, "platform", None) if source_info else None
-        projected = project_source_fields(
-            native_data,
-            source_adapter=event.source_adapter,
-            source_transport_id=event.source_transport_id,
-            platform_hint=platform_hint,
-        )
-
-        attr = build_relay_attribution(
-            event,
-            source_origin_label=source_origin_label,
-            projected_fields=projected,
-        )
+        attr = self._build_source_attribution(event, ctx)
         fmt_result = format_relay_prefix(template, attr)
 
         # On internal exception, return body unchanged (preserve safety).

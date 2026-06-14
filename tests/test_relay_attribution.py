@@ -751,3 +751,41 @@ def test_no_platform_detected_with_sparse_data() -> None:
         source_adapter="generic",
     )
     assert fields["source_platform"] is None
+
+
+def test_platform_hint_projects_sender_fields() -> None:
+    """platform_hint dispatch produces correct sender fields, not just platform."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"sender": "@alice:matrix.org", "displayname": "Alice"},
+        source_adapter="base",
+        platform_hint="matrix",
+    )
+    assert fields["source_platform"] == "matrix"
+    assert fields["source_sender_id"] == "@alice:matrix.org"
+    assert fields["source_sender_label"] == "Alice"
+    assert fields["source_sender_short_label"] == "alice"
+    assert fields["source_sender_handle"] == "@alice:matrix.org"
+
+
+def test_cross_platform_flat_key_fallback() -> None:
+    """Flat-key fallback patches empty Matrix fields from Meshtastic keys.
+
+    When platform_hint='matrix' but native_data carries Meshtastic-style
+    flat keys (longname, shortname, from_id) without Matrix keys, the
+    flat-key fallback enriches the empty Matrix projection.
+    """
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"longname": "RadioOp", "shortname": "RO", "from_id": "!aabbcc"},
+        source_adapter="generic",
+        platform_hint="matrix",
+    )
+    assert fields["source_platform"] == "matrix"
+    # Matrix projection finds no Matrix keys → all None.
+    # Flat-key fallback patches from Meshtastic flat keys.
+    assert fields["source_sender_label"] == "RadioOp"
+    assert fields["source_sender_short_label"] == "RO"
+    assert fields["source_sender_id"] == "!aabbcc"

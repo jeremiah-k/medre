@@ -168,8 +168,9 @@ def project_source_fields(
     source_adapter:
         Adapter identifier string for platform detection.
     source_transport_id:
-        Transport-level identifier (passed to Meshtastic projection as
-        a sender_id fallback).
+        Transport-level identifier.  Currently unused by the dispatch
+        itself; renderers that need a ``source_transport_id`` fallback
+        for ``sender_id`` apply it after the dispatch returns.
     platform_hint:
         Optional explicit platform name from the runtime source
         attribution registry.  Highest priority for platform resolution.
@@ -203,8 +204,13 @@ def project_source_fields(
 
     elif platform == "lxmf":
         # Delegate source_hash normalisation to the adapter module.
-        # Only sender_id is projected; LXMF has no native display name.
-        # Labels remain unset so prefix templates render empty.
+        # Only sender_id is projected through the dispatch.  Although
+        # ``project_lxmf_attribution`` also computes hash-derived
+        # ``label`` and ``short_label``, these are intentionally NOT
+        # wired through the dispatch — LXMF hashes are not human-readable
+        # display names, and prefix templates should render {sender} as
+        # empty rather than a truncated hex hash.  Operators who want the
+        # hash in a prefix should use {sender_id} explicitly.
         lxmf = project_lxmf_attribution(native_data)
         fields["source_sender_id"] = lxmf.sender_id
 

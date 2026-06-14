@@ -12,7 +12,8 @@ Public symbols
 --------------
 * :class:`MatrixSenderFields` — immutable projection result.
 * :func:`extract_mxid_localpart` — safe MXID localpart extraction.
-* :func:`project_matrix_sender` — main projection function.
+* :func:`project_matrix_attribution` — dispatch-oriented projection from native dict.
+* :func:`project_matrix_sender` — main projection function (pre-split args).
 """
 
 from __future__ import annotations
