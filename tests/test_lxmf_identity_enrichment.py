@@ -45,7 +45,7 @@ def _make_lxmf_packet(
     *,
     content: str = "hello from lxmf",
     source_hash: str = "ab" * 16,
-    source_name: str = "",
+    source_name: Any = "",
     msg_id: str = "ff" * 32,
     title: str = "",
 ) -> dict[str, Any]:
@@ -62,6 +62,12 @@ def _make_lxmf_packet(
         "has_fields": False,
         "source_name": source_name,
     }
+
+
+def _native_data(event: CanonicalEvent) -> dict[str, Any]:
+    """Extract native metadata data with type narrowing."""
+    assert event.metadata.native is not None
+    return event.metadata.native.data
 
 
 def _make_event_with_native(
@@ -98,7 +104,7 @@ def test_codec_injects_display_name_when_source_name_present() -> None:
     codec = LxmfCodec("lxmf-test", _config())
     packet = _make_lxmf_packet(source_name="Alice Walker")
     event = codec.decode(packet)
-    assert event.metadata.native.data["lxmf.display_name"] == "Alice Walker"
+    assert _native_data(event)["lxmf.display_name"] == "Alice Walker"
 
 
 def test_codec_omits_display_name_when_source_name_absent() -> None:
@@ -106,7 +112,7 @@ def test_codec_omits_display_name_when_source_name_absent() -> None:
     codec = LxmfCodec("lxmf-test", _config())
     packet = _make_lxmf_packet(source_name="")
     event = codec.decode(packet)
-    assert "lxmf.display_name" not in event.metadata.native.data
+    assert "lxmf.display_name" not in _native_data(event)
 
 
 def test_codec_preserves_source_hash_alongside_display_name() -> None:
@@ -114,8 +120,9 @@ def test_codec_preserves_source_hash_alongside_display_name() -> None:
     codec = LxmfCodec("lxmf-test", _config())
     packet = _make_lxmf_packet(source_hash="cd" * 16, source_name="Bob")
     event = codec.decode(packet)
-    assert event.metadata.native.data["source_hash"] == "cd" * 16
-    assert event.metadata.native.data["lxmf.display_name"] == "Bob"
+    native = _native_data(event)
+    assert native["source_hash"] == "cd" * 16
+    assert native["lxmf.display_name"] == "Bob"
 
 
 def test_codec_decodes_bytes_source_name() -> None:
@@ -123,16 +130,16 @@ def test_codec_decodes_bytes_source_name() -> None:
     codec = LxmfCodec("lxmf-test", _config())
     packet = _make_lxmf_packet(source_name="Café".encode("utf-8"))
     event = codec.decode(packet)
-    assert event.metadata.native.data["lxmf.display_name"] == "Café"
+    assert _native_data(event)["lxmf.display_name"] == "Café"
 
 
 def test_codec_ignores_non_text_source_name() -> None:
     """Non-text source_name (int) is ignored — no lxmf.display_name injected."""
     codec = LxmfCodec("lxmf-test", _config())
     packet = _make_lxmf_packet(source_name="")
-    packet["source_name"] = 12345  # type: ignore[assignment]
+    packet["source_name"] = 12345
     event = codec.decode(packet)
-    assert "lxmf.display_name" not in event.metadata.native.data
+    assert "lxmf.display_name" not in _native_data(event)
 
 
 def test_codec_metadata_envelope_preserved_with_display_name() -> None:
@@ -141,13 +148,14 @@ def test_codec_metadata_envelope_preserved_with_display_name() -> None:
     packet = _make_lxmf_packet(source_name="Alice")
     event = codec.decode(packet)
     # Standard fields are still present.
-    assert "source_hash" in event.metadata.native.data
-    assert "destination_hash" in event.metadata.native.data
-    assert "message_id" in event.metadata.native.data
-    assert "timestamp" in event.metadata.native.data
-    assert "title" in event.metadata.native.data
-    assert "delivery_method" in event.metadata.native.data
-    assert "has_fields" in event.metadata.native.data
+    native = _native_data(event)
+    assert "source_hash" in native
+    assert "destination_hash" in native
+    assert "message_id" in native
+    assert "timestamp" in native
+    assert "title" in native
+    assert "delivery_method" in native
+    assert "has_fields" in native
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +250,8 @@ async def test_renderer_sender_empty_without_display_name() -> None:
     )
     assert result.payload["content"] == "[] hello"
     # The hash must not appear in the prefix.
-    assert "ab" * 16 not in result.metadata["relay_prefix_rendered"]
+    rendered_prefix = str(result.metadata["relay_prefix_rendered"])
+    assert "ab" * 16 not in rendered_prefix
 
 
 async def test_renderer_sender_id_shows_source_hash() -> None:
@@ -304,7 +313,7 @@ async def test_renderer_no_none_in_prefix_without_display_name() -> None:
         event,
         RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
     )
-    assert "None" not in result.payload["content"]
+    assert "None" not in str(result.payload["content"])
 
 
 # ---------------------------------------------------------------------------
