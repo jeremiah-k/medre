@@ -99,10 +99,9 @@ Matrix adapter config (target-local). When empty, no prefix is prepended.
 
 **Application points:**
 
-1. Direct mode body (renderer.py line 210)
-2. Fallback-text mode body (renderer.py line 312)
-3. Reaction emote body via `_format_reaction_prefix` (renderer.py lines
-   469–496)
+1. Direct mode body (`render()` → `_apply_matrix_relay_prefix`)
+2. Fallback-text mode body (`_render_fallback_text()` → `_apply_matrix_relay_prefix`)
+3. Reaction emote body via `_format_reaction_prefix`
 
 The prefix is applied **before** any truncation.
 
@@ -126,8 +125,7 @@ source-attribution registry, falling back to empty string.
 - `metadata_mode` (`"safe"`)
 
 When `mmrelay_compatibility=True` on the source MeshtasticConfig, the
-renderer injects additional mesh metadata via `_inject_mmrelay_metadata`
-(renderer.py lines 669–702):
+renderer injects additional mesh metadata via `_inject_mmrelay_metadata`:
 
 | Injected key           | Value source                                                                            |
 | ---------------------- | --------------------------------------------------------------------------------------- |
@@ -188,8 +186,8 @@ session's node database. When node info is unavailable, `longname` and
 
 ### Meshtastic Outbound Prefix Behavior
 
-`src/medre/adapters/meshtastic/renderer.py`) prepends
-`radio_relay_prefix` via `_format_prefix_for` (lines 158–228).
+The Meshtastic renderer (`src/medre/adapters/meshtastic/renderer.py`)
+prepends `radio_relay_prefix` via `_format_prefix_for`.
 
 The renderer populates `source_origin_label` on the `RelayAttribution` for
 prefix formatting. The value follows the precedence chain: route-level
@@ -200,16 +198,16 @@ string.
 
 **Available template variables:**
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Source sender display name (from adapter projection helper)            |
-| `{sender_short}`  | Source sender short label (from adapter projection helper)             |
-| `{sender_id}`     | Source sender native ID                                                |
-| `{sender_handle}` | Source sender handle / address                                         |
-| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                    |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source room or channel ID                                              |
-| `{origin_label}`  | Resolved source label (route-level > adapter config > empty string)    |
+| Variable          | Source                                                              |
+| ----------------- | ------------------------------------------------------------------- |
+| `{sender}`        | Source sender display name (from adapter projection helper)         |
+| `{sender_short}`  | Source sender short label (from adapter projection helper)          |
+| `{sender_id}`     | Source sender native ID                                             |
+| `{sender_handle}` | Source sender handle / address                                      |
+| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                 |
+| `{route_id}`      | Matched route identifier                                            |
+| `{channel}`       | Source room or channel ID                                           |
+| `{origin_label}`  | Resolved source label (route-level > adapter config > empty string) |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
@@ -688,31 +686,36 @@ with its own direction-aware label.
 
 ### Source code
 
-| File                                        | Lines inspected  |
-| ------------------------------------------- | ---------------- |
-| `src/medre/config/adapters/meshtastic.py`   | Full (268 lines) |
-| `src/medre/config/adapters/matrix.py`       | Full (217 lines) |
-| `src/medre/config/adapters/meshcore.py`     | Full (243 lines) |
-| `src/medre/config/adapters/lxmf.py`         | Full (243 lines) |
-| `src/medre/adapters/matrix/adapter.py`      | Full (984 lines) |
-| `src/medre/adapters/matrix/codec.py`        | Full (452 lines) |
-| `src/medre/adapters/matrix/renderer.py`     | Full (702 lines) |
-| `src/medre/adapters/meshtastic/codec.py`    | Full (265 lines) |
-| `src/medre/adapters/meshtastic/renderer.py` | Full (777 lines) |
-| `src/medre/adapters/meshcore/codec.py`      | Full (154 lines) |
-| `src/medre/adapters/meshcore/renderer.py`   | Full (296 lines) |
-| `src/medre/adapters/lxmf/codec.py`          | Full (242 lines) |
-| `src/medre/adapters/lxmf/renderer.py`       | Full (214 lines) |
-| `src/medre/interop/mmrelay.py`              | Full (24 lines)  |
+| File                                           | Status |
+| ---------------------------------------------- | ------ |
+| `src/medre/config/adapters/meshtastic.py`      | Full   |
+| `src/medre/config/adapters/matrix.py`          | Full   |
+| `src/medre/config/adapters/meshcore.py`        | Full   |
+| `src/medre/config/adapters/lxmf.py`            | Full   |
+| `src/medre/adapters/matrix/adapter.py`         | Full   |
+| `src/medre/adapters/matrix/codec.py`           | Full   |
+| `src/medre/adapters/matrix/renderer.py`        | Full   |
+| `src/medre/adapters/matrix/attribution.py`     | Full   |
+| `src/medre/adapters/meshtastic/codec.py`       | Full   |
+| `src/medre/adapters/meshtastic/renderer.py`    | Full   |
+| `src/medre/adapters/meshtastic/attribution.py` | Full   |
+| `src/medre/adapters/meshcore/codec.py`         | Full   |
+| `src/medre/adapters/meshcore/renderer.py`      | Full   |
+| `src/medre/adapters/meshcore/attribution.py`   | Full   |
+| `src/medre/adapters/lxmf/codec.py`             | Full   |
+| `src/medre/adapters/lxmf/renderer.py`          | Full   |
+| `src/medre/adapters/lxmf/attribution.py`       | Full   |
+| `src/medre/adapters/_attribution_dispatch.py`  | Full   |
+| `src/medre/interop/mmrelay.py`                 | Full   |
 
 ### Spec docs
 
-| File                                         | Lines inspected  |
-| -------------------------------------------- | ---------------- |
-| `docs/spec/transport-profiles/matrix.md`     | Full (200 lines) |
-| `docs/spec/transport-profiles/meshtastic.md` | Full (239 lines) |
-| `docs/spec/transport-profiles/meshcore.md`   | Full (220 lines) |
-| `docs/spec/transport-profiles/lxmf.md`       | Full (244 lines) |
+| File                                         | Status |
+| -------------------------------------------- | ------ |
+| `docs/spec/transport-profiles/matrix.md`     | Full   |
+| `docs/spec/transport-profiles/meshtastic.md` | Full   |
+| `docs/spec/transport-profiles/meshcore.md`   | Full   |
+| `docs/spec/transport-profiles/lxmf.md`       | Full   |
 
 ### Test files (prefix-relevant coverage)
 

@@ -5,10 +5,9 @@ keys produced by :class:`~medre.adapters.meshcore.codec.MeshCoreCodec`,
 plus the bare fixture keys used for backward compatibility) into generic
 attribution fields used by the relay rendering pipeline.
 
-This keeps the MeshCore-to-generic mapping in adapter code rather than in
-the platform-neutral core extractors.  After a follow-up wave, the core
-extractors in :mod:`medre.core.rendering.attribution` will delegate to
-this helper instead of knowing MeshCore key shapes directly.
+The attribution dispatch (``_attribution_dispatch.project_source_fields``)
+delegates to this helper when the source platform is detected as
+MeshCore.  Core rendering has no MeshCore-specific key knowledge.
 
 The module imports **no adapter packages** and never touches SDK objects;
 all data arrives as plain dicts.

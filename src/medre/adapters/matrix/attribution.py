@@ -10,10 +10,10 @@ types when needed.
 
 Public symbols
 --------------
-* :class:`MatrixSenderFields` — immutable projection result.
+* :func:`project_matrix_attribution` — dispatch-oriented projection from native dict (used by ``_attribution_dispatch``).
 * :func:`extract_mxid_localpart` — safe MXID localpart extraction.
-* :func:`project_matrix_attribution` — dispatch-oriented projection from native dict.
-* :func:`project_matrix_sender` — main projection function (pre-split args).
+* :class:`MatrixSenderFields` — immutable projection result (used by ``project_matrix_sender``).
+* :func:`project_matrix_sender` — pre-split-args projection (primarily for direct unit tests).
 """
 
 from __future__ import annotations

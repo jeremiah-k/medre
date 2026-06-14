@@ -4,10 +4,9 @@ Projects LXMF-native identity fields (``source_hash``, identity hash)
 into the generic sender attribution fields used by the MEDRE rendering
 pipeline.
 
-This module is the **adapter-adjacent authority** for LXMF sender
-projection.  After the next migration wave the core attribution code
-will delegate LXMF projection here instead of embedding LXMF-specific
-key knowledge directly.
+The attribution dispatch (``_attribution_dispatch.project_source_fields``)
+delegates to this helper when the source platform is detected as LXMF.
+Core rendering has no LXMF-specific key knowledge.
 
 **Projection rules**
 
