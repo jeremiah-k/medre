@@ -101,17 +101,34 @@ def _module_dotted(path: Path, src_root: Path) -> str:
 
 
 def _find_guarded_imports(path: Path) -> set[str]:
-    """Return the set of guarded mmrelay symbols imported by *path*."""
+    """Return the set of guarded mmrelay symbols imported by *path*.
+
+    ``from medre.interop.mmrelay import KEY_LONGNAME`` is mapped to the
+    specific guarded symbol.  A whole-module ``import
+    medre.interop.mmrelay`` (optionally aliased, e.g. ``... as mmrelay``)
+    binds the module object itself, so every guarded symbol becomes
+    reachable via attribute access (``mmrelay.KEY_LONGNAME``); such a
+    binding is therefore treated as importing the full guarded surface.
+    """
     tree = parse_python(str(path))
     records = all_imports(tree, file_path=str(path))
     found: set[str] = set()
     for rec in records:
-        # rec.module for ``from medre.interop.mmrelay import KEY_LONGNAME``
-        # resolves to ``medre.interop.mmrelay.KEY_LONGNAME``.
         if rec.module.startswith("medre.interop.mmrelay."):
+            # rec.module for ``from medre.interop.mmrelay import KEY_LONGNAME``
+            # resolves to ``medre.interop.mmrelay.KEY_LONGNAME``.
             symbol = rec.module.split(".", 3)[-1]
             if symbol in _GUARDED_MMRELAY_SYMBOLS:
                 found.add(symbol)
+        elif rec.kind == "import" and rec.module == "medre.interop.mmrelay":
+            # ``import medre.interop.mmrelay [as <alias>]`` binds the
+            # module object; any guarded symbol is reachable via attribute
+            # access (``mmrelay.KEY_LONGNAME``), so the full guarded
+            # surface is considered imported.  Only a true ``import``
+            # record (kind="import") unambiguously binds the whole module
+            # — a ``from``-import record with the same resolved module
+            # name may simply be the parent of a symbol-specific import.
+            found |= _GUARDED_MMRELAY_SYMBOLS
     return found
 
 
@@ -181,6 +198,49 @@ def test_allowed_matrix_modules_actively_use_guarded_surface() -> None:
     assert "derive_meshnet_value" in renderer_imports, (
         "matrix renderer no longer imports derive_meshnet_value; "
         "KEY_MESHNET derivation must stay on the Matrix surface."
+    )
+
+
+def test_whole_module_mmrelay_import_flags_all_guarded_symbols(
+    tmp_path: Path,
+) -> None:
+    """A whole-module import binds the module; all guarded symbols reachable.
+
+    Regression for the matcher gap where ``import medre.interop.mmrelay
+    as mmrelay`` (resolved module ``medre.interop.mmrelay`` with no
+    trailing dot) was missed, allowing attribute access such as
+    ``mmrelay.KEY_LONGNAME`` to slip past the isolation guard.  After the
+    fix, any whole-module import of the mmrelay package is treated as
+    importing the entire guarded surface.
+    """
+    probe = tmp_path / "probe_whole_module.py"
+    probe.write_text(
+        "import medre.interop.mmrelay as mmrelay\n" "x = mmrelay.KEY_LONGNAME\n",
+        encoding="utf-8",
+    )
+    found = _find_guarded_imports(probe)
+    assert _GUARDED_MMRELAY_SYMBOLS.issubset(found), (
+        f"whole-module mmrelay import must flag the full guarded surface; "
+        f"got {sorted(found)}"
+    )
+
+
+def test_from_import_reports_only_the_named_symbol(tmp_path: Path) -> None:
+    """``from ... import KEY_LONGNAME`` reports only ``KEY_LONGNAME``.
+
+    Locks the precision of the matcher so the active-use guard above
+    (``test_allowed_matrix_modules_actively_use_guarded_surface``) stays
+    meaningful: a symbol-specific ``from``-import must not be over-reported
+    as the full guarded surface.
+    """
+    probe = tmp_path / "probe_from_import.py"
+    probe.write_text(
+        "from medre.interop.mmrelay import KEY_LONGNAME\n",
+        encoding="utf-8",
+    )
+    found = _find_guarded_imports(probe)
+    assert found == {"KEY_LONGNAME"}, (
+        f"from-import must report only the imported symbol; " f"got {sorted(found)}"
     )
 
 
