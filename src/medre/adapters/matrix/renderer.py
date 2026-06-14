@@ -827,7 +827,7 @@ class MatrixRenderer:
         * packet ID from native metadata.
         * sender long name from native metadata.
         * sender short name from native metadata.
-        * mesh network name from config.
+        * mesh network name derived from origin-label logic.
         * hardcoded ``"TEXT_MESSAGE_APP"`` port number.
         * message body/text from the event payload.
         """
