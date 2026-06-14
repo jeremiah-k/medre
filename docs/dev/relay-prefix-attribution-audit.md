@@ -202,14 +202,14 @@ string.
 
 | Variable          | Source                                                                 |
 | ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Source sender display name (from attribution extractor)                |
-| `{sender_short}`  | Source sender short label (from attribution extractor)                 |
+| `{sender}`        | Source sender display name (from adapter projection helper)            |
+| `{sender_short}`  | Source sender short label (from adapter projection helper)             |
 | `{sender_id}`     | Source sender native ID                                                |
 | `{sender_handle}` | Source sender handle / address                                         |
 | `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                    |
 | `{route_id}`      | Matched route identifier                                               |
 | `{channel}`       | Source room or channel ID                                              |
-| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+| `{origin_label}`  | Resolved source label (route-level > adapter config > empty string)    |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
