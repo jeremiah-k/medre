@@ -1250,16 +1250,18 @@ template alias is `{origin_label}`.
 
 ### 17.5.3 Label and Identity Distinctions
 
-| Concept               | Template variable | Source                                      | Scope                                                           |
-| --------------------- | ----------------- | ------------------------------------------- | --------------------------------------------------------------- |
-| `origin_label`        | `{origin_label}`  | Source adapter config `origin_label`        | Platform-neutral operator label                                 |
-| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata | Per-transport native identity                                   |
-| `source_sender_label` | `{sender}`        | Primary human-readable sender label         | Per-transport display name / long name                          |
-| `route_id`            | `{route_id}`      | Matched route                               | Route identification (may be empty if no route trace available) |
+| Concept               | Template variable | Source                                                       | Scope                                                           |
+| --------------------- | ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
+| `origin_label`        | `{origin_label}`  | Resolved source label (route-level > adapter config > empty) | Platform-neutral operator label                                 |
+| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata                  | Per-transport native identity                                   |
+| `source_sender_label` | `{sender}`        | Primary human-readable sender label                          | Per-transport display name / long name                          |
+| `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
-`origin_label` is the single MEDRE-generic label populated on all adapter
-configs.
+`origin_label` is the single MEDRE-generic label, resolved with
+precedence: route-level `source_origin_label`/`dest_origin_label`
+(after direction expansion) > adapter config `origin_label` > empty
+string. Adapter-level `origin_label` is fallback only.
 
 ### 17.5.4 Renderer Lookup
 

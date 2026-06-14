@@ -1,8 +1,7 @@
 # Relay Prefix and Provenance Audit
 
 Factual audit of current MEDRE relay prefix and sender-provenance
-behavior by transport. No aspirational language; describes running code
-as inspected on the `main` branch.
+behavior by transport. No aspirational language; describes running code.
 
 ---
 
@@ -42,16 +41,21 @@ content into native data via `_capture_mmrelay_fields` (codec.py lines
 | `meshtastic_shortname`    | `KEY_SHORTNAME`    | Same name              |
 | `meshtastic_reaction_key` | `KEY_REACTION_KEY` | Same name              |
 
-After codec decode, the adapter enriches native metadata with
-display-name attribution (adapter.py lines 820–860). When the event
-has no existing `longname` or `shortname` (from MMRelay fields), the
-adapter derives them from the Matrix sender:
+After codec decode, the adapter enriches native metadata with the
+Matrix-native display name (adapter.py lines 820–842). When the event
+has no existing `displayname` or `display_name` key, the adapter adds
+`displayname` from `sender_display_name` (or the raw MXID as fallback).
 
-| Enriched key  | Derivation                                                                                     |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `displayname` | `sender_display_name` or `sender`                                                              |
-| `longname`    | Same as `displayname`                                                                          |
-| `shortname`   | First 5 chars of `displayname`, or first 5 chars of MXID localpart if display name equals MXID |
+The adapter does **not** fabricate bare Meshtastic-shaped
+`longname`/`shortname` keys. Matrix display identity is projected into
+generic sender fields by `project_matrix_attribution()`:
+
+| Projected field             | Source                          |
+| --------------------------- | ------------------------------- |
+| `source_sender_id`          | `sender` (MXID)                 |
+| `source_sender_handle`      | `sender` (MXID)                 |
+| `source_sender_label`       | `displayname` or `display_name` |
+| `source_sender_short_label` | MXID localpart (from `sender`)  |
 
 This enrichment happens **after** codec decode, using
 `msgspec.structs.replace` because `CanonicalEvent` is frozen.
@@ -73,16 +77,16 @@ The `{origin_label}` template variable is resolved from the source adapter's
 **Available template variables** (all coalesced to empty string on
 `None`):
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Source sender display name (from attribution extractor)                |
-| `{sender_short}`  | Source sender short label (from attribution extractor)                 |
-| `{sender_id}`     | Source sender native ID (MXID, node ID, etc.)                          |
-| `{sender_handle}` | Source sender handle / address                                         |
-| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                    |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source room or channel ID                                              |
-| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+| Variable          | Source                                                              |
+| ----------------- | ------------------------------------------------------------------- |
+| `{sender}`        | Source sender display name (from adapter projection helper)         |
+| `{sender_short}`  | Source sender short label (from adapter projection helper)          |
+| `{sender_id}`     | Source sender native ID (MXID, node ID, etc.)                       |
+| `{sender_handle}` | Source sender handle / address                                      |
+| `{platform}`      | Source platform name (`matrix`, `meshtastic`, etc.)                 |
+| `{route_id}`      | Matched route identifier                                            |
+| `{channel}`       | Source room or channel ID                                           |
+| `{origin_label}`  | Resolved source label (route-level > adapter config > empty string) |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
@@ -125,14 +129,18 @@ When `mmrelay_compatibility=True` on the source MeshtasticConfig, the
 renderer injects additional mesh metadata via `_inject_mmrelay_metadata`
 (renderer.py lines 669–702):
 
-| Injected key           | Value source                                                        |
-| ---------------------- | ------------------------------------------------------------------- |
-| `meshtastic_id`        | `native_data["packet_id"]`                                          |
-| `meshtastic_longname`  | `native_data["longname"]`                                           |
-| `meshtastic_shortname` | `native_data["shortname"]`                                          |
-| `meshtastic_meshnet`   | `config.origin_label` (mmrelay compat: populated from origin_label) |
-| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                      |
-| `meshtastic_text`      | Event payload `text` or `body`                                      |
+| Injected key           | Value source                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `meshtastic_id`        | `native_data["packet_id"]`                                                              |
+| `meshtastic_longname`  | `native_data["longname"]` or `native_data["meshtastic_longname"]` (Meshtastic-native)   |
+| `meshtastic_shortname` | `native_data["shortname"]` or `native_data["meshtastic_shortname"]` (Meshtastic-native) |
+| `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                 |
+| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                                          |
+| `meshtastic_text`      | Event payload `text` or `body`                                                          |
+
+Matrix `displayname` is **not** used for `meshtastic_longname`/
+`meshtastic_shortname` — those fields are populated only from
+Meshtastic-native keys or existing external mmrelay wire keys.
 
 MMRelay injection is **skipped for reactions** (reaction rendering
 handles its own MMRelay keys).
@@ -632,10 +640,10 @@ uses yet another set: `source_hash`, `destination_hash`, `message_id`.
 Matrix uses flat keys matching MMRelay: `sender`, `room_id`, `event_id`,
 plus captured `meshtastic_*` keys.
 
-The attribution extractor normalizes these into canonical
+The adapter projection helpers project these into canonical
 `source_sender_label`, `source_sender_short_label`, `source_sender_id`,
 etc. Prefix template variables (`{sender}`, `{sender_short}`,
-`{sender_id}`) work for all source transports via this normalization
+`{sender_id}`) work for all source transports via this projection
 layer. For MeshCore and LXMF sources, sender labels are empty but
 `sender_id` carries the native identifier.
 
@@ -656,7 +664,7 @@ generated for those transports.
 
 The old `{shortname5}` variable was a derived value that behaved
 differently per context. It has been removed from the known variable
-schema. Use `{sender_short}` instead — the attribution extractor
+schema. Use `{sender_short}` instead — the adapter projection helper
 provides the short label directly.
 
 ### 8. No cross-transport name resolution
