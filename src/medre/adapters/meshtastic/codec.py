@@ -216,24 +216,36 @@ class MeshtasticCodec(AdapterCodec):
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
 
-        # Identity keys are namespaced under ``meshtastic.*`` so that
-        # transport-specific metadata stays namespaced by transport.  Bare
-        # from_id retained for non-identity consumers; broader meshtastic.*
-        # namespacing deferred.
+        # Transport-specific metadata is namespaced under ``meshtastic.*`` so
+        # that native fields stay namespaced by transport.  Namespaced keys
+        # are the primary shape; bare keys are retained alongside for legacy
+        # stored-event tolerance and current non-identity consumers.
+        # Identity labels (longname/shortname) are namespaced-only and are
+        # not emitted as bare keys.  ``from_id`` is kept both namespaced and
+        # bare because source_native_ref/relation consumers still read it.
+        portnum_value = str(portnum) if portnum else None
         native_meta = NativeMetadata(
             data={
                 "packet_id": pkt_id,
+                "meshtastic.packet_id": pkt_id,
                 "from_id": sender,
                 "meshtastic.from_id": sender,
                 "channel": pkt_channel,
-                "portnum": str(portnum) if portnum else None,
+                "meshtastic.channel": pkt_channel,
+                "portnum": portnum_value,
+                "meshtastic.portnum": portnum_value,
                 "to_id": to_id,
+                "meshtastic.to_id": to_id,
                 "is_direct_message": classification.is_direct_message,
+                "meshtastic.is_direct_message": classification.is_direct_message,
                 "meshtastic.longname": longname,
                 "meshtastic.shortname": shortname,
                 "reply_id": reply_id,
+                "meshtastic.reply_id": reply_id,
                 "emoji": emoji_raw,
+                "meshtastic.emoji": emoji_raw,
                 "emoji_flag": emoji_flag,
+                "meshtastic.emoji_flag": emoji_flag,
                 "packet": snapshot_packet(packet),
                 "decoded": snapshot_decoded(decoded),
                 "classification": {

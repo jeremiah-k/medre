@@ -261,3 +261,52 @@ transport-specific metadata stays namespaced by transport.
 mmrelay wire fields (`meshtastic_longname`, `meshtastic_shortname`,
 `meshtastic_meshnet`) remain separate external wire-format fields and are
 not MEDRE native metadata.
+
+---
+
+## Extended Meshtastic Metadata Namespacing and Generic Relation Planning
+
+Extend `meshtastic.*` namespacing to cover non-identity packet metadata
+alongside identity keys. Remove direct native-identity reads from core
+relation enrichment; replace with generic sender-projection callback wired
+by the runtime.
+
+**Changed:**
+
+- Meshtastic codec now emits namespaced forms for all packet metadata
+  (`meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
+  `meshtastic.to_id`, `meshtastic.is_direct_message`,
+  `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`)
+  alongside the retained bare forms. Bare forms remain for non-identity
+  consumers and legacy stored-event tolerance; the namespaced form is
+  primary for new readers.
+- `_MESHTASTIC_NAMESPACED_KEYS` detection set in
+  `_attribution_dispatch.py` expanded to include the new non-identity
+  namespaced keys.
+- `MatrixRenderer._resolve_mmrelay_packet_id` reads
+  `meshtastic.packet_id` (primary) with bare `packet_id` fallback for
+  legacy stored events and test fixtures.
+- Core relation enrichment (`RelationEnricher`) no longer reads
+  transport-native identity keys (`displayname`,
+  `meshtastic.longname`, bare `longname`, bare `sender`). Sender labels
+  for `original_sender_displayname` and `original_sender` are sourced
+  exclusively from a generic `SenderProjectionFn` callback wired by the
+  runtime builder. When no callback is wired, `original_sender` falls
+  back only to the generic `source_transport_id` field (adapter-neutral,
+  not an identity key); `original_sender_displayname` stays unset.
+- `PipelineConfig.project_sender_metadata_fn` and runtime builder
+  `_build_project_sender_metadata_fn` wire the adapter-local attribution
+  dispatch into core planning, preserving layering.
+
+**Docs updated:**
+
+- `docs/spec/routing-delivery.md`: core-planning generic-projection clause.
+- `docs/spec/transport-profiles/meshtastic.md`: non-identity namespaced
+  keys, platform detection.
+- `docs/spec/transport-profiles/matrix.md`: mmrelay KEY_ID resolution.
+- `docs/dev/transport-native-metadata-namespacing-audit.md`: Meshtastic
+  section, consumer mapping, migration status.
+- `docs/dev/relay-prefix-attribution-audit.md`: Matrix envelope KEY_ID
+  resolution, projection architecture for relation enrichment.
+- `docs/dev/transport-native-identity-enrichment-audit.md`: core-planning
+  callback note.

@@ -27,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from medre.config.model import (
     RuntimeConfig,
@@ -52,7 +52,9 @@ from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
+    from medre.core.events.canonical import CanonicalEvent
     from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.planning.relation_enricher import SenderProjectionFn
 
 __all__ = ["AdapterBuildFailure", "RuntimeBuilder", "SourceAttributionConfig"]
 
@@ -240,7 +242,7 @@ _ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [
 
 def _register_adapter_renderers(
     pipeline: RenderingPipeline, config: RuntimeConfig | None = None
-) -> None:
+) -> dict[str, "SourceAttributionConfig"]:
     """Register all transport-specific renderers at priority 50.
 
     Uses dynamic imports to avoid static coupling between the builder
@@ -264,6 +266,12 @@ def _register_adapter_renderers(
     * ``MeshCoreRenderer`` receives a mapping of ALL MeshCore adapter
       configs (``adapter_id → MeshCoreConfig``) so that rendering is
       target-adapter-aware in multi-node setups.
+
+    Returns the mapping of ``adapter_id → SourceAttributionConfig`` built
+    while inspecting adapter configs.  Callers (notably
+    :meth:`RuntimeBuilder.build`) reuse this mapping to wire other
+    attribution-sensitive subsystems such as sender-identity projection
+    for relation enrichment.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
@@ -428,6 +436,63 @@ def _register_adapter_renderers(
                 class_name,
             )
 
+    return source_attribution
+
+
+# ---------------------------------------------------------------------------
+# Sender-identity projection wiring (runtime -> core relation enrichment)
+# ---------------------------------------------------------------------------
+
+
+def _build_project_sender_metadata_fn(
+    source_attribution: dict[str, SourceAttributionConfig],
+) -> "SenderProjectionFn":
+    """Build a sender-identity projection callback for relation enrichment.
+
+    Returns a closure that adapts a target :class:`CanonicalEvent` into
+    the JSON-safe generic field dict consumed by
+    :class:`~medre.core.planning.relation_enricher.RelationEnricher`.  The
+    closure delegates to the adapter-local attribution dispatch
+    (:func:`medre.adapters._attribution_dispatch.project_source_fields`),
+    passing the target event's native metadata, source adapter,
+    source transport id, and a platform hint resolved from
+    *source_attribution*.
+
+    Layering: this helper lives in :mod:`medre.runtime` so core never
+    imports adapter packages.  Core receives only the generic dict.
+
+    Parameters
+    ----------
+    source_attribution:
+        Mapping from adapter ID to :class:`SourceAttributionConfig`,
+        built earlier in :meth:`RuntimeBuilder.build`.  Used to resolve
+        a per-adapter ``platform_hint`` when the source adapter is
+        registered there.
+    """
+    # Imported here (not at module top) to keep the static dependency
+    # graph obvious: only the runtime wires adapter dispatch into core.
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    def _project(event: CanonicalEvent) -> Mapping[str, str | None]:
+        native_data: dict[str, Any] = {}
+        meta = getattr(event, "metadata", None)
+        native = getattr(meta, "native", None) if meta is not None else None
+        native_data_obj = getattr(native, "data", None) if native is not None else None
+        if isinstance(native_data_obj, dict):
+            native_data = dict(native_data_obj)
+
+        source_info = source_attribution.get(getattr(event, "source_adapter", ""))
+        platform_hint = getattr(source_info, "platform", None) if source_info else None
+
+        return project_source_fields(
+            native_data,
+            source_adapter=getattr(event, "source_adapter", "") or "",
+            source_transport_id=getattr(event, "source_transport_id", None),
+            platform_hint=platform_hint,
+        )
+
+    return cast("SenderProjectionFn", _project)
+
 
 # ---------------------------------------------------------------------------
 # RuntimeBuilder
@@ -473,7 +538,9 @@ class RuntimeBuilder:
         # 100) so they match their platform first.  Each renderer's
         # can_render() checks target_platform, so registering all four
         # is safe — only the matching one will accept.
-        _register_adapter_renderers(rendering_pipeline, config=self._config)
+        source_attribution = _register_adapter_renderers(
+            rendering_pipeline, config=self._config
+        )
         rendering_pipeline.register(TextRenderer(), priority=100)
 
         # 3. Router (empty — routes configured separately)
@@ -499,6 +566,18 @@ class RuntimeBuilder:
 
         # 9. PipelineConfig + PipelineRunner
         route_stats = RouteStats()
+        # Build the sender-identity projection callback that relation
+        # enrichment uses to populate original_sender_displayname /
+        # original_sender from generic projected fields.  Core planning
+        # never imports adapter projection helpers; the runtime injects
+        # this closure so layering is preserved.  The callback reads the
+        # target event's native metadata, source_adapter, and
+        # source_transport_id, then delegates to the adapter-local
+        # dispatch (``project_source_fields``) which routes to the
+        # appropriate per-transport projection helper.
+        project_sender_metadata_fn = _build_project_sender_metadata_fn(
+            source_attribution,
+        )
         pipeline_config = PipelineConfig(
             storage=storage,
             router=router,
@@ -510,6 +589,7 @@ class RuntimeBuilder:
             diagnostician=diagnostician,
             route_stats=route_stats,
             runtime_accounting=runtime_accounting,
+            project_sender_metadata_fn=project_sender_metadata_fn,
         )
         pipeline_runner = PipelineRunner(pipeline_config)
 

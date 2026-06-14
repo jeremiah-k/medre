@@ -202,12 +202,18 @@ in-memory SDK state (no network call):
    keys `meshtastic.longname` and `meshtastic.shortname` into native
    metadata, alongside the namespaced `meshtastic.from_id`. Identity keys
    live under the `meshtastic.*` namespace so transport-specific metadata
-   stays namespaced by transport. Bare `from_id` is retained for
-   non-identity consumers (`source_native_ref`, relation mapping); the
-   non-identity keys (`packet_id`, `channel`, `to_id`, `reply_id`,
-   `emoji`) remain bare. Bare `longname`/`shortname` are read only as
-   legacy input tolerance for stored events and test fixtures produced
-   before namespacing — they are not emitted by the codec.
+   stays namespaced by transport. Non-identity packet metadata keys are
+   also emitted under `meshtastic.*` alongside retained bare forms:
+   `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
+   `meshtastic.to_id`, `meshtastic.is_direct_message`,
+   `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
+   The namespaced form is primary for new readers; the bare form is
+   retained for non-identity consumers, inbound evidence copies, and
+   legacy stored-event tolerance. Bare `from_id` is retained for
+   non-identity consumers (`source_native_ref`, relation mapping). Bare
+   `longname`/`shortname` are read only as legacy input tolerance for
+   stored events and test fixtures produced before identity namespacing
+   and are not emitted by the codec.
 
 ### Platform Detection
 
@@ -217,7 +223,9 @@ native data through two key sets:
 
 - **Namespaced `meshtastic.*` keys** — primary, unambiguous signal:
   `meshtastic.from_id`, `meshtastic.longname`, `meshtastic.shortname`,
-  `meshtastic.packet_id`, `meshtastic.channel`.
+  `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
+  `meshtastic.to_id`, `meshtastic.is_direct_message`,
+  `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
 - **Legacy bare keys** — secondary signal for older data and test
   fixtures: `longname`, `shortname`, `from_id`, `packet_id`.
 

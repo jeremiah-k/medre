@@ -60,7 +60,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
-from medre.core.planning.relation_enricher import RelationEnricher
+from medre.core.planning.relation_enricher import RelationEnricher, SenderProjectionFn
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline
@@ -119,6 +119,18 @@ class PipelineConfig:
         route is matched and its expanded ID is in this dict, the policy
         is attached to the :class:`DeliveryPlan` so transient failures
         produce retry receipts.
+    project_sender_metadata_fn:
+        Optional callback that projects a target :class:`CanonicalEvent`
+        into a JSON-safe dict of generic sender fields
+        (``source_sender_label``, ``source_sender_short_label``,
+        ``source_sender_id``, ``source_sender_handle``) used by relation
+        enrichment to populate ``original_sender_displayname`` /
+        ``original_sender``.  Wired by the runtime builder with the
+        adapter-local attribution dispatch; core never imports adapter
+        projection helpers.  When ``None``, enrichment falls back to the
+        generic :attr:`CanonicalEvent.source_transport_id` field for
+        ``original_sender`` and leaves ``original_sender_displayname``
+        unset.
     """
 
     storage: StorageBackend
@@ -133,6 +145,7 @@ class PipelineConfig:
     route_stats: RouteStats | None = None
     runtime_accounting: RuntimeAccounting | None = None
     route_retry_policies: dict[str, RetryPolicy] = field(default_factory=dict)
+    project_sender_metadata_fn: SenderProjectionFn | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +287,9 @@ class PipelineRunner:
         self._relation_enricher = RelationEnricher(
             storage=config.storage,
             logger=self._log,
+        )
+        self._project_sender_metadata_fn: SenderProjectionFn | None = (
+            config.project_sender_metadata_fn
         )
         self._conversation_authority = ConversationGraphAuthority(
             storage=config.storage,
@@ -753,7 +769,9 @@ class PipelineRunner:
         Passes per-ingress cached ``get`` and ``list_native_refs_for_event``
         callables so that lookups performed during reaction-to-reaction
         checks are reused here, and lookups across multiple target
-        enrichments share results.
+        enrichments share results.  Forwards the runtime-wired
+        :attr:`_project_sender_metadata_fn` so sender labels are sourced
+        from generic projected fields rather than native identity keys.
         """
         return await self._relation_enricher.enrich_for_target(
             event,
@@ -761,6 +779,7 @@ class PipelineRunner:
             target_channel=target_channel,
             cached_get_fn=get_fn,
             cached_list_fn=list_fn,
+            project_sender_fn=self._project_sender_metadata_fn,
         )
 
     # -- Stage 4: Inbound native ref persistence -------------------------

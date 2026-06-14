@@ -6,12 +6,30 @@ and sender metadata so that the rendering pipeline and downstream adapters
 receive native IDs for structured replies and reactions.
 
 This class is **not** part of the public API.
+
+Sender-identity projection contract
+-----------------------------------
+Core planning never interprets transport-native identity keys (such as
+``displayname``, ``meshtastic.longname``, or bare ``longname``).  Sender
+labels are produced by adapter-local projection helpers and reach this
+module as a JSON-safe dict of generic fields keyed by their
+``RelayAttribution`` canonical names: ``source_sender_label``,
+``source_sender_short_label``, ``source_sender_id``, and
+``source_sender_handle``.
+
+Callers (typically :class:`~medre.core.engine.pipeline.runner.PipelineRunner`,
+wired by the runtime builder) pass a :data:`SenderProjectionFn` that maps
+a target :class:`CanonicalEvent` to that generic dict.  When no callback
+is wired, only the generic :attr:`CanonicalEvent.source_transport_id`
+field is used as a terminal fallback for ``original_sender`` (it is
+adapter-neutral and not an identity key); ``original_sender_displayname``
+stays unset rather than reading native identity keys.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, cast
+from typing import Awaitable, Callable, Mapping, cast
 
 import msgspec
 
@@ -24,6 +42,15 @@ from medre.core.events.canonical import (
 
 _logger = logging.getLogger(__name__)
 
+#: JSON-safe projection of a target event's sender identity into generic
+#: ``RelayAttribution``-shaped fields.  Returned dict values must be
+#: ``str`` or ``None``; keys are the canonical generic field names
+#: (``source_sender_label``, ``source_sender_short_label``,
+#: ``source_sender_id``, ``source_sender_handle``).  Implementations live
+#: in the adapter layer (e.g. ``medre.adapters._attribution_dispatch``)
+#: and are injected into core by the runtime to preserve layering.
+SenderProjectionFn = Callable[[CanonicalEvent], Mapping[str, str | None]]
+
 
 class RelationEnricher:
     """Enriches event relations with target-adapter native refs and metadata.
@@ -35,9 +62,12 @@ class RelationEnricher:
     channel match is preferred over a bare adapter-only match.  This enables
     structured replies / reactions in target-adapter native ID space.
 
-    Additionally extracts original text, sender display name, and sender
-    identity from the target event to populate ``fallback_text`` and relation
+    Additionally extracts original text and projected sender metadata
+    from the target event to populate ``fallback_text`` and relation
     metadata so renderers can produce meaningful fallback content.
+    Sender labels are sourced exclusively from generic projected fields
+    (see :data:`SenderProjectionFn`); native identity keys such as
+    ``displayname`` or ``meshtastic.longname`` are never read here.
 
     Parameters
     ----------
@@ -67,6 +97,7 @@ class RelationEnricher:
         cached_list_fn: (
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
+        project_sender_fn: SenderProjectionFn | None = None,
     ) -> CanonicalEvent:
         """Enrich relations with target-adapter native refs for rendering.
 
@@ -85,7 +116,7 @@ class RelationEnricher:
                 refs whose ``native_channel_id`` equals this value.
             cached_get_fn: Optional pre-wired/cached ``storage.get`` callable.
                 When provided, used instead of ``getattr(storage, "get")`` so
-                callers (e.g. :class:`PipelineRunner`) can memoize lookups
+                that callers (e.g. :class:`PipelineRunner`) can memoize lookups
                 across multiple enrichment calls within a single ingress.
                 Must have the same signature as ``storage.get(event_id)``.
             cached_list_fn: Optional pre-wired/cached
@@ -93,6 +124,17 @@ class RelationEnricher:
                 provided, used instead of ``getattr(storage,
                 "list_native_refs_for_event")`` for the same memoization
                 purpose.
+            project_sender_fn: Optional callback that projects a target
+                event into a JSON-safe dict of generic sender fields
+                (``source_sender_label``, ``source_sender_short_label``,
+                ``source_sender_id``, ``source_sender_handle``).  When
+                provided, the projected label populates relation
+                metadata ``original_sender_displayname`` and the projected
+                identifier populates ``original_sender``.  When omitted,
+                ``original_sender`` falls back only to the generic
+                :attr:`CanonicalEvent.source_transport_id` field;
+                ``original_sender_displayname`` is left unset.  Native
+                identity keys are never read regardless of this argument.
 
         Returns a new event when any relation is enriched; returns the
         original event unchanged otherwise.  **Never mutates** the stored
@@ -235,7 +277,7 @@ class RelationEnricher:
             ):
                 try:
                     target_event = await cast(
-                        Callable[[str], Awaitable[object]],
+                        Callable[[str], Awaitable[CanonicalEvent | None]],
                         get_fn,
                     )(target_event_id)
                     if target_event is not None:
@@ -271,48 +313,54 @@ class RelationEnricher:
                             text_changed = True
 
                         # -- Sender info enrichment ---------------------------------
+                        # Sender labels come exclusively from generic
+                        # projected fields (``source_sender_label``,
+                        # ``source_sender_short_label``, ``source_sender_id``,
+                        # ``source_sender_handle``).  Native identity keys
+                        # such as ``displayname``, ``meshtastic.longname``,
+                        # ``longname``, or bare ``sender`` are NEVER read
+                        # here — core planning does not interpret
+                        # transport-native identity.  When no projection
+                        # callback is wired, ``original_sender`` falls back
+                        # only to the generic ``source_transport_id`` field
+                        # (adapter-neutral, not an identity key);
+                        # ``original_sender_displayname`` stays unset.
                         sender_meta = (
                             dict(current_rel.metadata) if current_rel.metadata else {}
                         )
                         sender_changed = False
 
-                        # Compute target native metadata once for both fields.
-                        target_data = None
-                        _tn = getattr(target_event, "metadata", None)
-                        if _tn is not None:
-                            _tn = getattr(_tn, "native", None)
-                        if _tn is not None:
-                            _td = getattr(_tn, "data", None)
-                            if isinstance(_td, dict):
-                                target_data = _td
+                        projected: Mapping[str, str | None] = {}
+                        if project_sender_fn is not None:
+                            try:
+                                projected = project_sender_fn(target_event) or {}
+                            except Exception:
+                                self._log.debug(
+                                    "project_sender_fn failed for "
+                                    "target_event_id=%s; falling back to "
+                                    "source_transport_id only",
+                                    target_event_id,
+                                    exc_info=True,
+                                )
+                                projected = {}
 
                         if "original_sender_displayname" not in sender_meta:
-                            _dn = None
-                            if target_data is not None:
-                                # Display identity fallback chain:
-                                # displayname → meshtastic.longname → longname.
-                                # The namespaced key is primary per the
-                                # codec namespacing rule; the bare key remains
-                                # for legacy input tolerance. This is core
-                                # planning debt — the rendering attribution
-                                # model projects display identity through
-                                # adapter-local helpers, not bare
-                                # transport-native keys. Tracked separately
-                                # from the rendering attribution tranche.
-                                _dn = (
-                                    target_data.get("displayname")
-                                    or target_data.get("meshtastic.longname")
-                                    or target_data.get("longname")
-                                )
+                            _dn = projected.get("source_sender_label") or projected.get(
+                                "source_sender_short_label"
+                            )
                             if _dn:
                                 sender_meta["original_sender_displayname"] = str(_dn)
                                 sender_changed = True
 
                         if "original_sender" not in sender_meta:
-                            _snd = None
-                            if target_data is not None:
-                                _snd = target_data.get("sender")
+                            _snd = projected.get("source_sender_id") or projected.get(
+                                "source_sender_handle"
+                            )
                             if not _snd:
+                                # Generic terminal fallback only — not a
+                                # native identity key.  Preserved so the
+                                # renderer can still attribute the reply
+                                # when no projection callback is wired.
                                 _snd = getattr(
                                     target_event,
                                     "source_transport_id",

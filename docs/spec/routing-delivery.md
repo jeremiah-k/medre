@@ -1344,6 +1344,17 @@ struct with transport-agnostic fields (`source_sender_label`,
 core rendering code use only these generic fields. Core does not inspect
 native identity keys from Matrix, Meshtastic, MeshCore, or LXMF.
 
+**Core planning** (relation enrichment) also consumes only generic sender
+metadata. The `RelationEnricher` populates `original_sender_displayname`
+and `original_sender` from a `SenderProjectionFn` callback wired by the
+runtime builder. This callback delegates to the adapter-local attribution
+dispatch and returns a JSON-safe dict of generic `RelayAttribution`-shaped
+fields. Core planning never reads transport-native identity keys such as
+`displayname`, `meshtastic.longname`, bare `longname`, or bare `sender`.
+When no callback is wired, `original_sender` falls back only to the
+generic `source_transport_id` field and `original_sender_displayname`
+stays unset.
+
 **Adapter-adjacent projection** maps transport-specific native metadata onto
 the generic `RelayAttribution` fields. Each adapter owns its projection logic
 within its adapter package. This is where Matrix MXID display names,

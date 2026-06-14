@@ -56,12 +56,25 @@ _MATRIX_KEYS: frozenset[str] = frozenset({"sender", "event_id", "room_id"})
 
 # Namespaced Meshtastic-native keys — primary detection signal.
 # These are unambiguous: a dict carrying any ``meshtastic.*`` key is
-# Meshtastic-native data.
+# Meshtastic-native data.  Includes both identity keys (from_id,
+# longname, shortname) and non-identity packet metadata keys (packet_id,
+# channel, portnum, to_id, is_direct_message, reply_id, emoji,
+# emoji_flag) emitted by the codec under the ``meshtastic.*`` namespace.
+# The bare ``channel`` key is intentionally NOT a detection signal
+# (see ``_MESHTASTIC_LEGACY_KEYS`` below).
 _MESHTASTIC_NAMESPACED_KEYS: frozenset[str] = frozenset(
     {
         "meshtastic.from_id",
         "meshtastic.longname",
         "meshtastic.shortname",
+        "meshtastic.packet_id",
+        "meshtastic.channel",
+        "meshtastic.portnum",
+        "meshtastic.to_id",
+        "meshtastic.is_direct_message",
+        "meshtastic.reply_id",
+        "meshtastic.emoji",
+        "meshtastic.emoji_flag",
     }
 )
 
