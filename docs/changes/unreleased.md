@@ -228,9 +228,9 @@ authoritative storage state, and may be stale. Prefix rendering remains
 safe when all identity labels are empty. No canonical topology or contact
 events are emitted.
 
-**Announce-based LXMF display-name enrichment is not implemented**; a
-defensive ingress capture path is in place. Per-channel origin labels
-remain unsupported — operators use separate routes per channel.
+Announce-based LXMF display-name enrichment is now implemented
+(see below). Per-channel origin labels remain unsupported — operators
+use separate routes per channel.
 
 ---
 

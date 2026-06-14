@@ -343,15 +343,22 @@ def test_project_hash_never_becomes_label() -> None:
 
 
 def test_project_display_name_spaces_only() -> None:
-    """Display name that is only spaces: label set, compact form None."""
+    """Display name that is only spaces is rejected as a label (defense-in-depth).
+
+    Whitespace-only strings are truthy but not meaningful labels.  The
+    ``_label_str`` helper now checks ``.strip()`` so ``"   "`` yields
+    ``None`` instead of leaking into rendered output.  The upstream
+    ``resolve_display_name`` in session.py already strips, so this is
+    defense-in-depth at the projection boundary.
+    """
     native = {
         "source_hash": "ab" * 16,
         "lxmf.display_name": "   ",
     }
     fields = project_lxmf_attribution(native)
-    # "   " is non-empty so label is "   ".
-    assert fields["source_sender_label"] == "   "
-    # Compact form strips spaces → empty → None.
+    # Whitespace-only is rejected → None.
+    assert fields["source_sender_label"] is None
+    # Compact form of None is also None.
     assert fields["source_sender_short_label"] is None
 
 

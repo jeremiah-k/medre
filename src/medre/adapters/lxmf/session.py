@@ -1363,7 +1363,8 @@ class LxmfSession:
     def resolve_display_name(self, source_hash: str) -> str | None:
         """Resolve a display name for an LXMF source hash from the local announce cache.
 
-        Performs a synchronous local lookup against RNS.Identity.known_destinations
+        Performs a synchronous local lookup via RNS.Identity.recall_app_data (which
+        reads from the in-memory RNS.Identity.known_destinations cache)
         (populated by received announces). No network calls are issued. Returns
         the display name from the announce app_data, or None when the sender is
         unknown, the session lacks SDK objects, or any error occurs.

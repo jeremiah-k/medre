@@ -319,7 +319,11 @@ always wins; the announce-cache value fills in only when the message
 does not already carry a name.
 
 Resolution is local-only (reads `RNS.Identity.known_destinations`),
-synchronous, and observational. The resolved name reflects the sender's
+synchronous on the asyncio event loop thread, and observational. For
+peers present in the in-memory announce cache (the common case) the
+lookup is a sub-microsecond dict read; for cold peers a brief local
+file read via `RNS.Identity.recall_app_data` may occur. This matches
+MeshCore's `resolve_contact_label` pattern. The resolved name reflects the sender's
 name at the time of the last heard announce and may be stale if the peer
 has renamed since. The `source_hash` is never returned as the display
 name — enrichment leaves it as `source_sender_id` only.

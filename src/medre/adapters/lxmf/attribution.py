@@ -150,10 +150,13 @@ def _label_str(value: object) -> str | None:
 
     Only text-bearing values are accepted:
 
-    * :class:`str` -> returned as-is when non-empty, otherwise ``None``.
+    * :class:`str` -> returned as-is when non-whitespace-only,
+      otherwise ``None``.  Leading/trailing whitespace on valid labels
+      is preserved (e.g. ``"  Alice  "`` passes through unchanged).
     * :class:`bytes` / :class:`bytearray` -> decoded as UTF-8 with
       ``errors="replace"`` (matching the session's content/title
-      normalisation); returned when non-empty, otherwise ``None``.
+      normalisation); returned when non-whitespace-only, otherwise
+      ``None``.
 
     All other types (``int``, ``float``, ``bool``, ``dict``, ``list``,
     ``None``, custom objects, ...) return ``None``.  This prevents
@@ -163,10 +166,10 @@ def _label_str(value: object) -> str | None:
     text captured at ingress, not from runtime ``str()`` coercion.
     """
     if isinstance(value, str):
-        return value if value else None
+        return value if value.strip() else None
     if isinstance(value, (bytes, bytearray)):
         s = bytes(value).decode("utf-8", errors="replace")
-        return s if s else None
+        return s if s.strip() else None
     return None
 
 
