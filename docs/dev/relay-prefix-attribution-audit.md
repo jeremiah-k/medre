@@ -71,8 +71,9 @@ message body via `_apply_matrix_relay_prefix`.
 renders. The prefix lives on the adapter that owns the rendering.
 When empty, no prefix is prepended.
 
-The `{origin_label}` template variable is resolved from the source adapter's
-`origin_label` config via the runtime source-attribution registry.
+The `{origin_label}` template variable resolves from `source_origin_label`
+with precedence: route/context label after direction expansion, source
+adapter config `origin_label`, then empty string.
 
 **Available template variables** (all coalesced to empty string on
 `None`):
@@ -283,14 +284,14 @@ attribution.py `_ALL_KNOWN_NAMES`):
 
 | Variable          | Source                                                                 |
 | ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Attribution extractor (empty for MeshCore sources)                     |
-| `{sender_short}`  | Attribution extractor (empty for MeshCore sources)                     |
-| `{sender_id}`     | Attribution extractor (`pubkey_prefix` for MeshCore)                   |
-| `{sender_handle}` | Attribution extractor (empty for MeshCore sources)                     |
+| `{sender}`        | Adapter projection helper (empty for MeshCore sources)                 |
+| `{sender_short}`  | Adapter projection helper (empty for MeshCore sources)                 |
+| `{sender_id}`     | `project_meshcore_attribution()` — `meshcore.sender_id` (pubkey prefix)|
+| `{sender_handle}` | Adapter projection helper (empty for MeshCore sources)                 |
 | `{platform}`      | Source platform name                                                   |
 | `{route_id}`      | Matched route identifier                                               |
 | `{channel}`       | Source channel ID                                                      |
-| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** — they are left unchanged
@@ -373,14 +374,14 @@ attribution.py `_ALL_KNOWN_NAMES`):
 
 | Variable          | Source                                                                 |
 | ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Attribution extractor (empty for LXMF sources)                         |
-| `{sender_short}`  | Attribution extractor (empty for LXMF sources)                         |
-| `{sender_id}`     | Attribution extractor (`source_hash` for LXMF)                         |
-| `{sender_handle}` | Attribution extractor (empty for LXMF sources)                         |
+| `{sender}`        | Adapter projection helper (empty for LXMF sources)                     |
+| `{sender_short}`  | Adapter projection helper (empty for LXMF sources)                     |
+| `{sender_id}`     | `project_lxmf_attribution()` — `source_hash`                            |
+| `{sender_handle}` | Adapter projection helper (empty for LXMF sources)                     |
 | `{platform}`      | Source platform name                                                   |
 | `{route_id}`      | Matched route identifier                                               |
 | `{channel}`       | Source channel ID (always empty for LXMF)                              |
-| `{origin_label}`  | Source adapter config `origin_label` (via source-attribution registry) |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
@@ -572,11 +573,11 @@ string), the variable resolves to an empty string.
 
 ### Distinction from Other Labels
 
-| Concept               | Template variable | Source                       | Scope                        |
-| --------------------- | ----------------- | ---------------------------- | ---------------------------- |
-| `origin_label`        | `{origin_label}`  | Source adapter config        | MEDRE-generic operator label |
-| `source_sender_id`    | `{sender_id}`     | Source event native metadata | Per-transport native ID      |
-| `source_sender_label` | `{sender}`        | Source event native metadata | Per-transport display name   |
+| Concept               | Template variable | Source                                                              | Scope                        |
+| --------------------- | ----------------- | ------------------------------------------------------------------- | ---------------------------- |
+| `origin_label`        | `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)| MEDRE-generic operator label |
+| `source_sender_id`    | `{sender_id}`     | Source event native metadata                                        | Per-transport native ID      |
+| `source_sender_label` | `{sender}`        | Source event native metadata                                        | Per-transport display name   |
 
 ---
 
@@ -607,9 +608,10 @@ should prefer `{origin_label}` or `{sender_id}` for cross-platform templates.
 outbound. `MeshtasticConfig.matrix_relay_prefix` has been removed — Matrix
 prefix is target-local only. `MeshCoreConfig.meshcore_relay_prefix` and
 `LxmfConfig.lxmf_relay_prefix` are on their respective target configs,
-resolved by their own renderers. All renderers resolve `{origin_label}` from
-the source adapter config via the source-attribution registry — prefix
-variables describe the source, not the target.
+resolved by their own renderers. All renderers resolve `{origin_label}`
+with full precedence (route/context label after direction expansion →
+source adapter config `origin_label` via the source-attribution registry →
+empty string) — prefix variables describe the source, not the target.
 
 ### 4. Matrix display-name enrichment is post-codec
 
