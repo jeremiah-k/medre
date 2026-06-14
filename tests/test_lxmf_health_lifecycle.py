@@ -14,6 +14,7 @@ Tests cover:
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
@@ -197,3 +198,20 @@ async def test_health_check_after_stop_returns_unknown(
     # health_check after stop computes fresh — should be unknown
     info = await adapter.health_check()
     assert info.health == "unknown"
+
+
+# ===================================================================
+# Failed state: session connected but adapter not started
+# ===================================================================
+
+
+async def test_health_check_failed_when_session_connected_but_not_started() -> None:
+    """health_check returns 'failed' when the session reports connected
+    but the adapter was never started — indicating a startup failure."""
+    config = _make_config(connection_type="fake")
+    adapter = LxmfAdapter(config)
+    adapter._session = MagicMock()
+    adapter._session.connected = True
+    # adapter._started is False by default (never called start())
+    info = await adapter.health_check()
+    assert info.health == "failed"

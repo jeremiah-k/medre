@@ -10,7 +10,7 @@ change adds the real implementation to ``LxmfSession``.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
@@ -216,6 +216,21 @@ def test_enrich_no_op_when_session_none() -> None:
     adapter._enrich_with_display_name(packet)
 
     assert packet.get("source_name", "") == ""
+
+
+def test_enrich_catches_unexpected_exception_outside_resolve() -> None:
+    """The outer try/except in _enrich_with_display_name catches
+    exceptions that escape _resolve_display_name itself (e.g. a bug
+    in the wrapper), ensuring ingestion never fails."""
+    adapter = _make_adapter_with_mock_session()
+    packet = {"source_hash": "abcdef0123456789"}  # no source_name key
+    # Replace _resolve_display_name with one that raises directly,
+    # bypassing its internal try/except.
+    adapter._resolve_display_name = Mock(side_effect=RuntimeError("wrapper bug"))
+    # Should NOT raise — outer catch-all swallows it.
+    adapter._enrich_with_display_name(packet)
+    # No injection happened because the exception aborted before assignment.
+    assert "source_name" not in packet
 
 
 # ===================================================================
