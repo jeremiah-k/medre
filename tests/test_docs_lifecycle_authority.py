@@ -291,7 +291,7 @@ class TestAdapterDeliveryStatusLiterals:
     """Adapter source ``AdapterDeliveryResult(delivery_status=...)`` values
     must belong to ``ADAPTER_DELIVERY_STATUSES``."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def scanned_literals(self) -> list[tuple[str, str | None]]:
         """Scan adapter source for delivery_status literals.
 
@@ -338,7 +338,7 @@ class TestAdapterMetadataNaming:
     collision with pipeline-level receipt / outbox status.
     """
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def metadata_violations(self) -> list[str]:
         """Scan adapter source for metadata dicts with ``delivery_status`` key."""
         violations: list[str] = []
@@ -370,7 +370,7 @@ class TestTestMockMetadataNaming:
     """Test mocks constructing ``AdapterDeliveryResult`` must not use
     ``delivery_status`` as a metadata key — same rule as adapters."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def test_mock_violations(self) -> list[str]:
         """Scan test source for AdapterDeliveryResult metadata dicts with
         ``delivery_status`` key."""
@@ -423,7 +423,7 @@ class TestAmbiguousTopLevelMetadataKeys:
     ``metadata["meshtastic"]["channel_index"]``).
     """
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def adapter_ambiguous_violations(self) -> list[str]:
         """Scan adapter source for bare status/state metadata keys."""
         violations: list[str] = []
@@ -450,7 +450,7 @@ class TestAmbiguousTopLevelMetadataKeys:
             f"  {v}" for v in adapter_ambiguous_violations
         )
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def test_mock_ambiguous_violations(self) -> list[str]:
         """Scan test source for bare status/state metadata keys in mocks."""
         test_dir = _ROOT / "tests"

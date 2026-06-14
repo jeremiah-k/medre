@@ -59,7 +59,7 @@ def _check_forbidden(
 class TestCoreBoundary:
     """Core modules must not import runtime, adapters, SDKs, or CLI."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def core_py_files(self) -> list[Path]:
         core_dir = _SRC / "core"
         return _find_py_files(core_dir)

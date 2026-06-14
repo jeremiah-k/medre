@@ -77,7 +77,7 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 | PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours       |
 | PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                  | N/A                    |
 
-### MEDRE Config (Delivery Method)
+### MEDRE Config — Delivery Method
 
 ```python
 config = LxmfConfig(

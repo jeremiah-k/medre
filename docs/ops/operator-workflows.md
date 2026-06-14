@@ -601,7 +601,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 - A bot account on that homeserver.
 - The `matrix` extra installed: `pip install -e ".[matrix]"`.
 
-### Procedure (Matrix Live)
+### Procedure — Matrix
 
 1. Set environment variables:
 
@@ -644,13 +644,13 @@ Startup logs confirming config loaded, pipeline started, and adapter connected. 
 
 If you have a Meshtastic radio node accessible via TCP or serial, you can validate the Meshtastic adapter.
 
-### Prerequisites (Meshtastic Live)
+### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
 - The `meshtastic` extra installed: `pip install -e ".[meshtastic]"`.
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
-### Procedure (Meshtastic Live)
+### Procedure — Meshtastic
 
 1. Configure connection (TCP recommended):
 
@@ -692,7 +692,7 @@ medre evidence --storage-path /path/to/medre.db --json
 - Encryption or key management beyond firmware handling.
 - Reliable delivery at the mesh layer.
 
-### Failure Modes (Meshtastic Live)
+### Failure Modes — Meshtastic
 
 - Connection refused: node not reachable. Check network/serial connection.
 - SDK import error: install the meshtastic extra.

@@ -345,8 +345,10 @@ PYTHONPATH=src medre smoke --scenario <name> --json
 
 To persist evidence to SQLite, pass a config file that sets `[storage] backend = "sqlite"` and `storage.path`:
 
-```bash
-PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.toml --json
+`medre inspect` subcommands require persistent storage. Running `medre inspect` against a config with `[storage] backend = "memory"` produces:
+
+```text
+Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 
 When the config specifies SQLite storage, events, receipts, and native refs are written to the configured database file and can be inspected with `medre inspect` after the process exits.
