@@ -100,9 +100,6 @@ def _make_matrix_event(
     native_data: dict[str, object] = {
         "sender": "@user:example.com",
         "displayname": display_name,
-        "longname": display_name,
-        "shortname": display_name.split()[0] if display_name else "",
-        "from_id": "@user:example.com",
     }
     return CanonicalEvent(
         event_id=event_id,
@@ -823,7 +820,7 @@ class TestFallbackTextReplyRelationContext:
             relations=(rel,),
             payload={"body": "my reply"},
             metadata=EventMetadata(
-                native=NativeMetadata(data={"shortname": "Test", "from_id": "1"})
+                native=NativeMetadata(data={"sender": "@Test:example.com", "displayname": "Test User"})
             ),
         )
         result = await renderer.render(
