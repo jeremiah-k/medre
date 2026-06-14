@@ -218,11 +218,19 @@ class MeshtasticCodec(AdapterCodec):
 
         # Transport-specific metadata is namespaced under ``meshtastic.*`` so
         # that native fields stay namespaced by transport.  Namespaced keys
-        # are the primary shape; bare keys are retained alongside for legacy
-        # stored-event tolerance and current non-identity consumers.
-        # Identity labels (longname/shortname) are namespaced-only and are
-        # not emitted as bare keys.  ``from_id`` is kept both namespaced and
-        # bare because source_native_ref/relation consumers still read it.
+        # are the primary shape; bare non-identity keys are retained
+        # alongside for inbound evidence shape preservation, diagnostics,
+        # and legacy stored-event tolerance.  Identity labels
+        # (longname/shortname) are namespaced-only and are not emitted as
+        # bare keys.  ``from_id`` is a transitional duplicate: the codec
+        # emits both namespaced and bare forms with the same value, but
+        # ``source_native_ref`` is built from the classifier's packet id and
+        # channel and relation mapping uses the classifier's reply/reaction
+        # metadata (none of those consumers reads bare ``from_id`` back out
+        # of the native dict).  The bare ``from_id`` duplicate's only live
+        # reader is the projection legacy fallback for stored events and
+        # current projection tolerance; the namespaced form wins whenever
+        # both are present.
         portnum_value = str(portnum) if portnum else None
         native_meta = NativeMetadata(
             data={
