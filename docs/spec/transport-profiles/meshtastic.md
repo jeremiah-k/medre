@@ -176,6 +176,65 @@ confirm Meshtastic RF transmission.
 
 ---
 
+## Sender Identity Projection
+
+The Meshtastic adapter projects Meshtastic-native sender identity into
+the generic `RelayAttribution` sender fields (see
+[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+Projection is owned by `project_meshtastic_attribution`; core rendering
+consumes only the generic fields.
+
+At ingress, each packet carries a numeric `from` node identifier
+(`fromId`) and a `channel` index. Text packets carry no packet-level
+name field; sender names live in the SDK node database, populated by
+`NODEINFO_APP` packets.
+
+### Node-Database Enrichment
+
+The enrichment pipeline runs end-to-end at ingress, reading only
+in-memory SDK state (no network call):
+
+1. `adapter._enrich_with_node_info(packet)` calls
+   `session.get_node_info(from_id)`, which reads the SDK client's `nodes`
+   dict. It returns `{"longname": ..., "shortname": ...}` or `None` and
+   tolerates partial, `None`, non-dict, and empty entries.
+2. `codec.decode(packet, node_info=...)` embeds the bare `longname` and
+   `shortname` keys into native metadata. These are
+   Meshtastic-characteristic keys recognised by the dispatch platform
+   detector.
+
+### Projection Rules
+
+| Generic field               | Source                                                          |
+| --------------------------- | --------------------------------------------------------------- |
+| `source_sender_id`          | `from_id`, falling back to `source_transport_id`                |
+| `source_sender_label`       | `longname` → `shortname` → `source_sender_id`                   |
+| `source_sender_short_label` | `shortname` → compact(`longname`) → compact(`source_sender_id`) |
+| `source_sender_handle`      | Not produced (Meshtastic has no handle or address concept)      |
+
+"Compact" means `str.replace(" ", "")`. The fallback chains ensure a
+non-empty short label is available whenever any identifying field is
+present. Resolution order is event or packet names, then local
+node-metadata names, then the bare `sender_id` fallback. Event names
+always win; text packets source names exclusively from `node_info`, so no
+packet-level name field competes.
+
+### Enrichment Best-Effort
+
+Sender labels are populated from the local SDK node database. When a node
+is unknown to the local database (no `NODEINFO_APP` exchange observed),
+only the numeric node ID is available and the label fields fall back to
+that ID. Node-database contents are populated by the SDK and may be
+incomplete.
+
+Identity labels may appear in rendered messages and renderer-local
+metadata; enrichment is observational and is not delivery evidence.
+Diagnostics expose no secrets and no raw protobuf or SDK objects. See
+[Routing and Delivery §17.5.10](../routing-delivery.md#17510-identity-enrichment-diagnostics-and-privacy)
+for the cross-transport policy.
+
+---
+
 The packet classifier (`MeshtasticPacketClassifier`) applies a 10-step conservative policy:
 
 | Priority | Condition                             | Action       | Reason                                    |
@@ -324,7 +383,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **No edits, deletes, or attachments.** Declared unsupported in capabilities.
 - **Structured send uses internal `_sendPacket`.** Relies on protobuf `MeshPacket` construction and the `_sendPacket` SDK method, which is not part of the public API and may break across SDK versions.
 - **Channel mapping is display-only.** `channel_mapping` is NOT a relay allowlist; the classifier does not gate on channel membership.
-- **Node info enrichment is best-effort.** Sender labels (`source_sender_label`, `source_sender_short_label`) are populated from the SDK `nodes` dict; missing node info results in empty strings.
+- **Node info enrichment is best-effort.** Sender labels (`source_sender_label`, `source_sender_short_label`) are populated from the SDK `nodes` dict. When node info is missing, the label fields fall back to the numeric node ID (`source_sender_id`); see §Sender Identity Projection for the fallback chain.
 
 ---
 

@@ -282,16 +282,16 @@ string.
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Adapter projection helper (empty for MeshCore sources)                 |
-| `{sender_short}`  | Adapter projection helper (empty for MeshCore sources)                 |
-| `{sender_id}`     | `project_meshcore_attribution()` — `meshcore.sender_id` (pubkey prefix)|
-| `{sender_handle}` | Adapter projection helper (empty for MeshCore sources)                 |
-| `{platform}`      | Source platform name                                                   |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source channel ID                                                      |
-| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
+| Variable          | Source                                                                  |
+| ----------------- | ----------------------------------------------------------------------- |
+| `{sender}`        | Adapter projection helper (empty for MeshCore sources)                  |
+| `{sender_short}`  | Adapter projection helper (empty for MeshCore sources)                  |
+| `{sender_id}`     | `project_meshcore_attribution()` — `meshcore.sender_id` (pubkey prefix) |
+| `{sender_handle}` | Adapter projection helper (empty for MeshCore sources)                  |
+| `{platform}`      | Source platform name                                                    |
+| `{route_id}`      | Matched route identifier                                                |
+| `{channel}`       | Source channel ID                                                       |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)   |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** — they are left unchanged
@@ -372,16 +372,16 @@ default `""`).
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Adapter projection helper (empty for LXMF sources)                     |
-| `{sender_short}`  | Adapter projection helper (empty for LXMF sources)                     |
-| `{sender_id}`     | `project_lxmf_attribution()` — `source_hash`                            |
-| `{sender_handle}` | Adapter projection helper (empty for LXMF sources)                     |
-| `{platform}`      | Source platform name                                                   |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source channel ID (always empty for LXMF)                              |
-| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
+| Variable          | Source                                                                |
+| ----------------- | --------------------------------------------------------------------- |
+| `{sender}`        | Adapter projection helper (empty for LXMF sources)                    |
+| `{sender_short}`  | Adapter projection helper (empty for LXMF sources)                    |
+| `{sender_id}`     | `project_lxmf_attribution()` — `source_hash`                          |
+| `{sender_handle}` | Adapter projection helper (empty for LXMF sources)                    |
+| `{platform}`      | Source platform name                                                  |
+| `{route_id}`      | Matched route identifier                                              |
+| `{channel}`       | Source channel ID (always empty for LXMF)                             |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string) |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
@@ -573,11 +573,11 @@ string), the variable resolves to an empty string.
 
 ### Distinction from Other Labels
 
-| Concept               | Template variable | Source                                                              | Scope                        |
-| --------------------- | ----------------- | ------------------------------------------------------------------- | ---------------------------- |
-| `origin_label`        | `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)| MEDRE-generic operator label |
-| `source_sender_id`    | `{sender_id}`     | Source event native metadata                                        | Per-transport native ID      |
-| `source_sender_label` | `{sender}`        | Source event native metadata                                        | Per-transport display name   |
+| Concept               | Template variable | Source                                                                | Scope                        |
+| --------------------- | ----------------- | --------------------------------------------------------------------- | ---------------------------- |
+| `origin_label`        | `{origin_label}`  | Resolved source label (route/context > adapter config > empty string) | MEDRE-generic operator label |
+| `source_sender_id`    | `{sender_id}`     | Source event native metadata                                          | Per-transport native ID      |
+| `source_sender_label` | `{sender}`        | Source event native metadata                                          | Per-transport display name   |
 
 ---
 
@@ -669,10 +669,21 @@ provides the short label directly.
 
 ### 8. No cross-transport name resolution
 
-There is no mechanism to resolve a human-readable name from a MeshCore
-pubkey prefix or LXMF identity hash into `source_sender_label` or
-`source_sender_short_label` for downstream prefix templates. Node info
-lookup exists only for Meshtastic (via the SDK node database).
+There is no cross-transport mechanism to resolve a human-readable name
+from an opaque identifier. Adapter-local enrichment is per-transport and
+reads only in-memory SDK state:
+
+- Meshtastic resolves `longname`/`shortname` from the SDK node database
+  via `session.get_node_info`.
+- MeshCore resolves a known contact's `adv_name` from the SDK contacts
+  cache via `session.resolve_contact_label`. An unknown sender leaves
+  both label fields empty; the opaque pubkey prefix never becomes a label.
+- LXMF has no active name resolution. A defensive ingress capture reads
+  `message.source_name` (which the current library does not populate);
+  announce-based display-name enrichment is not implemented.
+
+See [Transport-Native Identity Enrichment Audit](transport-native-identity-enrichment-audit.md)
+for the per-transport projection rules and the opacity policy.
 
 ### 9. No per-channel origin labels
 

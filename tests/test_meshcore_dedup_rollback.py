@@ -96,7 +96,7 @@ async def test_simulate_inbound_decode_failure_no_dedup_key(
     # Force decode to raise.
     original_decode = adapter._codec.decode
 
-    def _bad_decode(pkt):
+    def _bad_decode(pkt, **kwargs):
         raise ValueError("simulated decode error")
 
     adapter._codec.decode = _bad_decode  # type: ignore[assignment]
@@ -199,7 +199,7 @@ async def test_on_message_decode_failure_no_dedup_key(
 
     original_decode = adapter._codec.decode
 
-    def _bad_decode(pkt):
+    def _bad_decode(pkt, **kwargs):
         raise ValueError("decode fail in _on_message")
 
     adapter._codec.decode = _bad_decode  # type: ignore[assignment]

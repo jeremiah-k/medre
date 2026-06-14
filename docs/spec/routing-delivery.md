@@ -1355,7 +1355,65 @@ the generic fields. Core renderers and the shared formatter need no changes.
 **Channel-specific labels** (different `origin_label` values per channel
 within a single route) are not implemented. Operators who need per-channel
 labels SHOULD use separate routes per channel, each with its own
-direction-aware `source_origin_label`/`dest_origin_label`.
+direction-aware `source_origin_label`/`dest_origin_label`. This applies
+to routes expanded by `channel_room_map` as well: the shorthand expands
+routing targets, not labels.
+
+### 17.5.9 Generic Sender Identity Semantics
+
+The four generic sender fields on `RelayAttribution` carry
+transport-native sender identity from adapter projection into renderer
+templates. Each adapter owns the native-to-generic mapping; core
+rendering consumes only these generic fields.
+
+| Field                       | Template alias    | Semantics                                                                                                                                                          |
+| --------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `source_sender_id`          | `{sender_id}`     | Stable native sender identifier. MAY be opaque (a hash or pubkey prefix). Always populated when the transport exposes any sender identifier.                       |
+| `source_sender_label`       | `{sender}`        | Best human-readable sender label. MUST be `None` when only an opaque hash or pubkey is known and transport policy says hashes are not labels.                      |
+| `source_sender_short_label` | `{sender_short}`  | Best compact human-readable label. MUST be `None` when no human-readable label is known, unless transport policy explicitly uses a compact native identifier form. |
+| `source_sender_handle`      | `{sender_handle}` | Address or handle form when meaningful (e.g. a Matrix MXID). `None` for transports with no handle concept (Meshtastic, MeshCore, LXMF).                            |
+
+**Opacity rule.** An opaque native identifier (LXMF `source_hash`,
+MeshCore pubkey prefix) MUST NOT be projected into `source_sender_label`
+or `source_sender_short_label`. Transports whose only native identity is
+opaque leave both label fields `None` when no human-readable label is
+captured. Operators who want the opaque identifier in a prefix use
+`{sender_id}`. This keeps `{sender}` from rendering a truncated hash or
+pubkey.
+
+**Observational scope.** Identity enrichment is observational, not
+delivery evidence. It is not authoritative storage state, it MAY be stale
+relative to the source transport, and it is safe to omit entirely. Prefix
+rendering remains correct when all identity labels are empty: the shared
+formatter coalesces `None` to the empty string and never renders the
+literal `"None"`. Identity labels MUST NOT be interpreted as proof of
+delivery, receipt, or provenance; the MEDRE metadata namespace remains
+the authoritative machine-readable provenance source.
+
+Per-transport projection rules are normative in each transport profile:
+[Matrix](transport-profiles/matrix.md),
+[Meshtastic](transport-profiles/meshtastic.md),
+[MeshCore](transport-profiles/meshcore.md), and
+[LXMF](transport-profiles/lxmf.md).
+
+### 17.5.10 Identity Enrichment Diagnostics and Privacy
+
+Identity labels MAY appear in rendered message text and in
+renderer-local metadata (`RenderingResult.metadata`, including the
+normalized `relay_prefix_*` keys). Identity enrichment is observational
+and MUST NOT be treated as delivery evidence or authoritative identity
+verification.
+
+Diagnostics and evidence MUST NOT expose adapter SDK objects. Each
+adapter session keeps SDK object access inside its boundary and returns
+only plain values (`str`, `int`, `bool`, `None`). JSON evidence remains
+stable and safe; identity enrichment adds no SDK objects to evidence.
+
+Secrets MUST NOT appear in diagnostics, evidence, or logs. This includes
+access tokens, private keys, Reticulum identity files, Matrix
+credentials, BLE pairing PINs, session blobs, and unredacted device
+secrets. The policy is enforced by existing adapter patterns and is
+restated here for clarity.
 
 ## 18. Non-Goals
 

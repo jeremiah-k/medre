@@ -143,6 +143,67 @@ confirm remote delivery.
 
 ---
 
+## Sender Identity Projection
+
+The LXMF adapter projects LXMF-native sender identity into the generic
+`RelayAttribution` sender fields (see
+[Routing and Delivery §17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)).
+Projection is owned by `project_lxmf_attribution`; core rendering
+consumes only the generic fields.
+
+At ingress, each message carries a 16-byte `source_hash` (a truncated
+SHA-256 of the sender Reticulum public key, hex-encoded). The message
+hash is content-addressed. The attribution module returns
+`dict[str, str | None]`, matching the Meshtastic and MeshCore pattern.
+
+### Display-Name Capture
+
+The adapter performs a defensive ingress capture of any display name
+attached to the inbound message. `_normalise_inbound_message` reads
+`getattr(message, "source_name", None)` without issuing a network call.
+The current LXMF library does not populate `source_name` on `LXMessage`,
+so this read returns `None` and no display name is captured. When a
+value is present, the codec maps it to `lxmf.display_name` in native
+metadata.
+
+### Projection Rules
+
+| Generic field               | Source                                                                |
+| --------------------------- | --------------------------------------------------------------------- |
+| `source_sender_id`          | `normalize_source_hash(source_hash)` (bytes/str → canonical hex)      |
+| `source_sender_label`       | `lxmf.display_name` only (non-empty; opaque hash never becomes label) |
+| `source_sender_short_label` | `lxmf.short_name`, else compact(`lxmf.display_name`) (space-stripped) |
+| `source_sender_handle`      | Not produced (the Reticulum hash is exposed via `source_sender_id`)   |
+
+When no display name is present, both label fields are `None`. The
+opaque `source_hash` never populates `source_sender_label`, so `{sender}`
+renders empty rather than a truncated hash. Operators who want the hash
+in a prefix use `{sender_id}`. The default `lxmf_relay_prefix` is `""`;
+templates referencing `{sender}` or `{sender_short}` resolve to empty
+strings until a display name is captured.
+
+Per the opacity rule ([§17.5.9](../routing-delivery.md#179-generic-sender-identity-semantics)),
+a Reticulum hash is not a label.
+
+### Announce-Based Enrichment Deferred
+
+LXMF display names live in the sender Identity `announce` `app_data`,
+not in messages. Announce-based display-name enrichment is not
+implemented. A local announce-cache lookup is feasible but is outside
+this implementation scope. The announce loop diagnostics are preserved
+and unaffected. The defensive `source_name` capture keeps the ingress
+path ready for a library version or announce-cache layer that populates
+the attribute.
+
+Identity labels may appear in rendered messages and renderer-local
+metadata; enrichment is observational and is not delivery evidence.
+Diagnostics expose no secrets (no identity material, no private keys, no
+raw RNS or LXMF objects). See
+[Routing and Delivery §17.5.10](../routing-delivery.md#17510-identity-enrichment-diagnostics-and-privacy)
+for the cross-transport policy.
+
+---
+
 ## Native Reference Format
 
 - **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=None, native_message_id=<str(message_hash_hex)>)`
