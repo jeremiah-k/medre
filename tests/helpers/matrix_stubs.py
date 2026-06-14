@@ -14,9 +14,10 @@ from dataclasses import dataclass
 class StubMeshtasticConfig:
     """Minimal duck-typed MeshtasticConfig for source-config resolution.
 
-    NOTE: ``meshnet_name`` is vestigial -- the renderer no longer uses it as a
-    template variable, but the field is kept here because some tests still
-    reference it via attribute access.
+    NOTE: ``meshnet_name`` is retained for mmrelay KEY_MESHNET wire-compat
+    testing only -- legacy mmrelay-compatible sources still populate it so the
+    renderer can emit the ``{meshnet_name}`` template variable for wire
+    compatibility.  It MUST NOT be passed by non-mmrelay call sites.
     """
 
     adapter_id: str = "mesh-1"
@@ -30,7 +31,6 @@ class StubSourceAttribution:
 
     adapter_id: str = ""
     origin_label: str = ""
-    meshnet_name: str = ""
 
 
 @dataclass(slots=True)

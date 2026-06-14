@@ -836,6 +836,7 @@ class TestMMRelayReactionBodyFormat:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
+                    # mmrelay KEY_MESHNET wire compat
                     meshnet_name="mynet",
                 ),
             },
@@ -1117,6 +1118,7 @@ class TestReactionMetadataCompleteness:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
+                    # mmrelay KEY_MESHNET wire compat
                     meshnet_name="testnet",
                 ),
             },

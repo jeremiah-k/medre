@@ -771,6 +771,7 @@ class TestMeshtasticToMatrixReactionResolution:
                     _RADIO: _StubMeshtasticConfig(
                         adapter_id=_RADIO,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name="testnet",
                     ),
                 },

@@ -300,6 +300,7 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
                     _RADIO_ALPHA: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name=_MESHNET,
                     ),
                 },
@@ -628,6 +629,7 @@ class TestMultiRadioReactionRoundtrip:
                     _RADIO_ALPHA: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name=_MESHNET,
                     ),
                 },
@@ -923,6 +925,7 @@ class TestMissingNativeRefFallbackRoundtrip:
                     _RADIO_ALPHA: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name=_MESHNET,
                     ),
                 },

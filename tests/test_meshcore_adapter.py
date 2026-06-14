@@ -44,8 +44,7 @@ def _make_rendering_result(
         event_id=event_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        payload=payload
-        or {"text": "hello meshcore", "channel_index": 0, "meshnet_name": ""},
+        payload=payload or {"text": "hello meshcore", "channel_index": 0},
     )
 
 
@@ -360,7 +359,6 @@ class TestFakeMeshCoreAdapterDeliver:
             payload={
                 "text": "original",
                 "channel_index": 0,
-                "meshnet_name": "",
             }
         )
         await adapter.deliver(result)
@@ -647,7 +645,7 @@ class TestChannelVsDMSend:
         """Channel delivery populates native_channel_id."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result(
-            payload={"text": "channel msg", "channel_index": 3, "meshnet_name": ""},
+            payload={"text": "channel msg", "channel_index": 3},
         )
         delivery = await adapter.deliver(result)
         assert delivery is not None
@@ -657,7 +655,7 @@ class TestChannelVsDMSend:
         """Channel send is recorded in the fake client."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result(
-            payload={"text": "chan hello", "channel_index": 5, "meshnet_name": ""},
+            payload={"text": "chan hello", "channel_index": 5},
         )
         await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 1
@@ -671,7 +669,6 @@ class TestChannelVsDMSend:
             payload={
                 "text": "dm hello",
                 "channel_index": 0,
-                "meshnet_name": "",
                 "dest_id": "abcdef12",
             },
         )
@@ -685,7 +682,7 @@ class TestChannelVsDMSend:
         """Delivery without dest_id passes None for dest_id."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result(
-            payload={"text": "broadcast", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "broadcast", "channel_index": 0},
         )
         await adapter.deliver(result)
         sent = adapter.fake_client.sent_packets[0]

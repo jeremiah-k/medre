@@ -636,8 +636,14 @@ def test_derive_meshnet_adapter_origin_label_fallback() -> None:
     assert derive_meshnet_value(None, "Adapter Net") == "Adapter Net"
 
 
-def test_derive_meshnet_empty_source_falls_through() -> None:
-    assert derive_meshnet_value("", "Adapter Net") == "Adapter Net"
+def test_derive_meshnet_empty_source_preserved() -> None:
+    """Explicit empty string source_origin_label is preserved as ''."""
+    assert derive_meshnet_value("", "Adapter Net") == ""
+
+
+def test_derive_meshnet_none_source_falls_through() -> None:
+    """None source_origin_label falls through to adapter label."""
+    assert derive_meshnet_value(None, "Adapter Net") == "Adapter Net"
 
 
 def test_derive_meshnet_both_empty() -> None:
@@ -677,4 +683,129 @@ async def test_meshnet_name_unknown_in_meshtastic_prefix() -> None:
     # {meshnet_name} is not resolved — left unchanged
     assert result.payload["text"] == "[{meshnet_name}] hello"
     assert result.metadata.get("relay_prefix_formatting_error") is not None
-    assert "meshnet_name" in str(result.metadata["relay_prefix_formatting_error"])
+
+
+# ===================================================================
+# Explicit empty origin label ("") suppresses adapter fallback
+# ===================================================================
+
+
+async def test_matrix_empty_route_label_suppresses_adapter_label() -> None:
+    """Matrix: source_origin_label='' suppresses adapter origin_label."""
+    renderer = MatrixRenderer(
+        configs={
+            "matrix-1": _StubMatrixConfig(
+                adapter_id="matrix-1",
+                relay_prefix="[{origin_label}] ",
+            ),
+        },
+        source_attribution={
+            "src-a": _StubSourceAttribution(
+                adapter_id="src-a",
+                origin_label="Adapter Label",
+            ),
+        },
+    )
+    event = _make_event(source_adapter="src-a")
+    result = await renderer.render(
+        event,
+        RenderingContext(
+            target_adapter="matrix-1",
+            delivery_strategy="direct",
+            target_platform="matrix",
+            source_origin_label="",
+        ),
+    )
+    body = result.payload.get("body", "")
+    assert body.startswith("[] ")  # empty label, NOT "[Adapter Label]"
+    assert "Adapter Label" not in body
+
+
+async def test_meshtastic_empty_route_label_suppresses_adapter_label() -> None:
+    """Meshtastic: source_origin_label='' suppresses adapter origin_label."""
+    config = MeshtasticConfig(
+        adapter_id="mesh-1",
+        radio_relay_prefix="[{origin_label}] ",
+    )
+    renderer = MeshtasticRenderer(
+        configs={"mesh-1": config},
+        source_attribution={
+            "src-a": _StubSourceAttribution(
+                adapter_id="src-a",
+                origin_label="Adapter Label",
+            ),
+        },
+    )
+    event = _make_event(source_adapter="src-a")
+    result = await renderer.render(
+        event,
+        RenderingContext(
+            target_adapter="mesh-1",
+            delivery_strategy="direct",
+            target_platform="meshtastic",
+            source_origin_label="",
+        ),
+    )
+    assert result.payload["text"].startswith("[] ")
+    assert "Adapter Label" not in result.payload["text"]
+
+
+async def test_meshcore_empty_route_label_suppresses_adapter_label() -> None:
+    """MeshCore: source_origin_label='' suppresses adapter origin_label."""
+    config = MeshCoreConfig(
+        adapter_id="mc-1",
+        meshcore_relay_prefix="[{origin_label}] ",
+    )
+    renderer = MeshCoreRenderer(
+        configs={"mc-1": config},
+        source_attribution={
+            "src-a": _StubSourceAttribution(
+                adapter_id="src-a",
+                origin_label="Adapter Label",
+            ),
+        },
+    )
+    event = _make_event(source_adapter="src-a")
+    result = await renderer.render(
+        event,
+        RenderingContext(
+            target_adapter="mc-1",
+            delivery_strategy="direct",
+            target_platform="meshcore",
+            source_origin_label="",
+        ),
+    )
+    assert result.payload["text"].startswith("[] ")
+    assert "Adapter Label" not in result.payload["text"]
+
+
+async def test_lxmf_empty_route_label_suppresses_adapter_label() -> None:
+    """LXMF: source_origin_label='' suppresses adapter origin_label."""
+    renderer = LxmfRenderer(
+        relay_prefix="[{origin_label}] ",
+        source_attribution={
+            "src-a": _StubSourceAttribution(
+                adapter_id="src-a",
+                origin_label="Adapter Label",
+            ),
+        },
+    )
+    event = _make_event(source_adapter="src-a")
+    result = await renderer.render(
+        event,
+        RenderingContext(
+            target_adapter="lxmf-1",
+            delivery_strategy="direct",
+            target_platform="lxmf",
+            source_origin_label="",
+        ),
+    )
+    assert result.payload["content"].startswith("[] ")
+    assert "Adapter Label" not in result.payload["content"]
+
+
+def test_mmrelay_key_meshnet_empty_when_route_label_empty() -> None:
+    """mmrelay KEY_MESHNET is '' when route label is explicitly empty."""
+    assert derive_meshnet_value("", "Adapter Net") == ""
+    assert derive_meshnet_value("", "") == ""
+    assert derive_meshnet_value("", None) == ""

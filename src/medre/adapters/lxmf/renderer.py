@@ -321,24 +321,28 @@ class LxmfRenderer:
             Attribution snapshot with origin_label populated from the
             highest-precedence source.
         """
+        # Resolve source_info once for both origin_label and platform_hint.
+        source_info = self._source_attribution.get(event.source_adapter)
+
         # Resolve origin_label precedence: ctx > registry > None.
+        # Use 'is not None' to preserve explicit empty string labels.
         source_origin_label: str | None = None
-        if ctx is not None and ctx.source_origin_label:
+        if ctx is not None and ctx.source_origin_label is not None:
             source_origin_label = ctx.source_origin_label
-        else:
-            source_info = self._source_attribution.get(event.source_adapter)
-            if source_info is not None:
-                source_origin_label = getattr(source_info, "origin_label", None)
+        elif source_info is not None:
+            source_origin_label = getattr(source_info, "origin_label", None)
 
         # Project source identity from native metadata via dispatch.
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
+        platform_hint = getattr(source_info, "platform", None) if source_info else None
         projected = project_source_fields(
             native_data,
             source_adapter=event.source_adapter,
             source_transport_id=event.source_transport_id,
+            platform_hint=platform_hint,
         )
 
         attr = build_relay_attribution(

@@ -900,7 +900,7 @@ class LxmfSession:
 
         try:
             # 1. Initialise Reticulum — handle singleton constraint.
-            #    RNS 1.2.5: Reticulum() raises OSError if already running.
+            #    Reticulum() raises OSError if already running (singleton constraint).
             #    Use get_instance() to reuse an existing instance.
             existing = RNS.Reticulum.get_instance()
             if existing is not None:

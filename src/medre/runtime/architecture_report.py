@@ -423,6 +423,11 @@ def _transport_for(module: str) -> str | None:
 
     Fake transports like ``medre.adapters.fakes.lxmf`` are normalised
     to their canonical transport name (``lxmf``).
+
+    Underscore-prefixed modules (e.g. ``medre.adapters._attribution_dispatch``)
+    are treated as **shared infrastructure**, not a transport namespace.
+    They return ``None`` so that cross-imports to/from them are not flagged
+    as foreign-transport violations.
     """
     prefix = "medre.adapters."
     if not module.startswith(prefix):
@@ -430,6 +435,9 @@ def _transport_for(module: str) -> str | None:
     rest = module[len(prefix) :]
     parts = rest.split(".")
     transport = parts[0] if parts else None
+    # Shared infrastructure modules (underscore-prefixed) are not transports.
+    if transport and transport.startswith("_"):
+        return None
     # New package layout: medre.adapters.fakes.<transport>
     if transport == "fakes" and len(parts) >= 2:
         return parts[1]

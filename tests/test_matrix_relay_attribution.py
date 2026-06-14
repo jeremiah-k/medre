@@ -95,11 +95,9 @@ class _StubMeshCoreConfig:
     def __init__(
         self,
         adapter_id: str = "meshcore-1",
-        meshnet_name: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
         self.mmrelay_compatibility = mmrelay_compatibility
 
 
@@ -113,11 +111,9 @@ class _StubLXMFConfig:
     def __init__(
         self,
         adapter_id: str = "lxmf-1",
-        meshnet_name: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
         self.mmrelay_compatibility = mmrelay_compatibility
 
 
@@ -831,7 +827,6 @@ class TestMatrixTargetLocalPrefix:
                 "radio-alpha": _StubSourceAttribution(
                     adapter_id="radio-alpha",
                     origin_label="West Net",
-                    meshnet_name="WestMesh",
                 ),
             },
             configs={

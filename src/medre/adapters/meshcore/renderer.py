@@ -216,9 +216,10 @@ class MeshCoreRenderer:
         if prefix_template:
             # Resolve origin_label precedence:
             # ctx.source_origin_label (route/context) > adapter registry > None.
+            # Use 'is not None' to preserve explicit empty string labels.
+            src_attr_cfg = self._source_attribution.get(event.source_adapter)
             source_origin_label: str | None = ctx.source_origin_label
-            if not source_origin_label:
-                src_attr_cfg = self._source_attribution.get(event.source_adapter)
+            if source_origin_label is None:
                 if src_attr_cfg is not None:
                     source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
@@ -227,10 +228,14 @@ class MeshCoreRenderer:
             if event.metadata and event.metadata.native:
                 native_data = dict(event.metadata.native.data)
 
+            platform_hint = (
+                getattr(src_attr_cfg, "platform", None) if src_attr_cfg else None
+            )
             projected = project_source_fields(
                 native_data,
                 source_adapter=event.source_adapter,
                 source_transport_id=event.source_transport_id,
+                platform_hint=platform_hint,
             )
 
             attr = build_relay_attribution(

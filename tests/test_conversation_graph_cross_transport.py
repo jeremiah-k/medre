@@ -309,6 +309,7 @@ class TestReplyMatrixToMeshtastic:
                     RADIO: _StubMeshtasticConfig(
                         adapter_id=RADIO,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name="testnet",
                     ),
                 },
@@ -436,7 +437,6 @@ class TestReplyMeshtasticToMatrix:
                 source_configs={
                     RADIO: _StubMeshtasticConfig(
                         adapter_id=RADIO,
-                        meshnet_name="testnet",
                     ),
                 },
             ),
@@ -876,11 +876,9 @@ class TestMultipleNativeRefsTargetSelection:
                 source_configs={
                     ALPHA: _StubMeshtasticConfig(
                         adapter_id=ALPHA,
-                        meshnet_name="testnet",
                     ),
                     BRAVO: _StubMeshtasticConfig(
                         adapter_id=BRAVO,
-                        meshnet_name="testnet",
                     ),
                 },
             ),

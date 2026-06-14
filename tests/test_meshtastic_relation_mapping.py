@@ -362,6 +362,7 @@ class TestMeshtasticToMatrixReplyResolution:
                     _RADIO_ADAPTER: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name=_MESHNET_NAME,
                     ),
                 },
@@ -476,6 +477,7 @@ class TestMeshtasticToMatrixReplyResolution:
                     _RADIO_ADAPTER: _StubMeshtasticConfig(
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name=_MESHNET_NAME,
                     ),
                 },

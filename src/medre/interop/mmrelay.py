@@ -31,14 +31,21 @@ def derive_meshnet_value(
     """Derive the value for ``KEY_MESHNET`` from generic origin labels.
 
     Resolution precedence:
-    1. *source_origin_label* (route/context level) when non-empty.
-    2. *adapter_origin_label* (source-attribution registry) when non-empty.
+
+    1. *source_origin_label* (route/context level) when **not** ``None``.
+       An explicit empty string (``""``) is preserved — it means
+       "intentionally blank/suppress label".
+    2. *adapter_origin_label* (source-attribution registry) when **not**
+       ``None``.
     3. Empty string (neutral default).
+
+    ``None`` means "unset"; ``""`` means "explicitly empty".
 
     Parameters
     ----------
     source_origin_label:
-        Route/context origin label (highest precedence).
+        Route/context origin label (highest precedence).  ``""`` is
+        treated as explicitly empty, not as unset.
     adapter_origin_label:
         Adapter-level origin label from the source_attribution registry.
 
@@ -47,8 +54,8 @@ def derive_meshnet_value(
     str
         The string value to assign to ``KEY_MESHNET``.
     """
-    if source_origin_label:
+    if source_origin_label is not None:
         return source_origin_label
-    if adapter_origin_label:
+    if adapter_origin_label is not None:
         return adapter_origin_label
     return ""

@@ -232,8 +232,9 @@ class MeshtasticRenderer:
         # When the caller provides source_origin_label (non-None), it
         # already reflects: ctx.source_origin_label > registry > None.
         # Fall back to registry only when the caller did not resolve.
+        # Use 'is not None' to preserve explicit empty string labels.
+        src_attr_cfg = self._source_attribution.get(event.source_adapter)
         if source_origin_label is None:
-            src_attr_cfg = self._source_attribution.get(event.source_adapter)
             if src_attr_cfg is not None:
                 source_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
@@ -242,10 +243,14 @@ class MeshtasticRenderer:
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
+        platform_hint = (
+            getattr(src_attr_cfg, "platform", None) if src_attr_cfg else None
+        )
         projected = project_source_fields(
             native_data,
             source_adapter=event.source_adapter,
             source_transport_id=event.source_transport_id,
+            platform_hint=platform_hint,
         )
 
         # Meshtastic-specific: fallback sender_id to source_transport_id.
@@ -387,8 +392,9 @@ class MeshtasticRenderer:
         # ctx.source_origin_label (route/context) > source_attribution registry > None.
         # NOTE: The target adapter config's origin_label is intentionally NOT used
         # as a fallback — origin_label describes the message SOURCE, not the target.
+        # Use 'is not None' to preserve explicit empty string labels.
         effective_origin_label: str | None = ctx.source_origin_label
-        if not effective_origin_label:
+        if effective_origin_label is None:
             src_attr_cfg = self._source_attribution.get(event.source_adapter)
             if src_attr_cfg is not None:
                 effective_origin_label = getattr(src_attr_cfg, "origin_label", None)

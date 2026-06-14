@@ -63,7 +63,7 @@ python -c "import RNS; print(RNS.__version__)"
 python -c "import LXMF; print(LXMF.__version__)"
 ```
 
-Confirmed versions: lxmf 0.9.7 + rns 1.2.5.
+Confirmed: lxmf and rns SDK versions present and importable.
 
 ## Wrapper Callback Bridge Evidence
 

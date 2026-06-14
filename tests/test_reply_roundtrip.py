@@ -256,6 +256,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
                     RADIO: _StubMeshtasticConfig(
                         adapter_id=RADIO,
                         mmrelay_compatibility=True,
+                        # mmrelay KEY_MESHNET wire compat
                         meshnet_name="testnet",
                     ),
                 },
@@ -403,7 +404,6 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
                 source_configs={
                     RADIO: _StubMeshtasticConfig(
                         adapter_id=RADIO,
-                        meshnet_name="testnet",
                     ),
                 },
             ),
@@ -538,7 +538,6 @@ class TestMultiRadioCrossTargetFallback:
                 source_configs={
                     ALPHA: _StubMeshtasticConfig(
                         adapter_id=ALPHA,
-                        meshnet_name="testnet",
                     ),
                 },
             ),

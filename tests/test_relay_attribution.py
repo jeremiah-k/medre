@@ -652,3 +652,102 @@ def test_canonical_source_origin_label_direct() -> None:
     result = format_relay_prefix("{source_origin_label}", attr)
     assert result.rendered_prefix == "Direct Label"
     assert "source_origin_label" in result.variables_used
+
+
+# ===================================================================
+# platform_hint in dispatch (project_source_fields)
+# ===================================================================
+
+
+def test_platform_hint_matrix_overrides_adapter_id() -> None:
+    """platform_hint 'matrix' takes precedence over adapter-id heuristic."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"sender": "@user:matrix.org", "event_id": "$123:matrix.org"},
+        source_adapter="base",
+        platform_hint="matrix",
+    )
+    assert fields["source_platform"] == "matrix"
+
+
+def test_platform_hint_meshtastic_overrides_adapter_id() -> None:
+    """platform_hint 'meshtastic' takes precedence over adapter-id heuristic."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"longname": "Radio Op", "shortname": "RO", "from_id": "!aabbcc"},
+        source_adapter="radio-a",
+        platform_hint="meshtastic",
+    )
+    assert fields["source_platform"] == "meshtastic"
+
+
+def test_platform_hint_meshcore_overrides_adapter_id() -> None:
+    """platform_hint 'meshcore' takes precedence over adapter-id heuristic."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"meshcore.pubkey_prefix": "abc123"},
+        source_adapter="public",
+        platform_hint="meshcore",
+    )
+    assert fields["source_platform"] == "meshcore"
+
+
+def test_platform_hint_lxmf_overrides_adapter_id() -> None:
+    """platform_hint 'lxmf' takes precedence over adapter-id heuristic."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"source_hash": "deadbeef"},
+        source_adapter="mailbox",
+        platform_hint="lxmf",
+    )
+    assert fields["source_platform"] == "lxmf"
+
+
+def test_platform_hint_wins_over_native_keys() -> None:
+    """platform_hint wins even when native keys suggest a different platform."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    # Native keys look like Meshtastic, but platform_hint says matrix.
+    fields = project_source_fields(
+        {"longname": "Op", "from_id": "!1234"},
+        source_adapter="generic-adapter",
+        platform_hint="matrix",
+    )
+    assert fields["source_platform"] == "matrix"
+
+
+def test_native_key_fallback_without_platform_hint() -> None:
+    """Without platform_hint, native key shape determines platform."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"longname": "Op", "shortname": "OP", "from_id": "!1234"},
+        source_adapter="some-adapter",
+    )
+    assert fields["source_platform"] == "meshtastic"
+
+
+def test_adapter_id_heuristic_without_platform_hint() -> None:
+    """Without platform_hint, adapter-id substring determines platform."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {},
+        source_adapter="meshtastic-radio-a",
+    )
+    assert fields["source_platform"] == "meshtastic"
+
+
+def test_no_platform_detected_with_sparse_data() -> None:
+    """No platform_hint and no recognisable keys → source_platform is None."""
+    from medre.adapters._attribution_dispatch import project_source_fields
+
+    fields = project_source_fields(
+        {"unknown_key": "value"},
+        source_adapter="generic",
+    )
+    assert fields["source_platform"] is None

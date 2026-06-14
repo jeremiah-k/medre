@@ -18,10 +18,12 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 __all__ = [
     "MatrixSenderFields",
     "extract_mxid_localpart",
+    "project_matrix_attribution",
     "project_matrix_sender",
 ]
 
@@ -165,3 +167,62 @@ def project_matrix_sender(
         sender_label=label,
         sender_short_label=localpart or None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Native-data projection (dispatch-oriented)
+# ---------------------------------------------------------------------------
+
+
+def _str(value: Any) -> str | None:
+    """Coerce *value* to ``str`` or return ``None`` for missing/empty."""
+    if value is None:
+        return None
+    s = str(value)
+    return s if s else None
+
+
+def project_matrix_attribution(
+    native_data: dict[str, Any],
+) -> dict[str, str | None]:
+    """Project Matrix-native metadata dict into generic attribution fields.
+
+    This is the dispatch-oriented entry point that extracts sender identity
+    from a raw native-metadata dict (as produced by the codec pipeline).
+    It complements :func:`project_matrix_sender` which accepts pre-split
+    mxid/displayname arguments.
+
+    Extracted fields:
+
+    * ``source_sender_id`` ← ``native_data["sender"]`` (full MXID).
+    * ``source_sender_label`` ← ``native_data["displayname"]`` or
+      ``native_data["display_name"]`` (display name only; no localpart
+      fallback).
+    * ``source_sender_short_label`` ← MXID localpart (when sender is
+      available), else ``None``.
+    * ``source_sender_handle`` ← full MXID (same as sender_id).
+
+    Parameters
+    ----------
+    native_data:
+        Raw Matrix native metadata dict.  Missing keys are treated as
+        absent (not an error).
+
+    Returns
+    -------
+    dict[str, str | None]
+        Generic attribution fields keyed by ``RelayAttribution`` canonical
+        names.  Fields are ``None`` when no value could be resolved.
+    """
+    sender_str = _str(native_data.get("sender"))
+    display_name = native_data.get("displayname") or native_data.get("display_name")
+    display_str = _str(display_name)
+    short_label: str | None = None
+    if sender_str:
+        short_label = extract_mxid_localpart(sender_str)
+    return {
+        "source_sender_id": sender_str,
+        "source_sender_label": display_str,
+        "source_sender_short_label": short_label,
+        "source_sender_handle": sender_str,
+    }

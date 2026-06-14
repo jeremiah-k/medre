@@ -39,6 +39,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
+    "apply_flat_key_fallback",
     "project_meshtastic_attribution",
 ]
 
@@ -51,6 +52,7 @@ def project_meshtastic_attribution(
     *,
     source_transport_id: str | None = None,
     compact: bool = False,
+    with_fallback: bool = True,
 ) -> ProjectionMap:
     """Project Meshtastic-native fields into generic attribution fields.
 
@@ -63,11 +65,33 @@ def project_meshtastic_attribution(
     source_transport_id:
         Fallback sender identifier (typically from
         ``event.source_transport_id``).  Used when ``from_id`` is not
-        present in *native_data*.
+        present in *native_data*.  Only used when *with_fallback* is
+        ``True``.
     compact:
         When ``True``, strip spaces from display-name tokens in the
         projected labels.  This supports the Meshtastic renderer's
         compact-prefix mode for cross-platform reaction text.
+    with_fallback:
+        When ``True`` (default), use full fallback chains for sender
+        identity:
+
+        * ``sender_id`` ← ``from_id`` → ``source_transport_id``.
+        * ``sender_label`` ← ``longname`` → ``shortname`` →
+          ``sender_id``.
+        * ``sender_short_label`` ← ``shortname`` → compact
+          ``longname`` → compact ``sender_id``.
+
+        When ``False``, each field uses only its primary native key
+        with no fallback chain:
+
+        * ``sender_id`` ← ``from_id`` only.
+        * ``sender_label`` ← ``longname`` only.
+        * ``sender_short_label`` ← ``shortname`` only.
+
+        The ``False`` mode is used by the attribution dispatch for
+        simple field extraction; callers that need richer identity
+        resolution (e.g. the Meshtastic renderer) apply their own
+        fallbacks after the dispatch returns.
 
     Returns
     -------
@@ -76,13 +100,20 @@ def project_meshtastic_attribution(
         ``source_sender_label``, ``source_sender_short_label``.
         Fields are ``None`` when no value could be resolved.
     """
-    # --- sender_id ---------------------------------------------------
     from_id = _str(native_data.get("from_id"))
-    sender_id: str | None = from_id or source_transport_id
-
-    # --- Native label candidates (raw, no compact yet) ---------------
     longname = _str(native_data.get("longname"))
     shortname = _str(native_data.get("shortname"))
+
+    if not with_fallback:
+        # Simple extraction — each field from its primary key only.
+        return {
+            "source_sender_id": from_id,
+            "source_sender_label": longname,
+            "source_sender_short_label": shortname,
+        }
+
+    # --- Full fallback chains ---------------------------------------
+    sender_id: str | None = from_id or source_transport_id
 
     # --- sender_label: longname > shortname > sender_id --------------
     sender_label: str | None = longname or shortname or sender_id
@@ -122,3 +153,51 @@ def _compact(value: str | None) -> str | None:
     if value is None:
         return None
     return value.replace(" ", "") or None
+
+
+# ---------------------------------------------------------------------------
+# Flat-key fallback (cross-platform enrichment)
+# ---------------------------------------------------------------------------
+
+
+def apply_flat_key_fallback(
+    fields: dict[str, str | None],
+    native_data: dict[str, Any],
+) -> None:
+    """Patch empty attribution fields from Meshtastic-style flat keys.
+
+    The codec pipeline may store Meshtastic-style flat keys
+    (``longname``, ``shortname``, ``from_id``) in *native_data*
+    regardless of source platform.  This function patches any sender
+    fields in *fields* that are still empty (``None`` or falsy) from
+    those keys.
+
+    Modifies *fields* in place.  This is a cross-platform enrichment
+    step applied after platform-specific projection.
+
+    Parameters
+    ----------
+    fields:
+        Generic attribution fields dict (mutated in place).  Keys are
+        ``RelayAttribution`` canonical names like ``source_sender_label``.
+    native_data:
+        Raw native metadata dict that may carry Meshtastic-style flat
+        keys.
+    """
+    if not fields.get("source_sender_label"):
+        ln = native_data.get("longname")
+        if ln is not None:
+            ln_str = str(ln)
+            fields["source_sender_label"] = ln_str if ln_str else None
+
+    if not fields.get("source_sender_short_label"):
+        sn = native_data.get("shortname")
+        if sn is not None:
+            sn_str = str(sn)
+            fields["source_sender_short_label"] = sn_str if sn_str else None
+
+    if not fields.get("source_sender_id"):
+        fid = native_data.get("from_id")
+        if fid is not None:
+            fid_str = str(fid)
+            fields["source_sender_id"] = fid_str if fid_str else None

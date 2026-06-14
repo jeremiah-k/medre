@@ -186,7 +186,7 @@ def project_lxmf_attribution(native_data: dict[str, Any]) -> LxmfAttribution:
     Parameters
     ----------
     native_data:
-        Native metadata dict from LXMF codec output.
+        Native metadata dict produced by the LXMF codec.
 
     Returns
     -------

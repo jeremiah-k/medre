@@ -483,6 +483,7 @@ class TestMultiRadioSourceConfig:
     def _source_configs() -> dict[str, _StubMeshtasticConfig]:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
+            # mmrelay KEY_MESHNET wire compat
             meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )
@@ -705,6 +706,7 @@ class TestRuntimeAssemblySourceConfig:
     def _source_configs() -> dict[str, _StubMeshtasticConfig]:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
+            # mmrelay KEY_MESHNET wire compat
             meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )

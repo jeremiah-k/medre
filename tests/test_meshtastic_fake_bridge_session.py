@@ -229,7 +229,7 @@ class TestMeshtasticSendOneBridge:
             event_id="evt-sendone",
             target_adapter="sendone-mesh",
             target_channel="0",
-            payload={"text": "send one test", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "send one test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
         assert delivery is not None
@@ -259,7 +259,7 @@ class TestMeshtasticSendOneBridge:
             event_id="evt-no-client",
             target_adapter="sendone-noclient",
             target_channel="0",
-            payload={"text": "no client", "channel_index": 0, "meshnet_name": ""},
+            payload={"text": "no client", "channel_index": 0},
         )
         await adapter.deliver(result)
         assert adapter.queue.pending_count == 1

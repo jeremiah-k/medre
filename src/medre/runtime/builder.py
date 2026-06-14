@@ -398,8 +398,10 @@ def _register_adapter_renderers(
             elif class_name == "MatrixRenderer":
                 # MatrixRenderer uses target-local MatrixConfig.relay_prefix
                 # for relay prefix resolution.  Register when Matrix configs
-                # or Meshtastic source configs are available.
-                if not _matrix_configs and not meshtastic_configs:
+                # exist.  Meshtastic configs are passed as source_configs
+                # for mmrelay wire compatibility only — they do not trigger
+                # registration.
+                if not _matrix_configs:
                     continue
                 pipeline.register(
                     renderer_cls(

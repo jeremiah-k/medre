@@ -1274,7 +1274,6 @@ class _StubSourceAttribution:
 
     adapter_id: str = ""
     origin_label: str = ""
-    meshnet_name: str = ""
 
 
 class TestMeshCoreSourceOriginLabel:
