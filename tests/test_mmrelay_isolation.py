@@ -288,8 +288,8 @@ async def test_displayname_does_not_populate_names_inject_path() -> None:
     assert result.payload[KEY_LONGNAME] == ""
     assert result.payload[KEY_SHORTNAME] == ""
     # displayname must not leak into any other mmrelay wire field either.
-    assert "Alice Display" not in result.payload.get(KEY_LONGNAME, "")
-    assert "Alice Display" not in result.payload.get(KEY_SHORTNAME, "")
+    assert "Alice Display" not in str(result.payload[KEY_LONGNAME])
+    assert "Alice Display" not in str(result.payload[KEY_SHORTNAME])
 
 
 async def test_displayname_does_not_populate_names_reaction_path() -> None:
