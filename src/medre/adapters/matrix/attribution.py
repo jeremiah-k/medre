@@ -121,6 +121,18 @@ def project_matrix_sender(
 ) -> MatrixSenderFields:
     """Project Matrix sender metadata into generic attribution fields.
 
+    .. note::
+
+        This is a utility/test variant. Its ``sender_label`` fallback
+        chain (``displayname`` → MXID localpart → full MXID) **differs**
+        from :func:`project_matrix_attribution`, the dispatch entry
+        point, which is display-name-only and applies no fallback. The
+        live rendering path uses ``project_matrix_attribution``; the MXID
+        value that ``{sender}`` exhibits in live rendering when no
+        member display name exists is produced by adapter-level
+        enrichment of the ``displayname`` key, not by this function's
+        fallback chain.
+
     Parameters
     ----------
     mxid:

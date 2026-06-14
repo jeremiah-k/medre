@@ -85,10 +85,17 @@ profile changes on the homeserver.
 | `source_sender_short_label` | MXID localpart via `extract_mxid_localpart` (empty when absent)            |
 
 The dispatch projection populates `source_sender_label` from the display
-name only. An empty or absent display name leaves `source_sender_label`
-as `None`; the localpart is never substituted into the label. The
-adapter-level displayname fallback (MXID-as-displayname) affects live
-rendering enrichment, not the dispatch projection rules.
+name only and applies no localpart or MXID fallback of its own. An
+absent or empty display name leaves `source_sender_label` as `None` at
+the projection boundary. In live rendering, however, the adapter
+enriches the same `displayname` key the projection reads: when no member
+display name is available, the adapter writes the sender MXID into
+`displayname`, so `source_sender_label` carries the MXID rather than
+`None`. This is an intentional adapter-level decision: a Matrix MXID
+(`@user:domain`) is semi-readable, unlike an opaque transport hash, and
+serves as an acceptable last-resort label. Tests that call the
+projection directly with an absent `displayname` observe `None`; tests
+that simulate the adapter-enriched payload observe the MXID.
 
 `extract_mxid_localpart` is deterministic for malformed MXIDs: an empty
 localpart after `@` (e.g. `@:domain`) returns `""` rather than including
@@ -270,6 +277,12 @@ When no display name is present, both label fields are `None`. The
 opaque `source_hash` never populates `source_sender_label`, so `{sender}`
 renders empty rather than a truncated hash. Operators who want the hash
 in a prefix use `{sender_id}`.
+
+`lxmf.short_name` is projected by the attribution module but is not
+populated by the codec: the codec sets only `lxmf.display_name` (from a
+captured `source_name`). `lxmf.short_name` is reserved for future
+announce-based enrichment, so `source_sender_short_label` falls through
+to the compact form of `lxmf.display_name` in practice.
 
 The attribution module returns `dict[str, str | None]`, matching the
 Meshtastic and MeshCore pattern. The older `LxmfAttribution` dataclass

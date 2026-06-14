@@ -193,7 +193,7 @@ def test_contact_label_projects_to_sender_label() -> None:
     assert result["source_sender_id"] == "a1b2c3"
 
 
-def test_contact_label_short_derived_from_compact_label() -> None:
+def test_contact_label_short_derived_from_first_token() -> None:
     """Short label falls back to the first token of the contact label."""
     result = project_meshcore_attribution(
         {
@@ -219,7 +219,7 @@ def test_contact_label_single_word_short_equals_label() -> None:
 
 
 def test_explicit_contact_short_label_preferred() -> None:
-    """An explicit meshcore.contact_short_label wins over compact derivation."""
+    """An explicit meshcore.contact_short_label wins over first-token derivation."""
     result = project_meshcore_attribution(
         {
             "meshcore.pubkey_prefix": "pk",

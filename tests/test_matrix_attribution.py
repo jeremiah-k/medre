@@ -428,3 +428,82 @@ class TestProjectMatrixSenderDirect:
         assert result.sender_handle is None
         assert result.sender_label is None
         assert result.sender_short_label is None
+
+
+# ===================================================================
+# Dispatch: project_source_fields for Matrix native dicts
+# ===================================================================
+
+
+class TestDispatchProjection:
+    """Dispatch-level integration: ``project_source_fields`` detects
+    matrix and delegates to ``project_matrix_attribution``."""
+
+    def test_dispatch_matrix_full_attribution(self) -> None:
+        """``project_source_fields`` detects matrix from the adapter-id
+        heuristic, delegates to ``project_matrix_attribution``, and wires
+        all four sender fields plus ``source_platform``. Parallel to the
+        LXMF, Meshtastic, and MeshCore dispatch tests."""
+        from medre.adapters._attribution_dispatch import project_source_fields
+
+        fields = project_source_fields(
+            {"sender": "@alice:example.com", "displayname": "Alice"},
+            source_adapter="matrix-1",
+        )
+        assert fields["source_platform"] == "matrix"
+        assert fields["source_sender_id"] == "@alice:example.com"
+        assert fields["source_sender_handle"] == "@alice:example.com"
+        assert fields["source_sender_label"] == "Alice"
+        assert fields["source_sender_short_label"] == "alice"
+
+
+# ===================================================================
+# Adapter-enrichment flow edge cases
+# ===================================================================
+
+
+class TestAdapterEnrichmentFlow:
+    """Document how adapter-level ``displayname`` enrichment flows
+    through the projection."""
+
+    def test_mxid_as_displayname_flows_to_sender_label(self) -> None:
+        """When the adapter writes the sender MXID into the
+        ``displayname`` key (its MXID-as-displayname fallback for live
+        rendering), the projection returns that MXID as
+        ``source_sender_label``. This documents the data flow the
+        transport-native-identity-enrichment audit describes: the
+        projection applies no MXID fallback of its own, but it reads
+        whatever the adapter enriched into the ``displayname`` key, so
+        in live rendering ``source_sender_label`` carries the MXID when
+        no member display name exists."""
+        result = project_matrix_attribution(
+            {
+                "sender": "@alice:example.com",
+                "displayname": "@alice:example.com",
+            }
+        )
+        assert result["source_sender_label"] == "@alice:example.com"
+        assert result["source_sender_id"] == "@alice:example.com"
+        assert result["source_sender_handle"] == "@alice:example.com"
+        assert result["source_sender_short_label"] == "alice"
+
+    def test_whitespace_only_displayname_becomes_label(self) -> None:
+        """A whitespace-only displayname (e.g. ``"   "``) is truthy in
+        Python and non-empty after ``str()``, so it flows through as
+        ``source_sender_label`` unchanged. The projection does not strip
+        or reject whitespace-only display names.
+
+        Whether whitespace-only should be treated as absent is a judgment
+        call left to the project. The current behaviour preserves the
+        whitespace string: the ``displayname`` value is truthy under the
+        ``or`` fallback to ``display_name``, and ``_str`` returns it
+        unchanged because the result of ``str(value)`` is non-empty. If
+        the project decides whitespace-only should be treated as absent,
+        the fix belongs in ``_str`` or the projection, not here."""
+        result = project_matrix_attribution(
+            {"sender": "@alice:example.com", "displayname": "   "}
+        )
+        assert result["source_sender_label"] == "   "
+        assert result["source_sender_id"] == "@alice:example.com"
+        assert result["source_sender_handle"] == "@alice:example.com"
+        assert result["source_sender_short_label"] == "alice"

@@ -357,8 +357,8 @@ def test_renderer_sender_id_shows_pubkey_prefix() -> None:
     assert result.rendered_prefix == "deadbeef: "
 
 
-def test_renderer_sender_short_shows_compact_label() -> None:
-    """{sender_short} renders the compact contact label (first token)."""
+def test_renderer_sender_short_shows_first_token() -> None:
+    """{sender_short} renders the first token of the contact label."""
     projected = project_meshcore_attribution(
         {
             "meshcore.pubkey_prefix": "pk",
