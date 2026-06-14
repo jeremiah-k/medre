@@ -440,8 +440,10 @@ async def test_truncation_multibyte_no_codepoint_split() -> None:
     )
     result = await renderer.render(event, _make_render_ctx())
     rendered_text = str(result.payload["text"])
-    # Decoding the truncated text must never raise (no split codepoints).
-    rendered_text.encode("utf-8").decode("utf-8")
+    # The rendered text is a valid str whose UTF-8 byte length respects
+    # the 10-byte budget.  Because the renderer's byte-safe truncation
+    # backs up to the last complete codepoint boundary, the output is
+    # valid Unicode and within budget — no split multi-byte sequences.
     assert len(rendered_text.encode("utf-8")) <= 10
 
 
