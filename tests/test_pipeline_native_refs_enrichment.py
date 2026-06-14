@@ -1158,6 +1158,72 @@ class TestSenderInfoEnrichment:
         # sender falls back to source_transport_id
         assert enriched_rel.metadata.get("original_sender") == "node-42"
 
+    async def test_sender_uses_meshtastic_namespaced_longname_when_no_displayname(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """original_sender_displayname falls back to the namespaced
+        'meshtastic.longname' native key when no displayname is present."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-mesh-longname-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-43",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Msg"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={"meshtastic.longname": "AlphaNode"}
+                )
+            ),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-mesh-longname-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-mesh-longname-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-2",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.metadata.get("original_sender_displayname") == "AlphaNode"
+        # sender falls back to source_transport_id
+        assert enriched_rel.metadata.get("original_sender") == "node-43"
+
     async def test_sender_not_overwritten_when_already_present(
         self,
         temp_storage: SQLiteStorage,

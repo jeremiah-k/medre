@@ -231,3 +231,33 @@ events are emitted.
 **Announce-based LXMF display-name enrichment is not implemented**; a
 defensive ingress capture path is in place. Per-channel origin labels
 remain unsupported — operators use separate routes per channel.
+
+---
+
+## Namespace Meshtastic Identity Metadata
+
+Namespace Meshtastic identity keys under `meshtastic.*` so
+transport-specific metadata stays namespaced by transport.
+
+**Changed:**
+
+- `meshtastic.from_id`, `meshtastic.longname`, and
+  `meshtastic.shortname` are now the emitted identity keys.
+- Bare `longname`/`shortname` removed from codec output; projection and
+  renderer read bare `longname`/`shortname` only as legacy input
+  tolerance for stored events and test fixtures produced before
+  namespacing.
+- Bare `from_id` retained for non-identity consumers (`source_native_ref`,
+  relation mapping); non-identity keys (`packet_id`, `channel`, `to_id`,
+  `reply_id`, `emoji`) remain bare.
+- Platform detection tightened: namespaced `meshtastic.*` keys are the
+  primary detection signal; `channel` is excluded from the legacy
+  bare-key set so a sparse dict carrying only `channel` no longer
+  triggers a false Meshtastic detection.
+- `MatrixRenderer._resolve_mmrelay_sender_names` reads
+  `meshtastic.longname`/`meshtastic.shortname` (primary) before mmrelay
+  wire fields and legacy bare keys.
+
+mmrelay wire fields (`meshtastic_longname`, `meshtastic_shortname`,
+`meshtastic_meshnet`) remain separate external wire-format fields and are
+not MEDRE native metadata.

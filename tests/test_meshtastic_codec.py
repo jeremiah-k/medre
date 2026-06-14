@@ -533,6 +533,10 @@ class TestMeshtasticCodecNodeInfo:
         assert event.metadata.native is not None
         assert event.metadata.native.data["meshtastic.longname"] == ""
         assert event.metadata.native.data["meshtastic.shortname"] == ""
+        # Bare identity keys are absent — only namespaced meshtastic.* keys
+        # are emitted.
+        assert "longname" not in event.metadata.native.data
+        assert "shortname" not in event.metadata.native.data
 
     def test_node_info_only_longname(self) -> None:
         """node_info with only longname → shortname is empty."""

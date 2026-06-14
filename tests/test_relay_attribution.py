@@ -899,3 +899,22 @@ def test_namespaced_meshtastic_not_confused_with_matrix() -> None:
     )
     assert platform == "meshtastic"
     assert platform != "matrix"
+
+
+def test_matrix_keys_win_over_legacy_meshtastic_keys() -> None:
+    """When native data has both Matrix-characteristic keys and bare
+    legacy Meshtastic keys, Matrix wins (Matrix is checked before
+    legacy Meshtastic to avoid misdetecting Matrix events that carry
+    Meshtastic-enriched bare keys)."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {
+            "sender": "@alice:example.com",
+            "event_id": "$evt:example.com",
+            "longname": "Alpha",
+            "from_id": "!node",
+        },
+    )
+    assert platform == "matrix"

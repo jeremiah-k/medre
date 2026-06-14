@@ -41,12 +41,12 @@ platform and delegates.
 
 The four generic sender fields audited here:
 
-| Canonical field             | Template alias    | Meaning                                      |
-| --------------------------- | ----------------- | -------------------------------------------- |
-| `source_sender_id`          | `{sender_id}`     | Stable native sender identifier (may opaque) |
-| `source_sender_label`       | `{sender}`        | Best human-readable sender label             |
-| `source_sender_short_label` | `{sender_short}`  | Compact human-readable sender label          |
-| `source_sender_handle`      | `{sender_handle}` | Address/handle form when meaningful          |
+| Canonical field             | Template alias    | Meaning                                         |
+| --------------------------- | ----------------- | ----------------------------------------------- |
+| `source_sender_id`          | `{sender_id}`     | Stable native sender identifier (may be opaque) |
+| `source_sender_label`       | `{sender}`        | Best human-readable sender label                |
+| `source_sender_short_label` | `{sender_short}`  | Compact human-readable sender label             |
+| `source_sender_handle`      | `{sender_handle}` | Address/handle form when meaningful             |
 
 Identity enrichment is **observational**. It is not delivery evidence,
 not authoritative storage state, and may be stale. Prefix rendering
@@ -146,19 +146,35 @@ The enrichment pipeline runs end-to-end at ingress:
 
 1. `adapter._enrich_with_node_info(packet)` calls
    `session.get_node_info(from_id)` and returns `None` on any exception.
-2. `codec.decode(packet, node_info=...)` embeds the bare `longname` and
-   `shortname` keys into native metadata. These are
-   Meshtastic-characteristic keys recognised by the dispatch platform
-   detector.
+2. `codec.decode(packet, node_info=...)` embeds the namespaced identity
+   keys `meshtastic.longname` and `meshtastic.shortname` into native
+   metadata, alongside the namespaced `meshtastic.from_id`. Identity keys
+   live under the `meshtastic.*` namespace so transport-specific metadata
+   stays namespaced by transport. Bare `from_id` is retained for
+   non-identity consumers (source-native-ref and relation mapping); the
+   non-identity keys (`packet_id`, `channel`, `to_id`, `reply_id`,
+   `emoji`, etc.) remain bare. Bare `longname`/`shortname` are no longer
+   emitted and are read only as legacy input tolerance (stored events and
+   test fixtures produced before namespacing). The namespaced
+   `meshtastic.*` keys are the primary detection signal for the dispatch
+   platform detector.
 
 ### Projection (`project_meshtastic_attribution`)
 
-| Generic field               | Source                                                          |
-| --------------------------- | --------------------------------------------------------------- |
-| `source_sender_id`          | `from_id`, falling back to `source_transport_id`                |
-| `source_sender_label`       | `longname` → `shortname` → `source_sender_id`                   |
-| `source_sender_short_label` | `shortname` → compact(`longname`) → compact(`source_sender_id`) |
-| `source_sender_handle`      | Not produced (Meshtastic has no handle/address concept)         |
+Namespaced keys (`meshtastic.from_id`, `meshtastic.longname`,
+`meshtastic.shortname`) are the primary source and the shape emitted by
+the codec. Bare `from_id`/`longname`/`shortname` are accepted as legacy
+input tolerance only (stored events and test fixtures produced before
+namespacing); they are not present in newly produced native metadata.
+Within each fallback chain all namespaced candidates are tried before any
+bare candidate, so the namespaced shape wins when both are present.
+
+| Generic field               | Source                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `source_sender_id`          | `meshtastic.from_id` → bare `from_id` → `source_transport_id`                                                                       |
+| `source_sender_label`       | `meshtastic.longname` → `meshtastic.shortname` → bare `longname` → bare `shortname` → `source_sender_id`                            |
+| `source_sender_short_label` | `meshtastic.shortname` → compact(`meshtastic.longname`) → bare `shortname` → compact(bare `longname`) → compact(`source_sender_id`) |
+| `source_sender_handle`      | Not produced (Meshtastic has no handle/address concept)                                                                             |
 
 "Compact" means `str.replace(" ", "")`. The fallback chains ensure a
 non-empty short label is available whenever any identifying field is
@@ -166,10 +182,11 @@ present.
 
 ### Resolution order
 
-Packet/event names sourced from `node_info` always win over local node
-metadata names, which always win over the bare `sender_id` fallback.
-Text packets source names exclusively from `node_info`; no packet-level
-name field competes.
+Names sourced from `node_info` (projected through the namespaced
+`meshtastic.longname`/`meshtastic.shortname` keys) always win over the
+bare-key legacy fallbacks, which always win over the `source_sender_id`
+fallback. Text packets source names exclusively from `node_info`; no
+packet-level name field competes.
 
 ### What remains opaque (Meshtastic)
 
@@ -373,7 +390,7 @@ the policy.
 | `src/medre/adapters/matrix/adapter.py`     | Room-member display-name enrichment at ingress     |
 | `src/medre/adapters/meshtastic/session.py` | `get_node_info` (SDK `nodes` dict read)            |
 | `src/medre/adapters/meshtastic/adapter.py` | `_enrich_with_node_info` ingress wiring            |
-| `src/medre/adapters/meshtastic/codec.py`   | `decode(node_info=...)` bare-key embedding         |
+| `src/medre/adapters/meshtastic/codec.py`   | `decode(node_info=...)` namespaced-key embedding (`meshtastic.*`) |
 | `src/medre/adapters/meshcore/session.py`   | `resolve_contact_label` (SDK contacts dict lookup) |
 | `src/medre/adapters/meshcore/adapter.py`   | Contact-label resolution at ingress                |
 | `src/medre/adapters/meshcore/codec.py`     | `meshcore.contact_label` native metadata           |

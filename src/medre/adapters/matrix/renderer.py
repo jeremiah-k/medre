@@ -170,13 +170,13 @@ class MatrixRenderer:
            source emitted by the Meshtastic codec.
         2. External mmrelay wire fields (``meshtastic_longname`` /
            ``meshtastic_shortname``) — preserved from external mmrelay
-           Matrix event content captured by the codec.
-        3. mmrelay KEY constants (:data:`KEY_LONGNAME` /
-           :data:`KEY_SHORTNAME`) — wire compatibility constants from
-           :mod:`medre.interop.mmrelay`.
-        4. Legacy bare keys (``longname`` / ``shortname``) — input
+           Matrix event content captured by the codec.  These literal
+           strings are also the values of :data:`KEY_LONGNAME` /
+           :data:`KEY_SHORTNAME`, so a separate KEY-constant lookup
+           would be a redundant no-op.
+        3. Legacy bare keys (``longname`` / ``shortname``) — input
            tolerance only, not current emitted metadata.
-        5. Empty string.
+        4. Empty string.
 
         Matrix ``displayname`` is intentionally **not** used — Matrix
         display names project into generic ``{sender}`` via Matrix
@@ -184,15 +184,16 @@ class MatrixRenderer:
         """
         longname = (
             native_data.get("meshtastic.longname")
+            # == KEY_LONGNAME wire key; a second KEY-constant lookup
+            # would hit the same dict key, so it is folded in here.
             or native_data.get("meshtastic_longname")
-            or native_data.get(KEY_LONGNAME)
             or native_data.get("longname")  # legacy bare-key tolerance
             or ""
         )
         shortname = (
             native_data.get("meshtastic.shortname")
+            # == KEY_SHORTNAME wire key; same as above.
             or native_data.get("meshtastic_shortname")
-            or native_data.get(KEY_SHORTNAME)
             or native_data.get("shortname")  # legacy bare-key tolerance
             or ""
         )
