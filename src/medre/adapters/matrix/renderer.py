@@ -696,8 +696,18 @@ class MatrixRenderer:
                 native_data = dict(event.metadata.native.data)
 
             content[KEY_ID] = str(native_data.get("packet_id", ""))
-            content[KEY_LONGNAME] = str(native_data.get("longname", ""))
-            content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
+            content[KEY_LONGNAME] = str(
+                native_data.get("longname")
+                or native_data.get("displayname")
+                or native_data.get("display_name")
+                or ""
+            )
+            content[KEY_SHORTNAME] = str(
+                native_data.get("shortname")
+                or native_data.get("displayname")
+                or native_data.get("display_name")
+                or ""
+            )
             content[KEY_MESHNET] = self._resolve_mmrelay_meshnet(
                 event,
                 ctx.source_origin_label if ctx is not None else None,
@@ -814,8 +824,18 @@ class MatrixRenderer:
         text = str(event.payload.get("text", event.payload.get("body", "")))
 
         content[KEY_ID] = str(native_data.get("packet_id", ""))
-        content[KEY_LONGNAME] = str(native_data.get("longname", ""))
-        content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
+        content[KEY_LONGNAME] = str(
+            native_data.get("longname")
+            or native_data.get("displayname")
+            or native_data.get("display_name")
+            or ""
+        )
+        content[KEY_SHORTNAME] = str(
+            native_data.get("shortname")
+            or native_data.get("displayname")
+            or native_data.get("display_name")
+            or ""
+        )
         content[KEY_MESHNET] = self._resolve_mmrelay_meshnet(
             event, ctx_source_origin_label
         )

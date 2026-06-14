@@ -165,9 +165,8 @@ def project_source_fields(
     source_adapter:
         Adapter identifier string for platform detection.
     source_transport_id:
-        Transport-level identifier.  Currently unused by the dispatch
-        itself; renderers that need a ``source_transport_id`` fallback
-        for ``sender_id`` apply it after the dispatch returns.
+        Transport-level identifier.  Passed to the Meshtastic projection
+        helper as a ``sender_id`` fallback when ``from_id`` is absent.
     platform_hint:
         Optional explicit platform name from the runtime source
         attribution registry.  Highest priority for platform resolution.
@@ -192,7 +191,7 @@ def project_source_fields(
         fields.update(
             project_meshtastic_attribution(
                 native_data,
-                with_fallback=False,
+                source_transport_id=source_transport_id,
             )
         )
 

@@ -341,7 +341,7 @@ class TestMatrixCoreAttributionIntegration:
     # -- Missing variables: no 'None' in output --
 
     async def test_missing_longname_no_none(self) -> None:
-        """Missing sender renders as empty, never the literal 'None'."""
+        """Missing longname falls back to shortname, never 'None'."""
         renderer = MatrixRenderer(
             configs={
                 "matrix-1": _StubMatrixConfig(
@@ -352,7 +352,9 @@ class TestMatrixCoreAttributionIntegration:
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"shortname": "A"},  # no longname → sender empty
+            native_data={
+                "shortname": "A"
+            },  # no longname → sender falls back to shortname
         )
         result = await renderer.render(
             event,
@@ -360,11 +362,11 @@ class TestMatrixCoreAttributionIntegration:
         )
         body: str = result.payload["body"]
         assert "None" not in body
-        # Prefix with empty longname → "[]: hello mesh"
-        assert body == "[]: hello mesh"
+        # Fallback chain: longname → shortname → sender_id
+        assert body == "[A]: hello mesh"
 
     async def test_missing_shortname_no_none(self) -> None:
-        """Missing sender_short renders as empty, never 'None'."""
+        """Missing shortname falls back to compact longname, never 'None'."""
         renderer = MatrixRenderer(
             configs={
                 "matrix-1": _StubMatrixConfig(
@@ -375,7 +377,9 @@ class TestMatrixCoreAttributionIntegration:
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"longname": "Alice"},  # no shortname → sender_short empty
+            native_data={
+                "longname": "Alice"
+            },  # no shortname → sender_short falls back to compact longname
         )
         result = await renderer.render(
             event,
@@ -383,7 +387,8 @@ class TestMatrixCoreAttributionIntegration:
         )
         body = result.payload["body"]
         assert "None" not in body
-        assert body == "[]: hello mesh"
+        # Fallback chain: shortname → compact longname → compact sender_id
+        assert body == "[Alice]: hello mesh"
 
     async def test_missing_all_vars_no_none(self) -> None:
         """All prefix variables missing: no 'None' anywhere in body."""
@@ -584,7 +589,9 @@ class TestMatrixCoreAttributionIntegration:
         )
         event = _make_meshtastic_event(
             source_adapter="radio-alpha",
-            native_data={"shortname": "A"},  # no longname → sender empty
+            native_data={
+                "shortname": "A"
+            },  # no longname → sender falls back to shortname
             payload={"body": "👍"},
             relations=(relation,),
         )
@@ -594,8 +601,8 @@ class TestMatrixCoreAttributionIntegration:
         )
         body = result.payload["body"]
         assert "None" not in body
-        # Empty sender → "[]" prefix in reaction emote
-        assert "[]" in body
+        # Fallback chain: sender_label = shortname "A"
+        assert "[A]" in body
 
     # -- Meshtastic prefix unchanged (regression guard) --
 

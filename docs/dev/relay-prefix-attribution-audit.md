@@ -607,12 +607,14 @@ variables describe the source, not the target.
 
 ### 4. Matrix display-name enrichment is post-codec
 
-The Matrix adapter enriches `longname`/`shortname` native metadata keys
-from Matrix display names **after** codec decode, in `_on_room_message`.
-These native metadata keys are consumed by the attribution extractor to
-populate `source_sender_label` and `source_sender_short_label`. Code paths
-that use codec output directly (without passing through the adapter) will
-not have display-name attribution.
+The Matrix adapter enriches the `displayname` native metadata key from
+Matrix display names **after** codec decode, in `_on_room_message`.
+This Matrix-native key is consumed by `project_matrix_attribution` to
+populate `source_sender_label` and `source_sender_short_label` (from
+the MXID localpart). The adapter does not fabricate bare Meshtastic-
+shaped `longname`/`shortname` keys. External mmrelay wire fields
+(`meshtastic_longname`, `meshtastic_shortname`) are captured by the
+codec when present in event content.
 
 ### 5. Metadata key namespace inconsistency
 

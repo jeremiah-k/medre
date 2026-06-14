@@ -5,9 +5,10 @@ Projects Meshtastic-specific native fields (``longname``, ``shortname``,
 rendering pipeline.  This keeps the Meshtastic-to-generic mapping in
 adapter code rather than in the platform-neutral core extractors.
 
-The primary consumer is :class:`~medre.adapters.meshtastic.renderer.MeshtasticRenderer`
-which uses this helper for the flat-key fallback and compact-prefix
-behaviour.
+The primary consumer is the attribution dispatch
+(:func:`~medre.adapters._attribution_dispatch.project_source_fields`)
+which delegates to this helper when the source platform is detected as
+Meshtastic.
 
 Generic fields produced
 -----------------------
@@ -51,9 +52,11 @@ def project_meshtastic_attribution(
     *,
     source_transport_id: str | None = None,
     compact: bool = False,
-    with_fallback: bool = True,
 ) -> ProjectionMap:
     """Project Meshtastic-native fields into generic attribution fields.
+
+    Uses full fallback chains to produce the best available generic
+    sender identity from Meshtastic-native keys.
 
     Parameters
     ----------
@@ -64,33 +67,11 @@ def project_meshtastic_attribution(
     source_transport_id:
         Fallback sender identifier (typically from
         ``event.source_transport_id``).  Used when ``from_id`` is not
-        present in *native_data*.  Only used when *with_fallback* is
-        ``True``.
+        present in *native_data*.
     compact:
         When ``True``, strip spaces from display-name tokens in the
         projected labels.  This supports the Meshtastic renderer's
         compact-prefix mode for cross-platform reaction text.
-    with_fallback:
-        When ``True`` (default), use full fallback chains for sender
-        identity:
-
-        * ``sender_id`` ← ``from_id`` → ``source_transport_id``.
-        * ``sender_label`` ← ``longname`` → ``shortname`` →
-          ``sender_id``.
-        * ``sender_short_label`` ← ``shortname`` → compact
-          ``longname`` → compact ``sender_id``.
-
-        When ``False``, each field uses only its primary native key
-        with no fallback chain:
-
-        * ``sender_id`` ← ``from_id`` only.
-        * ``sender_label`` ← ``longname`` only.
-        * ``sender_short_label`` ← ``shortname`` only.
-
-        The ``False`` mode is used by the attribution dispatch for
-        simple field extraction; callers that need richer identity
-        resolution (e.g. the Meshtastic renderer) apply their own
-        fallbacks after the dispatch returns.
 
     Returns
     -------
@@ -103,15 +84,6 @@ def project_meshtastic_attribution(
     longname = _str(native_data.get("longname"))
     shortname = _str(native_data.get("shortname"))
 
-    if not with_fallback:
-        # Simple extraction — each field from its primary key only.
-        return {
-            "source_sender_id": from_id,
-            "source_sender_label": longname,
-            "source_sender_short_label": shortname,
-        }
-
-    # --- Full fallback chains ---------------------------------------
     sender_id: str | None = from_id or source_transport_id
 
     # --- sender_label: longname > shortname > sender_id --------------
