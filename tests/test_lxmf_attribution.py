@@ -267,6 +267,18 @@ def test_dict_display_name_not_coerced() -> None:
     assert fields["source_sender_short_label"] is None
 
 
+def test_list_display_name_not_coerced() -> None:
+    """Non-text display_name (list) is not coerced; label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": ["Alice", "Bob"],
+    }
+    fields = project_lxmf_attribution(native)
+    # Strict label typing: list is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
 def test_bytes_display_name_decoded() -> None:
     """bytes display_name is decoded as UTF-8 to a real label."""
     native = {
@@ -277,6 +289,16 @@ def test_bytes_display_name_decoded() -> None:
     assert fields["source_sender_id"] == "ab"
     assert fields["source_sender_label"] == "Alice"
     assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_bytearray_display_name_decoded() -> None:
+    """bytearray display_name is decoded as UTF-8 to a real label."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": bytearray("Café".encode("utf-8")),
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Café"
 
 
 def test_short_name_int_not_coerced() -> None:

@@ -310,3 +310,51 @@ by the runtime.
   resolution, projection architecture for relation enrichment.
 - `docs/dev/transport-native-identity-enrichment-audit.md`: core-planning
   callback note.
+
+---
+
+## LXMF Announce-Based Display-Name Enrichment
+
+Add announce-cache display-name resolution to the LXMF adapter so
+`{sender}` populates for LXMF-origin events when the sender is a
+locally-known Reticulum identity.
+
+**Changed:**
+
+- `src/medre/adapters/lxmf/session.py`: new
+  `resolve_display_name(source_hash)` method — synchronous local
+  announce-cache lookup via `RNS.Identity.recall_app_data` +
+  `LXMF.display_name_from_app_data`. No network call. Never raises.
+- `src/medre/adapters/lxmf/adapter.py`: new
+  `_resolve_display_name` and `_enrich_with_display_name` ingress
+  wiring in `_on_packet` and `simulate_inbound`. Enrichment runs before
+  codec decode and only fills in when the packet lacks a display name.
+
+**Precedence:** message-carried `source_name` > announce-cache resolved
+display name > `None`. The opaque `source_hash` is never promoted to
+`{sender}`.
+
+**Added:**
+
+- `tests/test_lxmf_session_display_name.py`: focused tests for
+  `resolve_display_name`.
+- `tests/test_lxmf_adapter_display_name.py`: focused tests for adapter
+  ingress enrichment.
+- `tests/test_lxmf_identity_enrichment.py`: integration tests for the
+  full enrichment pipeline.
+
+**Updated:**
+
+- `docs/dev/transport-native-identity-enrichment-audit.md`: LXMF section
+  — announce enrichment implemented; new enrichment pipeline subsection.
+- `docs/spec/transport-profiles/lxmf.md`: Display-Name Capture and
+  Announce-Based Enrichment sections updated with normative statements.
+
+**Unchanged (by design):**
+
+- `src/medre/adapters/lxmf/attribution.py`: already projects
+  `lxmf.display_name` → `source_sender_label` with strict typing.
+- `src/medre/adapters/lxmf/codec.py`: already maps `source_name` →
+  `lxmf.display_name`.
+- Core rendering, relation enrichment, routing, delivery, storage,
+  evidence: no changes.

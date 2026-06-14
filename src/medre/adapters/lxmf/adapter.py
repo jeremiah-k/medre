@@ -182,6 +182,56 @@ class LxmfAdapter(AdapterContract):
         self._classifier_messages_ignored += 1
         self._inbound_duplicates_suppressed += 1
 
+    def _resolve_display_name(self, source_hash: str | None) -> str | None:
+        """Resolve a display name from the session's local announce cache.
+
+        Delegates to :meth:`LxmfSession.resolve_display_name`, which
+        performs a synchronous local lookup against the SDK's known
+        destinations.  Returns ``None`` when the session is unavailable
+        (fake mode or not started) or the sender is not in the announce
+        cache.  Never raises.
+
+        Mirrors :meth:`MeshCoreAdapter._resolve_contact_label`.
+
+        Parameters
+        ----------
+        source_hash:
+            Hex-encoded LXMF source hash from the packet.  May be
+            ``None`` or empty; both yield ``None``.
+        """
+        if self._session is None or not source_hash:
+            return None
+        try:
+            return self._session.resolve_display_name(source_hash)
+        except Exception:
+            return None
+
+    def _enrich_with_display_name(self, packet: dict[str, Any]) -> None:
+        """Inject announce-resolved display name when the packet lacks one.
+
+        Precedence: message-carried ``source_name`` > announce-resolved
+        display name > ``None``.  Only fills in when the packet's
+        ``source_name`` is empty/missing, so a message-carried name
+        always wins.  Mutates the packet dict in place; never raises.
+        Failures resolve to no injection (``source_name`` stays empty),
+        so enrichment is best-effort and never blocks ingestion.
+
+        The injected value is picked up by :meth:`LxmfCodec.decode`,
+        which projects it into ``lxmf.display_name`` native metadata.
+        """
+        try:
+            existing = packet.get("source_name")
+            if isinstance(existing, str) and existing.strip():
+                return  # message-carried name wins
+            source_hash = packet.get("source_hash")
+            if not isinstance(source_hash, str) or not source_hash.strip():
+                return
+            resolved = self._resolve_display_name(source_hash)
+            if resolved:
+                packet["source_name"] = resolved
+        except Exception:
+            pass  # enrichment is best-effort; never fail ingestion
+
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the LXMF router/node and begin receiving events.
 
@@ -313,7 +363,9 @@ class LxmfAdapter(AdapterContract):
         """
         if self._started:
             health = "healthy"
-        elif self._session is not None and self._session.connected and not self._started:
+        elif (
+            self._session is not None and self._session.connected and not self._started
+        ):
             health = "failed"
         else:
             health = "unknown"
@@ -541,6 +593,10 @@ class LxmfAdapter(AdapterContract):
 
             self._classifier_messages_relayed += 1
 
+            # Enrich with announce-resolved display name before decode so
+            # the codec can project it into lxmf.display_name metadata.
+            self._enrich_with_display_name(packet)
+
             # Decode before committing dedup key so that decode failures
             # do not suppress redelivery of the same packet.
             canonical = self._codec.decode(packet)
@@ -672,6 +728,10 @@ class LxmfAdapter(AdapterContract):
                 return
 
         self._classifier_messages_relayed += 1
+
+        # Enrich with announce-resolved display name before decode so
+        # the codec can project it into lxmf.display_name metadata.
+        self._enrich_with_display_name(packet)
 
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.
