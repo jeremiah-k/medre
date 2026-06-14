@@ -29,7 +29,6 @@ from medre.adapters.meshcore.attribution import (
     project_meshcore_attribution,
 )
 from medre.adapters.meshtastic.attribution import (
-    apply_flat_key_fallback,
     project_meshtastic_attribution,
 )
 
@@ -154,12 +153,10 @@ def project_source_fields(
     same priority: *platform_hint* > adapter-ID heuristic > native key
     shape > ``None``.
 
-    **Flat-key fallback:** After platform-specific extraction, any
-    still-empty sender fields are patched from Meshtastic-style flat
-    keys (``longname``, ``shortname``, ``from_id``) in *native_data*.
-    This supports cross-platform relay where the codec pipeline enriches
-    native metadata with these keys regardless of source platform.  The
-    fallback logic lives in :func:`meshtastic.attribution.apply_flat_key_fallback`.
+    This function is **dispatch-only**.  It detects the platform and
+    delegates to the appropriate adapter projection helper.  It does not
+    perform cross-platform identity enrichment — each adapter's projection
+    helper is responsible for its own native key interpretation.
 
     Parameters
     ----------
@@ -213,14 +210,5 @@ def project_source_fields(
         # hash in a prefix should use {sender_id} explicitly.
         lxmf = project_lxmf_attribution(native_data)
         fields["source_sender_id"] = lxmf.sender_id
-
-    # ------------------------------------------------------------------
-    # Flat-key fallback for cross-platform enrichment.
-    # ------------------------------------------------------------------
-    # The codec pipeline may store Meshtastic-style flat keys
-    # (longname, shortname, from_id) in native_data regardless of
-    # source platform.  Patch any sender fields that are still empty.
-    # This logic lives in the Meshtastic attribution module.
-    apply_flat_key_fallback(fields, native_data)
 
     return fields

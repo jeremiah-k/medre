@@ -64,7 +64,6 @@ _MATRIX_ROOM = "!room:server"
 _MATRIX_MSG_ID = "$matrix-original"
 _RADIO_ADAPTER = "radio"
 _MATRIX_ADAPTER = "matrix"
-_MESHNET_NAME = "medre-radio"
 _RADIO_PKT_ID = 2728143522
 _REPLY_PKT_ID = 1186126098
 _REPLY_TEXT = "Replying"
@@ -363,7 +362,6 @@ class TestMeshtasticToMatrixReplyResolution:
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name=_MESHNET_NAME,
                     ),
                 },
                 configs={
@@ -478,7 +476,6 @@ class TestMeshtasticToMatrixReplyResolution:
                         adapter_id=_RADIO_ADAPTER,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name=_MESHNET_NAME,
                     ),
                 },
             ),

@@ -39,7 +39,6 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "apply_flat_key_fallback",
     "project_meshtastic_attribution",
 ]
 
@@ -153,51 +152,3 @@ def _compact(value: str | None) -> str | None:
     if value is None:
         return None
     return value.replace(" ", "") or None
-
-
-# ---------------------------------------------------------------------------
-# Flat-key fallback (cross-platform enrichment)
-# ---------------------------------------------------------------------------
-
-
-def apply_flat_key_fallback(
-    fields: dict[str, str | None],
-    native_data: dict[str, Any],
-) -> None:
-    """Patch empty attribution fields from Meshtastic-style flat keys.
-
-    The codec pipeline may store Meshtastic-style flat keys
-    (``longname``, ``shortname``, ``from_id``) in *native_data*
-    regardless of source platform.  This function patches any sender
-    fields in *fields* that are still empty (``None`` or falsy) from
-    those keys.
-
-    Modifies *fields* in place.  This is a cross-platform enrichment
-    step applied after platform-specific projection.
-
-    Parameters
-    ----------
-    fields:
-        Generic attribution fields dict (mutated in place).  Keys are
-        ``RelayAttribution`` canonical names like ``source_sender_label``.
-    native_data:
-        Raw native metadata dict that may carry Meshtastic-style flat
-        keys.
-    """
-    if not fields.get("source_sender_label"):
-        ln = native_data.get("longname")
-        if ln is not None:
-            ln_str = str(ln)
-            fields["source_sender_label"] = ln_str if ln_str else None
-
-    if not fields.get("source_sender_short_label"):
-        sn = native_data.get("shortname")
-        if sn is not None:
-            sn_str = str(sn)
-            fields["source_sender_short_label"] = sn_str if sn_str else None
-
-    if not fields.get("source_sender_id"):
-        fid = native_data.get("from_id")
-        if fid is not None:
-            fid_str = str(fid)
-            fields["source_sender_id"] = fid_str if fid_str else None

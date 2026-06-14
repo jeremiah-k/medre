@@ -13,6 +13,7 @@ behavior, suppression/truncation evidence, relation/reaction degradation,
 replay parity expectations, and unknown capability behavior.
 
 **Changed:**
+
 - `docs/spec/adapter-runtime.md`: CapabilityLevel decision mapping,
   evidence signal descriptions.
 - `docs/spec/routing-delivery.md`: unknown event kind passthrough,
@@ -98,6 +99,7 @@ Document cross-transport relay attribution prefix model, config fields,
 and truncation semantics for all four transports.
 
 **New config fields:**
+
 - `meshcore_relay_prefix` (string, default `""`)
 - `lxmf_relay_prefix` (string, default `""`)
 
@@ -118,6 +120,7 @@ prefix is now target-local via `MatrixConfig.relay_prefix`. LXMF renderer
 is target-aware.
 
 **New config fields:**
+
 - `origin_label` (string, default `""`) on all four adapter configs.
 - `relay_prefix` (string, default `""`) on `MatrixConfig`.
 
@@ -175,12 +178,16 @@ Document the structural boundary between core rendering (generic
 
 ## Dispatch Refactor, platform_hint, Explicit Empty Labels
 
-Refactored attribution dispatch to dispatch-only (no inline native
-interpretation). Wired `platform_hint` from `SourceAttributionConfig`.
-Preserved explicit empty origin labels (`""` = suppress, `None` = unset).
-Cleaned MatrixRenderer registration to be Matrix-config-driven.
+Refactored attribution dispatch to be truly dispatch-only: detects
+platform and delegates to per-adapter projection helpers with no
+cross-platform identity enrichment. Wired `platform_hint` from
+`SourceAttributionConfig`. Preserved explicit empty origin labels
+(`""` = suppress, `None` = unset). Cleaned MatrixRenderer registration
+to be Matrix-config-driven.
 
-- `_attribution_dispatch.py`: delegates to per-adapter projection helpers.
+- `_attribution_dispatch.py`: detects platform, delegates to adapter
+  projection helpers, returns projected fields. No global flat-key
+  fallback — each adapter handles its own native keys.
 - `project_source_fields` / `detect_source_platform`: accept `platform_hint`.
 - All renderers: `is not None` checks for `ctx.source_origin_label`.
 - `derive_meshnet_value`: `is not None` checks.

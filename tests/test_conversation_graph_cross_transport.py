@@ -85,12 +85,10 @@ class _StubMeshtasticConfig:
     def __init__(
         self,
         adapter_id: str = "radio",
-        meshnet_name: str = "",
         matrix_relay_prefix: str = "",
         mmrelay_compatibility: bool = False,
     ) -> None:
         self.adapter_id = adapter_id
-        self.meshnet_name = meshnet_name
         self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
 
@@ -310,7 +308,6 @@ class TestReplyMatrixToMeshtastic:
                         adapter_id=RADIO,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name="testnet",
                     ),
                 },
             ),

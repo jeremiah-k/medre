@@ -769,12 +769,13 @@ def test_platform_hint_projects_sender_fields() -> None:
     assert fields["source_sender_handle"] == "@alice:matrix.org"
 
 
-def test_cross_platform_flat_key_fallback() -> None:
-    """Flat-key fallback patches empty Matrix fields from Meshtastic keys.
+def test_no_cross_platform_flat_key_enrichment() -> None:
+    """Dispatch does NOT apply cross-platform flat-key enrichment.
 
-    When platform_hint='matrix' but native_data carries Meshtastic-style
-    flat keys (longname, shortname, from_id) without Matrix keys, the
-    flat-key fallback enriches the empty Matrix projection.
+    When platform_hint='matrix' but native_data carries only Meshtastic-
+    style flat keys (longname, shortname, from_id), the Matrix projection
+    finds no Matrix keys and returns None sender fields.  The dispatch
+    does not silently patch from Meshtastic flat keys.
     """
     from medre.adapters._attribution_dispatch import project_source_fields
 
@@ -784,8 +785,7 @@ def test_cross_platform_flat_key_fallback() -> None:
         platform_hint="matrix",
     )
     assert fields["source_platform"] == "matrix"
-    # Matrix projection finds no Matrix keys → all None.
-    # Flat-key fallback patches from Meshtastic flat keys.
-    assert fields["source_sender_label"] == "RadioOp"
-    assert fields["source_sender_short_label"] == "RO"
-    assert fields["source_sender_id"] == "!aabbcc"
+    # Matrix projection finds no Matrix keys → sender fields stay unset.
+    # No global flat-key fallback patches them.
+    assert fields.get("source_sender_label") is None
+    assert fields.get("source_sender_id") is None

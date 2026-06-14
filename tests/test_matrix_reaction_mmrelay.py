@@ -837,7 +837,6 @@ class TestMMRelayReactionBodyFormat:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     # mmrelay KEY_MESHNET wire compat
-                    meshnet_name="mynet",
                 ),
             },
             configs={
@@ -1119,7 +1118,6 @@ class TestReactionMetadataCompleteness:
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
                     # mmrelay KEY_MESHNET wire compat
-                    meshnet_name="testnet",
                 ),
             },
             source_attribution={

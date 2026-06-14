@@ -237,7 +237,6 @@ class TestMeshtasticToMatrixMappedReaction:
                 "mesh-1": _StubMeshtasticConfig(
                     adapter_id="mesh-1",
                     mmrelay_compatibility=True,
-                    meshnet_name="testnet",
                 ),
             },
             configs={

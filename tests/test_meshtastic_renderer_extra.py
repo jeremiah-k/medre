@@ -94,9 +94,8 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
-        "longname": display_name,
-        "shortname": display_name.split()[0] if display_name else "",
-        "from_id": "@user:example.com",
+        "sender": "@user:example.com",
+        "displayname": display_name,
     }
     return CanonicalEvent(
         event_id=event_id,
@@ -407,9 +406,8 @@ class TestMatrixDisplayNameInPrefix:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "Alice Wonderland",
-                        "shortname": "Alice",
-                        "from_id": "@alice:example.com",
+                        "sender": "@alice:example.com",
+                        "displayname": "Alice Wonderland",
                     }
                 )
             ),
@@ -442,9 +440,8 @@ class TestMatrixDisplayNameInPrefix:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "Display Name",
-                        "shortname": "Displ",
-                        "from_id": "@alice:example.com",
+                        "sender": "@alice:example.com",
+                        "displayname": "Display Name",
                     }
                 )
             ),
@@ -497,7 +494,7 @@ class TestByteBudgetTruncation:
             payload={"body": "A" * 200},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={"longname": "Test", "shortname": "T", "from_id": "1"}
+                    data={"sender": "@test:example.com", "displayname": "Test"}
                 )
             ),
         )
@@ -886,9 +883,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -998,9 +994,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -1050,9 +1045,8 @@ class TestMultiRadioTargetAware:
             metadata=EventMetadata(
                 native=NativeMetadata(
                     data={
-                        "longname": "TestUser",
-                        "shortname": "TestU",
-                        "from_id": "42",
+                        "sender": "@TestU:example.com",
+                        "displayname": "TestUser",
                     }
                 )
             ),
@@ -1086,8 +1080,8 @@ class TestMultiRadioTargetAware:
             RenderingContext(target_adapter="radio-bravo", delivery_strategy="direct"),
         )
         text = result.payload["text"]
-        # Compact prefix: shortname5 = "Cross" (first 5 of "Cross"), spaces stripped
-        assert "[Cross@bravo]" in text
+        # Compact prefix uses MXID localpart, spaces stripped
+        assert "[user@bravo]" in text
         assert "reacted 👍 to" in text
         assert result.payload["reply_id"] == 42
         assert "emoji" not in result.payload
@@ -1263,7 +1257,11 @@ async def test_partial_native_data_no_none() -> None:
         lineage=(),
         relations=(),
         payload={"body": "hi"},
-        metadata=EventMetadata(native=NativeMetadata(data={"longname": "Alice"})),
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={"sender": "@alice:example.com", "displayname": "Alice"}
+            )
+        ),
     )
     result = await renderer.render(
         event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
@@ -1289,9 +1287,7 @@ async def test_prefix_metadata_records_template_and_variables() -> None:
         relations=(),
         payload={"body": "hello"},
         metadata=EventMetadata(
-            native=NativeMetadata(
-                data={"shortname": "TestUser", "from_id": "@user:example.com"}
-            )
+            native=NativeMetadata(data={"sender": "@TestUser:example.com"})
         ),
     )
     result = await renderer.render(

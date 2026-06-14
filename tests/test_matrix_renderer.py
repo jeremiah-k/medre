@@ -484,12 +484,10 @@ class TestMultiRadioSourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             # mmrelay KEY_MESHNET wire compat
-            meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
-            meshnet_name="LEGACY-Bravo",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}
@@ -707,12 +705,10 @@ class TestRuntimeAssemblySourceConfig:
         alpha = _StubMeshtasticConfig(
             adapter_id="radio-alpha",
             # mmrelay KEY_MESHNET wire compat
-            meshnet_name="LEGACY-Alpha",
             mmrelay_compatibility=True,
         )
         bravo = _StubMeshtasticConfig(
             adapter_id="radio-bravo",
-            meshnet_name="LEGACY-Bravo",
             mmrelay_compatibility=False,
         )
         return {"radio-alpha": alpha, "radio-bravo": bravo}

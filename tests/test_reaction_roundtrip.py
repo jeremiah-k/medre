@@ -58,7 +58,6 @@ _RADIO_ALPHA = "radio-alpha"
 _RADIO_BRAVO = "radio-bravo"
 _MATRIX = "matrix"
 _ROOM = "!room:server"
-_MESHNET = "testnet"
 
 # ===================================================================
 # Shared helper for source_configs construction
@@ -301,7 +300,6 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name=_MESHNET,
                     ),
                 },
                 configs={
@@ -630,7 +628,6 @@ class TestMultiRadioReactionRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name=_MESHNET,
                     ),
                 },
                 configs={
@@ -926,7 +923,6 @@ class TestMissingNativeRefFallbackRoundtrip:
                         adapter_id=_RADIO_ALPHA,
                         mmrelay_compatibility=True,
                         # mmrelay KEY_MESHNET wire compat
-                        meshnet_name=_MESHNET,
                     ),
                 },
             ),

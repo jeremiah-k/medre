@@ -47,9 +47,8 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
-        "longname": display_name,
-        "shortname": display_name.split()[0] if display_name else "",
-        "from_id": "@user:example.com",
+        "sender": "@user:example.com",
+        "displayname": display_name,
     }
     return CanonicalEvent(
         event_id=event_id,
@@ -230,8 +229,8 @@ async def test_matrix_to_meshtastic_uses_source_origin_label() -> None:
     )
     text = result.payload["text"]
     assert "Home Matrix" in text
-    # sender_short from display name (no explicit shortname)
-    assert "TestU" in text
+    # sender_short from MXID localpart
+    assert "user" in text
 
 
 async def test_mesh_to_mesh_uses_source_origin_label() -> None:
