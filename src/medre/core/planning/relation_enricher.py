@@ -289,6 +289,12 @@ class RelationEnricher:
                         if "original_sender_displayname" not in sender_meta:
                             _dn = None
                             if target_data is not None:
+                                # Pre-existing fallback: displayname → longname.
+                                # This is core planning debt — the rendering
+                                # attribution model projects display identity
+                                # through adapter-local helpers, not bare
+                                # transport-native keys. Tracked separately
+                                # from the rendering attribution tranche.
                                 _dn = target_data.get("displayname") or target_data.get(
                                     "longname"
                                 )

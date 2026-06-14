@@ -616,6 +616,13 @@ shaped `longname`/`shortname` keys. External mmrelay wire fields
 (`meshtastic_longname`, `meshtastic_shortname`) are captured by the
 codec when present in event content.
 
+The Matrix renderer's mmrelay compatibility path (`_inject_mmrelay_metadata`
+and reaction emote fallback) populates `KEY_LONGNAME`/`KEY_SHORTNAME`
+only from Meshtastic-native `longname`/`shortname` or existing mmrelay
+wire keys — never from Matrix `displayname`. Matrix display names project
+into generic `{sender}` via Matrix attribution, not into Meshtastic-shaped
+mmrelay wire fields.
+
 ### 5. Metadata key namespace inconsistency
 
 Meshtastic native metadata uses flat keys: `longname`, `shortname`,

@@ -142,7 +142,7 @@ def project_meshcore_attribution(
 # ---------------------------------------------------------------------------
 
 
-def _str(value: Any) -> str | None:
+def _str(value: object) -> str | None:
     """Coerce *value* to ``str`` or return ``None`` for missing/empty."""
     if value is None:
         return None

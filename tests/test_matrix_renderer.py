@@ -604,6 +604,28 @@ class TestMultiRadioSourceConfig:
         # mmrelay_compat=False → no mesh provenance keys
         assert "meshtastic_id" not in result.payload
 
+    async def test_mmrelay_no_displayname_leak_into_wire_fields(self) -> None:
+        """Matrix displayname must NOT populate meshtastic_longname/shortname.
+
+        Regression test: when native_data has displayname but no bare
+        longname/shortname or mmrelay wire keys, the mmrelay wire fields
+        must be empty strings — not the displayname value.
+        """
+        renderer = self._make_renderer()
+        event = _make_meshtastic_event(
+            source_adapter="radio-alpha",
+            native_data={"displayname": "Alice Display", "packet_id": "42"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        # mmrelay_compat=True → metadata injected
+        assert "meshtastic_id" in result.payload
+        # But displayname must NOT leak into wire fields
+        assert result.payload["meshtastic_longname"] == ""
+        assert result.payload["meshtastic_shortname"] == ""
+
     async def test_reaction_prefix_resolves_per_source(self) -> None:
         """Reaction emote prefix resolves via target-local template with per-source origin_label."""
         renderer = self._make_renderer()

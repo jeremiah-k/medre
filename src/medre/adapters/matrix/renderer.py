@@ -155,6 +155,29 @@ class MatrixRenderer:
             return getattr(sa, "origin_label", None)
         return None
 
+    @staticmethod
+    def _resolve_mmrelay_sender_names(
+        native_data: dict[str, object],
+    ) -> tuple[str, str]:
+        """Resolve mmrelay KEY_LONGNAME / KEY_SHORTNAME from native data.
+
+        Resolution order per field:
+
+        1. Bare Meshtastic-native key (``longname`` / ``shortname``) —
+           present for Meshtastic-origin events.
+        2. Existing mmrelay wire key (``meshtastic_longname`` /
+           ``meshtastic_shortname``) — preserved from external mmrelay
+           Matrix event content captured by the codec.
+        3. Empty string.
+
+        Matrix ``displayname`` is intentionally **not** used — Matrix
+        display names project into generic ``{sender}`` via Matrix
+        attribution, not into Meshtastic-shaped mmrelay wire fields.
+        """
+        longname = native_data.get("longname") or native_data.get(KEY_LONGNAME) or ""
+        shortname = native_data.get("shortname") or native_data.get(KEY_SHORTNAME) or ""
+        return str(longname), str(shortname)
+
     def _build_source_attribution(
         self,
         event: CanonicalEvent,
@@ -696,18 +719,9 @@ class MatrixRenderer:
                 native_data = dict(event.metadata.native.data)
 
             content[KEY_ID] = str(native_data.get("packet_id", ""))
-            content[KEY_LONGNAME] = str(
-                native_data.get("longname")
-                or native_data.get("displayname")
-                or native_data.get("display_name")
-                or ""
-            )
-            content[KEY_SHORTNAME] = str(
-                native_data.get("shortname")
-                or native_data.get("displayname")
-                or native_data.get("display_name")
-                or ""
-            )
+            _longname, _shortname = self._resolve_mmrelay_sender_names(native_data)
+            content[KEY_LONGNAME] = _longname
+            content[KEY_SHORTNAME] = _shortname
             content[KEY_MESHNET] = self._resolve_mmrelay_meshnet(
                 event,
                 ctx.source_origin_label if ctx is not None else None,
@@ -824,18 +838,9 @@ class MatrixRenderer:
         text = str(event.payload.get("text", event.payload.get("body", "")))
 
         content[KEY_ID] = str(native_data.get("packet_id", ""))
-        content[KEY_LONGNAME] = str(
-            native_data.get("longname")
-            or native_data.get("displayname")
-            or native_data.get("display_name")
-            or ""
-        )
-        content[KEY_SHORTNAME] = str(
-            native_data.get("shortname")
-            or native_data.get("displayname")
-            or native_data.get("display_name")
-            or ""
-        )
+        _longname, _shortname = self._resolve_mmrelay_sender_names(native_data)
+        content[KEY_LONGNAME] = _longname
+        content[KEY_SHORTNAME] = _shortname
         content[KEY_MESHNET] = self._resolve_mmrelay_meshnet(
             event, ctx_source_origin_label
         )

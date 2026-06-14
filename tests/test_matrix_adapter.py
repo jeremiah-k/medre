@@ -1102,7 +1102,7 @@ class TestDisplayNameEnrichment:
     # --- FIX 1: _matrix_display_name handles nio user objects -----------
 
     async def test_display_name_from_user_object_display_name(self) -> None:
-        """room.users[sender] object with display_name attr enriches longname."""
+        """room.users[sender] object with display_name attr enriches displayname."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
