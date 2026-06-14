@@ -264,3 +264,137 @@ def test_returns_only_three_fields() -> None:
         "source_sender_label",
         "source_sender_short_label",
     }
+
+
+# ===================================================================
+# Namespaced keys (primary shape emitted by the codec)
+# ===================================================================
+
+
+def test_namespaced_from_id_primary_for_sender_id() -> None:
+    """``meshtastic.from_id`` is the primary source for sender_id."""
+    result = project_meshtastic_attribution({"meshtastic.from_id": "!primary"})
+    assert result["source_sender_id"] == "!primary"
+
+
+def test_namespaced_longname_primary_for_sender_label() -> None:
+    """``meshtastic.longname`` is the primary source for sender_label."""
+    result = project_meshtastic_attribution(
+        {"meshtastic.longname": "Primary Name", "meshtastic.from_id": "!n"}
+    )
+    assert result["source_sender_label"] == "Primary Name"
+
+
+def test_namespaced_shortname_primary_for_sender_short_label() -> None:
+    """``meshtastic.shortname`` is the primary source for sender_short_label."""
+    result = project_meshtastic_attribution(
+        {
+            "meshtastic.shortname": "PN",
+            "meshtastic.longname": "Primary Name",
+            "meshtastic.from_id": "!n",
+        }
+    )
+    assert result["source_sender_short_label"] == "PN"
+
+
+def test_namespaced_longname_falls_back_to_namespaced_shortname() -> None:
+    """sender_label falls through meshtastic.longname → meshtastic.shortname."""
+    result = project_meshtastic_attribution(
+        {"meshtastic.shortname": "SN", "meshtastic.from_id": "!n"}
+    )
+    assert result["source_sender_label"] == "SN"
+
+
+def test_namespaced_short_label_compact_longname_fallback() -> None:
+    """sender_short_label falls through meshtastic.shortname →
+    compact meshtastic.longname."""
+    result = project_meshtastic_attribution(
+        {"meshtastic.longname": "Alpha Node", "meshtastic.from_id": "!n"}
+    )
+    assert result["source_sender_short_label"] == "AlphaNode"
+
+
+def test_namespaced_from_id_falls_back_to_transport_id() -> None:
+    """sender_id falls through meshtastic.from_id → source_transport_id
+    when namespaced from_id is absent."""
+    result = project_meshtastic_attribution({}, source_transport_id="!transport")
+    assert result["source_sender_id"] == "!transport"
+
+
+# ===================================================================
+# Namespaced → bare precedence (legacy input tolerance)
+# ===================================================================
+
+
+def test_namespaced_from_id_wins_over_bare_from_id() -> None:
+    """``meshtastic.from_id`` takes precedence over bare ``from_id``."""
+    result = project_meshtastic_attribution(
+        {"meshtastic.from_id": "!new", "from_id": "!legacy"}
+    )
+    assert result["source_sender_id"] == "!new"
+
+
+def test_namespaced_longname_wins_over_bare_longname() -> None:
+    """``meshtastic.longname`` takes precedence over bare ``longname``."""
+    result = project_meshtastic_attribution(
+        {
+            "meshtastic.longname": "New Name",
+            "longname": "Legacy Name",
+            "meshtastic.from_id": "!n",
+        }
+    )
+    assert result["source_sender_label"] == "New Name"
+
+
+def test_namespaced_shortname_wins_over_bare_shortname() -> None:
+    """``meshtastic.shortname`` takes precedence over bare ``shortname``."""
+    result = project_meshtastic_attribution(
+        {
+            "meshtastic.shortname": "NS",
+            "shortname": "LS",
+            "meshtastic.longname": "NL",
+            "longname": "LL",
+            "meshtastic.from_id": "!n",
+        }
+    )
+    assert result["source_sender_short_label"] == "NS"
+
+
+def test_namespaced_shortname_wins_over_bare_longname_for_label() -> None:
+    """In a mixed dict, meshtastic.shortname wins over bare longname for
+    sender_label (namespaced shape wins over bare shape)."""
+    result = project_meshtastic_attribution(
+        {
+            "meshtastic.shortname": "Short",
+            "longname": "Legacy Long",
+            "from_id": "!n",
+        }
+    )
+    assert result["source_sender_label"] == "Short"
+
+
+def test_bare_keys_still_accepted_as_legacy_input() -> None:
+    """Bare keys alone (no namespaced keys) still resolve correctly —
+    this is the legacy input tolerance path exercised by stored events
+    and test fixtures produced before namespacing."""
+    result = project_meshtastic_attribution(
+        {"longname": "Legacy", "shortname": "L", "from_id": "!legacy"}
+    )
+    assert result["source_sender_id"] == "!legacy"
+    assert result["source_sender_label"] == "Legacy"
+    assert result["source_sender_short_label"] == "L"
+
+
+def test_namespaced_only_keys_resolve_end_to_end() -> None:
+    """A dict using only namespaced keys (the codec's emitted shape)
+    resolves end-to-end without any bare-key presence."""
+    result = project_meshtastic_attribution(
+        {
+            "meshtastic.from_id": "!node",
+            "meshtastic.longname": "Node Name",
+            "meshtastic.shortname": "NN",
+        }
+    )
+    assert result["source_sender_id"] == "!node"
+    assert result["source_sender_label"] == "Node Name"
+    assert result["source_sender_short_label"] == "NN"

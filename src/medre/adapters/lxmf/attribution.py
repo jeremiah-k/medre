@@ -1,8 +1,8 @@
 """LXMF native-to-generic attribution projection.
 
-Projects LXMF-native identity fields (``source_hash``, identity hash)
-into the generic sender attribution fields used by the MEDRE rendering
-pipeline.
+Projects LXMF-native identity fields (``source_hash``, announce-derived
+display name) into generic sender attribution fields used by the MEDRE
+rendering pipeline.
 
 The attribution dispatch (``_attribution_dispatch.project_source_fields``)
 delegates to this helper when the source platform is detected as LXMF.
@@ -10,79 +10,37 @@ Core rendering has no LXMF-specific key knowledge.
 
 **Projection rules**
 
-* ``source_hash`` (bytes, bytearray, or hex str) → ``sender_id``
-  (canonical hex string).
-* ``sender_id`` → ``label`` (full hash, or first 16 hex chars with ``…``
-  when longer).
-* ``sender_id`` → ``short_label`` (first 8 hex characters).
-* No ``source_display_name`` is projected — LXMF prefix default remains
-  off and only generic sender fields are used.
+* ``source_hash`` (bytes, bytearray, or hex str) -> ``source_sender_id``
+  (canonical hex string).  The opaque hash is exposed via
+  ``{sender_id}`` and is never used as a human-readable label.
+* ``lxmf.display_name`` (str, or bytes/bytearray decoded as UTF-8) ->
+  ``source_sender_label`` when non-empty.  Only text-bearing values are
+  accepted; non-text types (int, dict, list, ...) yield ``None`` so that
+  ``str()`` coercion never produces a misleading label.
+* ``lxmf.short_name`` (str, or bytes/bytearray decoded as UTF-8) ->
+  ``source_sender_short_label`` when non-empty, falling back to a
+  compact form of the display name.  The same strict typing applies.
+* When no display name is present both label fields are ``None`` --
+  the opaque ``source_hash`` does not become ``{sender}``.  Operators
+  who want the hash in a prefix use ``{sender_id}``.
 
 Public symbols
 --------------
-* :class:`LxmfAttribution` — immutable projection result.
-* :func:`project_lxmf_attribution` — main entry point.
-* :func:`normalize_source_hash` — bytes/str normalisation.
-* :func:`derive_label` — long human-readable label from hash.
-* :func:`derive_short_label` — abbreviated label from hash.
+* :func:`project_lxmf_attribution` -- main entry point, returns a
+  ``dict[str, str | None]`` keyed by ``RelayAttribution`` canonical
+  names.
+* :func:`normalize_source_hash` -- bytes/str normalisation for
+  ``source_hash``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
-    "LxmfAttribution",
-    "derive_label",
-    "derive_short_label",
     "normalize_source_hash",
     "project_lxmf_attribution",
 ]
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-_SHORT_LABEL_LEN: int = 8
-"""Number of hex characters for the short label."""
-
-_LABEL_TRUNCATE_LEN: int = 16
-"""Max hex characters before truncating the long label."""
-
-_ELLIPSIS: str = "\u2026"
-"""Unicode ellipsis character appended to truncated labels."""
-
-
-# ---------------------------------------------------------------------------
-# LxmfAttribution
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class LxmfAttribution:
-    """Immutable projection of LXMF-native fields to generic sender
-    attribution.
-
-    Every field is ``None`` when the source data is absent.
-
-    Attributes
-    ----------
-    sender_id:
-        Canonical hex string of the ``source_hash``, or ``None`` when
-        absent.
-    label:
-        Human-readable label derived from the hash (truncated with ``…``
-        when the hash exceeds 16 hex characters).  ``None`` when
-        ``sender_id`` is absent.
-    short_label:
-        Abbreviated label (first 8 hex characters).  ``None`` when
-        ``sender_id`` is absent.
-    """
-
-    sender_id: str | None = None
-    label: str | None = None
-    short_label: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -121,66 +79,36 @@ def normalize_source_hash(source_hash: Any) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Label derivation
-# ---------------------------------------------------------------------------
-
-
-def derive_label(sender_id: str) -> str:
-    """Derive a human-readable label from a sender ID hash.
-
-    Returns the full hash if it is short enough, otherwise truncates to
-    ``_LABEL_TRUNCATE_LEN`` hex characters with a trailing ellipsis.
-
-    Parameters
-    ----------
-    sender_id:
-        Canonical hex string of the sender identity.
-
-    Returns
-    -------
-    str
-        Human-readable label (never empty for non-empty input).
-    """
-    if len(sender_id) <= _LABEL_TRUNCATE_LEN:
-        return sender_id
-    return sender_id[:_LABEL_TRUNCATE_LEN] + _ELLIPSIS
-
-
-def derive_short_label(sender_id: str) -> str:
-    """Derive a short label (abbreviated hash prefix).
-
-    Returns the first ``_SHORT_LABEL_LEN`` hex characters of the sender
-    ID.
-
-    Parameters
-    ----------
-    sender_id:
-        Canonical hex string of the sender identity.
-
-    Returns
-    -------
-    str
-        Short label (may be shorter than ``_SHORT_LABEL_LEN`` if the
-        input is shorter).
-    """
-    return sender_id[:_SHORT_LABEL_LEN]
-
-
-# ---------------------------------------------------------------------------
 # Main projection
 # ---------------------------------------------------------------------------
 
 
-def project_lxmf_attribution(native_data: dict[str, Any]) -> LxmfAttribution:
+def project_lxmf_attribution(
+    native_data: dict[str, Any],
+) -> dict[str, str | None]:
     """Project LXMF native metadata to generic sender attribution.
 
-    Inspects the ``native_data`` dict (typically
-    ``event.metadata.native.data``) for the ``source_hash`` key and
-    derives generic sender attribution fields suitable for the MEDRE
-    rendering pipeline.
+    Inspects *native_data* for the ``source_hash`` key (sender identity)
+    and the optional ``lxmf.display_name`` / ``lxmf.short_name`` keys
+    (announce-derived display labels).
 
     Recognised keys:
-    * ``source_hash`` — primary sender identity (bytes or hex str).
+
+    * ``source_hash`` -- primary sender identity (bytes, bytearray, or
+      hex str).  Projected to ``source_sender_id``.
+    * ``lxmf.display_name`` -- human-readable sender label captured at
+      ingress from announce metadata or message identity.  Projected to
+      ``source_sender_label`` when non-empty.  Only text-bearing values
+      (``str``, ``bytes``, ``bytearray``) are accepted; non-text types
+      yield ``None`` rather than being coerced via ``str()``.
+    * ``lxmf.short_name`` -- abbreviated sender label.  Projected to
+      ``source_sender_short_label`` when non-empty, falling back to a
+      compact form of ``lxmf.display_name``.  The same strict typing
+      applies.
+
+    The opaque ``source_hash`` is **never** projected to a label field.
+    When no display name is available both label fields are ``None`` so
+    that ``{sender}`` renders empty rather than a truncated hash.
 
     Parameters
     ----------
@@ -189,18 +117,61 @@ def project_lxmf_attribution(native_data: dict[str, Any]) -> LxmfAttribution:
 
     Returns
     -------
-    LxmfAttribution
-        Frozen projection with ``sender_id``, ``label``, and
-        ``short_label``.  All fields are ``None`` when ``source_hash``
-        is absent or empty.
+    dict[str, str | None]
+        Generic attribution fields keyed by their ``RelayAttribution``
+        canonical names: ``source_sender_id``,
+        ``source_sender_label``, ``source_sender_short_label``.
     """
     sender_id = normalize_source_hash(native_data.get("source_hash"))
 
-    if sender_id is None:
-        return LxmfAttribution()
+    display_name = _label_str(native_data.get("lxmf.display_name"))
+    short_name = _label_str(native_data.get("lxmf.short_name"))
 
-    return LxmfAttribution(
-        sender_id=sender_id,
-        label=derive_label(sender_id),
-        short_label=derive_short_label(sender_id),
-    )
+    # Label fields come from real display names only -- never from the
+    # opaque source_hash.  When no display name is present both fields
+    # stay None so {sender} renders empty.
+    sender_label: str | None = display_name
+    sender_short_label: str | None = short_name or _compact(display_name)
+
+    return {
+        "source_sender_id": sender_id,
+        "source_sender_label": sender_label,
+        "source_sender_short_label": sender_short_label,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+
+def _label_str(value: object) -> str | None:
+    """Project *value* to a human-readable label string, strictly.
+
+    Only text-bearing values are accepted:
+
+    * :class:`str` -> returned as-is when non-empty, otherwise ``None``.
+    * :class:`bytes` / :class:`bytearray` -> decoded as UTF-8 with
+      ``errors="replace"`` (matching the session's content/title
+      normalisation); returned when non-empty, otherwise ``None``.
+
+    All other types (``int``, ``float``, ``bool``, ``dict``, ``list``,
+    ``None``, custom objects, ...) return ``None``.  This prevents
+    arbitrary object coercion (e.g. ``str(123) == "123"`` or
+    ``str({}) == "{}"``) from polluting display label fields such as
+    ``source_sender_label``.  Display labels must originate from real
+    text captured at ingress, not from runtime ``str()`` coercion.
+    """
+    if isinstance(value, str):
+        return value if value else None
+    if isinstance(value, (bytes, bytearray)):
+        s = bytes(value).decode("utf-8", errors="replace")
+        return s if s else None
+    return None
+
+
+def _compact(value: str | None) -> str | None:
+    """Strip spaces from *value*, returning ``None`` when the result is empty."""
+    if value is None:
+        return None
+    return value.replace(" ", "") or None

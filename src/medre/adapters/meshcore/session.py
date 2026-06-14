@@ -529,6 +529,56 @@ class MeshCoreSession:
             ),
         }
 
+    # ------------------------------------------------------------------
+    # Contact-label resolution (local, synchronous)
+    # ------------------------------------------------------------------
+
+    def resolve_contact_label(self, pubkey_prefix: str) -> str | None:
+        """Resolve a known contact's advertised name by public-key prefix.
+
+        Performs a synchronous lookup against the SDK's in-memory
+        contacts store (populated by ``CONTACTS`` events).  No network
+        calls are issued.  The MeshCore SDK exposes
+        ``MeshCore.get_contact_by_key_prefix(prefix)`` which iterates
+        the locally-cached ``contacts`` dict; each contact carries an
+        ``adv_name`` field (human-readable advertised name).
+
+        This method is the sole bridge between the SDK contact store and
+        adapter-native enrichment.  It keeps SDK object access inside the
+        session boundary and returns only a plain ``str | None``.
+
+        Parameters
+        ----------
+        pubkey_prefix:
+            Sender public-key prefix (hex string) from the inbound
+            packet.  May be empty or ``None``; both are treated as
+            "no lookup possible".
+
+        Returns
+        -------
+        str | None
+            The contact's ``adv_name`` (stripped), or ``None`` when the
+            SDK client is unavailable, the prefix is empty, the sender
+            is not a known contact, or the contact's ``adv_name`` is
+            empty or non-string.  Never raises.
+        """
+        if not pubkey_prefix or self._meshcore is None:
+            return None
+        getter = getattr(self._meshcore, "get_contact_by_key_prefix", None)
+        if getter is None:
+            return None
+        try:
+            contact = getter(pubkey_prefix)
+        except Exception:
+            return None
+        if not isinstance(contact, dict):
+            return None
+        name = contact.get("adv_name")
+        if isinstance(name, str):
+            name = name.strip()
+            return name or None
+        return None
+
     # ==================================================================
     # Private — real connection
     # ==================================================================

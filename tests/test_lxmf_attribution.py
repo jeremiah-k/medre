@@ -1,18 +1,26 @@
 """Tests for LXMF native-to-generic attribution projection.
 
 Function-style tests covering:
-- ``project_lxmf_attribution`` main entry point.
+- ``project_lxmf_attribution`` main entry point (dict return).
 - ``normalize_source_hash`` bytes/str normalisation.
-- ``derive_label`` and ``derive_short_label`` label derivation.
-- Edge cases: absent keys, empty values, non-string types.
+- Display-name-driven label projection with strict label typing:
+  only ``str`` / ``bytes`` / ``bytearray`` values populate label
+  fields; other types (int, dict, list, ...) yield ``None`` rather
+  than being coerced via ``str()``.
+- Edge cases: absent keys, empty values, non-text types, bytes
+  source_hash.
+
+Policy under test: the opaque ``source_hash`` projects to
+``source_sender_id`` only and is never used as a human-readable label.
+``source_sender_label`` / ``source_sender_short_label`` are populated
+from ``lxmf.display_name`` / ``lxmf.short_name`` when present (and
+text-bearing) and remain ``None`` otherwise so that ``{sender}``
+renders empty rather than a truncated hash.
 """
 
 from __future__ import annotations
 
 from medre.adapters.lxmf.attribution import (
-    LxmfAttribution,
-    derive_label,
-    derive_short_label,
     normalize_source_hash,
     project_lxmf_attribution,
 )
@@ -67,155 +75,274 @@ def test_normalize_source_hash_long_hex() -> None:
 
 
 # ---------------------------------------------------------------------------
-# derive_label
-# ---------------------------------------------------------------------------
-
-
-def test_derive_label_short_hash() -> None:
-    """Hash at exactly the truncate threshold is kept in full."""
-    h = "a" * 16
-    assert derive_label(h) == h
-
-
-def test_derive_label_below_threshold() -> None:
-    """Hash below the truncate threshold is kept in full."""
-    h = "abcdef"
-    assert derive_label(h) == "abcdef"
-
-
-def test_derive_label_above_threshold() -> None:
-    """Hash above the truncate threshold is truncated with ellipsis."""
-    h = "a" * 32
-    result = derive_label(h)
-    assert result == "a" * 16 + "\u2026"
-    assert result.startswith("a" * 16)
-
-
-def test_derive_label_exactly_threshold_no_ellipsis() -> None:
-    """Hash at exactly 16 chars has no ellipsis."""
-    h = "0123456789abcdef"
-    assert derive_label(h) == h
-    assert "\u2026" not in derive_label(h)
-
-
-def test_derive_label_single_char() -> None:
-    """Single character hash is returned as-is."""
-    assert derive_label("f") == "f"
-
-
-# ---------------------------------------------------------------------------
-# derive_short_label
-# ---------------------------------------------------------------------------
-
-
-def test_derive_short_label_long_hash() -> None:
-    """Long hash produces 8-char short label."""
-    h = "abcdef0123456789deadbeef"
-    assert derive_short_label(h) == "abcdef01"
-
-
-def test_derive_short_label_short_hash() -> None:
-    """Hash shorter than 8 chars is returned in full."""
-    assert derive_short_label("abc") == "abc"
-
-
-def test_derive_short_label_exactly_8() -> None:
-    """Hash at exactly 8 chars is returned in full."""
-    h = "01234567"
-    assert derive_short_label(h) == h
-
-
-# ---------------------------------------------------------------------------
-# project_lxmf_attribution
+# project_lxmf_attribution — source_hash → sender_id (no labels)
 # ---------------------------------------------------------------------------
 
 
 def test_project_with_hex_string_source_hash() -> None:
-    """Full projection from hex string source_hash."""
+    """source_hash projects to source_sender_id; labels stay None."""
     native = {"source_hash": "ab" * 16}
-    attr = project_lxmf_attribution(native)
-    assert isinstance(attr, LxmfAttribution)
-    assert attr.sender_id == "ab" * 16
-    assert attr.label is not None
-    assert attr.short_label == "abababab"
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "ab" * 16
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_project_with_bytes_source_hash() -> None:
-    """Full projection from bytes source_hash."""
+    """Bytes source_hash normalises to hex for sender_id."""
     native = {"source_hash": b"\xab\xcd\xef\x01\x23\x45\x67\x89"}
-    attr = project_lxmf_attribution(native)
-    assert attr.sender_id == "abcdef0123456789"
-    assert attr.short_label == "abcdef01"
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "abcdef0123456789"
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_project_missing_source_hash() -> None:
-    """Missing source_hash returns all-None attribution."""
-    attr = project_lxmf_attribution({})
-    assert attr.sender_id is None
-    assert attr.label is None
-    assert attr.short_label is None
+    """Missing source_hash returns all-None fields."""
+    fields = project_lxmf_attribution({})
+    assert fields["source_sender_id"] is None
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_project_empty_source_hash() -> None:
-    """Empty string source_hash returns all-None attribution."""
-    attr = project_lxmf_attribution({"source_hash": ""})
-    assert attr.sender_id is None
+    """Empty string source_hash returns None sender_id."""
+    fields = project_lxmf_attribution({"source_hash": ""})
+    assert fields["source_sender_id"] is None
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_project_none_source_hash() -> None:
-    """Explicit None source_hash returns all-None attribution."""
-    attr = project_lxmf_attribution({"source_hash": None})
-    assert attr.sender_id is None
-
-
-def test_project_ignores_extra_keys() -> None:
-    """Extra native keys (destination_hash, etc.) are ignored."""
-    native = {
-        "source_hash": "deadbeef",
-        "destination_hash": "cafebabe",
-        "message_id": "msg-001",
-    }
-    attr = project_lxmf_attribution(native)
-    assert attr.sender_id == "deadbeef"
-    assert attr.short_label == "deadbeef"
-
-
-def test_project_label_for_long_hash() -> None:
-    """Long hash (32 hex chars) gets truncated label."""
-    h = "a" * 32
-    attr = project_lxmf_attribution({"source_hash": h})
-    assert attr.label == "a" * 16 + "\u2026"
-
-
-def test_project_label_for_short_hash() -> None:
-    """Short hash (8 hex chars) label is the full hash."""
-    h = "abcd1234"
-    attr = project_lxmf_attribution({"source_hash": h})
-    assert attr.label == h
-
-
-def test_project_frozen() -> None:
-    """LxmfAttribution is frozen (immutable)."""
-    attr = project_lxmf_attribution({"source_hash": "abcd"})
-    try:
-        attr.sender_id = "changed"  # type: ignore[misc]
-        raise AssertionError("should have raised FrozenInstanceError")
-    except AttributeError:
-        pass
-
-
-def test_project_typical_lxmf_hash() -> None:
-    """Typical 32-char LXMF hash projects correctly."""
-    h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
-    attr = project_lxmf_attribution({"source_hash": h})
-    assert attr.sender_id == h
-    assert attr.short_label == "e9768cd4"
-    # 32 chars > 16 threshold → truncated label
-    assert attr.label == "e9768cd45f12a3b4" + "\u2026"
+    """Explicit None source_hash returns None sender_id."""
+    fields = project_lxmf_attribution({"source_hash": None})
+    assert fields["source_sender_id"] is None
 
 
 def test_project_bytearray_source_hash() -> None:
     """Bytearray source_hash normalises to hex."""
     native = {"source_hash": bytearray(b"\xde\xad\xbe\xef")}
-    attr = project_lxmf_attribution(native)
-    assert attr.sender_id == "deadbeef"
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "deadbeef"
+
+
+def test_project_ignores_extra_keys() -> None:
+    """Extra native keys are ignored; labels stay None without display name."""
+    native = {
+        "source_hash": "deadbeef",
+        "destination_hash": "cafebabe",
+        "message_id": "msg-001",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "deadbeef"
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_project_typical_lxmf_hash() -> None:
+    """Typical 32-char LXMF hash projects to sender_id, labels None."""
+    h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
+    fields = project_lxmf_attribution({"source_hash": h})
+    assert fields["source_sender_id"] == h
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_project_returns_dict() -> None:
+    """project_lxmf_attribution returns a plain dict, not a dataclass."""
+    fields = project_lxmf_attribution({"source_hash": "abcd"})
+    assert isinstance(fields, dict)
+    # All three canonical keys are always present.
+    assert set(fields.keys()) == {
+        "source_sender_id",
+        "source_sender_label",
+        "source_sender_short_label",
+    }
+
+
+# ---------------------------------------------------------------------------
+# project_lxmf_attribution — display name → labels
+# ---------------------------------------------------------------------------
+
+
+def test_project_display_name_populates_labels() -> None:
+    """Display name populates sender_label; short label derived compact."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Alice Walker",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "ab" * 16
+    assert fields["source_sender_label"] == "Alice Walker"
+    assert fields["source_sender_short_label"] == "AliceWalker"
+
+
+def test_project_display_name_and_short_name() -> None:
+    """Both display_name and short_name populate their respective labels."""
+    native = {
+        "source_hash": "cd" * 16,
+        "lxmf.display_name": "Alice Walker",
+        "lxmf.short_name": "AW",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Alice Walker"
+    assert fields["source_sender_short_label"] == "AW"
+
+
+def test_project_short_name_only() -> None:
+    """Short name alone populates short_label but not sender_label."""
+    native = {
+        "source_hash": "ef" * 16,
+        "lxmf.short_name": "Bob",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] == "Bob"
+
+
+def test_project_display_name_empty_string() -> None:
+    """Empty display_name leaves labels None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "ab" * 16
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_project_display_name_none() -> None:
+    """Explicit None display_name leaves labels None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": None,
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] is None
+
+
+def test_project_display_name_single_word() -> None:
+    """Single-word display name: compact form equals the name itself."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Alice",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Alice"
+    assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_project_display_name_bytes() -> None:
+    """Bytes display_name is decoded as UTF-8."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Café".encode("utf-8"),
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Café"
+
+
+def test_int_display_name_not_coerced() -> None:
+    """Non-text display_name (int) is not coerced; label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": 12345,
+    }
+    fields = project_lxmf_attribution(native)
+    # Strict label typing: int is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_dict_display_name_not_coerced() -> None:
+    """Non-text display_name (dict) is not coerced; label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": {"key": "val"},
+    }
+    fields = project_lxmf_attribution(native)
+    # Strict label typing: dict is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
+def test_bytes_display_name_decoded() -> None:
+    """bytes display_name is decoded as UTF-8 to a real label."""
+    native = {
+        "source_hash": b"\xab",
+        "lxmf.display_name": b"Alice",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "ab"
+    assert fields["source_sender_label"] == "Alice"
+    assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_short_name_int_not_coerced() -> None:
+    """Non-text short_name (int) is not coerced; short label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Alice",
+        "lxmf.short_name": 99,
+    }
+    fields = project_lxmf_attribution(native)
+    # display_name still projects; int short_name is rejected.
+    assert fields["source_sender_label"] == "Alice"
+    # Falls back to compact form of display_name, not str(99).
+    assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_project_short_name_empty_falls_back_to_compact() -> None:
+    """Empty short_name falls back to compact display_name."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "Alice Walker",
+        "lxmf.short_name": "",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Alice Walker"
+    assert fields["source_sender_short_label"] == "AliceWalker"
+
+
+def test_project_hash_never_becomes_label() -> None:
+    """Opaque source_hash never appears in label fields."""
+    h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
+    fields = project_lxmf_attribution({"source_hash": h})
+    # The hash must not leak into label fields.
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+    assert fields["source_sender_id"] == h
+
+
+# ---------------------------------------------------------------------------
+# project_lxmf_attribution — short_name edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_project_display_name_spaces_only() -> None:
+    """Display name that is only spaces: label set, compact form None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": "   ",
+    }
+    fields = project_lxmf_attribution(native)
+    # "   " is non-empty so label is "   ".
+    assert fields["source_sender_label"] == "   "
+    # Compact form strips spaces → empty → None.
+    assert fields["source_sender_short_label"] is None
+
+
+def test_project_all_fields_combined() -> None:
+    """Realistic native dict with display name and short name."""
+    native = {
+        "source_hash": b"\xe9\x76\x8c\xd4\x5f\x12\xa3\xb4",
+        "destination_hash": "00" * 16,
+        "message_id": "ff" * 32,
+        "lxmf.display_name": "Mesh Node Alpha",
+        "lxmf.short_name": "MNA",
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_id"] == "e9768cd45f12a3b4"
+    assert fields["source_sender_label"] == "Mesh Node Alpha"
+    assert fields["source_sender_short_label"] == "MNA"

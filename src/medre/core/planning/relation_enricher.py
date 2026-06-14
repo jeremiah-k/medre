@@ -289,14 +289,20 @@ class RelationEnricher:
                         if "original_sender_displayname" not in sender_meta:
                             _dn = None
                             if target_data is not None:
-                                # Pre-existing fallback: displayname → longname.
-                                # This is core planning debt — the rendering
-                                # attribution model projects display identity
-                                # through adapter-local helpers, not bare
+                                # Display identity fallback chain:
+                                # displayname → meshtastic.longname → longname.
+                                # The namespaced key is primary per the
+                                # codec namespacing rule; the bare key remains
+                                # for legacy input tolerance. This is core
+                                # planning debt — the rendering attribution
+                                # model projects display identity through
+                                # adapter-local helpers, not bare
                                 # transport-native keys. Tracked separately
                                 # from the rendering attribution tranche.
-                                _dn = target_data.get("displayname") or target_data.get(
-                                    "longname"
+                                _dn = (
+                                    target_data.get("displayname")
+                                    or target_data.get("meshtastic.longname")
+                                    or target_data.get("longname")
                                 )
                             if _dn:
                                 sender_meta["original_sender_displayname"] = str(_dn)

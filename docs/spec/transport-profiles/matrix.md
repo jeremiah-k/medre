@@ -114,6 +114,65 @@ only — it does not confirm remote delivery or federation fan-out.
 
 ---
 
+## Sender Identity Projection
+
+The Matrix adapter projects Matrix-native sender identity into the
+generic `RelayAttribution` sender fields (see
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
+Projection is owned by `project_matrix_attribution` in the Matrix
+adapter package; core rendering consumes only the generic fields.
+
+At ingress, the codec records the sender MXID (`@user:domain`) in the
+`sender` native-metadata key. After codec decode, the adapter enriches
+native metadata with the room-member display name read from already-synced
+homeserver member state. No extra network call is issued during
+enrichment. When no member display name is available, the adapter falls
+back to the MXID as the `displayname` value for live rendering.
+
+| Generic field               | Source                                                                     |
+| --------------------------- | -------------------------------------------------------------------------- |
+| `source_sender_id`          | `sender` (full MXID)                                                       |
+| `source_sender_handle`      | `sender` (full MXID; the MXID is the Matrix handle form)                   |
+| `source_sender_label`       | `displayname` or `display_name` (display name only, no localpart fallback) |
+| `source_sender_short_label` | MXID localpart via `extract_mxid_localpart` (`None` when absent)           |
+
+The dispatch projection populates `source_sender_label` from the display
+name only. An empty or absent display name leaves `source_sender_label`
+as `None`; the MXID localpart is never substituted into the label. The
+adapter-level MXID-as-displayname fallback affects live rendering
+enrichment, not the dispatch projection rules.
+
+`extract_mxid_localpart` is deterministic for malformed MXIDs. An empty
+localpart after `@` (for example `@:domain`) returns `""` rather than
+including the colon and domain. Empty or `None` display names stay
+`None`; the literal text `"None"` is never rendered.
+
+### mmrelay Wire-Key Boundary
+
+The Matrix display name is never converted to mmrelay wire keys
+(`KEY_LONGNAME` / `KEY_SHORTNAME`). The renderer reads mmrelay wire keys
+from inbound event content (`_capture_mmrelay_fields`) when they are
+present; it does not synthesize them from the display name. mmrelay
+`KEY_LONGNAME` and `KEY_SHORTNAME` are isolated wire-compatibility
+fields, not MEDRE attribution variables.
+
+### Display-Name Staleness
+
+Matrix display names come from homeserver sync state held by the
+`mindroom-nio` client. They converge with homeserver member state and
+may lag profile changes on the homeserver. Display-name staleness is an
+inherent property of homeserver member-state sync, not a MEDRE-managed
+concern.
+
+Identity labels may appear in rendered messages and renderer-local
+metadata; enrichment is observational and is not delivery evidence.
+Diagnostics expose no secrets (access tokens, credentials, session
+material) and no SDK objects. See
+[Routing and Delivery §17.5.10](../routing-delivery.md#17510-identity-enrichment-diagnostics-and-privacy)
+for the cross-transport policy.
+
+---
+
 The Matrix codec (`MatrixCodec`) decodes three inbound categories:
 
 1. **True Matrix reactions** (`m.annotation` in `m.relates_to`) → `MESSAGE_REACTED` with a `reaction` relation targeting the annotated event.

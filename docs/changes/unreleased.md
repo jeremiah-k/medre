@@ -193,3 +193,71 @@ to be Matrix-config-driven.
 - `derive_meshnet_value`: `is not None` checks.
 - MatrixRenderer: registers when Matrix configs exist (not Meshtastic).
 - Underscore-prefixed adapter modules treated as shared infrastructure.
+
+---
+
+## Transport-Native Identity Enrichment
+
+Constrain sender-identity enrichment to adapter-local projection so live
+bridge prefixes are more readable. Each adapter projects its native
+sender identity into the generic `RelayAttribution` sender fields;
+core rendering stays transport-neutral.
+
+**Per-transport projection:**
+
+- Matrix: MXID → `source_sender_id` and `source_sender_handle`;
+  display name → `source_sender_label` (display-name only, no localpart
+  fallback); MXID localpart → `source_sender_short_label`. Display name
+  is never converted to mmrelay `KEY_LONGNAME`/`KEY_SHORTNAME`.
+- Meshtastic: `from_id` → `source_sender_id`; node-database
+  `longname`/`shortname` (read in-memory at ingress) → label fields with
+  a deterministic fallback chain.
+- MeshCore: pubkey prefix → `source_sender_id`; local contact
+  `adv_name` → `source_sender_label` when the sender is a known contact;
+  opaque pubkey never becomes a label.
+- LXMF: `source_hash` → `source_sender_id`; captured display name → label
+  fields; opaque hash never becomes a label.
+
+**Opacity rule:** opaque identifiers (LXMF hash, MeshCore pubkey prefix)
+never populate `source_sender_label`; `{sender}` renders empty rather
+than a truncated hash or pubkey. Operators use `{sender_id}` for the
+opaque value.
+
+**Observational only:** identity enrichment is not delivery evidence, not
+authoritative storage state, and may be stale. Prefix rendering remains
+safe when all identity labels are empty. No canonical topology or contact
+events are emitted.
+
+**Announce-based LXMF display-name enrichment is not implemented**; a
+defensive ingress capture path is in place. Per-channel origin labels
+remain unsupported — operators use separate routes per channel.
+
+---
+
+## Namespace Meshtastic Identity Metadata
+
+Namespace Meshtastic identity keys under `meshtastic.*` so
+transport-specific metadata stays namespaced by transport.
+
+**Changed:**
+
+- `meshtastic.from_id`, `meshtastic.longname`, and
+  `meshtastic.shortname` are now the emitted identity keys.
+- Bare `longname`/`shortname` removed from codec output; projection and
+  renderer read bare `longname`/`shortname` only as legacy input
+  tolerance for stored events and test fixtures produced before
+  namespacing.
+- Bare `from_id` retained for non-identity consumers (`source_native_ref`,
+  relation mapping); non-identity keys (`packet_id`, `channel`, `to_id`,
+  `reply_id`, `emoji`) remain bare.
+- Platform detection tightened: namespaced `meshtastic.*` keys are the
+  primary detection signal; `channel` is excluded from the legacy
+  bare-key set so a sparse dict carrying only `channel` no longer
+  triggers a false Meshtastic detection.
+- `MatrixRenderer._resolve_mmrelay_sender_names` reads
+  `meshtastic.longname`/`meshtastic.shortname` (primary) before mmrelay
+  wire fields and legacy bare keys.
+
+mmrelay wire fields (`meshtastic_longname`, `meshtastic_shortname`,
+`meshtastic_meshnet`) remain separate external wire-format fields and are
+not MEDRE native metadata.

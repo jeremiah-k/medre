@@ -128,18 +128,21 @@ source-attribution registry, falling back to empty string.
 When `mmrelay_compatibility=True` on the source MeshtasticConfig, the
 renderer injects additional mesh metadata via `_inject_mmrelay_metadata`:
 
-| Injected key           | Value source                                                                            |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `meshtastic_id`        | `native_data["packet_id"]`                                                              |
-| `meshtastic_longname`  | `native_data["longname"]` or `native_data["meshtastic_longname"]` (Meshtastic-native)   |
-| `meshtastic_shortname` | `native_data["shortname"]` or `native_data["meshtastic_shortname"]` (Meshtastic-native) |
-| `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                 |
-| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                                          |
-| `meshtastic_text`      | Event payload `text` or `body`                                                          |
+| Injected key           | Value source                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `meshtastic_id`        | `native_data["packet_id"]`                                                                                                    |
+| `meshtastic_longname`  | `native_data["meshtastic.longname"]` → `meshtastic_longname` (wire) → `KEY_LONGNAME` → bare `longname` (legacy tolerance)     |
+| `meshtastic_shortname` | `native_data["meshtastic.shortname"]` → `meshtastic_shortname` (wire) → `KEY_SHORTNAME` → bare `shortname` (legacy tolerance) |
+| `meshtastic_meshnet`   | Resolved from `origin_label` via `derive_meshnet_value`                                                                       |
+| `meshtastic_portnum`   | Hardcoded `"TEXT_MESSAGE_APP"`                                                                                                |
+| `meshtastic_text`      | Event payload `text` or `body`                                                                                                |
 
 Matrix `displayname` is **not** used for `meshtastic_longname`/
-`meshtastic_shortname` — those fields are populated only from
-Meshtastic-native keys or existing external mmrelay wire keys.
+`meshtastic_shortname` — those fields are populated by
+`_resolve_mmrelay_sender_names` only from Meshtastic-native namespaced
+keys (`meshtastic.longname`/`meshtastic.shortname`), external mmrelay
+wire keys, or legacy bare-key input tolerance. Matrix display names never
+feed this path.
 
 MMRelay injection is **skipped for reactions** (reaction rendering
 handles its own MMRelay keys).
@@ -165,25 +168,33 @@ Matrix prefix is now target-local via `MatrixConfig.relay_prefix` only.
 
 The Meshtastic codec (`MeshtasticCodec.decode` in
 `src/medre/adapters/meshtastic/codec.py`, lines 59–265) produces native
-metadata with these identity-relevant keys:
+metadata with these identity-relevant keys. Identity keys are namespaced
+under `meshtastic.*` so transport-specific metadata stays namespaced by
+transport; non-identity keys remain bare.
 
-| Key                 | Source                                           |
-| ------------------- | ------------------------------------------------ |
-| `packet_id`         | Classifier from packet `id` field                |
-| `from_id`           | Classifier `from_id` (numeric node ID string)    |
-| `channel`           | Packet `channel` or config `default_channel`     |
-| `portnum`           | Classifier portnum                               |
-| `to_id`             | Packet `toId`                                    |
-| `is_direct_message` | Classifier flag                                  |
-| `longname`          | From `node_info["longname"]` (passed at decode)  |
-| `shortname`         | From `node_info["shortname"]` (passed at decode) |
-| `reply_id`          | Classifier from `decoded.replyId`                |
-| `emoji`             | Raw `decoded.emoji` value                        |
-| `emoji_flag`        | Boolean from classifier                          |
+| Key                    | Source                                                  |
+| ---------------------- | ------------------------------------------------------- |
+| `packet_id`            | Classifier from packet `id` field (bare, non-identity)  |
+| `from_id`              | Classifier `from_id` — numeric node ID (bare, retained) |
+| `meshtastic.from_id`   | Same sender as `from_id` (namespaced identity key)      |
+| `channel`              | Packet `channel` or config `default_channel` (bare)     |
+| `portnum`              | Classifier portnum (bare)                               |
+| `to_id`                | Packet `toId` (bare)                                    |
+| `is_direct_message`    | Classifier flag (bare)                                  |
+| `meshtastic.longname`  | From `node_info["longname"]` (passed at decode)         |
+| `meshtastic.shortname` | From `node_info["shortname"]` (passed at decode)        |
+| `reply_id`             | Classifier from `decoded.replyId` (bare)                |
+| `emoji`                | Raw `decoded.emoji` value (bare)                        |
+| `emoji_flag`           | Boolean from classifier (bare)                          |
 
-The `node_info` dict is provided by the adapter at decode time from the
-session's node database. When node info is unavailable, `longname` and
-`shortname` are empty strings.
+Bare `from_id` is retained because non-identity consumers
+(`source_native_ref`, relation mapping) read it directly. Bare
+`longname`/`shortname` are no longer emitted by the codec; the projection
+and renderer read them only as legacy input tolerance for stored events
+and test fixtures produced before namespacing. The `node_info` dict is
+provided by the adapter at decode time from the session's node database;
+when node info is unavailable, `meshtastic.longname` and
+`meshtastic.shortname` are empty strings.
 
 ### Meshtastic Outbound Prefix Behavior
 
@@ -282,16 +293,16 @@ string.
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Adapter projection helper (empty for MeshCore sources)                 |
-| `{sender_short}`  | Adapter projection helper (empty for MeshCore sources)                 |
-| `{sender_id}`     | `project_meshcore_attribution()` — `meshcore.sender_id` (pubkey prefix)|
-| `{sender_handle}` | Adapter projection helper (empty for MeshCore sources)                 |
-| `{platform}`      | Source platform name                                                   |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source channel ID                                                      |
-| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
+| Variable          | Source                                                                  |
+| ----------------- | ----------------------------------------------------------------------- |
+| `{sender}`        | Adapter projection helper (empty for MeshCore sources)                  |
+| `{sender_short}`  | Adapter projection helper (empty for MeshCore sources)                  |
+| `{sender_id}`     | `project_meshcore_attribution()` — `meshcore.sender_id` (pubkey prefix) |
+| `{sender_handle}` | Adapter projection helper (empty for MeshCore sources)                  |
+| `{platform}`      | Source platform name                                                    |
+| `{route_id}`      | Matched route identifier                                                |
+| `{channel}`       | Source channel ID                                                       |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)   |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** — they are left unchanged
@@ -372,16 +383,16 @@ default `""`).
 **Available template variables** — same shared set as all transports (see
 attribution.py `_ALL_KNOWN_NAMES`):
 
-| Variable          | Source                                                                 |
-| ----------------- | ---------------------------------------------------------------------- |
-| `{sender}`        | Adapter projection helper (empty for LXMF sources)                     |
-| `{sender_short}`  | Adapter projection helper (empty for LXMF sources)                     |
-| `{sender_id}`     | `project_lxmf_attribution()` — `source_hash`                            |
-| `{sender_handle}` | Adapter projection helper (empty for LXMF sources)                     |
-| `{platform}`      | Source platform name                                                   |
-| `{route_id}`      | Matched route identifier                                               |
-| `{channel}`       | Source channel ID (always empty for LXMF)                              |
-| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)  |
+| Variable          | Source                                                                |
+| ----------------- | --------------------------------------------------------------------- |
+| `{sender}`        | Adapter projection helper (empty for LXMF sources)                    |
+| `{sender_short}`  | Adapter projection helper (empty for LXMF sources)                    |
+| `{sender_id}`     | `project_lxmf_attribution()` — `source_hash`                          |
+| `{sender_handle}` | Adapter projection helper (empty for LXMF sources)                    |
+| `{platform}`      | Source platform name                                                  |
+| `{route_id}`      | Matched route identifier                                              |
+| `{channel}`       | Source channel ID (always empty for LXMF)                             |
+| `{origin_label}`  | Resolved source label (route/context > adapter config > empty string) |
 
 Old variables `{longname}`, `{shortname}`, `{shortname5}`, `{from_id}`,
 and `{meshnet_name}` are **unknown placeholders** in the current formatter.
@@ -507,9 +518,12 @@ that map transport-specific native metadata keys onto the generic
 - **Matrix** — projects `sender_display_name` → `source_sender_label`,
   MXID localpart → `source_sender_short_label`, full MXID →
   `source_sender_id`.
-- **Meshtastic** — projects `longname` → `source_sender_label`,
-  `shortname` → `source_sender_short_label`, `from_id` →
-  `source_sender_id`.
+- **Meshtastic** — projects `meshtastic.longname` →
+  `source_sender_label`, `meshtastic.shortname` →
+  `source_sender_short_label`, `meshtastic.from_id` →
+  `source_sender_id`. Bare `from_id`/`longname`/`shortname` are accepted
+  as legacy input tolerance only (stored events and test fixtures
+  produced before namespacing).
 - **MeshCore** — projects `meshcore.sender_id` (pubkey prefix) →
   `source_sender_id`. `source_sender_label` and
   `source_sender_short_label` are empty (pubkey prefixes are not
@@ -573,11 +587,11 @@ string), the variable resolves to an empty string.
 
 ### Distinction from Other Labels
 
-| Concept               | Template variable | Source                                                              | Scope                        |
-| --------------------- | ----------------- | ------------------------------------------------------------------- | ---------------------------- |
-| `origin_label`        | `{origin_label}`  | Resolved source label (route/context > adapter config > empty string)| MEDRE-generic operator label |
-| `source_sender_id`    | `{sender_id}`     | Source event native metadata                                        | Per-transport native ID      |
-| `source_sender_label` | `{sender}`        | Source event native metadata                                        | Per-transport display name   |
+| Concept               | Template variable | Source                                                                | Scope                        |
+| --------------------- | ----------------- | --------------------------------------------------------------------- | ---------------------------- |
+| `origin_label`        | `{origin_label}`  | Resolved source label (route/context > adapter config > empty string) | MEDRE-generic operator label |
+| `source_sender_id`    | `{sender_id}`     | Source event native metadata                                          | Per-transport native ID      |
+| `source_sender_label` | `{sender}`        | Source event native metadata                                          | Per-transport display name   |
 
 ---
 
@@ -625,20 +639,24 @@ shaped `longname`/`shortname` keys. External mmrelay wire fields
 codec when present in event content.
 
 The Matrix renderer's mmrelay compatibility path (`_inject_mmrelay_metadata`
-and reaction emote fallback) populates `KEY_LONGNAME`/`KEY_SHORTNAME`
-only from Meshtastic-native `longname`/`shortname` or existing mmrelay
-wire keys — never from Matrix `displayname`. Matrix display names project
-into generic `{sender}` via Matrix attribution, not into Meshtastic-shaped
-mmrelay wire fields.
+and reaction emote fallback) resolves `KEY_LONGNAME`/`KEY_SHORTNAME` via
+`_resolve_mmrelay_sender_names` from Meshtastic-native namespaced keys
+(`meshtastic.longname`/`meshtastic.shortname`), external mmrelay wire
+keys, or legacy bare `longname`/`shortname` tolerance — never from Matrix
+`displayname`. Matrix display names project into generic `{sender}` via
+Matrix attribution, not into Meshtastic-shaped mmrelay wire fields.
 
 ### 5. Metadata key namespace inconsistency
 
-Meshtastic native metadata uses flat keys: `longname`, `shortname`,
-`from_id`, `packet_id`, `channel`. MeshCore uses namespaced keys:
-`meshcore.packet_id`, `meshcore.sender_id`, `meshcore.channel`. LXMF
-uses yet another set: `source_hash`, `destination_hash`, `message_id`.
+Meshtastic native metadata namespaces identity keys under `meshtastic.*`
+(`meshtastic.from_id`, `meshtastic.longname`, `meshtastic.shortname`),
+matching the MeshCore pattern (`meshcore.sender_id`,
+`meshcore.pubkey_prefix`, `meshcore.channel`, `meshcore.packet_id`). Bare
+`from_id` is retained for non-identity consumers, and the non-identity
+keys (`packet_id`, `channel`, `to_id`, `reply_id`, `emoji`) remain bare.
+LXMF uses its own set: `source_hash`, `destination_hash`, `message_id`.
 Matrix uses flat keys matching MMRelay: `sender`, `room_id`, `event_id`,
-plus captured `meshtastic_*` keys.
+plus captured `meshtastic_*` wire keys.
 
 The adapter projection helpers project these into canonical
 `source_sender_label`, `source_sender_short_label`, `source_sender_id`,
@@ -669,10 +687,21 @@ provides the short label directly.
 
 ### 8. No cross-transport name resolution
 
-There is no mechanism to resolve a human-readable name from a MeshCore
-pubkey prefix or LXMF identity hash into `source_sender_label` or
-`source_sender_short_label` for downstream prefix templates. Node info
-lookup exists only for Meshtastic (via the SDK node database).
+There is no cross-transport mechanism to resolve a human-readable name
+from an opaque identifier. Adapter-local enrichment is per-transport and
+reads only in-memory SDK state:
+
+- Meshtastic resolves `longname`/`shortname` from the SDK node database
+  via `session.get_node_info`.
+- MeshCore resolves a known contact's `adv_name` from the SDK contacts
+  cache via `session.resolve_contact_label`. An unknown sender leaves
+  both label fields empty; the opaque pubkey prefix never becomes a label.
+- LXMF has no active name resolution. A defensive ingress capture reads
+  `message.source_name` (which the current library does not populate);
+  announce-based display-name enrichment is not implemented.
+
+See [Transport-Native Identity Enrichment Audit](transport-native-identity-enrichment-audit.md)
+for the per-transport projection rules and the opacity policy.
 
 ### 9. No per-channel origin labels
 

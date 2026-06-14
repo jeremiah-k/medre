@@ -1026,7 +1026,46 @@ class TestMatrixFallbackText:
         assert "original_length" not in result.metadata
 
     async def test_fallback_text_mmrelay_metadata_preserved(self) -> None:
-        """mmrelay metadata injection is preserved under fallback_text strategy."""
+        """mmrelay metadata injection is preserved under fallback_text strategy.
+
+        Uses Meshtastic-native namespaced keys as the primary source — the
+        codec emits ``meshtastic.longname`` / ``meshtastic.shortname``.
+        """
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    mmrelay_compatibility=True,
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            source_adapter="transport",
+            native_data={
+                "meshtastic.longname": "Alice",
+                "meshtastic.shortname": "A",
+                "packet_id": "99",
+            },
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        # mmrelay metadata keys should be present
+        assert "meshtastic_id" in result.payload
+        assert result.payload["meshtastic_id"] == "99"
+        assert result.payload["meshtastic_longname"] == "Alice"
+        assert result.payload["meshtastic_shortname"] == "A"
+
+    async def test_fallback_text_mmrelay_metadata_bare_key_legacy(self) -> None:
+        """Legacy bare longname/shortname keys still resolve (input tolerance).
+
+        Bare keys are no longer emitted by the codec but remain accepted as
+        a last-resort fallback for older native metadata shapes.
+        """
         renderer = MatrixRenderer(
             source_configs={
                 "transport": _StubMeshtasticConfig(
@@ -1050,9 +1089,6 @@ class TestMatrixFallbackText:
                 delivery_strategy="fallback_text",
             ),
         )
-        # mmrelay metadata keys should be present
-        assert "meshtastic_id" in result.payload
-        assert result.payload["meshtastic_id"] == "99"
         assert result.payload["meshtastic_longname"] == "Alice"
         assert result.payload["meshtastic_shortname"] == "A"
 

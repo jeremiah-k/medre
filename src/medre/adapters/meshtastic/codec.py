@@ -216,16 +216,21 @@ class MeshtasticCodec(AdapterCodec):
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
 
+        # Identity keys are namespaced under ``meshtastic.*`` so that
+        # transport-specific metadata stays namespaced by transport.  Bare
+        # from_id retained for non-identity consumers; broader meshtastic.*
+        # namespacing deferred.
         native_meta = NativeMetadata(
             data={
                 "packet_id": pkt_id,
                 "from_id": sender,
+                "meshtastic.from_id": sender,
                 "channel": pkt_channel,
                 "portnum": str(portnum) if portnum else None,
                 "to_id": to_id,
                 "is_direct_message": classification.is_direct_message,
-                "longname": longname,
-                "shortname": shortname,
+                "meshtastic.longname": longname,
+                "meshtastic.shortname": shortname,
                 "reply_id": reply_id,
                 "emoji": emoji_raw,
                 "emoji_flag": emoji_flag,

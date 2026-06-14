@@ -5,16 +5,18 @@ anyone extending the MEDRE runtime.
 
 ## Documents
 
-| Document                       | Purpose                                         |
-| ------------------------------ | ----------------------------------------------- |
-| `testing.md`                   | Test suite structure, patterns, and conventions |
-| `adapter-authoring.md`         | How to write a new transport adapter            |
-| `resource-lifecycle.md`        | Runtime resource ownership, creation, teardown  |
-| `source-audits.md`             | Audit evidence and review notes                 |
-| `reference-repos.md`           | External reference implementations              |
-| `documentation-style.md`       | Conventions for writing MEDRE documentation     |
-| `change-process.md`            | How to propose and track documentation changes  |
-| `lifecycle-authority-audit.md` | Lifecycle status vocabulary audit guide         |
+| Document                                        | Purpose                                         |
+| ----------------------------------------------- | ----------------------------------------------- |
+| `testing.md`                                    | Test suite structure, patterns, and conventions |
+| `adapter-authoring.md`                          | How to write a new transport adapter            |
+| `resource-lifecycle.md`                         | Runtime resource ownership, creation, teardown  |
+| `source-audits.md`                              | Audit evidence and review notes                 |
+| `relay-prefix-attribution-audit.md`             | Relay prefix and sender-provenance audit        |
+| `transport-native-identity-enrichment-audit.md` | Per-transport sender-identity projection audit  |
+| `reference-repos.md`                            | External reference implementations              |
+| `documentation-style.md`                        | Conventions for writing MEDRE documentation     |
+| `change-process.md`                             | How to propose and track documentation changes  |
+| `lifecycle-authority-audit.md`                  | Lifecycle status vocabulary audit guide         |
 
 ## How to Add Documentation
 

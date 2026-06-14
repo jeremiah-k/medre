@@ -211,6 +211,16 @@ class LxmfCodec(AdapterCodec):
             "has_fields": classification["has_fields"],
         }
 
+        # Capture announce-derived display name when present at ingress.
+        # The session populates ``source_name`` defensively via
+        # ``getattr(message, "source_name", None)``; fake-mode packets
+        # may carry it directly.  Only non-empty values are injected so
+        # that the attribution projection leaves label fields ``None``
+        # when no real display name exists.
+        display_name = _extract_display_name(native_event.get("source_name"))
+        if display_name is not None:
+            native_meta_data["lxmf.display_name"] = display_name
+
         # Check for MEDRE envelope in fields
         fields = native_event.get("fields")
         custom_meta: dict[str, object] = {}
@@ -240,3 +250,24 @@ class LxmfCodec(AdapterCodec):
             metadata=metadata,
             source_native_ref=source_native_ref,
         )
+
+
+def _extract_display_name(value: object) -> str | None:
+    """Extract a non-empty display name string from *value*.
+
+    Accepts ``str``, ``bytes``, or ``bytearray``.  Bytes are decoded as
+    UTF-8.  Returns ``None`` for ``None``, empty results, or types that
+    are not text-like (int, dict, etc.) -- display names are text and
+    coercing arbitrary types would produce misleading labels.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value if value else None
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            decoded = bytes(value).decode("utf-8")
+        except UnicodeDecodeError:
+            decoded = bytes(value).decode("utf-8", errors="replace")
+        return decoded if decoded else None
+    return None

@@ -161,21 +161,42 @@ class MatrixRenderer:
     ) -> tuple[str, str]:
         """Resolve mmrelay KEY_LONGNAME / KEY_SHORTNAME from native data.
 
-        Resolution order per field:
+        Transport-specific metadata stays namespaced by transport, so
+        the Meshtastic-native namespaced keys win.  Per-field resolution
+        order:
 
-        1. Bare Meshtastic-native key (``longname`` / ``shortname``) —
-           present for Meshtastic-origin events.
-        2. Existing mmrelay wire key (``meshtastic_longname`` /
+        1. Meshtastic-native namespaced metadata
+           (``meshtastic.longname`` / ``meshtastic.shortname``) — primary
+           source emitted by the Meshtastic codec.
+        2. External mmrelay wire fields (``meshtastic_longname`` /
            ``meshtastic_shortname``) — preserved from external mmrelay
-           Matrix event content captured by the codec.
-        3. Empty string.
+           Matrix event content captured by the codec.  These literal
+           strings are also the values of :data:`KEY_LONGNAME` /
+           :data:`KEY_SHORTNAME`, so a separate KEY-constant lookup
+           would be a redundant no-op.
+        3. Legacy bare keys (``longname`` / ``shortname``) — input
+           tolerance only, not current emitted metadata.
+        4. Empty string.
 
         Matrix ``displayname`` is intentionally **not** used — Matrix
         display names project into generic ``{sender}`` via Matrix
         attribution, not into Meshtastic-shaped mmrelay wire fields.
         """
-        longname = native_data.get("longname") or native_data.get(KEY_LONGNAME) or ""
-        shortname = native_data.get("shortname") or native_data.get(KEY_SHORTNAME) or ""
+        longname = (
+            native_data.get("meshtastic.longname")
+            # == KEY_LONGNAME wire key; a second KEY-constant lookup
+            # would hit the same dict key, so it is folded in here.
+            or native_data.get("meshtastic_longname")
+            or native_data.get("longname")  # legacy bare-key tolerance
+            or ""
+        )
+        shortname = (
+            native_data.get("meshtastic.shortname")
+            # == KEY_SHORTNAME wire key; same as above.
+            or native_data.get("meshtastic_shortname")
+            or native_data.get("shortname")  # legacy bare-key tolerance
+            or ""
+        )
         return str(longname), str(shortname)
 
     def _build_source_attribution(

@@ -53,6 +53,9 @@ class MeshCoreCodec(AdapterCodec):
         self,
         native_event: dict[str, Any],
         channel_index: int | None = None,
+        *,
+        contact_label: str | None = None,
+        contact_short_label: str | None = None,
     ) -> CanonicalEvent:
         """Convert a native MeshCore event payload dict into a canonical event.
 
@@ -63,6 +66,15 @@ class MeshCoreCodec(AdapterCodec):
         channel_index:
             Optional channel index override; defaults to the packet's
             ``channel_idx`` field.
+        contact_label:
+            Known-contact advertised name for the sender, resolved by
+            the adapter from the session's local contacts store.  When
+            ``None`` (sender not a known contact), no label is injected
+            and the projection leaves ``source_sender_label`` as
+            ``None``.  Opaque pubkey prefixes are never passed here.
+        contact_short_label:
+            Optional abbreviated contact label.  When ``None``, the
+            projection derives a compact form from *contact_label*.
 
         Returns
         -------
@@ -124,6 +136,13 @@ class MeshCoreCodec(AdapterCodec):
                 "meshcore.pubkey_prefix": sender,
                 "meshcore.txt_type": native_event.get("txt_type"),
                 "meshcore.is_direct_message": classification.is_direct_message,
+                # Known-contact label enrichment (adapter-local).
+                # Populated by the adapter when the session's local
+                # contacts store recognises the sender pubkey prefix.
+                # None when the sender is not a known contact; opaque
+                # pubkey prefixes never appear here.
+                "meshcore.contact_label": contact_label,
+                "meshcore.contact_short_label": contact_short_label,
                 # Nested classification primitives (no raw SDK objects).
                 "meshcore.classification": {
                     "action": classification.action,

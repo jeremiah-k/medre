@@ -17,10 +17,13 @@ Generic fields produced
 * ``source_sender_id`` — native sender identifier (pubkey prefix).
 * ``source_native_channel_id`` — MeshCore channel index.
 * ``source_native_message_id`` — MeshCore packet ID (sender timestamp).
-* ``source_sender_label`` — always ``None`` (MeshCore carries no display
-  name; see the relay-attribution tests ``test_meshcore_no_display_name``
-  and ``test_meshcore_sender_short_template``).
-* ``source_sender_short_label`` — always ``None`` (no abbreviated label).
+* ``source_sender_label`` — known-contact advertised name
+  (``meshcore.contact_label``), or ``None`` when the sender is not a
+  locally-known contact.  Opaque pubkey prefixes never populate this
+  field; use ``{sender_id}`` in templates to expose the pubkey.
+* ``source_sender_short_label`` — explicit ``meshcore.contact_short_label``
+  when present, otherwise the first whitespace-delimited token of the
+  contact label.  ``None`` when no contact label is available.
 
 Resolution order
 ----------------
@@ -34,6 +37,20 @@ Resolution order
 
 ``source_native_message_id``
     ``meshcore.packet_id``.
+
+``source_sender_label``
+    ``meshcore.contact_label``.  Only non-empty real human labels
+    populate this field.  Values are validated with a strict string-only
+    helper (:func:`_contact_label_str` in this module): non-string inputs
+    (ints, dicts, etc.) yield ``None`` rather than being coerced via
+    ``str()``.  The adapter injects this key at ingress when the
+    session's local contacts store recognises the sender pubkey.
+
+``source_sender_short_label``
+    ``meshcore.contact_short_label`` → first whitespace-delimited token
+    of ``meshcore.contact_label``.  ``None`` when no contact label is
+    available.  Subject to the same strict string-only validation as
+    ``source_sender_label``.
 """
 
 from __future__ import annotations
@@ -53,6 +70,13 @@ ProjectionMap = dict[str, str | None]
 #: Characteristic MeshCore native-metadata keys (namespaced).  Presence of
 #: any of these identifies a native dict as MeshCore-shaped.  Mirrors the
 #: set used by the core platform-detection fallback.
+#:
+#: Contact-label keys (``meshcore.contact_label``,
+#: ``meshcore.contact_short_label``) are intentionally excluded because a
+#: dict carrying only those keys lacks the core identity signals
+#: (pubkey_prefix, sender_id, channel, packet_id) that make a dict
+#: unambiguously MeshCore-native.  Detection relies on those identity
+#: keys; contact labels are enrichment layered on top.
 MESHCORE_NAMESPACED_KEYS: frozenset[str] = frozenset(
     {
         "meshcore.pubkey_prefix",
@@ -108,8 +132,9 @@ def project_meshcore_attribution(
         ``source_native_channel_id``, ``source_native_message_id``,
         ``source_sender_label``, ``source_sender_short_label``.
         Resolved values are coerced to ``str``; fields are ``None`` when
-        no value could be resolved.  The two label fields are always
-        ``None`` because MeshCore carries no display name.
+        no value could be resolved.  Label fields are ``None`` when no
+        known-contact label is available; opaque pubkey prefixes never
+        populate the label fields.
     """
     # --- sender_id: pubkey_prefix > sender_id > bare pubkey_prefix --
     sender_id: str | None = (
@@ -126,13 +151,28 @@ def project_meshcore_attribution(
     # --- packet_id: meshcore.packet_id ------------------------------
     packet_id: str | None = _str(native_data.get("meshcore.packet_id"))
 
+    # --- sender_label: contact_label only (human labels, never pubkeys).
+    # Contact labels are human-readable names resolved from the session's
+    # local contacts store.  They are validated with the strict
+    # ``_contact_label_str`` helper so that non-string values (ints, dicts,
+    # etc.) never become rendered sender text — they yield ``None`` instead.
+    contact_label: str | None = _contact_label_str(
+        native_data.get("meshcore.contact_label")
+    )
+    contact_short_label: str | None = _contact_label_str(
+        native_data.get("meshcore.contact_short_label")
+    )
+
+    sender_label: str | None = contact_label
+    # Short label: explicit short label, else first token of contact label.
+    sender_short_label: str | None = contact_short_label or _first_token(contact_label)
+
     return {
         "source_sender_id": sender_id,
         "source_native_channel_id": channel,
         "source_native_message_id": packet_id,
-        # MeshCore carries no display name or short label.
-        "source_sender_label": None,
-        "source_sender_short_label": None,
+        "source_sender_label": sender_label,
+        "source_sender_short_label": sender_short_label,
     }
 
 
@@ -142,8 +182,47 @@ def project_meshcore_attribution(
 
 
 def _str(value: object) -> str | None:
-    """Coerce *value* to ``str`` or return ``None`` for missing/empty."""
+    """Coerce *value* to ``str`` or return ``None`` for missing/empty.
+
+    Used for non-label native fields (sender_id, channel, packet_id) where
+    coercion of integer-typed codec outputs (e.g. channel=3 -> "3") is the
+    intended behaviour.  Human contact labels must use
+    :func:`_contact_label_str` instead.
+    """
     if value is None:
         return None
     s = str(value)
     return s if s else None
+
+
+def _contact_label_str(value: object) -> str | None:
+    """Strict contact-label coercion.
+
+    Accept only genuine ``str`` values, trim surrounding whitespace, and
+    return ``None`` for any non-string input (int, dict, list, etc.) or
+    for empty/whitespace-only strings.  This prevents accidental
+    ``str(123)``-style rendering of non-human data into ``source_sender_label``
+    or ``source_sender_short_label``.
+    """
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def _first_token(value: str | None) -> str | None:
+    """Return the first whitespace-delimited token of *value*.
+
+    Splits *value* on whitespace and returns the first token (stripped),
+    or ``None`` when *value* is ``None`` or contains no non-whitespace
+    content.  This differs from the space-stripping ``_compact`` helpers
+    used by the Meshtastic and LXMF transports: those remove all spaces
+    while preserving the full string, whereas this helper keeps only the
+    leading token.  The distinction keeps ``{sender_short}`` useful for
+    short MeshCore advertised names (typically callsigns) and multi-word
+    names alike.
+    """
+    if value is None:
+        return None
+    parts = value.strip().split(None, 1)
+    return parts[0] if parts else None

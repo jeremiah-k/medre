@@ -118,7 +118,12 @@ priority over the source adapter's config-level `origin_label`. See the
 Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
 list of supported template variables.
 
-**Default:** `""` (no prefix). MeshCore does not have a convention for a default prefix because sender identity is a hex pubkey prefix, not a human-readable name — templates referencing `{sender}` or `{sender_short}` resolve to empty strings for MeshCore-origin events. Operators SHOULD prefer `{origin_label}` or `{sender_id}` for MeshCore-bound prefixes.
+**Default:** `""` (no prefix). MeshCore sender identity is a hex pubkey
+prefix, not a human-readable name. Templates referencing `{sender}` or
+`{sender_short}` resolve to empty strings unless the sender is a
+locally-known contact whose advertised name enriches those fields (see
+§Sender Identity Projection). Operators SHOULD prefer `{origin_label}` or
+`{sender_id}` for MeshCore-bound prefixes that need a stable value.
 
 **Truncation:** The prefix is prepended before UTF-8 byte-budget truncation (`max_text_bytes`, default 512). The rendered prefix counts toward the byte budget. Multi-byte UTF-8 codepoints are never split.
 
@@ -134,6 +139,72 @@ list of supported template variables.
 | `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It does not constitute delivery evidence. The MEDRE metadata namespace remains the authoritative source for machine-readable provenance. Local send acceptance does not confirm MeshCore RF delivery.
+
+---
+
+## Sender Identity Projection
+
+The MeshCore adapter projects MeshCore-native sender identity into the
+generic `RelayAttribution` sender fields (see
+[Routing and Delivery §17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)).
+Projection is owned by `project_meshcore_attribution`; core rendering
+consumes only the generic fields.
+
+At ingress, each event carries a sender public-key prefix (`pubkey_prefix`,
+a 6-byte hex truncation of the Ed25519 public key) and a
+`sender_timestamp`. MeshCore identity is always pubkey-based; there is no
+numeric node ID.
+
+### Contact-Label Enrichment
+
+At ingress the adapter resolves a known contact's advertised name via
+`session.resolve_contact_label(pubkey_prefix)`. The session calls
+`MeshCore.get_contact_by_key_prefix(prefix)` against the SDK's in-memory
+`contacts` dict, populated by `CONTACTS` events. The lookup is
+synchronous, issues no network call, never raises, and returns the
+contact's `adv_name` (stripped) or `None`. The codec records the result
+as `meshcore.contact_label` and `meshcore.contact_short_label` in native
+metadata.
+
+Contact keys are intentionally excluded from
+`MESHCORE_NAMESPACED_KEYS`. Platform detection relies on the core
+identity keys (`pubkey_prefix`, `sender_id`, `channel`, `packet_id`);
+contact labels are enrichment layered on top.
+
+### Projection Rules
+
+| Generic field               | Source                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `source_sender_id`          | `meshcore.pubkey_prefix` → `meshcore.sender_id` → bare `pubkey_prefix`                                        |
+| `source_sender_label`       | `meshcore.contact_label` only (human label; opaque pubkey never becomes label)                                |
+| `source_sender_short_label` | `meshcore.contact_short_label`, else compact derivation of `contact_label` (first whitespace-delimited token) |
+| `source_sender_handle`      | Not produced (the pubkey prefix is exposed via `source_sender_id`)                                            |
+
+When the sender is not a locally-known contact, both label fields are
+`None`. The opaque pubkey prefix never populates `source_sender_label`,
+so `{sender}` renders empty rather than a truncated hex string.
+Operators who want the pubkey prefix in a prefix use `{sender_id}`. The
+projection also emits `source_native_channel_id` and
+`source_native_message_id`.
+
+Per the opacity rule ([§17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)),
+an opaque pubkey is not a label. When contact enrichment resolves a
+label, `{sender}` and `{sender_short}` populate for MeshCore-origin
+events; otherwise they resolve to empty strings.
+
+### No Topology or Contact Canonical Events
+
+The adapter emits no topology or contact canonical events and models no
+contact reachability or RF delivery. Contact enrichment is limited to
+the local SDK contact cache; there is no cross-transport
+pubkey-to-name resolution.
+
+Identity labels may appear in rendered messages and renderer-local
+metadata; enrichment is observational and is not delivery evidence.
+Diagnostics expose no secrets (including BLE pairing PINs) and no raw
+SDK objects. See
+[Routing and Delivery §17.5.10](../routing-delivery.md#17510-identity-enrichment-diagnostics-and-privacy)
+for the cross-transport policy.
 
 ---
 
@@ -228,7 +299,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 - **Pre-release maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. MeshCore has no built-in threading/reply mechanism.
-- **Sender identity is a pubkey prefix.** 6-byte hex prefix is not human-readable; downstream consumers must map to display names externally.
+- **Sender identity is a pubkey prefix.** The 6-byte hex prefix is stable per sender but not human-readable. The adapter resolves a human-readable label from the local SDK contact cache when the sender is a known contact (see §Sender Identity Projection); otherwise the label fields are empty and only the opaque prefix is exposed via `{sender_id}`.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.
 - **No outbound DM initiation in capabilities.** `direct_messages=False` means MEDRE does not model outbound DM targeting. Inbound PRIV messages are still relayed.
 - **BLE mode is validated against real hardware.** Tested June 2026 with a real MeshCore BLE node on Linux BlueZ. BLE requires pre-pairing and is subject to BlueZ stack limitations.

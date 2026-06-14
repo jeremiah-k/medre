@@ -789,3 +789,132 @@ def test_no_cross_platform_flat_key_enrichment() -> None:
     # No global flat-key fallback patches them.
     assert fields.get("source_sender_label") is None
     assert fields.get("source_sender_id") is None
+
+
+# ===================================================================
+# Meshtastic platform detection: namespaced vs legacy vs channel
+# ===================================================================
+
+
+def test_detect_meshtastic_namespaced_from_id() -> None:
+    """Namespaced ``meshtastic.from_id`` alone detects Meshtastic."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"meshtastic.from_id": "!node"},
+    )
+    assert platform == "meshtastic"
+
+
+def test_detect_meshtastic_namespaced_longname() -> None:
+    """Namespaced ``meshtastic.longname`` alone detects Meshtastic."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"meshtastic.longname": "Alpha"},
+    )
+    assert platform == "meshtastic"
+
+
+def test_detect_meshtastic_namespaced_shortname() -> None:
+    """Namespaced ``meshtastic.shortname`` alone detects Meshtastic."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"meshtastic.shortname": "AB"},
+    )
+    assert platform == "meshtastic"
+
+
+def test_channel_alone_not_detected_as_meshtastic() -> None:
+    """Bare ``channel`` without a platform hint is NOT Meshtastic.
+
+    A sparse dict carrying only the generic ``channel`` key is too
+    ambiguous to identify Meshtastic native data; the dispatch returns
+    ``None`` rather than false-detecting Meshtastic.
+    """
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform("generic", {"channel": 0})
+    assert platform is None
+
+
+def test_channel_alone_with_platform_hint_uses_hint() -> None:
+    """platform_hint wins even when native data carries only ``channel``."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"channel": 0},
+        platform_hint="meshtastic",
+    )
+    assert platform == "meshtastic"
+
+
+def test_legacy_bare_keys_still_detect_meshtastic() -> None:
+    """Legacy bare keys (without ``channel``) still detect Meshtastic.
+
+    Backward compatibility for test fixtures and older data that carries
+    bare ``longname``/``shortname``/``from_id`` keys.
+    """
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"longname": "X", "shortname": "Y", "from_id": "!node"},
+    )
+    assert platform == "meshtastic"
+
+
+def test_platform_hint_overrides_detection() -> None:
+    """platform_hint overrides native key shape pointing at another platform.
+
+    Native data carries Matrix keys, but platform_hint='meshtastic' wins
+    and the dispatch reports Meshtastic.
+    """
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"sender": "@alice:matrix.org", "event_id": "$1:matrix.org"},
+        platform_hint="meshtastic",
+    )
+    assert platform == "meshtastic"
+
+
+def test_namespaced_meshtastic_not_confused_with_matrix() -> None:
+    """Namespaced ``meshtastic.*`` keys do not trigger Matrix detection.
+
+    Even though the dict is sparse, the unambiguous ``meshtastic.*``
+    namespace routes detection to Meshtastic, not Matrix.
+    """
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"meshtastic.from_id": "!node"},
+    )
+    assert platform == "meshtastic"
+    assert platform != "matrix"
+
+
+def test_matrix_keys_win_over_legacy_meshtastic_keys() -> None:
+    """When native data has both Matrix-characteristic keys and bare
+    legacy Meshtastic keys, Matrix wins (Matrix is checked before
+    legacy Meshtastic to avoid misdetecting Matrix events that carry
+    Meshtastic-enriched bare keys)."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {
+            "sender": "@alice:example.com",
+            "event_id": "$evt:example.com",
+            "longname": "Alpha",
+            "from_id": "!node",
+        },
+    )
+    assert platform == "matrix"

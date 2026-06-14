@@ -53,9 +53,26 @@ _ID_HEURISTICS: tuple[tuple[str, str], ...] = (
 # enriched with Meshtastic-style bare keys.
 
 _MATRIX_KEYS: frozenset[str] = frozenset({"sender", "event_id", "room_id"})
-_MESHTASTIC_KEYS: frozenset[str] = frozenset(
-    {"longname", "shortname", "from_id", "packet_id", "channel"}
+
+# Namespaced Meshtastic-native keys — primary detection signal.
+# These are unambiguous: a dict carrying any ``meshtastic.*`` key is
+# Meshtastic-native data.
+_MESHTASTIC_NAMESPACED_KEYS: frozenset[str] = frozenset(
+    {
+        "meshtastic.from_id",
+        "meshtastic.longname",
+        "meshtastic.shortname",
+    }
 )
+
+# Legacy bare Meshtastic keys — secondary detection signal for older
+# data and test fixtures.  ``channel`` is excluded because it is too
+# generic to identify Meshtastic native data on its own (a sparse dict
+# carrying only ``channel`` is not unambiguously Meshtastic).
+_MESHTASTIC_LEGACY_KEYS: frozenset[str] = frozenset(
+    {"longname", "shortname", "from_id", "packet_id"}
+)
+
 _LXMF_KEYS: frozenset[str] = frozenset({"source_hash", "destination_hash"})
 
 
@@ -80,8 +97,20 @@ def detect_source_platform(
        native metadata is sparse.
     2. Adapter-ID substring heuristic (e.g. ``"meshtastic-radio"``
        → ``"meshtastic"``).
-    3. Native key shape inspection (namespaced ``meshcore.*`` keys,
-       then Matrix, Meshtastic, LXMF characteristic keys).
+    3. Native key shape inspection, in this order:
+
+       a. Namespaced ``meshcore.*`` keys (unambiguous MeshCore-native).
+       b. Matrix-characteristic keys (``sender``, ``event_id``,
+          ``room_id``).  Checked before legacy Meshtastic bare keys
+          because Matrix native data may carry Meshtastic-enriched bare
+          keys.
+       c. Namespaced ``meshtastic.*`` keys (unambiguous
+          Meshtastic-native).
+       d. Legacy bare Meshtastic keys (``longname``, ``shortname``,
+          ``from_id``, ``packet_id``).  ``channel`` is intentionally
+          excluded — a sparse dict carrying only ``channel`` is not
+          unambiguously Meshtastic.
+       e. LXMF-characteristic keys (``source_hash``, ``destination_hash``).
 
     Returns ``None`` when the platform cannot be determined.
 
@@ -118,7 +147,13 @@ def detect_source_platform(
     if any(k in native_data for k in _MATRIX_KEYS):
         return "matrix"
 
-    if any(k in native_data for k in _MESHTASTIC_KEYS):
+    # Meshtastic namespaced keys: unambiguous primary signal.
+    if any(k in native_data for k in _MESHTASTIC_NAMESPACED_KEYS):
+        return "meshtastic"
+
+    # Meshtastic legacy bare keys: secondary signal for older data and
+    # test fixtures.  ``channel`` is excluded (too generic on its own).
+    if any(k in native_data for k in _MESHTASTIC_LEGACY_KEYS):
         return "meshtastic"
 
     if any(k in native_data for k in _LXMF_KEYS):
@@ -199,15 +234,11 @@ def project_source_fields(
         fields.update(project_meshcore_attribution(native_data))
 
     elif platform == "lxmf":
-        # Delegate source_hash normalisation to the adapter module.
-        # Only sender_id is projected through the dispatch.  Although
-        # ``project_lxmf_attribution`` also computes hash-derived
-        # ``label`` and ``short_label``, these are intentionally NOT
-        # wired through the dispatch — LXMF hashes are not human-readable
-        # display names, and prefix templates should render {sender} as
-        # empty rather than a truncated hex hash.  Operators who want the
-        # hash in a prefix should use {sender_id} explicitly.
-        lxmf = project_lxmf_attribution(native_data)
-        fields["source_sender_id"] = lxmf.sender_id
+        # Delegate to the adapter projection helper.  The returned dict
+        # carries source_sender_id (from source_hash) and, when a real
+        # display name is captured at ingress, source_sender_label /
+        # source_sender_short_label.  The opaque source_hash never
+        # becomes {sender} -- operators use {sender_id} for the hash.
+        fields.update(project_lxmf_attribution(native_data))
 
     return fields
