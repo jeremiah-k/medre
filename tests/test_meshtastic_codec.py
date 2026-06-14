@@ -503,7 +503,12 @@ class TestMeshtasticCodecTapbackSnapshot:
 
 
 class TestMeshtasticCodecNodeInfo:
-    """MeshtasticCodec decode node_info longname/shortname population."""
+    """MeshtasticCodec decode node_info longname/shortname population.
+
+    Identity labels are emitted under namespaced ``meshtastic.longname``/
+    ``meshtastic.shortname`` keys; bare ``longname``/``shortname`` are not
+    present in newly produced native metadata.
+    """
 
     def test_node_info_both_names_populated(self) -> None:
         """node_info with longname and shortname → populated in event metadata."""
@@ -514,17 +519,20 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"longname": "LongNode", "shortname": "LN"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["longname"] == "LongNode"
-        assert event.metadata.native.data["shortname"] == "LN"
+        assert event.metadata.native.data["meshtastic.longname"] == "LongNode"
+        assert event.metadata.native.data["meshtastic.shortname"] == "LN"
+        # Bare identity labels are not emitted by the codec.
+        assert "longname" not in event.metadata.native.data
+        assert "shortname" not in event.metadata.native.data
 
     def test_node_info_none_empty_strings(self) -> None:
-        """node_info=None → longname and shortname are empty strings."""
+        """node_info=None → namespaced identity keys are empty strings."""
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(text="hello")
         event = codec.decode(packet, node_info=None)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["longname"] == ""
-        assert event.metadata.native.data["shortname"] == ""
+        assert event.metadata.native.data["meshtastic.longname"] == ""
+        assert event.metadata.native.data["meshtastic.shortname"] == ""
 
     def test_node_info_only_longname(self) -> None:
         """node_info with only longname → shortname is empty."""
@@ -535,8 +543,8 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"longname": "LongNode"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["longname"] == "LongNode"
-        assert event.metadata.native.data["shortname"] == ""
+        assert event.metadata.native.data["meshtastic.longname"] == "LongNode"
+        assert event.metadata.native.data["meshtastic.shortname"] == ""
 
     def test_node_info_only_shortname(self) -> None:
         """node_info with only shortname → longname is empty."""
@@ -547,8 +555,20 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"shortname": "SN"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["longname"] == ""
-        assert event.metadata.native.data["shortname"] == "SN"
+        assert event.metadata.native.data["meshtastic.longname"] == ""
+        assert event.metadata.native.data["meshtastic.shortname"] == "SN"
+
+    def test_node_info_emits_namespaced_from_id(self) -> None:
+        """Codec emits ``meshtastic.from_id`` alongside the retained bare
+        ``from_id`` (kept for non-identity consumers)."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(sender="!node1")
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        data = event.metadata.native.data
+        assert data["meshtastic.from_id"] == "!node1"
+        # Bare from_id is retained for non-identity consumers.
+        assert data["from_id"] == "!node1"
 
 
 class TestMeshtasticCodecDeterministicClock:

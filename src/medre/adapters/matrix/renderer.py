@@ -161,21 +161,41 @@ class MatrixRenderer:
     ) -> tuple[str, str]:
         """Resolve mmrelay KEY_LONGNAME / KEY_SHORTNAME from native data.
 
-        Resolution order per field:
+        Transport-specific metadata stays namespaced by transport, so
+        the Meshtastic-native namespaced keys win.  Per-field resolution
+        order:
 
-        1. Bare Meshtastic-native key (``longname`` / ``shortname``) —
-           present for Meshtastic-origin events.
-        2. Existing mmrelay wire key (``meshtastic_longname`` /
+        1. Meshtastic-native namespaced metadata
+           (``meshtastic.longname`` / ``meshtastic.shortname``) — primary
+           source emitted by the Meshtastic codec.
+        2. External mmrelay wire fields (``meshtastic_longname`` /
            ``meshtastic_shortname``) — preserved from external mmrelay
            Matrix event content captured by the codec.
-        3. Empty string.
+        3. mmrelay KEY constants (:data:`KEY_LONGNAME` /
+           :data:`KEY_SHORTNAME`) — wire compatibility constants from
+           :mod:`medre.interop.mmrelay`.
+        4. Legacy bare keys (``longname`` / ``shortname``) — input
+           tolerance only, not current emitted metadata.
+        5. Empty string.
 
         Matrix ``displayname`` is intentionally **not** used — Matrix
         display names project into generic ``{sender}`` via Matrix
         attribution, not into Meshtastic-shaped mmrelay wire fields.
         """
-        longname = native_data.get("longname") or native_data.get(KEY_LONGNAME) or ""
-        shortname = native_data.get("shortname") or native_data.get(KEY_SHORTNAME) or ""
+        longname = (
+            native_data.get("meshtastic.longname")
+            or native_data.get("meshtastic_longname")
+            or native_data.get(KEY_LONGNAME)
+            or native_data.get("longname")  # legacy bare-key tolerance
+            or ""
+        )
+        shortname = (
+            native_data.get("meshtastic.shortname")
+            or native_data.get("meshtastic_shortname")
+            or native_data.get(KEY_SHORTNAME)
+            or native_data.get("shortname")  # legacy bare-key tolerance
+            or ""
+        )
         return str(longname), str(shortname)
 
     def _build_source_attribution(

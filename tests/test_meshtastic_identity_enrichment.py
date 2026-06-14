@@ -1,7 +1,8 @@
 """Meshtastic identity-enrichment integration tests.
 
 Validates the complete ingress enrichment pipeline that fills in
-``longname``/``shortname`` from the session's local node database
+``meshtastic.longname``/``meshtastic.shortname`` (namespaced under
+``meshtastic.*``) from the session's local node database
 (the in-memory ``client.nodes`` cache populated by the SDK as
 ``NODEINFO_APP`` packets arrive) when a text-message packet does not
 carry sender display names.
@@ -17,9 +18,13 @@ Pipeline under test (mirrors ``MeshtasticAdapter._on_packet`` lines
 Resolution order asserted throughout:
     event/packet names -> local node metadata names -> sender_id fallback.
 
-Meshtastic-native names stay native (bare ``longname``/``shortname``
-keys recognised by ``_MESHTASTIC_KEYS`` in the dispatch); they are not
-added as core ``RelayAttribution`` fields.
+The codec emits namespaced ``meshtastic.longname``/``meshtastic.shortname``
+identity keys (transport-specific metadata stays namespaced by transport).
+``project_meshtastic_attribution`` reads namespaced keys as the primary
+shape and accepts bare ``longname``/``shortname`` as legacy input
+tolerance.  Bare ``from_id`` is retained alongside ``meshtastic.from_id``
+for non-identity consumers.  None of these are core ``RelayAttribution``
+fields.
 """
 
 from __future__ import annotations
@@ -468,8 +473,9 @@ async def test_truncation_within_budget_not_flagged() -> None:
 
 
 def test_enriched_names_are_meshtastic_native_keys() -> None:
-    """Enriched names are embedded as bare Meshtastic-native keys
-    (longname/shortname), NOT as core RelayAttribution field names."""
+    """Enriched names are embedded as namespaced Meshtastic-native keys
+    (``meshtastic.longname``/``meshtastic.shortname``), NOT as core
+    RelayAttribution field names and not as bare keys."""
     client = _make_node_client(
         {"!aabbccdd": {"user": {"longName": "Alpha", "shortName": "AL"}}}
     )
@@ -482,9 +488,12 @@ def test_enriched_names_are_meshtastic_native_keys() -> None:
     assert event.metadata.native is not None
     native = event.metadata.native.data
 
-    # Meshtastic-native bare keys present.
-    assert native["longname"] == "Alpha"
-    assert native["shortname"] == "AL"
+    # Namespaced Meshtastic-native identity keys present.
+    assert native["meshtastic.longname"] == "Alpha"
+    assert native["meshtastic.shortname"] == "AL"
+    # Bare identity labels are not emitted by the codec.
+    assert "longname" not in native
+    assert "shortname" not in native
     # Core RelayAttribution field names are NOT present in native metadata.
     assert "source_sender_label" not in native
     assert "source_sender_short_label" not in native
