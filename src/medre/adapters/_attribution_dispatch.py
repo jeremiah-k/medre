@@ -199,15 +199,11 @@ def project_source_fields(
         fields.update(project_meshcore_attribution(native_data))
 
     elif platform == "lxmf":
-        # Delegate source_hash normalisation to the adapter module.
-        # Only sender_id is projected through the dispatch.  Although
-        # ``project_lxmf_attribution`` also computes hash-derived
-        # ``label`` and ``short_label``, these are intentionally NOT
-        # wired through the dispatch — LXMF hashes are not human-readable
-        # display names, and prefix templates should render {sender} as
-        # empty rather than a truncated hex hash.  Operators who want the
-        # hash in a prefix should use {sender_id} explicitly.
-        lxmf = project_lxmf_attribution(native_data)
-        fields["source_sender_id"] = lxmf.sender_id
+        # Delegate to the adapter projection helper.  The returned dict
+        # carries source_sender_id (from source_hash) and, when a real
+        # display name is captured at ingress, source_sender_label /
+        # source_sender_short_label.  The opaque source_hash never
+        # becomes {sender} -- operators use {sender_id} for the hash.
+        fields.update(project_lxmf_attribution(native_data))
 
     return fields

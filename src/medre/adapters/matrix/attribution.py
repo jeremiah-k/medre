@@ -49,11 +49,15 @@ def extract_mxid_localpart(mxid: str) -> str:
     'bob'
     >>> extract_mxid_localpart("plain")
     'plain'
+    >>> extract_mxid_localpart("@:example.com")
+    ''
     """
     if mxid.startswith("@"):
         rest = mxid[1:]
         colon = rest.find(":")
-        if colon > 0:
+        if colon >= 0:
+            # colon == 0 means an empty localpart (``@:domain``); slice
+            # returns ``""`` in that case.
             return rest[:colon]
         return rest
     return mxid
@@ -220,7 +224,7 @@ def project_matrix_attribution(
     display_str = _str(display_name)
     short_label: str | None = None
     if sender_str:
-        short_label = extract_mxid_localpart(sender_str)
+        short_label = extract_mxid_localpart(sender_str) or None
     return {
         "source_sender_id": sender_str,
         "source_sender_label": display_str,

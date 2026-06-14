@@ -392,6 +392,7 @@ class FakeLxmfAdapter(AdapterContract):
         source_hash: str = "ab" * 16,
         msg_id: str | None = None,
         title: str = "",
+        source_name: str = "",
     ) -> CanonicalEvent:
         """Create a minimal :class:`CanonicalEvent` from LXMF-like
         packet data by constructing a fake packet and decoding it.
@@ -406,6 +407,11 @@ class FakeLxmfAdapter(AdapterContract):
             Message ID hex string.
         title:
             Optional message title.
+        source_name:
+            Optional announce-derived display name for the sender.
+            When non-empty, the codec injects ``lxmf.display_name``
+            into native metadata so attribution projection maps it
+            to ``source_sender_label``.
 
         Returns
         -------
@@ -422,6 +428,7 @@ class FakeLxmfAdapter(AdapterContract):
             "fields": {},
             "signature_validated": True,
             "has_fields": False,
+            "source_name": source_name,
         }
         return self._codec.decode(packet)
 

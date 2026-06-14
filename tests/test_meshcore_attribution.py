@@ -9,9 +9,11 @@ Covers:
 - Bare-fixture-key backward compatibility (pubkey_prefix, channel_idx).
 - str coercion of integer values (packet_id and channel from the codec
   are ints).
-- Label fields are always None (MeshCore carries no display name).
-- Empty / missing data yields all-None projected fields.
-- Platform detection via is_meshcore_native.
+- Known-contact label projection (meshcore.contact_label ->
+  source_sender_label; compact derivation for short label).
+- Opaque pubkey prefixes never populate the label fields.
+- Empty / missing / non-string contact label data handled safely.
+- Platform detection via is_meshcore_native (contact-only dicts excluded).
 - Compatibility with the core relay-attribution formatter when the
   projected fields are merged into a RelayAttribution.
 """
@@ -156,12 +158,12 @@ def test_none_channel_produces_none() -> None:
 
 
 # ===================================================================
-# Label fields — always None (no display name in MeshCore)
+# Label fields — known-contact labels
 # ===================================================================
 
 
-def test_sender_label_always_none() -> None:
-    """MeshCore carries no display name; label is always None."""
+def test_sender_label_none_without_contact_data() -> None:
+    """Labels are None when no known-contact label is present."""
     result = project_meshcore_attribution(
         {"meshcore.pubkey_prefix": "a1b2c3", "meshcore.channel": 2}
     )
@@ -176,6 +178,128 @@ def test_label_fields_present_in_output_even_when_none() -> None:
     assert "source_sender_short_label" in result
     assert result["source_sender_label"] is None
     assert result["source_sender_short_label"] is None
+
+
+def test_contact_label_projects_to_sender_label() -> None:
+    """A known-contact label populates source_sender_label."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2c3",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "EA1ABC",
+        }
+    )
+    assert result["source_sender_label"] == "EA1ABC"
+    assert result["source_sender_id"] == "a1b2c3"
+
+
+def test_contact_label_short_derived_from_compact_label() -> None:
+    """Short label falls back to the first token of the contact label."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "Base Station Alpha",
+        }
+    )
+    assert result["source_sender_label"] == "Base Station Alpha"
+    assert result["source_sender_short_label"] == "Base"
+
+
+def test_contact_label_single_word_short_equals_label() -> None:
+    """A single-word contact label yields the same value for short."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 1,
+            "meshcore.contact_label": "EA1ABC",
+        }
+    )
+    assert result["source_sender_short_label"] == "EA1ABC"
+
+
+def test_explicit_contact_short_label_preferred() -> None:
+    """An explicit meshcore.contact_short_label wins over compact derivation."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "Base Station",
+            "meshcore.contact_short_label": "BASE",
+        }
+    )
+    assert result["source_sender_label"] == "Base Station"
+    assert result["source_sender_short_label"] == "BASE"
+
+
+def test_contact_label_empty_string_treated_as_absent() -> None:
+    """An empty-string contact label coalesces to None, not ''."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "",
+        }
+    )
+    assert result["source_sender_label"] is None
+    assert result["source_sender_short_label"] is None
+
+
+def test_contact_short_label_empty_falls_back_to_compact() -> None:
+    """Empty short label falls back to compact contact label."""
+    result = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "Node One",
+            "meshcore.contact_short_label": "",
+        }
+    )
+    assert result["source_sender_label"] == "Node One"
+    assert result["source_sender_short_label"] == "Node"
+
+
+def test_non_string_contact_label_coerced_safely() -> None:
+    """Non-string contact labels are coerced via _str without raising."""
+    # Integer: coerced to its string representation.
+    result_int = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": 12345,
+        }
+    )
+    assert result_int["source_sender_label"] == "12345"
+
+    # None: treated as absent.
+    result_none = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "pk",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": None,
+        }
+    )
+    assert result_none["source_sender_label"] is None
+
+
+def test_pubkey_prefix_never_becomes_sender_label() -> None:
+    """Opaque pubkey prefix stays in sender_id; label remains None."""
+    result = project_meshcore_attribution(
+        {"meshcore.pubkey_prefix": "deadbeef", "meshcore.channel": 0}
+    )
+    assert result["source_sender_id"] == "deadbeef"
+    assert result["source_sender_label"] is None
+    assert result["source_sender_short_label"] is None
+
+
+def test_contact_only_dict_not_detected_as_meshcore_native() -> None:
+    """A dict with only contact keys (no core identity keys) is not native."""
+    assert not is_meshcore_native(
+        {
+            "meshcore.contact_label": "Alice",
+            "meshcore.contact_short_label": "A",
+        }
+    )
 
 
 # ===================================================================
@@ -292,9 +416,49 @@ def test_projection_feeds_relay_attribution_formatter() -> None:
 
 
 def test_projection_short_label_missing_in_prefix() -> None:
-    """sender_short is missing (empty) since MeshCore has no short label."""
+    """sender_short is missing (empty) when no contact label is present."""
     projected = project_meshcore_attribution({"meshcore.pubkey_prefix": "aabbcc"})
     attr = RelayAttribution(source_platform="meshcore", **projected)
     result = format_relay_prefix("{sender_short}[MC]: ", attr)
     assert result.rendered_prefix == "[MC]: "
     assert "sender_short" in result.missing_variables
+
+
+def test_projection_sender_label_in_prefix_with_contact() -> None:
+    """{sender} renders the contact label when one is present."""
+    projected = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "a1b2c3",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "EA1ABC",
+        }
+    )
+    attr = RelayAttribution(source_platform="meshcore", **projected)
+    result = format_relay_prefix("[MC] {sender}: ", attr)
+    assert result.rendered_prefix == "[MC] EA1ABC: "
+    assert result.formatting_error is None
+
+
+def test_projection_sender_empty_in_prefix_without_contact() -> None:
+    """{sender} renders empty when no contact label is available."""
+    projected = project_meshcore_attribution(
+        {"meshcore.pubkey_prefix": "a1b2c3", "meshcore.channel": 0}
+    )
+    attr = RelayAttribution(source_platform="meshcore", **projected)
+    result = format_relay_prefix("[MC] {sender}: ", attr)
+    assert result.rendered_prefix == "[MC] : "
+    assert "sender" in result.missing_variables
+
+
+def test_projection_sender_id_shows_pubkey_prefix() -> None:
+    """{sender_id} always exposes the pubkey prefix."""
+    projected = project_meshcore_attribution(
+        {
+            "meshcore.pubkey_prefix": "deadbeef",
+            "meshcore.channel": 0,
+            "meshcore.contact_label": "Alice",
+        }
+    )
+    attr = RelayAttribution(source_platform="meshcore", **projected)
+    result = format_relay_prefix("{sender_id} ({sender}): ", attr)
+    assert result.rendered_prefix == "deadbeef (Alice): "

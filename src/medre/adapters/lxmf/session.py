@@ -112,6 +112,8 @@ fields:
 * ``signature_validated`` — bool
 * ``has_fields`` — bool
 * ``delivery_method`` — str ("direct"|"opportunistic"|"propagated"|None)
+* ``source_name`` — str (may be empty; announce-derived display name
+  when the message object carries one)
 
 No raw ``LXMessage``, ``RNS.Destination``, or ``RNS.Identity``
 objects are ever included in the normalised dict.
@@ -1292,6 +1294,21 @@ class LxmfSession:
         else:
             title = ""
 
+        # Display name -- defensive read.  LXMessage may carry
+        # ``source_name`` when enriched by announce-cache lookups or by
+        # future library versions.  No network call is made here; the
+        # attribute is read as-is and empty values normalise to "".
+        raw_source_name = getattr(message, "source_name", None)
+        if isinstance(raw_source_name, bytes):
+            try:
+                source_name = raw_source_name.decode("utf-8")
+            except UnicodeDecodeError:
+                source_name = raw_source_name.decode("utf-8", errors="replace")
+        elif isinstance(raw_source_name, str):
+            source_name = raw_source_name
+        else:
+            source_name = ""
+
         # Fields
         raw_fields = getattr(message, "fields", None)
         fields: dict[int, Any] = raw_fields if isinstance(raw_fields, dict) else {}
@@ -1315,6 +1332,7 @@ class LxmfSession:
             "signature_validated": signature_validated,
             "has_fields": has_fields,
             "delivery_method": delivery_method,
+            "source_name": source_name,
         }
 
     @staticmethod

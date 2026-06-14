@@ -564,7 +564,8 @@ class MeshCoreAdapter(AdapterContract):
 
             # Decode before committing dedup key so that decode failures
             # do not suppress redelivery of the same packet.
-            canonical = self._codec.decode(packet)
+            contact_label = self._resolve_contact_label(classification.sender_id)
+            canonical = self._codec.decode(packet, contact_label=contact_label)
 
             # Commit dedup key only after successful decode.  The key
             # guards the async publish window against concurrent
@@ -676,7 +677,8 @@ class MeshCoreAdapter(AdapterContract):
 
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.
-        canonical = self._codec.decode(packet)
+        contact_label = self._resolve_contact_label(classification.sender_id)
+        canonical = self._codec.decode(packet, contact_label=contact_label)
         await self.publish_inbound(canonical)
         self._inbound_published += 1
 
@@ -687,6 +689,25 @@ class MeshCoreAdapter(AdapterContract):
                 self._inbound_dedup.popitem(last=False)
 
     # -- Diagnostics --------------------------------------------------------
+
+    def _resolve_contact_label(self, sender_id: str | None) -> str | None:
+        """Resolve a known-contact label from the session's local store.
+
+        Delegates to :meth:`MeshCoreSession.resolve_contact_label`,
+        which performs a synchronous local lookup against the SDK's
+        in-memory contacts.  Returns ``None`` when the session is
+        unavailable (fake mode or not started) or the sender is not a
+        known contact.  Never raises.
+
+        Parameters
+        ----------
+        sender_id:
+            Sender pubkey prefix from the classifier.  May be ``None``
+            or empty; both yield ``None``.
+        """
+        if self._session is None or not sender_id:
+            return None
+        return self._session.resolve_contact_label(sender_id)
 
     def _increment_classifier_counters(
         self, classification: ClassificationResult
