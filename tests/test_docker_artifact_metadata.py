@@ -12,9 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from medre.runtime.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     _collect_log_artifacts,
+    _format_yaml_value,
     _read_run_metadata,
     _write_redacted_config,
     collect_docker_bridge_artifacts,
@@ -85,6 +88,14 @@ class TestWriteRedactedConfig:
         content = result.read_text()
         assert "timeout" in content  # present as null
         assert "test" in content
+
+    def test_returns_none_when_write_fails(self, tmp_path: Path) -> None:
+        """A failure inside the write try-block is swallowed and None returned."""
+        # A non-existent run directory makes write_text raise OSError inside
+        # the try block; the writer catches it and returns None.
+        missing_dir = tmp_path / "does" / "not" / "exist"
+        result = _write_redacted_config(missing_dir, {"k": "v"})
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -591,3 +602,136 @@ class TestConfigYamlRedaction:
         content = config_path.read_text()
         assert "syt_super_secret_token" not in content
         assert "https://matrix.org" in content
+
+
+# ---------------------------------------------------------------------------
+# _format_yaml_value leaf formatting
+# ---------------------------------------------------------------------------
+
+
+class TestFormatYamlValue:
+    """Cover the string and JSON-fallback branches of _format_yaml_value."""
+
+    def test_string_is_double_quoted(self) -> None:
+        assert _format_yaml_value("hello") == '"hello"'
+
+    def test_string_escapes_quotes_and_backslashes(self) -> None:
+        # The string scalar escaper doubles backslashes and quotes.
+        assert _format_yaml_value('a"b\\c') == '"a\\"b\\\\c"'
+
+    def test_list_falls_back_to_json(self) -> None:
+        # Collections that are not nested mappings hit the json.dumps fallback
+        # so the file remains valid YAML (YAML is a JSON superset).
+        assert _format_yaml_value([1, 2, 3]) == json.dumps([1, 2, 3])
+
+
+# ---------------------------------------------------------------------------
+# Best-effort error capture and artifact-path aggregation
+# ---------------------------------------------------------------------------
+
+
+class TestBestEffortErrorAndArtifactPaths:
+    """Cover best-effort error capture and artifact-path aggregation branches
+    inside collect_docker_bridge_artifacts."""
+
+    @staticmethod
+    def _mock_runner(returncode: int = 0, stdout: str = "", stderr: str = ""):
+        def _runner(cmd, env, timeout, cwd):
+            return returncode, stdout, stderr
+
+        return _runner
+
+    @staticmethod
+    def _inject_metadata(base_dir: Path, metadata: dict[str, Any]):
+        """Build a now_fn that writes run-metadata.json into the predicted
+        run directory on its first invocation."""
+        call_count = 0
+
+        def _now() -> datetime:
+            nonlocal call_count
+            call_count += 1
+            ts = _FIXED_NOW
+            if call_count == 1:
+                run_dir = base_dir / ts.strftime("%Y-%m-%dT%H-%M-%SZ")
+                run_dir.mkdir(parents=True, exist_ok=True)
+                (run_dir / "run-metadata.json").write_text(json.dumps(metadata))
+            return ts
+
+        return _now
+
+    def test_storage_export_failure_recorded_in_errors(
+        self, tmp_path: Path
+    ) -> None:
+        """A raising _storage_export_fn is caught and reported in errors."""
+        mock_runner = self._mock_runner(stdout="1 passed in 1s\n")
+        base_dir = tmp_path / "runs"
+
+        def _failing_export(run_dir, storage_path, event_id):
+            raise RuntimeError("export blew up")
+
+        summary = collect_docker_bridge_artifacts(
+            scenario="matrix_to_meshtastic",
+            base_dir=base_dir,
+            now_fn=self._inject_metadata(
+                base_dir, {"storage_path": "/x.db", "event_id": "$e1"}
+            ),
+            _run_pytest=mock_runner,
+            _storage_export_fn=_failing_export,
+        )
+        assert any("Storage artifact export failed" in e for e in summary["errors"])
+        assert any("export blew up" in e for e in summary["errors"])
+
+    def test_config_snapshot_failure_recorded_in_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A raising _collect_config_snapshot is caught and reported in errors."""
+        import medre.runtime.docker_bridge_artifacts as dba
+
+        mock_runner = self._mock_runner(stdout="1 passed in 1s\n")
+
+        def _boom(scenario: str, env: dict[str, str]) -> dict[str, Any]:
+            raise RuntimeError("snapshot failed")
+
+        monkeypatch.setattr(dba, "_collect_config_snapshot", _boom)
+
+        summary = collect_docker_bridge_artifacts(
+            scenario="matrix_to_meshtastic",
+            base_dir=tmp_path / "runs",
+            now_fn=_fixed_now,
+            _run_pytest=mock_runner,
+            _storage_export_fn=lambda rd, sp, eid: {},
+        )
+        assert any(
+            "Config snapshot collection failed" in e for e in summary["errors"]
+        )
+
+    def test_log_artifacts_and_config_path_aggregated(
+        self, tmp_path: Path
+    ) -> None:
+        """Log artifacts from metadata and the config.yaml path are both
+        aggregated into summary['artifact_paths']."""
+        mock_runner = self._mock_runner(stdout="1 passed in 1s\n")
+        base_dir = tmp_path / "runs"
+        synapse_log = tmp_path / "src_synapse.log"
+        synapse_log.write_text("synapse log lines")
+
+        summary = collect_docker_bridge_artifacts(
+            scenario="matrix_to_meshtastic",
+            base_dir=base_dir,
+            now_fn=self._inject_metadata(
+                base_dir,
+                {
+                    "log_paths": {"synapse": str(synapse_log)},
+                    "config_data": {"homeserver": "https://m.org"},
+                },
+            ),
+            _run_pytest=mock_runner,
+            _storage_export_fn=lambda rd, sp, eid: {},
+        )
+        artifact_paths = summary["artifact_paths"]
+        # log artifact aggregated into the summary path map
+        assert "synapse.log" in artifact_paths
+        # config.yaml written from config_data and its path aggregated
+        assert "config.yaml" in artifact_paths
+        run_dir = Path(summary["run_directory"])
+        assert (run_dir / "config.yaml").exists()

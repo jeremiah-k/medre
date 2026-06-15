@@ -934,12 +934,12 @@ def collect_docker_bridge_artifacts(
     except Exception as exc:
         errors.append(f"Config snapshot collection failed: {exc}")
 
-    # Write config.yaml if not already written from metadata.
-    if config_yaml_path is None:
-        if config_data_for_yaml is not None:
-            config_yaml_path = _write_redacted_config(run_dir, config_data_for_yaml)
-        elif config_snapshot is not None:
-            config_yaml_path = _write_redacted_config(run_dir, config_snapshot)
+    # Write redacted config.yaml from metadata config_data, falling back to
+    # the env-based config snapshot collected above.
+    if config_data_for_yaml is not None:
+        config_yaml_path = _write_redacted_config(run_dir, config_data_for_yaml)
+    elif config_snapshot is not None:
+        config_yaml_path = _write_redacted_config(run_dir, config_snapshot)
 
     # -- Step 11: Collect inspect artifacts (best-effort) --------------------
     inspect_artifacts: list[str] = []
