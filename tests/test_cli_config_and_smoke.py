@@ -385,8 +385,8 @@ class TestConfigSampleToSmoke:
     and the generated config works as fake-only smoke input without importing
     optional SDKs."""
 
-    def test_sample_generates_valid_toml(self) -> None:
-        """``config sample`` produces valid parseable TOML."""
+    def test_sample_generates_valid_yaml(self) -> None:
+        """``config sample`` produces valid parseable YAML."""
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])

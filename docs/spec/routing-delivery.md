@@ -1363,12 +1363,50 @@ identity hashes are mapped to the generic fields. Adding a new transport
 requires implementing projection from that transport's native metadata to
 the generic fields. Core renderers and the shared formatter need no changes.
 
-**Channel-specific labels** (different `origin_label` values per channel
-within a single route) are not implemented. Operators who need per-channel
-labels SHOULD use separate routes per channel, each with its own
-direction-aware `source_origin_label`/`dest_origin_label`. This applies
-to routes expanded by `channel_room_map` as well: the shorthand expands
-routing targets, not labels.
+**Per-context labels for `channel_room_map`.** A `channel_room_map`
+entry MAY carry its own origin labels in addition to the route-level
+`source_origin_label` / `dest_origin_label`. Each entry accepts either a
+bare canonical room-ID string (the original shape, no per-entry labels)
+or a structured table with three fields:
+
+| Field                 | Type            | Default | Notes                                                              |
+| --------------------- | --------------- | ------- | ------------------------------------------------------------------ |
+| `room`                | `string`        | —       | Canonical Matrix room ID starting with `!`. Required.              |
+| `source_origin_label` | `string \| nil` | `nil`   | Per-entry forward-leg label. `nil` inherits the route-level label. |
+| `dest_origin_label`   | `string \| nil` | `nil`   | Per-entry reverse-leg label. `nil` inherits the route-level label. |
+
+Structured entries accept only three keys: `room`, `source_origin_label`,
+and `dest_origin_label`. Any other keys MUST be rejected. A
+`source_origin_label` or `dest_origin_label` value that is a boolean or
+otherwise not a string MUST be rejected — the boolean check runs before
+the generic string check, matching the route-level label validation in
+§17.5.2. The bare-string shape remains valid and carries no per-entry
+labels; an entry's effective labels then resolve to the route-level
+labels. Bare-string and structured entries MAY be mixed freely within a
+single `channel_room_map`.
+
+The per-leg `origin_label` precedence for a `channel_room_map` route is:
+
+1. Per-entry label (`source_origin_label` or `dest_origin_label` on the
+   matched entry), when it is not `nil`.
+2. Route-level label (`source_origin_label` or `dest_origin_label` on
+   the `RouteConfig`), when it is not `nil`.
+3. Source-adapter `origin_label` from the source-attribution registry.
+4. Empty string.
+
+An explicit empty string (`""`) set at the per-entry or route level
+suppresses fallback for that leg: it is preserved verbatim onto
+`RouteSource.origin_label` and short-circuits the registry lookup, so
+the `{origin_label}` template variable resolves to empty. A `nil` or
+absent label falls through to the next level.
+
+Per-entry labels are scoped to `channel_room_map` entries only.
+Operators who need per-channel labels within a single general route (one
+not using `channel_room_map`) SHOULD still use separate routes per
+channel, each with its own direction-aware label. If the
+`channel_room_map` shape is not expressive enough for a given targeting
+pattern (for example, distinct fanout across multiple destinations),
+operators SHOULD decompose the bridge into separate routes.
 
 ### 17.5.9 Generic Sender Identity Semantics
 
@@ -1425,6 +1463,61 @@ access tokens, private keys, Reticulum identity files, Matrix
 credentials, BLE pairing PINs, session blobs, and unredacted device
 secrets. The policy is enforced by existing adapter patterns and is
 restated here for clarity.
+
+## 17.6 Duplicate-Room Fan-In for `channel_room_map`
+
+A `channel_room_map` MAY map two or more Meshtastic channel indices to the
+same canonical Matrix room. Whether such duplicate room values are accepted
+depends on the legs the route expands, which are determined by the route's
+directionality and the source/dest platform orientation. The check runs at
+runtime expansion time (in `_validate_duplicate_rooms_for_direction`), not at
+config parse time, because resolving the forward/reverse legs requires the
+platform assignment that the pure config parser cannot determine.
+
+### 17.6.1 Why directionality decides
+
+Duplicate Matrix rooms are safe for Meshtastic→Matrix fan-in: when an inbound
+radio event arrives, the source Meshtastic channel unambiguously identifies
+which `channel_room_map` entry produced the leg, so multiple channels can
+deliver into one shared Matrix room without ambiguity. Each such leg carries
+its own per-entry `source_origin_label` (§17.5.8) so the relay prefix can
+distinguish the channels in the shared room.
+
+Duplicate Matrix rooms are ambiguous for Matrix→Meshtastic routing: a Matrix
+event arriving from the shared room could match two or more expanded legs
+that target different Meshtastic channels, with no signal in the Matrix event
+to pick one. Such configurations MUST be rejected.
+
+### 17.6.2 Directionality decision matrix
+
+`fwd_is_matrix_to_mesh` records whether the declared forward (source→dest)
+leg is Matrix→Meshtastic, derived from the source/dest adapter platforms.
+`create_fwd` / `create_rev` are derived from `RouteDirectionality`. A
+Matrix→Meshtastic leg exists when the forward leg is Matrix→Meshtastic and
+`create_fwd`, or when the forward leg is Meshtastic→Matrix and `create_rev`.
+
+| Declared directionality | `fwd_is_matrix_to_mesh` | Matrix→Meshtastic leg created? | Duplicate rooms |
+| ----------------------- | ----------------------- | ------------------------------ | --------------- |
+| `source_to_dest`        | `True`                  | Yes (forward)                  | Rejected        |
+| `source_to_dest`        | `False`                 | No                             | Allowed         |
+| `dest_to_source`        | `True`                  | No                             | Allowed         |
+| `dest_to_source`        | `False`                 | Yes (reverse)                  | Rejected        |
+| `bidirectional`         | `True`                  | Yes (forward)                  | Rejected        |
+| `bidirectional`         | `False`                 | Yes (reverse)                  | Rejected        |
+
+A map with no duplicate room values is always accepted regardless of
+directionality — the ambiguity cannot arise.
+
+### 17.6.3 Operator guidance
+
+For one-way Meshtastic→Matrix aggregation (for example, two radio channels
+relaying into a single Matrix room), use `directionality: source_to_dest` (or
+`dest_to_source`, depending on adapter orientation) with a Meshtastic source
+and a Matrix destination, and give each entry a distinct
+`source_origin_label`. For any topology that also routes Matrix→Meshtastic,
+each `channel_room_map` entry MUST use a distinct Matrix room. Operators who
+need both fan-in and Matrix→Meshtastic bridging for the same channels SHOULD
+split the channels into separate routes, each with its own dedicated room.
 
 ## 18. Non-Goals
 

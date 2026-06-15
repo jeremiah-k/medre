@@ -26,12 +26,13 @@ Also covers the two sentinel states renderers rely on:
 
 These behaviours must survive the YAML migration (config produced as
 plain dicts) unchanged, so tests construct ``RouteConfig`` directly and
-via ``from_toml_dict`` to cover both shapes.
+via ``from_dict`` to cover both shapes.
 """
 
 from __future__ import annotations
 
 from medre.config.routes import (
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -54,7 +55,10 @@ _PLATFORMS_MESH_SOURCE = {
     "matrix_adapter": "matrix",
 }
 
-_CRM = {"0": "!room0:example.com", "1": "!room1:example.com"}
+_CRM = {
+    "0": ChannelRoomMapEntry(room="!room0:example.com"),
+    "1": ChannelRoomMapEntry(room="!room1:example.com"),
+}
 
 
 def _expand(
@@ -73,7 +77,7 @@ def _crm_config(
     dest_adapters: tuple[str, ...] = ("mesh_adapter",),
     source_origin_label: str | None = None,
     dest_origin_label: str | None = None,
-    channel_room_map: dict[str, str] | None = None,
+    channel_room_map: dict[str, ChannelRoomMapEntry] | None = None,
 ) -> RouteConfig:
     return RouteConfig(
         route_id=route_id,
@@ -224,7 +228,11 @@ def test_both_labels_applied_across_all_channels() -> None:
         dest_adapters=("mesh_adapter",),
         source_origin_label="S",
         dest_origin_label="D",
-        channel_room_map={"0": "!r0:e.com", "1": "!r1:e.com", "2": "!r2:e.com"},
+        channel_room_map={
+            "0": ChannelRoomMapEntry(room="!r0:e.com"),
+            "1": ChannelRoomMapEntry(room="!r1:e.com"),
+            "2": ChannelRoomMapEntry(room="!r2:e.com"),
+        },
     )
     routes = _expand(rc, _PLATFORMS_MATRIX_SOURCE)
     for ch in ("0", "1", "2"):
@@ -254,8 +262,8 @@ def test_none_labels_yield_none_origin_label() -> None:
 
 
 def test_unspecified_labels_default_to_none() -> None:
-    """from_toml_dict path (YAML produces plain dicts): no labels → None."""
-    rc = RouteConfig.from_toml_dict(
+    """from_dict path (YAML produces plain dicts): no labels → None."""
+    rc = RouteConfig.from_dict(
         "t",
         {
             "source_adapters": ["matrix_adapter"],
@@ -319,7 +327,7 @@ def test_source_to_dest_only_carries_source_label() -> None:
         directionality=RouteDirectionality.SOURCE_TO_DEST,
         source_origin_label="Only Forward",
         dest_origin_label="Should Not Appear",
-        channel_room_map={"0": "!r0:example.com"},
+        channel_room_map={"0": ChannelRoomMapEntry(room="!r0:example.com")},
     )
     routes = _expand(rc, _PLATFORMS_MATRIX_SOURCE)
     # Only the matrix_to_meshtastic (forward) leg is created.
@@ -335,7 +343,7 @@ def test_dest_to_source_only_carries_dest_label() -> None:
         directionality=RouteDirectionality.DEST_TO_SOURCE,
         source_origin_label="Should Not Appear",
         dest_origin_label="Only Reverse",
-        channel_room_map={"0": "!r0:example.com"},
+        channel_room_map={"0": ChannelRoomMapEntry(room="!r0:example.com")},
     )
     routes = _expand(rc, _PLATFORMS_MATRIX_SOURCE)
     # Only the meshtastic_to_matrix (reverse) leg is created.
@@ -354,7 +362,7 @@ def test_dest_to_source_mesh_source_carries_dest_label() -> None:
         directionality=RouteDirectionality.DEST_TO_SOURCE,
         source_origin_label="Fwd",
         dest_origin_label="Rev",
-        channel_room_map={"0": "!r0:example.com"},
+        channel_room_map={"0": ChannelRoomMapEntry(room="!r0:example.com")},
     )
     routes = _expand(rc, _PLATFORMS_MESH_SOURCE)
     assert len(routes) == 1

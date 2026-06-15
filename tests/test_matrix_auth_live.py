@@ -12,7 +12,6 @@ These tests do NOT pollute the standard test run.
 from __future__ import annotations
 
 import os
-import tomllib
 
 import pytest
 
@@ -46,38 +45,3 @@ class TestMatrixAuthLive:
 
         who = matrix_whoami(result.homeserver, result.access_token)
         assert who == os.environ["MATRIX_USER_ID"]
-
-    def test_login_writes_to_config(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        from medre.adapters.matrix.auth import matrix_login, update_toml_credentials
-
-        result = matrix_login(
-            homeserver=os.environ["MATRIX_HOMESERVER"],
-            user_id=os.environ["MATRIX_USER_ID"],
-            password=os.environ["MATRIX_PASSWORD"],
-        )
-
-        config_path = tmp_path / "test.toml"
-        config_path.write_text(
-            "[adapters.matrix.mybot]\n"
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = ""\n',
-            encoding="utf-8",
-        )
-
-        update_toml_credentials(
-            config_path,
-            "matrix",
-            "mybot",
-            homeserver=result.homeserver,
-            user_id=result.user_id,
-            access_token=result.access_token,
-        )
-
-        with config_path.open("rb") as f:
-            data = tomllib.load(f)
-
-        section = data["adapters"]["matrix"]["mybot"]
-        assert section["access_token"] == result.access_token
-        assert section["homeserver"] == result.homeserver
-        assert section["user_id"] == result.user_id

@@ -2,7 +2,7 @@
 
 Tests exercise the SAME paths operators use:
   - ``medre config check --config <path>`` → ``load_config()`` →
-    ``RouteConfigSet.from_toml_dict()`` → ``RouteRetryConfig.from_toml_dict()``
+    ``RouteConfigSet.from_dict()`` → ``RouteRetryConfig.from_dict()``
   - ``medre run --config <path>`` → ``RuntimeBuilder`` →
     ``PipelineRunner`` with ``route_retry_policies`` + ``RetryWorker``
 

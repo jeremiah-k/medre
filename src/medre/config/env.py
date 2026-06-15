@@ -2,10 +2,10 @@
 
 This module reads ``MEDRE_*`` environment variables and applies them *on top*
 of a :class:`~medre.config.model.RuntimeConfig` that was already loaded from
-TOML.  The original config is **never mutated**; a new frozen instance is
+YAML.  The original config is **never mutated**; a new frozen instance is
 returned.
 
-Environment variables always win over TOML values.  Adapter overrides use
+Environment variables always win over YAML values.  Adapter overrides use
 instance-scoped env vars of the form::
 
     MEDRE_ADAPTER__<TOKEN>__<FIELD>=<value>
@@ -70,7 +70,7 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
-from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import ChannelRoomMapEntry, RouteConfig, RouteConfigSet
 
 __all__ = [
     "RETRY_ENV_PREFIX",
@@ -883,7 +883,7 @@ def apply_instance_env_overrides(
 ) -> RuntimeConfig:
     """Apply ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` overrides to *config*.
 
-    For tokens that match an existing TOML adapter, field values are
+    For tokens that match an existing configured adapter, field values are
     overridden in-place.  For tokens with **no** matching adapter but
     with a ``TRANSPORT`` field, a brand-new adapter instance is created
     from environment variables alone (env-first creation).
@@ -982,14 +982,14 @@ def apply_instance_env_overrides(
             if "adapter_id" in field_map:
                 raise ConfigValidationError(
                     "adapter_id cannot be changed through env; "
-                    "rename the adapter in TOML."
+                    "rename the adapter in the YAML config."
                 )
 
             existing = transport_dict.get(adapter_key)
             if existing is None:
                 raise ConfigValidationError(
                     f"Adapter {adapter_key!r} not found in {transport} config. "
-                    f"Env overrides can only modify adapters defined in TOML."
+                    f"Env overrides can only modify adapters defined in the config file."
                 )
 
             new_enabled = existing.enabled
@@ -1025,7 +1025,7 @@ def apply_instance_env_overrides(
                             f"Field {field_name!r} has type "
                             f"{'dict' if (unwrapped is dict or origin is dict) else 'tuple'}"
                             f" and cannot be set through env; "
-                            f"configure it in TOML."
+                            f"configure it in YAML."
                         )
 
                     coerced = _coerce_field_value(
@@ -1107,7 +1107,7 @@ def apply_instance_env_overrides(
                     f"Field {field_name!r} has type "
                     f"{'dict' if (unwrapped is dict or origin is dict) else 'tuple'}"
                     f" and cannot be set through env; "
-                    f"configure it in TOML."
+                    f"configure it in YAML."
                 )
 
             coerced = _coerce_field_value(
@@ -1171,12 +1171,12 @@ def apply_instance_env_overrides(
 # ---------------------------------------------------------------------------
 
 
-def _build_route_toml_data_from_env_fields(
+def _build_route_data_from_env_fields(
     field_map: dict[str, ParsedAdapterEnvValue],
     route_id: str,
     existing: RouteConfig | None = None,
 ) -> RouteConfig:
-    """Convert env field map to TOML-shaped dict, then validate via from_toml_dict.
+    """Convert env field map to a config-shaped dict, then validate via from_dict.
 
     For override mode (existing is not None), starts from existing route data.
     For creation mode, builds from scratch.
@@ -1185,7 +1185,7 @@ def _build_route_toml_data_from_env_fields(
     """
     # Start from existing or empty.
     if existing is not None:
-        toml_data: dict[str, Any] = {
+        route_data: dict[str, Any] = {
             "source_adapters": list(existing.source_adapters),
             "dest_adapters": list(existing.dest_adapters),
             "directionality": existing.directionality.value,
@@ -1196,51 +1196,65 @@ def _build_route_toml_data_from_env_fields(
             "dest_room": existing.dest_room,
         }
         # Preserve complex fields that cannot be set via single env vars.
-        # These would be silently dropped if not carried through the TOML
-        # round-trip inside from_toml_dict.  This includes the direction-aware
+        # These would be silently dropped if not carried through the
+        # round-trip inside from_dict.  This includes the direction-aware
         # origin labels (source_origin_label / dest_origin_label), which are
         # not in the env-settable field list and must survive the override
         # round-trip so existing relay-prefix attribution is not dropped.
         if existing.channel_room_map is not None:
-            toml_data["channel_room_map"] = existing.channel_room_map
+            # ``existing.channel_room_map`` is normalized to
+            # ``dict[str, ChannelRoomMapEntry]`` by ``from_dict``. The
+            # re-parse below needs the plain dict shape (``dict[str, dict]``);
+            # passing the entry objects directly is rejected by the parser.
+            # Bare-string entries (legacy shape retained when ``RouteConfig``
+            # is constructed directly without going through ``from_dict``)
+            # are passed through unchanged — the parser re-normalizes them.
+            route_data["channel_room_map"] = {
+                ch: (
+                    dataclasses.asdict(entry)
+                    if isinstance(entry, ChannelRoomMapEntry)
+                    else entry
+                )
+                for ch, entry in existing.channel_room_map.items()
+            }
         if existing.policy is not None:
-            toml_data["policy"] = dataclasses.asdict(existing.policy)
+            route_data["policy"] = dataclasses.asdict(existing.policy)
         if existing.retry is not None:
-            toml_data["retry"] = dataclasses.asdict(existing.retry)
+            route_data["retry"] = dataclasses.asdict(existing.retry)
         if existing.source_origin_label is not None:
-            toml_data["source_origin_label"] = existing.source_origin_label
+            route_data["source_origin_label"] = existing.source_origin_label
         if existing.dest_origin_label is not None:
-            toml_data["dest_origin_label"] = existing.dest_origin_label
+            route_data["dest_origin_label"] = existing.dest_origin_label
     else:
-        toml_data = {}
+        route_data = {}
 
     for fname, parsed in field_map.items():
         if fname == "route_id":
             if existing is not None:
                 raise ConfigValidationError(
                     f"route_id cannot be changed through env for existing "
-                    f"route {existing.route_id!r}. Rename the route in TOML."
+                    f"route {existing.route_id!r}. Rename the route in the YAML config."
                 )
             route_id = parsed.raw_value.strip()
         elif fname == "source_adapters":
-            toml_data["source_adapters"] = [
+            route_data["source_adapters"] = [
                 s.strip() for s in parsed.raw_value.split(",") if s.strip()
             ]
         elif fname == "dest_adapters":
-            toml_data["dest_adapters"] = [
+            route_data["dest_adapters"] = [
                 s.strip() for s in parsed.raw_value.split(",") if s.strip()
             ]
         elif fname == "directionality":
-            toml_data["directionality"] = parsed.raw_value.strip().lower()
+            route_data["directionality"] = parsed.raw_value.strip().lower()
         elif fname == "enabled":
-            toml_data["enabled"] = _coerce_bool(parsed.raw_value, parsed.env_var_name)
+            route_data["enabled"] = _coerce_bool(parsed.raw_value, parsed.env_var_name)
         elif fname in (
             "source_channel",
             "dest_channel",
             "source_room",
             "dest_room",
         ):
-            toml_data[fname] = parsed.raw_value.strip()
+            route_data[fname] = parsed.raw_value.strip()
         else:
             extra = ", route_id" if existing is None else ""
             raise ConfigValidationError(
@@ -1251,13 +1265,13 @@ def _build_route_toml_data_from_env_fields(
                 f"source_room, dest_room{extra}."
             )
 
-    # Validate via from_toml_dict which catches:
+    # Validate via from_dict which catches:
     # - empty source/dest adapters
     # - room/channel alias conflicts
     # - invalid directionality
     # - missing required fields
     # - unknown keys
-    return RouteConfig.from_toml_dict(route_id, toml_data)
+    return RouteConfig.from_dict(route_id, route_data)
 
 
 def apply_route_overrides(
@@ -1272,7 +1286,7 @@ def apply_route_overrides(
     (env-first creation).
 
     Both override and creation modes route through
-    :meth:`RouteConfig.from_toml_dict` for full validation.
+    :meth:`RouteConfig.from_dict` for full validation.
 
     Parameters
     ----------
@@ -1312,7 +1326,7 @@ def apply_route_overrides(
         if match_idx is not None:
             # Override mode.
             existing = existing_routes[match_idx]
-            route = _build_route_toml_data_from_env_fields(
+            route = _build_route_data_from_env_fields(
                 field_map,
                 existing.route_id,
                 existing=existing,
@@ -1321,7 +1335,7 @@ def apply_route_overrides(
         else:
             # Creation mode.
             route_id = token.lower().replace("_", "-")
-            route = _build_route_toml_data_from_env_fields(
+            route = _build_route_data_from_env_fields(
                 field_map,
                 route_id,
                 existing=None,
@@ -1420,7 +1434,7 @@ def apply_env_overrides(
     Parameters
     ----------
     config:
-        The base configuration (typically loaded from TOML).
+        The base configuration (typically loaded from YAML).
     paths:
         Reserved for future use (e.g. resolving relative store paths).
         Currently unused.

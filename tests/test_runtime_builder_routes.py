@@ -20,7 +20,12 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
+from medre.config.routes import (
+    ChannelRoomMapEntry,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+)
 from medre.core.contracts.adapter import AdapterContract
 from medre.core.routing.router import Router
 from medre.runtime.builder import RuntimeBuilder
@@ -843,8 +848,8 @@ class TestChannelRoomMapBuilderIntegration:
             dest_adapters=("ft",),
             directionality=RouteDirectionality.BIDIRECTIONAL,
             channel_room_map={
-                "0": "!room0:test.org",
-                "1": "!room1:test.org",
+                "0": ChannelRoomMapEntry(room="!room0:test.org"),
+                "1": ChannelRoomMapEntry(room="!room1:test.org"),
             },
         )
         config = RuntimeConfig(
@@ -892,7 +897,7 @@ class TestChannelRoomMapBuilderIntegration:
             dest_adapters=("fm",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
             channel_room_map={
-                "0": "!room0:test.org",
+                "0": ChannelRoomMapEntry(room="!room0:test.org"),
             },
         )
         config = RuntimeConfig(
@@ -933,8 +938,8 @@ class TestChannelRoomMapBuilderIntegration:
             dest_adapters=("ft",),
             directionality=RouteDirectionality.BIDIRECTIONAL,
             channel_room_map={
-                "0": "!room0:test.org",
-                "3": "!room3:test.org",
+                "0": ChannelRoomMapEntry(room="!room0:test.org"),
+                "3": ChannelRoomMapEntry(room="!room3:test.org"),
             },
         )
         config = RuntimeConfig(

@@ -50,8 +50,6 @@ __all__ = [
     "meshtastic_env_set",
     "build_live_bridge_runtime_config",
     "write_live_bridge_yaml",
-    # Temporary compat alias — remove after all callers migrate.
-    "write_live_bridge_toml",
 ]
 
 
@@ -386,10 +384,3 @@ routes:
     yaml_path = tmp_path / "live-bridge-test.yaml"
     yaml_path.write_text(yaml_content, encoding="utf-8")
     return yaml_path
-
-
-# Temporary compatibility alias — scheduled for removal once all live test
-# callers switch to ``write_live_bridge_yaml``.  The ``write_live_bridge_toml``
-# name is kept so existing imports do not break during the TOML→YAML
-# migration; it now writes YAML, not TOML.
-write_live_bridge_toml = write_live_bridge_yaml

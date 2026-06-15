@@ -489,3 +489,128 @@ escapes any mapping key that does not match the plain-scalar pattern
 
 Previously config values or keys containing control characters or
 YAML-special characters could produce an invalid artifact file.
+
+---
+
+## Remove Matrix TOML Credential Mutation Helpers
+
+Removed dead-code TOML credential helpers from
+`src/medre/adapters/matrix/auth.py`:
+`update_toml_credentials`, `_update_toml_field`,
+`_toml_escape_string`, `_check_section_exists`. These were dead code
+after the YAML-only migration; sidecar JSON credentials
+(`save_credentials_json`) remain the preferred path. No YAML credential
+editor was added. Module docstring updated to drop
+"config-file token update" from the feature description.
+
+---
+
+## Per-Context Origin Labels for channel_room_map Entries
+
+Allow each `channel_room_map` entry to carry its own origin labels so
+two channels bridged by the same route can show different attribution
+text in the relay prefix (for example, the channel name).
+
+**New entry shape:**
+
+Each `channel_room_map` value is now polymorphic. The bare-string shape
+(room ID only) is unchanged and carries no per-entry labels. The new
+structured shape is a table with `room` plus optional
+`source_origin_label` / `dest_origin_label`:
+
+```yaml
+routes:
+  radio_matrix:
+    source_adapters: [main]
+    dest_adapters: [ops]
+    directionality: bidirectional
+    channel_room_map:
+      "0":
+        room: "!longfast:example.com"
+        source_origin_label: "LongFast"
+        dest_origin_label: "Matrix Ops"
+      "1":
+        room: "!shortfast:example.com"
+        source_origin_label: "ShortFast"
+```
+
+Both shapes can be mixed in the same map.
+
+**Precedence chain** (most to least specific, per expanded leg):
+
+1. Per-entry `source_origin_label` / `dest_origin_label` on the matched
+   entry.
+2. Route-level `source_origin_label` / `dest_origin_label`.
+3. Source adapter `origin_label`.
+4. Empty string.
+
+An explicit empty string (`""`) suppresses the fallback below it for
+that leg; an unset or absent label falls through to the next level.
+
+**Validation:**
+
+- Unknown keys in a structured entry are rejected.
+- Boolean and other non-string label values are rejected (booleans are
+  checked before the generic string check, matching route-level label
+  validation).
+- The bare-string shape, all existing channel-key / duplicate-channel /
+  duplicate-room / canonical-room-ID checks, and mutual-exclusion with
+  the targeting fields are unchanged.
+
+**Backward compatibility:** every existing `channel_room_map` config
+loads identically — bare-string entries still produce the same expansion
+with route-level labels applied uniformly.
+
+**Scope:** per-entry labels apply to `channel_room_map` entries only.
+General routes (those not using `channel_room_map`) still use one
+route-level label pair per route; decompose into separate routes when
+the map shape cannot express the targeting you need. `origin_label`
+remains human-readable attribution only — not a routing key, not a
+transport identity, and not delivery evidence.
+
+---
+
+## Duplicate-Room Fan-In for channel_room_map and Config-Constructor Rename
+
+Allow a `channel_room_map` to map two or more Meshtastic channel indices to
+the same Matrix room for Meshtastic→Matrix fan-in, and rename the route
+config constructor away from its historical TOML-derived name now that the
+runtime is YAML-only.
+
+**Changed:**
+
+- `src/medre/config/routes.py`: duplicate Matrix room values are no longer
+  rejected at config parse time. Each `channel_room_map` value still has to
+  be a canonical room ID (starting with `!`), and the channel-key,
+  duplicate-channel, alias-rejection, and canonical-room-ID checks are
+  unchanged.
+- `src/medre/runtime/route_engine.py`: new
+  `_validate_duplicate_rooms_for_direction` route-level check. After platform
+  assignment and directionality are known, it rejects duplicate Matrix rooms
+  only when the route's expansion creates a Matrix→Meshtastic leg. A Matrix
+  event arriving from a shared room is ambiguous across Meshtastic channels,
+  so duplicate rooms are allowed for Meshtastic→Matrix fan-in (the inbound
+  radio channel disambiguates the source) and rejected otherwise.
+- `src/medre/config/routes.py`, `src/medre/runtime/route_engine.py`:
+  `RouteConfig.from_toml_dict` and `RouteConfigSet.from_toml_dict` renamed to
+  `from_dict`. The loader is YAML-only and the method names no longer
+  reference TOML. Field names and dict shapes are unchanged.
+
+**Directionality decision:** a `channel_room_map` with duplicate rooms is
+accepted when no Matrix→Meshtastic leg is created (`source_to_dest` or
+`dest_to_source` oriented so only Meshtastic→Matrix expands) and rejected
+when a Matrix→Meshtastic leg is created (`source_to_dest` / `bidirectional`
+with a Matrix source, or `dest_to_source` / `bidirectional` with a Matrix
+destination). A map with no duplicate rooms is always accepted.
+
+**Docs updated:**
+
+- `docs/spec/routing-delivery.md`: new §17.6 documenting the duplicate-room
+  fan-in semantics and the directionality decision matrix.
+- `docs/ops/configuration.md`: `channel_room_map` limitations now describe
+  the fan-in allowance and the Matrix→Meshtastic rejection, with a fan-in
+  YAML example.
+- `docs/dev/source-context-origin-label-audit.md`,
+  `docs/dev/relay-prefix-attribution-audit.md`: updated `from_toml_dict`
+  references to `from_dict`, duplicate-room enforcement sites, and stale TOML
+  prose.

@@ -1,14 +1,14 @@
 """Matrix authentication helpers using only stdlib.
 
-Provides login, whoami verification, and config-file token update.
-No dependency on nio or any Matrix SDK — uses ``urllib.request`` directly.
+Provides login and whoami verification.  Login credentials are persisted via
+``save_credentials_json`` (sidecar JSON), not by mutating the runtime config
+file.  No dependency on nio or any Matrix SDK — uses ``urllib.request``
+directly.
 """
 
 from __future__ import annotations
 
 import json
-import re
-import stat
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -62,31 +62,6 @@ def _redact_token(token: str, text: str) -> str:
     if not token:
         return text
     return text.replace(token, "***")
-
-
-def _toml_escape_string(value: str) -> str:
-    r"""Escape *value* for embedding in a TOML basic (double-quoted) string.
-
-    Handles backslash, double quote, common whitespace escapes, and remaining
-    control characters (U+0000–U+001F, U+007F) as ``\\uXXXX``.
-    """
-    result: list[str] = []
-    for ch in value:
-        if ch == "\\":
-            result.append("\\\\")
-        elif ch == '"':
-            result.append('\\"')
-        elif ch == "\n":
-            result.append("\\n")
-        elif ch == "\r":
-            result.append("\\r")
-        elif ch == "\t":
-            result.append("\\t")
-        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
-            result.append(f"\\u{ord(ch):04x}")
-        else:
-            result.append(ch)
-    return "".join(result)
 
 
 def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginResult:
@@ -236,174 +211,6 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
         raise MatrixConnectionError("Whoami response missing user_id")
 
     return user_id
-
-
-def _update_toml_field(
-    lines: list[str],
-    config_path: Path,
-    transport: str,
-    adapter_name: str,
-    field_name: str,
-    value: str,
-    *,
-    redact: bool = False,
-) -> tuple[list[str], bool]:
-    """Replace a single TOML field value within a target adapter section.
-
-    Parameters
-    ----------
-    lines:
-        File content split into lines (with line endings preserved).
-    config_path:
-        Path to the config file (used in error messages only).
-    transport:
-        Transport type (e.g. ``"matrix"``).
-    adapter_name:
-        Adapter name within the transport group.
-    field_name:
-        TOML key to update (e.g. ``"access_token"``).
-    value:
-        New value for the field.
-    redact:
-        If *True*, the value is replaced with ``***`` in error messages.
-
-    Returns
-    -------
-    tuple[list[str], bool]
-        ``(new_lines, found)`` — *found* is ``True`` when the key was
-        located and replaced in the target section.
-    """
-    in_target_section = False
-    found_key = False
-
-    escaped_field = re.escape(field_name)
-    field_pattern_dq = re.compile(rf"^(\s*{escaped_field}\s*=\s*)\"[^\"]*\"(.*)$")
-    field_pattern_sq = re.compile(rf"^(\s*{escaped_field}\s*=\s*)'[^']*'(.*)$")
-
-    new_lines: list[str] = []
-
-    for line in lines:
-        stripped = line.strip()
-
-        # Detect section headers
-        if stripped.startswith("["):
-            # Determine depth: count leading [ for [[...]] arrays
-            bracket_count = 0
-            for ch in stripped:
-                if ch == "[":
-                    bracket_count += 1
-                else:
-                    break
-
-            current_section = stripped.lstrip("[").rstrip("]").strip()
-
-            if current_section == f"adapters.{transport}.{adapter_name}":
-                in_target_section = True
-            else:
-                # If we were in the target section and hit another section
-                # at same or lower depth, we've left it
-                if in_target_section:
-                    in_target_section = False
-                # Check if this is a deeper subsection of our target
-                if current_section.startswith(f"adapters.{transport}.{adapter_name}."):
-                    in_target_section = False
-        else:
-            # Blank line or non-section-header — stay in section context
-            pass
-
-        if in_target_section and not found_key:
-            m = field_pattern_dq.match(line)
-            if not m:
-                m = field_pattern_sq.match(line)
-            if m:
-                line = f'{m.group(1)}"{_toml_escape_string(value)}"' f"{m.group(2)}\n"
-                found_key = True
-
-        new_lines.append(line)
-
-    return new_lines, found_key
-
-
-def _check_section_exists(lines: list[str], section_header: str) -> bool:
-    """Return *True* if *section_header* (e.g. ``[adapters.matrix.bot]``)
-    appears as a line in *lines*."""
-    return any(line.strip() == section_header for line in lines)
-
-
-def update_toml_credentials(
-    config_path: Path,
-    transport: str,
-    adapter_name: str,
-    *,
-    homeserver: str,
-    user_id: str,
-    access_token: str,
-) -> None:
-    """Update ``homeserver``, ``user_id``, and ``access_token`` in a TOML
-    config file (line-level, preserves comments).
-
-    Reads the file once, applies all three field replacements, and writes
-    once.  The file is set to ``chmod 0600`` after writing.
-
-    Parameters
-    ----------
-    config_path:
-        Path to the TOML config file.
-    transport:
-        Transport type (e.g. ``"matrix"``).
-    adapter_name:
-        Adapter name within the transport group.
-    homeserver:
-        New homeserver URL.
-    user_id:
-        New Matrix user ID.
-    access_token:
-        New access token value.
-
-    Raises
-    ------
-    FileNotFoundError
-        If *config_path* does not exist.
-    ValueError
-        If the target section or any of the three keys is not found.
-    """
-    config_path = Path(config_path)
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    lines = config_path.read_text(encoding="utf-8").splitlines(True)
-
-    field_updates: list[tuple[str, str, bool]] = [
-        ("homeserver", homeserver, False),
-        ("user_id", user_id, False),
-        ("access_token", access_token, True),
-    ]
-
-    section_header = f"[adapters.{transport}.{adapter_name}]"
-
-    for field_name, value, redact in field_updates:
-        lines, found = _update_toml_field(
-            lines,
-            config_path,
-            transport,
-            adapter_name,
-            field_name,
-            value,
-            redact=redact,
-        )
-        if not found:
-            if not _check_section_exists(lines, section_header):
-                raise ValueError(
-                    f"Section [{section_header[1:-1]}] not found" f" in {config_path}"
-                )
-            raise ValueError(
-                f"{field_name} key not found in "
-                f"[adapters.{transport}.{adapter_name}] in {config_path}"
-            )
-
-    config_path.write_text("".join(lines), encoding="utf-8")
-    config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600
 
 
 def extract_domain_from_mxid(user_id: str) -> str | None:

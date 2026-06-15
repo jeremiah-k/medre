@@ -2,7 +2,7 @@
 
 Covers: parser structure (tristate optional flags), status subcommand,
 --password-stdin TTY guard, and integration flow with mocked
-login/whoami/save_credentials_json (NOT update_toml_credentials).
+login/whoami/save_credentials_json.
 """
 
 from __future__ import annotations
@@ -236,7 +236,6 @@ class TestPasswordStdinTtyGuard:
                 "medre.adapters.matrix.auth.matrix_whoami",
                 return_value="@bot:matrix.org",
             ),
-            patch("medre.adapters.matrix.auth.update_toml_credentials"),
             patch(
                 "medre.adapters.matrix.auth.save_credentials_json",
                 return_value=Path("/tmp/matrix.json"),
@@ -293,8 +292,7 @@ class TestAdapterMatrixAuthLoginIntegration:
 
     Covers: interactive mode (prompts), non-interactive mode (all flags),
     partial flags error, homeserver derivation from MXID, well-known
-    fallback, and credentials saved via save_credentials_json (NOT
-    update_toml_credentials).
+    fallback, and credentials saved via save_credentials_json.
     """
 
     def _make_args(self, **overrides: object) -> SimpleNamespace:
@@ -515,7 +513,7 @@ class TestAdapterMatrixAuthLoginIntegration:
 
     @pytest.mark.asyncio
     async def test_credentials_json_not_toml(self, tmp_path: Path) -> None:
-        """Credentials saved via save_credentials_json, NOT update_toml_credentials."""
+        """Credentials saved via save_credentials_json (sidecar JSON path)."""
         from medre.adapters.matrix.auth import MatrixLoginResult
         from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
@@ -543,12 +541,10 @@ class TestAdapterMatrixAuthLoginIntegration:
                 "medre.adapters.matrix.auth.save_credentials_json",
                 return_value=cred_path,
             ) as mock_save,
-            patch("medre.adapters.matrix.auth.update_toml_credentials") as mock_toml,
         ):
             await _adapter_matrix_auth_login(args)
 
             mock_save.assert_called_once_with(login_result)
-            mock_toml.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_token_not_in_stdout(self, tmp_path: Path) -> None:

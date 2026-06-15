@@ -2,7 +2,7 @@
 
 This module defines the deterministic, immutable data structures that
 describe named routes between adapters — the configuration-level view
-consumed by the TOML loader (:mod:`medre.config.loader`) and later by
+consumed by the config loader (:mod:`medre.config.loader`) and later by
 the runtime builder.
 
 It is deliberately **transport-agnostic**: adapter IDs, event kinds,
@@ -39,7 +39,7 @@ from medre.config.errors import ConfigValidationError
 class RouteDirectionality(Enum):
     """Direction of event flow between source and destination adapters.
 
-    Values correspond to the ``directionality`` TOML key in
+    Values correspond to the ``directionality`` config key in
     ``[routes.<id>]`` sections.
     """
 
@@ -106,7 +106,7 @@ class BridgePolicy:
     channel_allowlist: tuple[str, ...] = ()
     sender_allowlist: tuple[str, ...] = ()
 
-    # Canonical field names accepted in the policy TOML table.
+    # Canonical field names accepted in the policy config table.
     _KNOWN_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "allowed_event_types",
@@ -129,19 +129,19 @@ class BridgePolicy:
     )
 
     @classmethod
-    def from_toml_dict(
+    def from_dict(
         cls,
         data: dict[str, Any],
         *,
         route_id: str = "",
         section_path: str = "",
     ) -> Self:
-        """Construct from a TOML table dict (the ``[routes.<id>.policy]`` section).
+        """Construct from a config dict (the ``[routes.<id>.policy]`` section).
 
         Parameters
         ----------
         data:
-            The parsed TOML table for the policy section.
+            The parsed dict for the policy section.
         route_id:
             Route ID for error messages (optional).
         section_path:
@@ -162,7 +162,7 @@ class BridgePolicy:
         if unknown:
             _ctx = f"Route {route_id!r}: " if route_id else ""
             raise ConfigValidationError(
-                f"{_ctx}Unknown policy key(s) {sorted(unknown)} in "
+                f"{_ctx}Unknown policy key(s) {sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
                 f"{policy_path}. Accepted keys: "
                 f"{sorted(cls._KNOWN_FIELDS)}",
                 section_path=policy_path,
@@ -226,7 +226,7 @@ def _validate_policy(
     """
     # Intentionally empty: structural validation (unknown keys, type
     # checking, per-element string checks) is performed in
-    # BridgePolicy.from_toml_dict before this function is called.
+    # BridgePolicy.from_dict before this function is called.
 
 
 # ---------------------------------------------------------------------------
@@ -266,19 +266,19 @@ class RouteRetryConfig:
     jitter: bool = False
 
     @classmethod
-    def from_toml_dict(
+    def from_dict(
         cls,
         data: dict[str, Any],
         *,
         route_id: str,
         section_path: str,
     ) -> Self:
-        """Construct from a ``[routes.<id>.retry]`` TOML table dict.
+        """Construct from a ``[routes.<id>.retry]`` config dict.
 
         Parameters
         ----------
         data:
-            The parsed TOML table for the retry section.
+            The parsed dict for the retry section.
         route_id:
             The route ID (for error messages).
         section_path:
@@ -356,6 +356,338 @@ class RouteRetryConfig:
 
 
 # ---------------------------------------------------------------------------
+# Channel-room-map entry (per-entry structured value for channel_room_map)
+# ---------------------------------------------------------------------------
+
+
+# Canonical field names accepted in a structured channel_room_map entry.
+_CRM_ENTRY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"room", "source_origin_label", "dest_origin_label"}
+)
+
+
+@dataclass(frozen=True, eq=False)
+class ChannelRoomMapEntry:
+    """A single ``channel_room_map`` entry with optional per-entry origin labels.
+
+    Each entry maps a Meshtastic channel index to a canonical Matrix room
+    ID and optionally carries ``source_origin_label`` / ``dest_origin_label``
+    that override the route-level labels for the expanded legs of this
+    channel only.
+
+    Attributes
+    ----------
+    room:
+        Canonical Matrix room ID starting with ``!``.
+    source_origin_label:
+        Per-entry forward-leg source label.  ``None`` means "fall back to
+        the route-level ``source_origin_label``".  An explicit ``""`` means
+        "suppress the adapter-level fallback for this entry's forward leg".
+    dest_origin_label:
+        Per-entry reverse-leg source label.  Same semantics as
+        ``source_origin_label`` but applied when the direction is swapped
+        during expansion.
+
+    Equality semantics
+    ------------------
+    An entry whose both labels are ``None`` compares equal to its bare
+    ``room`` string.  This preserves backward compatibility with callers
+    that compare the normalised ``channel_room_map`` dict against a flat
+    ``dict[str, str]`` (the legacy shape).  Entries with any label set
+    only compare equal to another :class:`ChannelRoomMapEntry` with the
+    same three fields.
+    """
+
+    room: str
+    source_origin_label: str | None = None
+    dest_origin_label: str | None = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ChannelRoomMapEntry):
+            return (
+                self.room == other.room
+                and self.source_origin_label == other.source_origin_label
+                and self.dest_origin_label == other.dest_origin_label
+            )
+        # Backward compatibility: a label-less entry is equivalent to its
+        # bare room string (the legacy ``dict[str, str]`` shape).
+        if isinstance(other, str):
+            if self.source_origin_label is None and self.dest_origin_label is None:
+                return self.room == other
+            return False
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        if self.source_origin_label is None and self.dest_origin_label is None:
+            return hash(self.room)
+        return hash((self.room, self.source_origin_label, self.dest_origin_label))
+
+
+# ---------------------------------------------------------------------------
+# Channel-room-map parsing helpers (extracted from RouteConfig.from_dict)
+# ---------------------------------------------------------------------------
+
+
+def _validate_channel_key(
+    raw_key: Any,
+    route_id: str,
+    section_path: str,
+) -> str:
+    """Validate a single ``channel_room_map`` key and return its normalised form.
+
+    Responsibilities:
+
+    * Reject boolean keys (explicit ``bool`` check before ``int``).
+    * Accept integer or string keys, normalising to a string.
+    * Parse to ``int`` and validate the range 0–7.
+
+    Does **not** check duplicates — the caller handles that via a
+    ``seen_channels`` set.
+
+    Parameters
+    ----------
+    raw_key:
+        The raw key from the ``channel_room_map`` table.
+    route_id:
+        Route ID for error messages.
+    section_path:
+        Dot-separated config path for error messages.
+
+    Returns
+    -------
+    str
+        The normalised channel string (e.g. ``"0"``).
+
+    Raises
+    ------
+    ConfigValidationError
+        If the key is a boolean, not an integer/string, not a valid
+        integer, or outside the 0–7 range.
+    """
+    if isinstance(raw_key, bool):
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map channel key "
+            f"{raw_key!r} is a boolean, expected an integer 0–7",
+            section_path=section_path,
+        )
+    if isinstance(raw_key, int):
+        ch_str = str(raw_key)
+    elif isinstance(raw_key, str):
+        ch_str = raw_key
+    else:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map channel key "
+            f"{raw_key!r} is not an integer or string",
+            section_path=section_path,
+        )
+    # Must be a valid integer 0–7.
+    try:
+        ch_int = int(ch_str)
+    except (ValueError, TypeError):
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map channel key "
+            f"{raw_key!r} is not a valid integer channel",
+            section_path=section_path,
+        ) from None
+    if ch_int < 0 or ch_int > 7:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map channel "
+            f"{ch_int!r} is out of range (must be 0–7)",
+            section_path=section_path,
+        )
+    return str(ch_int)
+
+
+def _parse_channel_room_map_entry(
+    raw_value: Any,
+    route_id: str,
+    ch_normalized: str,
+    section_path: str,
+) -> tuple[str, str | None, str | None]:
+    """Parse a polymorphic ``channel_room_map`` entry value.
+
+    Supports two shapes:
+
+    * **Bare-string shape** — ``raw_value`` is a ``str``: the room ID only,
+      no labels.  Returns ``(raw_value, None, None)``.
+    * **Structured shape** — ``raw_value`` is a ``dict``: a table with
+      ``room`` plus optional ``source_origin_label`` /
+      ``dest_origin_label``.  Unknown keys are rejected.  Both labels use
+      the bool-before-str check pattern (spec §17.5.8 requires it).
+
+    Any other type raises :class:`ConfigValidationError`.
+
+    Parameters
+    ----------
+    raw_value:
+        The raw value associated with the channel key.
+    route_id:
+        Route ID for error messages.
+    ch_normalized:
+        The already-normalised channel string (used in error messages and
+        to build the per-entry ``section_path``).
+    section_path:
+        Dot-separated config path for the route (the per-entry path is
+        derived as ``{section_path}.channel_room_map.{ch_normalized}``).
+
+    Returns
+    -------
+    tuple[str, str | None, str | None]
+        ``(room_value_raw, entry_source_label, entry_dest_label)``.  The
+        room value is **not** validated here — the caller runs it through
+        :func:`_validate_room_string`.
+
+    Raises
+    ------
+    ConfigValidationError
+        If the value is not a string or dict, contains unknown keys, is
+        missing the ``room`` key, or has a label that is not a string.
+    """
+    entry_path = f"{section_path}.channel_room_map.{ch_normalized}"
+    entry_source_label: str | None = None
+    entry_dest_label: str | None = None
+    if isinstance(raw_value, str):
+        # Legacy bare-string shape: room ID only, no labels.
+        room_value_raw = raw_value
+    elif isinstance(raw_value, dict):
+        # New structured shape: table with room + optional labels.
+        unknown = set(raw_value.keys()) - _CRM_ENTRY_KNOWN_KEYS
+        if unknown:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry for "
+                f"channel {ch_normalized!r} has unknown key(s) "
+                f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. Accepted keys: "
+                f"{sorted(_CRM_ENTRY_KNOWN_KEYS)}",
+                section_path=entry_path,
+            )
+        if "room" not in raw_value:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry for "
+                f"channel {ch_normalized!r} is missing required "
+                f"'room' key",
+                section_path=entry_path,
+            )
+        room_value_raw = raw_value["room"]
+        # --- per-entry source_origin_label ---
+        raw_sol = raw_value.get("source_origin_label")
+        if raw_sol is not None:
+            if isinstance(raw_sol, bool):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: channel_room_map entry "
+                    f"for channel {ch_normalized!r}: "
+                    f"'source_origin_label' must be a string, "
+                    f"got {type(raw_sol).__name__}",
+                    section_path=entry_path,
+                )
+            if not isinstance(raw_sol, str):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: channel_room_map entry "
+                    f"for channel {ch_normalized!r}: "
+                    f"'source_origin_label' must be a string, "
+                    f"got {type(raw_sol).__name__}",
+                    section_path=entry_path,
+                )
+            entry_source_label = raw_sol
+        # --- per-entry dest_origin_label ---
+        raw_dol = raw_value.get("dest_origin_label")
+        if raw_dol is not None:
+            if isinstance(raw_dol, bool):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: channel_room_map entry "
+                    f"for channel {ch_normalized!r}: "
+                    f"'dest_origin_label' must be a string, "
+                    f"got {type(raw_dol).__name__}",
+                    section_path=entry_path,
+                )
+            if not isinstance(raw_dol, str):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: channel_room_map entry "
+                    f"for channel {ch_normalized!r}: "
+                    f"'dest_origin_label' must be a string, "
+                    f"got {type(raw_dol).__name__}",
+                    section_path=entry_path,
+                )
+            entry_dest_label = raw_dol
+    else:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map entry for "
+            f"channel {ch_normalized!r} must be a non-empty string "
+            f"or a table with a 'room' key, got "
+            f"{type(raw_value).__name__}",
+            section_path=entry_path,
+        )
+    return room_value_raw, entry_source_label, entry_dest_label
+
+
+def _validate_room_string(
+    room_value_raw: Any,
+    route_id: str,
+    ch_normalized: str,
+    section_path: str,
+) -> str:
+    """Validate and normalise a ``channel_room_map`` room value.
+
+    Responsibilities:
+
+    * Require a non-empty string (after ``strip()``).
+    * Strip surrounding whitespace.
+    * Reject ``#`` room aliases.
+    * Require the ``!`` canonical-room-ID prefix.
+
+    Does **not** check duplicates — duplicate-room ambiguity is validated
+    at runtime route expansion (see :mod:`medre.runtime.route_engine`),
+    where adapter platforms are known and the routing direction can
+    disambiguate fan-in from ambiguous Matrix→Meshtastic routing.
+
+    Parameters
+    ----------
+    room_value_raw:
+        The raw room value extracted from the entry (string or table).
+    route_id:
+        Route ID for error messages.
+    ch_normalized:
+        The normalised channel string (for error messages).
+    section_path:
+        Dot-separated config path for error messages.
+
+    Returns
+    -------
+    str
+        The validated, stripped room string.
+
+    Raises
+    ------
+    ConfigValidationError
+        If the value is not a non-empty string, is a ``#`` alias, or
+        does not start with ``!``.
+    """
+    if not isinstance(room_value_raw, str) or not room_value_raw.strip():
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map room for "
+            f"channel {ch_normalized!r} must be a non-empty "
+            f"string, got {room_value_raw!r}",
+            section_path=section_path,
+        )
+    room_value = room_value_raw.strip()
+    if room_value.startswith("#"):
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map room for "
+            f"channel {ch_normalized!r} is a room alias "
+            f"({room_value!r}); aliases are not supported yet — "
+            f"use canonical room IDs starting with '!'",
+            section_path=section_path,
+        )
+    if not room_value.startswith("!"):
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map value "
+            f"{room_value!r} for channel {ch_normalized!r} must "
+            f"be a canonical Matrix room ID starting with '!'",
+            section_path=section_path,
+        )
+    return room_value
+
+
+# ---------------------------------------------------------------------------
 # Route config
 # ---------------------------------------------------------------------------
 
@@ -367,7 +699,7 @@ class RouteConfig:
     Attributes
     ----------
     route_id:
-        Unique identifier for this route (the TOML section key).
+        Unique identifier for this route (the config section key).
     source_adapters:
         Tuple of source adapter IDs.
     dest_adapters:
@@ -394,11 +726,15 @@ class RouteConfig:
         ``None`` means no retry scheduling for this route.
     channel_room_map:
         Optional mapping of Meshtastic channel strings ("0"–"7") to
-        Matrix room IDs.  When present, the route is expanded at runtime
-        into per-channel legs instead of using ``source_channel`` /
-        ``dest_channel`` directly.  Mutually exclusive with
-        ``source_channel``, ``dest_channel``, ``source_room``, and
-        ``dest_room``.  Requires exactly one source and one dest adapter.
+        Matrix room IDs.  Each value may be a bare room-ID string (legacy
+        shape) or a structured table carrying ``room`` plus optional
+        ``source_origin_label`` / ``dest_origin_label``.  After parsing,
+        values are normalised to :class:`ChannelRoomMapEntry`.  When
+        present, the route is expanded at runtime into per-channel legs
+        instead of using ``source_channel`` / ``dest_channel`` directly.
+        Mutually exclusive with ``source_channel``, ``dest_channel``,
+        ``source_room``, and ``dest_room``.  Requires exactly one source
+        and one dest adapter.
     source_origin_label:
         Optional source-side human-readable label used for the forward
         leg of this route (source→dest).  When set, it is threaded into
@@ -426,20 +762,20 @@ class RouteConfig:
     dest_room: str | None = None
     policy: BridgePolicy | None = None
     retry: RouteRetryConfig | None = None
-    channel_room_map: dict[str, str] | None = None
+    channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
 
     @classmethod
-    def from_toml_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
-        """Construct from a ``[routes.<id>]`` TOML table dict.
+    def from_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
+        """Construct from a ``[routes.<id>]`` config dict.
 
         Parameters
         ----------
         route_id:
-            The route ID (TOML section key after ``routes.``).
+            The route ID (config section key after ``routes.``).
         data:
-            The parsed TOML table for this route.
+            The parsed dict for this route.
 
         Raises
         ------
@@ -596,7 +932,7 @@ class RouteConfig:
 
         # --- channel_room_map ---
         raw_crm = data.pop("channel_room_map", None)
-        channel_room_map: dict[str, str] | None = None
+        channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
         if raw_crm is not None:
             if not isinstance(raw_crm, dict):
                 raise ConfigValidationError(
@@ -633,43 +969,17 @@ class RouteConfig:
                     section_path=section_path,
                 )
             # Validate and normalize entries.
-            normalized: dict[str, str] = {}
+            # NOTE: duplicate *rooms* across the map are intentionally
+            # permitted here — multiple Meshtastic channels may fan into
+            # the same Matrix room. Ambiguity for Matrix→Meshtastic
+            # routing is enforced at runtime expansion (see
+            # :mod:`medre.runtime.route_engine`), where adapter platforms
+            # and route directionality are known. Duplicate *channels*
+            # remain rejected below.
+            normalized: dict[str, ChannelRoomMapEntry] = {}
             seen_channels: set[str] = set()
-            seen_rooms: set[str] = set()
             for raw_key, raw_value in raw_crm.items():
-                # --- channel key validation ---
-                if isinstance(raw_key, bool):
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map channel key "
-                        f"{raw_key!r} is a boolean, expected an integer 0–7",
-                        section_path=section_path,
-                    )
-                if isinstance(raw_key, int):
-                    ch_str = str(raw_key)
-                elif isinstance(raw_key, str):
-                    ch_str = raw_key
-                else:
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map channel key "
-                        f"{raw_key!r} is not an integer or string",
-                        section_path=section_path,
-                    )
-                # Must be a valid integer 0–7.
-                try:
-                    ch_int = int(ch_str)
-                except (ValueError, TypeError):
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map channel key "
-                        f"{raw_key!r} is not a valid integer channel",
-                        section_path=section_path,
-                    ) from None
-                if ch_int < 0 or ch_int > 7:
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map channel "
-                        f"{ch_int!r} is out of range (must be 0–7)",
-                        section_path=section_path,
-                    )
-                ch_normalized = str(ch_int)
+                ch_normalized = _validate_channel_key(raw_key, route_id, section_path)
                 if ch_normalized in seen_channels:
                     raise ConfigValidationError(
                         f"Route {route_id!r}: channel_room_map has duplicate "
@@ -678,38 +988,19 @@ class RouteConfig:
                     )
                 seen_channels.add(ch_normalized)
 
-                # --- room value validation ---
-                if not isinstance(raw_value, str) or not raw_value.strip():
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map room for "
-                        f"channel {ch_normalized!r} must be a non-empty "
-                        f"string, got {raw_value!r}",
-                        section_path=section_path,
+                room_value_raw, entry_source_label, entry_dest_label = (
+                    _parse_channel_room_map_entry(
+                        raw_value, route_id, ch_normalized, section_path
                     )
-                room_value = raw_value.strip()
-                if room_value.startswith("#"):
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map room for "
-                        f"channel {ch_normalized!r} is a room alias "
-                        f"({room_value!r}); aliases are not supported yet — "
-                        f"use canonical room IDs starting with '!'",
-                        section_path=section_path,
-                    )
-                if not room_value.startswith("!"):
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map value "
-                        f"{room_value!r} for channel {ch_normalized!r} must "
-                        f"be a canonical Matrix room ID starting with '!'",
-                        section_path=section_path,
-                    )
-                if room_value in seen_rooms:
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map has duplicate "
-                        f"room {room_value!r}",
-                        section_path=section_path,
-                    )
-                seen_rooms.add(room_value)
-                normalized[ch_normalized] = room_value
+                )
+                room_value = _validate_room_string(
+                    room_value_raw, route_id, ch_normalized, section_path
+                )
+                normalized[ch_normalized] = ChannelRoomMapEntry(
+                    room=room_value,
+                    source_origin_label=entry_source_label,
+                    dest_origin_label=entry_dest_label,
+                )
             channel_room_map = normalized
 
             # Reject empty channel_room_map — at least one mapping is required.
@@ -729,7 +1020,7 @@ class RouteConfig:
                     f"Route {route_id!r}: 'policy' must be a table",
                     section_path=section_path,
                 )
-            policy = BridgePolicy.from_toml_dict(
+            policy = BridgePolicy.from_dict(
                 raw_policy,
                 route_id=route_id,
                 section_path=section_path,
@@ -749,7 +1040,7 @@ class RouteConfig:
                     f"Route {route_id!r}: 'retry' must be a table",
                     section_path=section_path,
                 )
-            retry = RouteRetryConfig.from_toml_dict(
+            retry = RouteRetryConfig.from_dict(
                 raw_retry,
                 route_id=route_id,
                 section_path=section_path,
@@ -807,7 +1098,7 @@ class RouteConfig:
 class RouteConfigSet:
     """Ordered, validated collection of :class:`RouteConfig` instances.
 
-    Routes are stored in the order they appear in the TOML file,
+    Routes are stored in the order they appear in the config file,
     ensuring deterministic iteration.  Call :meth:`validate` after
     construction to check for duplicate IDs.
 
@@ -843,13 +1134,13 @@ class RouteConfigSet:
             seen[route.route_id] = f"routes.{route.route_id}"
 
     @classmethod
-    def from_toml_dict(cls, data: dict[str, Any]) -> Self:
-        """Parse all ``[routes.<id>]`` sections from the TOML root dict.
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Parse all ``[routes.<id>]`` sections from the config root dict.
 
         Parameters
         ----------
         data:
-            The full parsed TOML dict.  Looks for a top-level ``"routes"``
+            The full parsed config dict.  Looks for a top-level ``"routes"``
             key whose values are per-route tables.
 
         Returns
@@ -869,11 +1160,11 @@ class RouteConfigSet:
         for route_id, route_table in routes_section.items():
             if not isinstance(route_table, dict):
                 raise ConfigValidationError(
-                    f"Route {route_id!r} must be a TOML table, "
+                    f"Route {route_id!r} must be a config table (mapping), "
                     f"got {type(route_table).__name__}",
                     section_path=f"routes.{route_id}",
                 )
-            routes.append(RouteConfig.from_toml_dict(route_id, route_table))
+            routes.append(RouteConfig.from_dict(route_id, route_table))
         route_set = cls(routes=tuple(routes))
         route_set.validate()
         return route_set

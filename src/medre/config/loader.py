@@ -362,7 +362,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     adapters.validate()
 
     # [routes.*] sections
-    routes = RouteConfigSet.from_toml_dict(data)
+    routes = RouteConfigSet.from_dict(data)
 
     return RuntimeConfig(
         runtime=runtime,
@@ -516,14 +516,14 @@ def _validate_logging_section(log_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _TomlConstructible(Protocol):
-    """Protocol for runtime config wrappers with a TOML factory method."""
+class _DictConstructible(Protocol):
+    """Protocol for runtime config wrappers with a dict factory method."""
 
     @classmethod
-    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self: ...
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self: ...
 
 
-_RTC = TypeVar("_RTC", bound=_TomlConstructible)
+_RTC = TypeVar("_RTC", bound=_DictConstructible)
 
 
 def _parse_adapter_section(
@@ -542,7 +542,7 @@ def _parse_adapter_section(
         if not isinstance(config_table, dict):
             continue
         expanded = _expand_paths_in_dict(config_table, paths)
-        wrapper = wrapper_cls.from_toml_dict(instance_name, expanded)
+        wrapper = wrapper_cls.from_dict(instance_name, expanded)
         result[instance_name] = wrapper
     return result
 

@@ -86,3 +86,40 @@ routes:
       "0": "!general:example.com"
       "1": "!admin:example.com"
       "2": "!alerts:example.com"
+      # --- Per-entry origin labels (structured shape, commented out) ---
+      # Each entry can also be a table carrying its own origin labels so the
+      # relay prefix for that channel reads differently (for example, naming
+      # the channel). The bare-string entries above carry no per-entry labels;
+      # the structured shape below adds optional source_origin_label /
+      # dest_origin_label per entry. Both shapes can be mixed in one map.
+      #
+      # "0":
+      #   room: "!general:example.com"
+      #   source_origin_label: "General"
+      #   dest_origin_label: "Matrix Bridge"
+      # "1":
+      #   room: "!admin:example.com"
+      #   source_origin_label: "Admin"
+      # Per-entry labels override the route-level source_origin_label /
+      # dest_origin_label for this entry's legs only; an unset (or omitted)
+      # label falls back to the route-level value, then the adapter
+      # origin_label. An explicit "" suppresses that fallback.
+      # See docs/ops/configuration.md (Per-entry origin labels) and
+      # docs/spec/routing-delivery.md §17.5.8.
+
+      # --- Fan-in alternative (commented out) ---
+      # Two (or more) Meshtastic channels can deliver into the SAME Matrix
+      # room when the route does not also create a Matrix→Meshtastic leg.
+      # Here directionality would need to be source_to_dest with a Meshtastic
+      # source and Matrix destination (swap source_adapters/dest_adapters and
+      # set directionality: source_to_dest to use this shape). Duplicate rooms
+      # are rejected at route expansion when a Matrix→Meshtastic leg would be
+      # created, because a Matrix event from the shared room is ambiguous
+      # across channels. See docs/spec/routing-delivery.md §17.6.
+      #
+      # "0":
+      #   room: "!shared:example.com"
+      #   source_origin_label: "LongFast"
+      # "1":
+      #   room: "!shared:example.com"
+      #   source_origin_label: "ShortFast"

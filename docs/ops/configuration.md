@@ -357,7 +357,94 @@ Limitations:
 - Mutually exclusive with `source_room`, `dest_room`, `source_channel`, `dest_channel`.
 - Route must have exactly one source and one destination adapter.
 - Channel keys 0–7 only (Meshtastic supports up to 8 channels).
-- Each room ID unique across the map.
+- Two or more entries can share the same Matrix room for Meshtastic→Matrix
+  fan-in (multiple radio channels relaying into one room). Duplicate rooms
+  are rejected at route expansion when the route also creates a
+  Matrix→Meshtastic leg — a Matrix event from a shared room is ambiguous
+  across channels. See the Routing and Delivery Specification §17.6 for the
+  full directionality decision matrix.
+
+Fan-in example — two Meshtastic channels delivering into one Matrix room,
+each with its own `source_origin_label` so the relay prefix distinguishes
+them. This shape is valid only when the route does not also create a
+Matrix→Meshtastic leg (here `source_to_dest` with a Meshtastic source and a
+Matrix destination):
+
+```yaml
+routes:
+  radio_fan_in:
+    source_adapters:
+      - radio
+    dest_adapters:
+      - main
+    directionality: source_to_dest
+    enabled: true
+    channel_room_map:
+      "0":
+        room: "!room:example.com"
+        source_origin_label: "LongFast"
+      "1":
+        room: "!room:example.com"
+        source_origin_label: "ShortFast"
+```
+
+#### Per-entry origin labels
+
+Each `channel_room_map` entry can carry its own origin labels, so two
+channels bridged by the same route can show different attribution text
+in the relay prefix (for example, the channel name). An entry is either
+a bare room-ID string (no per-entry labels) or a structured table with
+`room` plus optional `source_origin_label` / `dest_origin_label`:
+
+```yaml
+routes:
+  radio_matrix:
+    source_adapters:
+      - main
+    dest_adapters:
+      - ops
+    directionality: bidirectional
+    enabled: true
+    channel_room_map:
+      "0":
+        room: "!longfast:example.com"
+        source_origin_label: "LongFast"
+        dest_origin_label: "Matrix Ops"
+      "1":
+        room: "!shortfast:example.com"
+        source_origin_label: "ShortFast"
+```
+
+Here channel 0 bridges to `!longfast:example.com` and tags both legs of
+that mapping; channel 1 bridges to `!shortfast:example.com` and tags
+only its forward leg, leaving the reverse leg to inherit the
+route-level `dest_origin_label` (or the adapter `origin_label`). Both
+shapes can be mixed in the same map.
+
+How labels resolve for each expanded leg, from most to least specific:
+
+1. The per-entry `source_origin_label` (forward leg) or
+   `dest_origin_label` (reverse leg), when set.
+2. The route-level `source_origin_label` / `dest_origin_label`, when set.
+3. The source adapter's `origin_label`.
+4. Empty string (no label rendered).
+
+An empty string (`""`) at the per-entry or route level suppresses the
+fallback below it: the `{origin_label}` template variable renders empty
+for that leg. Leaving a label unset (or omitting the key) falls through
+to the next level.
+
+Keep in mind:
+
+- The bare-string shape still works exactly as before — no labels are
+  attached and the route-level / adapter labels apply uniformly.
+- `origin_label` is human-readable attribution only. It is not a routing
+  key, not a transport identity, and not delivery evidence. It never
+  affects which route matches an event.
+- Use separate routes when the `channel_room_map` shape cannot express
+  the targeting you need (for example, distinct fanout across multiple
+  destinations). Per-entry labels do not change targeting — they only
+  label the legs the map already expands.
 
 ### `runtime.limits`
 

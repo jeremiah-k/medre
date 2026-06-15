@@ -32,6 +32,7 @@ from medre.config.model import (
 )
 from medre.config.routes import (
     BridgePolicy,
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -97,7 +98,10 @@ def _make_config_with_matrix_and_meshtastic() -> RuntimeConfig:
 
 
 def _make_config_with_route() -> RuntimeConfig:
-    """RuntimeConfig with a single TOML-defined route."""
+    """RuntimeConfig with a single config-defined route."""
+    # historical test ID name; runtime config is YAML.  The "toml-route"
+    # literal and the matching MEDRE_ROUTE__TOML_ROUTE__ env token appear
+    # across many override tests below and are kept as-is for low churn.
     route = RouteConfig(
         route_id="toml-route",
         source_adapters=("adapter-a",),
@@ -384,11 +388,11 @@ class TestEnvCreatedAdapters:
         assert redacted["MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN"] == "***REDACTED***"
         assert redacted["MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER"] == "https://matrix.env"
 
-    # (m) TOML radio-a + env-created radio_a collision raises.
-    def test_toml_and_env_created_normalized_collision(
+    # (m) Config-declared radio-a + env-created radio_a collision raises.
+    def test_config_and_env_created_normalized_collision(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """TOML adapter_id='radio-a' and env-created adapter_id='radio_a'
+        """Config adapter_id='radio-a' and env-created adapter_id='radio_a'
         both normalize to RADIO_A — must raise."""
         base = _make_config_with_matrix_and_meshtastic()
 
@@ -556,8 +560,8 @@ class TestRouteEnvCreation:
         assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
         assert route.enabled is True
 
-    # (b) Override existing TOML route: ENABLED=false preserves other fields.
-    def test_override_existing_toml_route(
+    # (b) Override existing config route: ENABLED=false preserves other fields.
+    def test_override_existing_config_route(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
@@ -569,7 +573,7 @@ class TestRouteEnvCreation:
         route = result.routes.routes[0]
         assert route.route_id == "toml-route"
         assert route.enabled is False
-        # Other fields preserved from TOML.
+        # Other fields preserved from config.
         assert route.source_adapters == ("adapter-a",)
         assert route.dest_adapters == ("adapter-b",)
         assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
@@ -783,8 +787,8 @@ class TestRouteEnvCreation:
             assert entry.target_adapter_token is None
 
     # --- Override-mode validation tests ---
-    # These tests override an existing TOML route and verify that
-    # RouteConfig.from_toml_dict validation is applied.
+    # These tests override an existing config route and verify that
+    # RouteConfig.from_dict validation is applied.
 
     # (w) Empty source_adapters in override mode raises.
     def test_route_override_empty_source_adapters_raises(
@@ -870,11 +874,11 @@ class TestRouteEnvCreation:
         with pytest.raises(ConfigValidationError, match="directionality"):
             apply_env_overrides(base)
 
-    # (ae) route_id cannot be changed for existing TOML route.
+    # (ae) route_id cannot be changed for existing config route.
     def test_route_override_route_id_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """route_id override on existing TOML route raises ConfigValidationError."""
+        """route_id override on existing config route raises ConfigValidationError."""
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ROUTE_ID", "renamed")
         base = _make_config_with_route()
         with pytest.raises(ConfigValidationError, match="route_id"):
@@ -968,7 +972,7 @@ def _make_config_with_route_complex() -> RuntimeConfig:
         dest_adapters=("adapter-b",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
         enabled=True,
-        channel_room_map={"0": "!room1:matrix.org"},
+        channel_room_map={"0": ChannelRoomMapEntry(room="!room1:matrix.org")},
         policy=BridgePolicy(allowed_event_types=("message",)),
         retry=RouteRetryConfig(enabled=True, max_attempts=5),
     )
@@ -1028,7 +1032,7 @@ class TestRouteOverridePreservesComplexFields:
 
 
 def _make_config_with_named_route(route_id: str) -> RuntimeConfig:
-    """RuntimeConfig with a single TOML route using the given route_id."""
+    """RuntimeConfig with a single config route using the given route_id."""
     route = RouteConfig(
         route_id=route_id,
         source_adapters=("sa",),
@@ -1074,10 +1078,10 @@ class TestRouteNormalizedTokenCollision:
     """Two route IDs that normalize to the same token raise ConfigValidationError
     (lines 1249-1254 of env.py)."""
 
-    def test_colliding_route_ids_in_toml_raises(
+    def test_colliding_route_ids_in_config_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Two TOML routes whose IDs normalize to the same token raise."""
+        """Two config routes whose IDs normalize to the same token raise."""
         # Set a benign route env var so apply_route_overrides is actually
         # invoked (it returns early when route_overrides is empty).
         monkeypatch.setenv("MEDRE_ROUTE__ROUTE_A__ENABLED", "true")
@@ -1085,12 +1089,12 @@ class TestRouteNormalizedTokenCollision:
         with pytest.raises(ConfigValidationError, match="normali"):
             apply_env_overrides(base)
 
-    def test_env_route_collides_with_toml_route_normalized_token(
+    def test_env_route_collides_with_config_route_normalized_token(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Env-created route with route_id that normalizes to same token as
-        a TOML route raises ConfigValidationError (not duplicate-ID check)."""
-        # TOML route with id "route-a" (normalizes to ROUTE_A)
+        a config route raises ConfigValidationError (not duplicate-ID check)."""
+        # Config route with id "route-a" (normalizes to ROUTE_A)
         base = _make_config_with_named_route("route-a")
 
         # Env route with explicit route_id "route_a" — different string,

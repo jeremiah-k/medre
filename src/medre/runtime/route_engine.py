@@ -478,6 +478,84 @@ def _expand_route_config(
     return routes
 
 
+def _validate_duplicate_rooms_for_direction(
+    rc: RouteConfig,
+    *,
+    fwd_is_matrix_to_mesh: bool,
+) -> None:
+    """Reject duplicate Matrix rooms when the route creates a Matrix→Meshtastic leg.
+
+    Duplicate room values across a ``channel_room_map`` are safe for
+    Meshtastic→Matrix fan-in (the inbound radio channel disambiguates the
+    source event) but ambiguous for Matrix→Meshtastic routing, because a
+    Matrix event arriving from the shared room could target multiple
+    Meshtastic channels with no way to pick one.  This route-level check
+    runs after platform assignment and directionality are known, which the
+    pure config parser cannot determine.
+
+    Parameters
+    ----------
+    rc:
+        The route configuration.  Must have a non-``None``
+        ``channel_room_map``.
+    fwd_is_matrix_to_mesh:
+        ``True`` when the forward (source→dest) leg is Matrix→Meshtastic;
+        ``False`` when it is Meshtastic→Matrix.
+
+    Raises
+    ------
+    RouteValidationError
+        If two or more entries share a room value *and* the route's
+        directionality plus platform assignment creates a
+        Matrix→Meshtastic leg.
+    """
+    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
+
+    assert rc.channel_room_map is not None  # guarded by caller
+
+    # Collect room values, tolerating both ChannelRoomMapEntry and the
+    # bare-str legacy shape used by direct RouteConfig construction.
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for entry in rc.channel_room_map.values():
+        room = entry.room if isinstance(entry, ChannelRoomMapEntry) else entry
+        if room in seen:
+            dupes.add(room)
+        seen.add(room)
+
+    # No duplicate rooms → always safe regardless of direction.
+    if not dupes:
+        return
+
+    # Route-level directionality decision (all channels share the same
+    # source/dest adapters and directionality, so compute once).
+    direction = rc.directionality
+    create_fwd = direction in (
+        RouteDirectionality.SOURCE_TO_DEST,
+        RouteDirectionality.BIDIRECTIONAL,
+    )
+    create_rev = direction in (
+        RouteDirectionality.DEST_TO_SOURCE,
+        RouteDirectionality.BIDIRECTIONAL,
+    )
+    if fwd_is_matrix_to_mesh:
+        create_matrix_to_mesh = create_fwd
+    else:
+        create_matrix_to_mesh = create_rev
+
+    if create_matrix_to_mesh:
+        raise RouteValidationError(
+            f"Route {rc.route_id!r}: channel_room_map has duplicate Matrix "
+            f"room(s) {sorted(dupes)}, and this route's directionality "
+            f"creates a Matrix→Meshtastic leg. Duplicate rooms are allowed "
+            f"only for Meshtastic→Matrix fan-in (the inbound channel "
+            f"disambiguates the source). Matrix→Meshtastic routing from a "
+            f"shared room is ambiguous: a Matrix event from that room could "
+            f"target multiple Meshtastic channels. Use distinct rooms per "
+            f"channel, or split the channels into separate routes."
+        )
+
+
 def _expand_channel_room_map_route(
     rc: RouteConfig,
     adapter_platforms: dict[str, str],
@@ -511,7 +589,7 @@ def _expand_channel_room_map_route(
     RouteValidationError
         If platform lookup fails for an adapter.
     """
-    from medre.config.routes import RouteDirectionality
+    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
 
     assert rc.channel_room_map is not None  # guarded by caller
 
@@ -566,6 +644,14 @@ def _expand_channel_room_map_route(
             f"Matrix and one Meshtastic adapter"
         )
 
+    # Route-level duplicate-room ambiguity check. Duplicate Matrix rooms
+    # are safe only for Meshtastic→Matrix fan-in; they are ambiguous for
+    # any route that also creates a Matrix→Meshtastic leg. Must run before
+    # the per-channel loop since it is a route-level decision.
+    _validate_duplicate_rooms_for_direction(
+        rc, fwd_is_matrix_to_mesh=fwd_is_matrix_to_mesh
+    )
+
     # BridgePolicy event types → RouteSource event_kinds
     event_kinds: tuple[str, ...] = ()
     if rc.policy is not None and rc.policy.allowed_event_types:
@@ -579,7 +665,30 @@ def _expand_channel_room_map_route(
     direction = rc.directionality
     routes: list[Route] = []
 
-    for ch, room_id in sorted(rc.channel_room_map.items()):
+    for ch, entry in sorted(rc.channel_room_map.items()):
+        # Normalize the entry: ChannelRoomMapEntry (from from_dict)
+        # or a bare str (from direct RouteConfig construction in tests).
+        if isinstance(entry, ChannelRoomMapEntry):
+            room_id = entry.room
+            entry_source_label = entry.source_origin_label
+            entry_dest_label = entry.dest_origin_label
+        else:
+            room_id = entry
+            entry_source_label = None
+            entry_dest_label = None
+
+        # Resolve effective per-entry labels: entry label takes precedence
+        # over route-level label.  Use 'is not None' so that an explicit
+        # empty string ("") is preserved (sentinel for suppress fallback).
+        effective_source_label = (
+            entry_source_label
+            if entry_source_label is not None
+            else rc.source_origin_label
+        )
+        effective_dest_label = (
+            entry_dest_label if entry_dest_label is not None else rc.dest_origin_label
+        )
+
         # Determine which legs to create based on directionality.
         create_fwd = direction in (
             RouteDirectionality.SOURCE_TO_DEST,
@@ -600,12 +709,12 @@ def _expand_channel_room_map_route(
         # Matrix→Meshtastic leg
         if create_matrix_to_mesh:
             fwd_id = f"{rc.route_id}__ch{ch}__matrix_to_meshtastic"
-            # Determine label: forward leg uses source_origin_label,
-            # reverse leg uses dest_origin_label.
+            # Forward leg uses effective source-side label;
+            # reverse leg uses effective dest-side label.
             if fwd_is_matrix_to_mesh:
-                fwd_label = rc.source_origin_label
+                fwd_label = effective_source_label
             else:
-                fwd_label = rc.dest_origin_label
+                fwd_label = effective_dest_label
             routes.append(
                 Route(
                     id=fwd_id,
@@ -625,9 +734,9 @@ def _expand_channel_room_map_route(
         if create_mesh_to_matrix:
             rev_id = f"{rc.route_id}__ch{ch}__meshtastic_to_matrix"
             if fwd_is_matrix_to_mesh:
-                rev_label = rc.dest_origin_label
+                rev_label = effective_dest_label
             else:
-                rev_label = rc.source_origin_label
+                rev_label = effective_source_label
             routes.append(
                 Route(
                     id=rev_id,

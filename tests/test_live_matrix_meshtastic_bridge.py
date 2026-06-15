@@ -22,7 +22,7 @@ Test classes
 ------------
 
 ``TestLiveBridgeConfig``
-    Config construction and TOML round-trip (requires all env vars).
+    Config construction and YAML round-trip (requires all env vars).
 ``TestLiveBridgeDiagnostics``
     Adapter health and diagnostics (requires all env vars).
 ``TestMatrixToMeshtasticSmoke``
@@ -46,7 +46,7 @@ from tests.helpers.live_config import (
     build_live_bridge_runtime_config,
     matrix_env_set,
     meshtastic_env_set,
-    write_live_bridge_toml,
+    write_live_bridge_yaml,
 )
 
 # ---------------------------------------------------------------------------
@@ -115,16 +115,16 @@ def _make_meshtastic_context():
 
 
 # ===========================================================================
-# 1. Config construction and TOML round-trip
+# 1. Config construction and YAML round-trip
 # ===========================================================================
 
 
 @require_live
 class TestLiveBridgeConfig:
-    """Config construction and TOML round-trip tests.
+    """Config construction and YAML round-trip tests.
 
     These tests verify that the live bridge config can be built from
-    environment variables, written as TOML, and re-loaded successfully.
+    environment variables, written as YAML, and re-loaded successfully.
     """
 
     def test_config_builds_from_env(self, tmp_path: Path) -> None:
@@ -137,23 +137,22 @@ class TestLiveBridgeConfig:
         assert "radio" in config.adapters.meshtastic
         assert len(config.routes.routes) == 2
 
-    def test_config_toml_round_trip(self, tmp_path: Path) -> None:
-        """Write TOML via write_live_bridge_toml → load_config → valid RuntimeConfig."""
-        import tomllib
-
+    def test_config_yaml_round_trip(self, tmp_path: Path) -> None:
+        """Write YAML via write_live_bridge_yaml → load_config → valid RuntimeConfig."""
+        from medre.config._yaml import parse_yaml_config
         from medre.config.loader import load_config
 
-        toml_path = write_live_bridge_toml(tmp_path)
+        yaml_path = write_live_bridge_yaml(tmp_path)
 
-        # Verify the TOML is parseable.
-        raw = toml_path.read_text(encoding="utf-8")
-        data = tomllib.loads(raw)
+        # Verify the YAML is parseable by MEDRE's strict parser.
+        raw = yaml_path.read_text(encoding="utf-8")
+        data = parse_yaml_config(raw, str(yaml_path))
         assert isinstance(data, dict)
         assert "adapters" in data
         assert "routes" in data
 
         # Load via the config loader.
-        config, _source, _paths = load_config(str(toml_path))
+        config, _source, _paths = load_config(str(yaml_path))
         assert config.runtime.name == "live-bridge-test"
         assert config.adapters.matrix["matrix"].adapter_kind == "real"
         assert config.adapters.meshtastic["radio"].adapter_kind == "real"
@@ -162,21 +161,21 @@ class TestLiveBridgeConfig:
         assert "radio_to_matrix" in route_ids
 
     def test_example_live_config_has_required_routes(self) -> None:
-        """Parse examples/configs/live-matrix-meshtastic.toml and verify routes exist."""
-        import tomllib
+        """Parse examples/configs/live-matrix-meshtastic.yaml and verify routes exist."""
+        from medre.config._yaml import parse_yaml_config
 
         examples_path = (
             Path(__file__).resolve().parent.parent
             / "examples"
             / "configs"
-            / "live-matrix-meshtastic.toml"
+            / "live-matrix-meshtastic.yaml"
         )
         raw = examples_path.read_text(encoding="utf-8")
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw, str(examples_path))
 
         assert (
             "routes" in data
-        ), "live-matrix-meshtastic.toml must have a [routes] section"
+        ), "live-matrix-meshtastic.yaml must have a [routes] section"
         routes = data["routes"]
         assert len(routes) >= 1, "Expected at least one route"
 
@@ -189,24 +188,15 @@ class TestLiveBridgeConfig:
                 "dest_adapters" in route_table
             ), f"Route {route_id!r} missing dest_adapters"
 
-        # Verify targeting fields on specific routes.
-        assert "matrix_to_radio" in routes, "Expected 'matrix_to_radio' route"
-        m2r = routes["matrix_to_radio"]
+        # Verify targeting fields on the canonical bidirectional bridge route.
+        assert "matrix_radio_bridge" in routes, "Expected 'matrix_radio_bridge' route"
+        bridge = routes["matrix_radio_bridge"]
         assert (
-            "source_room" in m2r
-        ), "Route 'matrix_to_radio' missing source_room targeting field"
+            "source_room" in bridge
+        ), "Route 'matrix_radio_bridge' missing source_room targeting field"
         assert (
-            "dest_channel" in m2r
-        ), "Route 'matrix_to_radio' missing dest_channel targeting field"
-
-        assert "radio_to_matrix" in routes, "Expected 'radio_to_matrix' route"
-        r2m = routes["radio_to_matrix"]
-        assert (
-            "source_channel" in r2m
-        ), "Route 'radio_to_matrix' missing source_channel targeting field"
-        assert (
-            "dest_room" in r2m
-        ), "Route 'radio_to_matrix' missing dest_room targeting field"
+            "dest_channel" in bridge
+        ), "Route 'matrix_radio_bridge' missing dest_channel targeting field"
 
         # Verify Matrix adapter has room_allowlist.
         adapters = data.get("adapters", {})

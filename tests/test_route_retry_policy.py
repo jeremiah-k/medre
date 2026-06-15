@@ -183,7 +183,7 @@ class TestBuilderRetryPolicies:
     def test_no_retry_routes_empty_mapping(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "r1",
                     {
                         "source_adapters": ["a"],
@@ -200,7 +200,7 @@ class TestBuilderRetryPolicies:
     def test_enabled_retry_produces_policy(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "r1",
                     {
                         "source_adapters": ["a"],
@@ -219,7 +219,7 @@ class TestBuilderRetryPolicies:
     def test_disabled_retry_not_in_mapping(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "r1",
                     {
                         "source_adapters": ["a"],
@@ -237,7 +237,7 @@ class TestBuilderRetryPolicies:
     def test_mixed_routes(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "with_retry",
                     {
                         "source_adapters": ["a"],
@@ -245,14 +245,14 @@ class TestBuilderRetryPolicies:
                         "retry": {"enabled": True, "max_attempts": 3},
                     },
                 ),
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "no_retry",
                     {
                         "source_adapters": ["c"],
                         "dest_adapters": ["d"],
                     },
                 ),
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "disabled_retry",
                     {
                         "source_adapters": ["e"],
@@ -276,7 +276,7 @@ class TestBuilderRetryPolicies:
     def test_bidirectional_expands_provenance(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "bidir",
                     {
                         "source_adapters": ["a"],
@@ -300,7 +300,7 @@ class TestBuilderRetryPolicies:
     def test_disabled_route_not_in_mapping(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "disabled",
                     {
                         "source_adapters": ["a"],
@@ -319,7 +319,7 @@ class TestBuilderRetryPolicies:
     def test_retry_policy_fields_match_config(self, tmp_paths: MedrePaths) -> None:
         routes = RouteConfigSet(
             routes=(
-                RouteConfig.from_toml_dict(
+                RouteConfig.from_dict(
                     "r1",
                     {
                         "source_adapters": ["a"],
