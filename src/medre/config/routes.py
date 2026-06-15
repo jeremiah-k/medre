@@ -162,7 +162,7 @@ class BridgePolicy:
         if unknown:
             _ctx = f"Route {route_id!r}: " if route_id else ""
             raise ConfigValidationError(
-                f"{_ctx}Unknown policy key(s) {sorted(unknown)} in "
+                f"{_ctx}Unknown policy key(s) {sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
                 f"{policy_path}. Accepted keys: "
                 f"{sorted(cls._KNOWN_FIELDS)}",
                 section_path=policy_path,
@@ -556,7 +556,7 @@ def _parse_channel_room_map_entry(
             raise ConfigValidationError(
                 f"Route {route_id!r}: channel_room_map entry for "
                 f"channel {ch_normalized!r} has unknown key(s) "
-                f"{sorted(unknown)}. Accepted keys: "
+                f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. Accepted keys: "
                 f"{sorted(_CRM_ENTRY_KNOWN_KEYS)}",
                 section_path=entry_path,
             )

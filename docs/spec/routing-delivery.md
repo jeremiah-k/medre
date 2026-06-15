@@ -1375,7 +1375,8 @@ or a structured table with three fields:
 | `source_origin_label` | `string \| nil` | `nil`   | Per-entry forward-leg label. `nil` inherits the route-level label. |
 | `dest_origin_label`   | `string \| nil` | `nil`   | Per-entry reverse-leg label. `nil` inherits the route-level label. |
 
-Unknown keys in a structured entry MUST be rejected. A
+Structured entries accept only three keys: `room`, `source_origin_label`,
+and `dest_origin_label`. Any other keys MUST be rejected. A
 `source_origin_label` or `dest_origin_label` value that is a boolean or
 otherwise not a string MUST be rejected — the boolean check runs before
 the generic string check, matching the route-level label validation in

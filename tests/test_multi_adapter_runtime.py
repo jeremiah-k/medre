@@ -553,7 +553,7 @@ class TestIndividualAdapterStop:
 class TestEdgeCases:
     """Edge cases: duplicate adapter_id, empty runtime, disabled, ordering."""
 
-    def test_duplicate_adapter_id_rejected(self) -> None:
+    def test_invalid_adapter_kind_rejected(self) -> None:
         """Invalid adapter_kind raises ConfigValidationError via from_dict."""
         with pytest.raises(ConfigValidationError):
             MatrixRuntimeConfig.from_dict(
