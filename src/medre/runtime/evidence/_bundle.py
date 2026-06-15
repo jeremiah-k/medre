@@ -64,7 +64,7 @@ async def collect_evidence_bundle(
     Parameters
     ----------
     config_path:
-        Path to TOML config file (``None`` uses standard discovery).
+        Path to YAML config file (``None`` uses standard discovery).
     event_id:
         When provided, include the event and its delivery receipts from
         storage (read-only).

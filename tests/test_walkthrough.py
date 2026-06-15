@@ -31,7 +31,7 @@ from medre.runtime.timeline import (
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml")
+CONFIG_PATH = str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml")
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ functional, deterministic environment.  Every test in this module:
   3. Extras dependency graph is internally consistent (e2e ⊃ matrix).
   4. Console-script entry point resolves to a live callable.
   5. All library subpackages import cleanly (broader than base-import test).
-  6. Config sample generation works and is valid TOML.
+   6. Config sample generation works and is valid YAML.
   7. CLI smoke (version / paths / adapters / config-sample) from clean env.
   8. Environment-variable override machinery is importable and typed.
   9. ``compileall`` — every ``.py`` under ``src/`` compiles.
@@ -386,38 +386,43 @@ class TestCleanEnvironmentImportBoundaries:
 
 
 class TestConfigSampleCleanEnv:
-    """``generate_sample_config()`` must produce valid TOML without extras."""
+    """``generate_sample_config()`` must produce valid YAML without extras."""
 
-    def test_sample_config_is_valid_toml(self) -> None:
+    def test_sample_config_is_valid_yaml(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
-        parsed = tomllib.loads(sample)
+        parsed = parse_yaml_config(sample)
         assert isinstance(parsed, dict), "sample config did not parse to dict"
 
     def test_sample_config_has_runtime_section(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
-        parsed = tomllib.loads(generate_sample_config())
-        assert "runtime" in parsed, "sample config missing [runtime]"
+        parsed = parse_yaml_config(generate_sample_config())
+        assert "runtime" in parsed, "sample config missing 'runtime'"
 
     def test_sample_config_has_adapters_section(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
-        parsed = tomllib.loads(generate_sample_config())
-        assert "adapters" in parsed, "sample config missing [adapters]"
+        parsed = parse_yaml_config(generate_sample_config())
+        assert "adapters" in parsed, "sample config missing 'adapters'"
 
     def test_sample_config_has_storage_section(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
-        parsed = tomllib.loads(generate_sample_config())
-        assert "storage" in parsed, "sample config missing [storage]"
+        parsed = parse_yaml_config(generate_sample_config())
+        assert "storage" in parsed, "sample config missing 'storage'"
 
     def test_sample_config_has_logging_section(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
-        parsed = tomllib.loads(generate_sample_config())
-        assert "logging" in parsed, "sample config missing [logging]"
+        parsed = parse_yaml_config(generate_sample_config())
+        assert "logging" in parsed, "sample config missing 'logging'"
 
     def test_sample_config_mentions_all_transport_types(self) -> None:
         """Sample should document all four transport adapter types."""
@@ -429,30 +434,31 @@ class TestConfigSampleCleanEnv:
                 transport in sample.lower()
             ), f"sample config does not mention transport {transport!r}"
 
-    def test_sample_config_toml_sections_parseable(self) -> None:
+    def test_sample_config_yaml_sections_parseable(self) -> None:
         """Sample config sections must parse into expected types.
 
         The sample uses ``adapter_kind = "fake"`` for all adapters so it
         works without optional SDKs.  The access_token is a non-empty fake
         value, making the sample loadable via ``load_config()`` as well.
         """
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
-        parsed = tomllib.loads(sample)
+        parsed = parse_yaml_config(sample)
 
         # Runtime section must have a name
-        assert parsed["runtime"]["name"], "sample [runtime].name is empty"
+        assert parsed["runtime"]["name"], "sample runtime.name is empty"
 
         # Storage section must have backend
-        assert parsed["storage"]["backend"], "sample [storage].backend is empty"
+        assert parsed["storage"]["backend"], "sample storage.backend is empty"
 
         # Adapters section must exist with at least one transport
         adapters = parsed.get("adapters", {})
-        assert adapters, "sample [adapters] is empty"
+        assert adapters, "sample adapters is empty"
 
         # Logging section must have level
-        assert parsed["logging"]["level"], "sample [logging].level is empty"
+        assert parsed["logging"]["level"], "sample logging.level is empty"
 
 
 # ===================================================================
@@ -508,8 +514,8 @@ class TestCLISmokeCleanEnv:
         with redirect_stdout(buf):
             main(["config", "sample"])
         output = buf.getvalue()
-        assert "[runtime]" in output
-        assert "[adapters" in output
+        assert "runtime:" in output
+        assert "adapters:" in output
 
     def test_adapters_command_succeeds(self) -> None:
         from medre.cli import main
@@ -781,11 +787,13 @@ class TestPythonMSubprocessCleanEnv:
         assert result.returncode == 0
         assert "medre" in result.stdout.lower()
 
-    def test_python_m_medre_config_sample_valid_toml(self) -> None:
-        """``python -m medre config sample`` produces valid TOML."""
+    def test_python_m_medre_config_sample_valid_yaml(self) -> None:
+        """``python -m medre config sample`` produces valid YAML."""
+        from medre.config._yaml import parse_yaml_config
+
         result = self._run("medre", "config", "sample")
         assert result.returncode == 0
-        parsed = tomllib.loads(result.stdout)
+        parsed = parse_yaml_config(result.stdout)
         assert "runtime" in parsed
         assert "adapters" in parsed
 

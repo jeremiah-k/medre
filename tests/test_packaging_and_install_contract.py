@@ -629,7 +629,7 @@ class TestCLIHelpWithoutSDKs:
         # Write it to a temp file and check it.
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as tf:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tf:
             tf.write(sample)
             config_path = tf.name
 
@@ -836,9 +836,9 @@ class TestMissingSDKErrorMessages:
         before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
 
         # Use the fake bridge smoke config shipped in examples.
-        smoke_config = _REPO_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"
+        smoke_config = _REPO_ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml"
         if not smoke_config.is_file():
-            pytest.skip("fake-bridge-smoke.toml not found")
+            pytest.skip("fake-bridge-smoke.yaml not found")
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -1111,19 +1111,21 @@ class TestPythonMInvocation:
         ), f"Expected 'medre' in version output: {result.stdout!r}"
 
     def test_python_m_medre_config_sample(self) -> None:
-        """``python -m medre config sample`` produces valid TOML."""
+        """``python -m medre config sample`` produces valid YAML."""
+        from medre.config._yaml import parse_yaml_config
+
         result = self._run_module("medre", "config", "sample")
         assert result.returncode == 0, (
             f"python -m medre config sample exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        parsed = tomllib.loads(result.stdout)
+        parsed = parse_yaml_config(result.stdout)
         assert (
             "runtime" in parsed
-        ), f"Sample output missing [runtime]: {list(parsed.keys())}"
+        ), f"Sample output missing 'runtime': {list(parsed.keys())}"
         assert (
             "adapters" in parsed
-        ), f"Sample output missing [adapters]: {list(parsed.keys())}"
+        ), f"Sample output missing 'adapters': {list(parsed.keys())}"
 
     def test_python_m_medre_paths(self) -> None:
         """``python -m medre paths`` prints path information."""

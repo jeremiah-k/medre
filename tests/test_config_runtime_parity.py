@@ -32,7 +32,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = _ROOT / "examples" / "configs"
 
 
-def _write_toml(tmp_path: Path, content: str, name: str = "test.toml") -> Path:
+def _write_yaml(tmp_path: Path, content: str, name: str = "test.yaml") -> Path:
     p = tmp_path / name
     p.write_text(content, encoding="utf-8")
     return p
@@ -60,7 +60,7 @@ def _load_docker_config(
     """Read a Docker example config, resolve placeholders, write to tmp, load."""
     raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
     resolved = _resolve_docker_placeholders(raw)
-    config_path = _write_toml(tmp_path, resolved, config_name)
+    config_path = _write_yaml(tmp_path, resolved, config_name)
     return load_config(str(config_path))
 
 
@@ -70,7 +70,7 @@ def _load_docker_config(
 
 
 class TestFakeConfigRuntimePath:
-    """``fake-bridge-smoke.toml`` loads and builds end-to-end."""
+    """``fake-bridge-smoke.yaml`` loads and builds end-to-end."""
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -78,7 +78,7 @@ class TestFakeConfigRuntimePath:
 
     def test_load_and_build(self) -> None:
         config, _source, paths = load_config(
-            str(CONFIGS_DIR / "fake-bridge-smoke.toml")
+            str(CONFIGS_DIR / "fake-bridge-smoke.yaml")
         )
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -120,13 +120,13 @@ class TestDockerMatrixConfigDegradesPredictably:
 
     def test_parse_succeeds(self, tmp_path: Path) -> None:
         config, _source, _paths = _load_docker_config(
-            "docker-matrix-bridge.toml", tmp_path
+            "docker-matrix-bridge.yaml", tmp_path
         )
         assert config.runtime.name == "docker-matrix-bridge"
 
     def test_build_degrades_cleanly(self, tmp_path: Path) -> None:
         config, _source, paths = _load_docker_config(
-            "docker-matrix-bridge.toml", tmp_path
+            "docker-matrix-bridge.yaml", tmp_path
         )
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -157,13 +157,13 @@ class TestDockerMeshtasticConfigDegradesPredictably:
 
     def test_parse_succeeds(self, tmp_path: Path) -> None:
         config, _source, _paths = _load_docker_config(
-            "docker-meshtastic-bridge.toml", tmp_path
+            "docker-meshtastic-bridge.yaml", tmp_path
         )
         assert config.runtime.name == "docker-meshtastic-bridge"
 
     def test_build_degrades_cleanly(self, tmp_path: Path) -> None:
         config, _source, paths = _load_docker_config(
-            "docker-meshtastic-bridge.toml", tmp_path
+            "docker-meshtastic-bridge.yaml", tmp_path
         )
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -191,32 +191,29 @@ class TestDisabledAdaptersNoValidationErrors:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
     def test_disabled_adapter_silently_skipped(self, tmp_path: Path) -> None:
-        toml = textwrap.dedent("""\
-        [runtime]
-        name = "disabled-test"
-
-        [storage]
-        backend = "memory"
-
-        [logging]
-        level = "INFO"
-
-        # Enabled adapter — should build
-        [adapters.matrix.enabled_one]
-        enabled = true
-        adapter_kind = "fake"
-        homeserver = "https://fake.local"
-        user_id = "@bot:fake.local"
-        access_token = "tok"
-        encryption_mode = "plaintext"
-
-        # Disabled adapter — references settings that would fail if enabled
-        [adapters.meshtastic.ghost]
-        enabled = false
-        adapter_kind = "fake"
-        connection_type = "fake"
+        yaml = textwrap.dedent("""\
+        runtime:
+          name: disabled-test
+        storage:
+          backend: memory
+        logging:
+          level: INFO
+        adapters:
+          matrix:
+            enabled_one:
+              enabled: true
+              adapter_kind: fake
+              homeserver: https://fake.local
+              user_id: "@bot:fake.local"
+              access_token: tok
+              encryption_mode: plaintext
+          meshtastic:
+            ghost:
+              enabled: false
+              adapter_kind: fake
+              connection_type: fake
         """)
-        config_path = _write_toml(tmp_path, toml)
+        config_path = _write_yaml(tmp_path, yaml)
         config, _source, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -250,20 +247,22 @@ class TestUnknownAdapterIsHardError:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
     def test_unknown_transport_raises_clean_error(self, tmp_path: Path) -> None:
-        toml = textwrap.dedent("""\
-        [runtime]
-        name = "bad-transport-test"
-        [storage]
-        backend = "memory"
-        [adapters.matrix.ok]
-        enabled = true
-        adapter_kind = "fake"
-        homeserver = "https://fake.local"
-        user_id = "@bot:fake.local"
-        access_token = "tok"
-        encryption_mode = "plaintext"
+        yaml = textwrap.dedent("""\
+        runtime:
+          name: bad-transport-test
+        storage:
+          backend: memory
+        adapters:
+          matrix:
+            ok:
+              enabled: true
+              adapter_kind: fake
+              homeserver: https://fake.local
+              user_id: "@bot:fake.local"
+              access_token: tok
+              encryption_mode: plaintext
         """)
-        config_path = _write_toml(tmp_path, toml)
+        config_path = _write_yaml(tmp_path, yaml)
         config, _source, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
 
@@ -278,20 +277,22 @@ class TestUnknownAdapterIsHardError:
         assert "nonexistent_transport" in str(exc_info.value)
 
     def test_unknown_transport_error_is_not_traceback(self, tmp_path: Path) -> None:
-        toml = textwrap.dedent("""\
-        [runtime]
-        name = "error-cleanliness-test"
-        [storage]
-        backend = "memory"
-        [adapters.matrix.ok]
-        enabled = true
-        adapter_kind = "fake"
-        homeserver = "https://fake.local"
-        user_id = "@bot:fake.local"
-        access_token = "tok"
-        encryption_mode = "plaintext"
+        yaml = textwrap.dedent("""\
+        runtime:
+          name: error-cleanliness-test
+        storage:
+          backend: memory
+        adapters:
+          matrix:
+            ok:
+              enabled: true
+              adapter_kind: fake
+              homeserver: https://fake.local
+              user_id: "@bot:fake.local"
+              access_token: tok
+              encryption_mode: plaintext
         """)
-        config_path = _write_toml(tmp_path, toml)
+        config_path = _write_yaml(tmp_path, yaml)
         config, _source, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
 
@@ -319,16 +320,16 @@ class TestMinimalConfigBuilds:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
     def test_minimal_config_no_adapters_no_routes(self, tmp_path: Path) -> None:
-        toml = textwrap.dedent("""\
-        [runtime]
-        name = "minimal-test"
-        shutdown_timeout_seconds = 5
-        [storage]
-        backend = "memory"
-        [logging]
-        level = "INFO"
+        yaml = textwrap.dedent("""\
+        runtime:
+          name: minimal-test
+          shutdown_timeout_seconds: 5
+        storage:
+          backend: memory
+        logging:
+          level: INFO
         """)
-        config_path = _write_toml(tmp_path, toml)
+        config_path = _write_yaml(tmp_path, yaml)
         config, _source, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -343,15 +344,15 @@ class TestMinimalConfigBuilds:
         assert app.shutdown_event is not None
 
     def test_minimal_config_no_routes_registered(self, tmp_path: Path) -> None:
-        toml = textwrap.dedent("""\
-        [runtime]
-        name = "no-routes-test"
-        [storage]
-        backend = "memory"
-        [logging]
-        level = "INFO"
+        yaml = textwrap.dedent("""\
+        runtime:
+          name: no-routes-test
+        storage:
+          backend: memory
+        logging:
+          level: INFO
         """)
-        config_path = _write_toml(tmp_path, toml)
+        config_path = _write_yaml(tmp_path, yaml)
         config, _source, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -369,12 +370,12 @@ class TestExampleConfigsUseSameLoader:
     ``load_config`` → ``RuntimeBuilder.build()`` path."""
 
     DIRECT_CONFIGS = [
-        "fake-bridge-smoke.toml",
-        "fake-multi-adapter.toml",
+        "fake-bridge-smoke.yaml",
+        "fake-multi-adapter.yaml",
     ]
     RESOLVED_CONFIGS = [
-        "docker-matrix-bridge.toml",
-        "docker-meshtastic-bridge.toml",
+        "docker-matrix-bridge.yaml",
+        "docker-meshtastic-bridge.yaml",
     ]
     ALL_CONFIGS = DIRECT_CONFIGS + RESOLVED_CONFIGS
 
@@ -386,7 +387,7 @@ class TestExampleConfigsUseSameLoader:
         """Load a config, resolving Docker placeholders if needed."""
         raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
         if "${" in raw:
-            config_path = _write_toml(
+            config_path = _write_yaml(
                 tmp_path,
                 _resolve_docker_placeholders(raw),
                 config_name,

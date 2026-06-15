@@ -30,40 +30,44 @@ _EVIDENCE_TIMEOUT = 15
 
 
 def _meshtastic_fake_config_path(tmp_path: Path) -> str:
-    """Write a minimal config with fake Meshtastic adapters and return its path."""
+    """Write a minimal YAML config with fake Meshtastic adapters and return its path."""
     config_content = f"""\
-[runtime]
-name = "meshtastic-evidence-test"
-shutdown_timeout_seconds = 5
+runtime:
+  name: meshtastic-evidence-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{(tmp_path / "test.db").as_posix()}"
+storage:
+  backend: sqlite
+  path: "{(tmp_path / "test.db").as_posix()}"
 
-[adapters.meshtastic.test_mesh_a]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "TestMeshA"
+adapters:
+  meshtastic:
+    test_mesh_a:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: TestMeshA
+    test_mesh_b:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: TestMeshB
 
-[adapters.meshtastic.test_mesh_b]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "TestMeshB"
-
-[routes.mesh_bridge]
-source_adapters = ["test_mesh_a"]
-dest_adapters = ["test_mesh_b"]
-directionality = "source_to_dest"
-enabled = true
-dest_channel = "1"
+routes:
+  mesh_bridge:
+    source_adapters:
+      - test_mesh_a
+    dest_adapters:
+      - test_mesh_b
+    directionality: source_to_dest
+    enabled: true
+    dest_channel: "1"
 """
-    config_file = tmp_path / "config.toml"
+    config_file = tmp_path / "config.yaml"
     config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 

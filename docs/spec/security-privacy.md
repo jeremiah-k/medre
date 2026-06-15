@@ -14,7 +14,7 @@ See also: [identity-addressing.md](identity-addressing.md),
 
 Credentials are adapter-internal configuration, never event data. They live in:
 
-- **TOML config files** (e.g., `access_token` in the Matrix adapter section).
+- **YAML config files** (e.g., `access_token` in the Matrix adapter section).
 - **Environment variables** via `MEDRE_ADAPTER__<TOKEN>__<FIELD>` overrides.
 - **Credential sidecar files** (Matrix credential sidecar managed by
   `medre.config.adapters.matrix_credentials`).

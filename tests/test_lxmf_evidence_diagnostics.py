@@ -30,43 +30,49 @@ _EVIDENCE_TIMEOUT = 15
 
 
 def _lxmf_fake_config_path(tmp_path: Path) -> str:
-    """Write a minimal config with a fake LXMF adapter and return its path."""
+    """Write a minimal YAML config with a fake LXMF adapter and return its path."""
     config_content = f"""\
-[runtime]
-name = "lxmf-evidence-test"
-shutdown_timeout_seconds = 5
+runtime:
+  name: lxmf-evidence-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{(tmp_path / "test.db").as_posix()}"
+storage:
+  backend: sqlite
+  path: "{(tmp_path / "test.db").as_posix()}"
 
-[adapters.lxmf.test_lxmf]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-display_name = "MEDRE Evidence Test"
+adapters:
+  lxmf:
+    test_lxmf:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      display_name: MEDRE Evidence Test
+  matrix:
+    test_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.example.com
+      user_id: "@bot:example.com"
+      access_token: fake_test_token
+      room_allowlist:
+        - "!room:example.com"
 
-[adapters.matrix.test_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = "fake_test_token"
-room_allowlist = ["!room:example.com"]
-
-[routes.bridge]
-source_adapters = ["test_matrix"]
-dest_adapters = ["test_lxmf"]
-directionality = "source_to_dest"
-enabled = true
-source_room = "!room:example.com"
-dest_channel = "0"
+routes:
+  bridge:
+    source_adapters:
+      - test_matrix
+    dest_adapters:
+      - test_lxmf
+    directionality: source_to_dest
+    enabled: true
+    source_room: "!room:example.com"
+    dest_channel: "0"
 """
-    config_file = tmp_path / "config.toml"
+    config_file = tmp_path / "config.yaml"
     config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 

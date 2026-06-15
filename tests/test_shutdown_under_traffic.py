@@ -376,24 +376,24 @@ class TestSnapshotValidAfterShutdownUnderTraffic:
         self, temp_db: SQLiteStorage
     ) -> None:
         """Inject 8 events, stop, snapshot: valid JSON, sane accounting."""
-        fd, cfg_path = tempfile.mkstemp(suffix=".toml")
+        fd, cfg_path = tempfile.mkstemp(suffix=".yaml")
         os.close(fd)
         try:
             cfg_path_obj = __import__("pathlib").Path(cfg_path)
             cfg_path_obj.write_text(
-                '[runtime]\nname = "shutdown-traffic"\n\n'
-                '[storage]\nbackend = "memory"\n\n'
-                '[adapters.matrix.src]\nenabled = true\nadapter_kind = "fake"\n'
-                'homeserver = "https://fake.local"\n'
-                'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
-                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n\n'
-                '[adapters.matrix.dst]\nenabled = true\nadapter_kind = "fake"\n'
-                'homeserver = "https://fake.local"\n'
-                'user_id = "@bot2:fake.local"\naccess_token = "tok"\n'
-                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n\n'
-                '[routes."r-1"]\n'
-                'source_adapters = ["src"]\n'
-                'dest_adapters = ["dst"]\n'
+                "runtime:\n  name: shutdown-traffic\n\n"
+                "storage:\n  backend: memory\n\n"
+                "adapters:\n  matrix:\n    src:\n      enabled: true\n      adapter_kind: fake\n"
+                "      homeserver: https://fake.local\n"
+                '      user_id: "@bot:fake.local"\n      access_token: tok\n'
+                '      room_allowlist:\n        - "!room:fake.local"\n      encryption_mode: plaintext\n\n'
+                "    dst:\n      enabled: true\n      adapter_kind: fake\n"
+                "      homeserver: https://fake.local\n"
+                '      user_id: "@bot2:fake.local"\n      access_token: tok\n'
+                '      room_allowlist:\n        - "!room:fake.local"\n      encryption_mode: plaintext\n\n'
+                'routes:\n  "r-1":\n'
+                "    source_adapters:\n      - src\n"
+                "    dest_adapters:\n      - dst\n"
             )
 
             from medre.config.loader import load_config
@@ -505,17 +505,17 @@ class TestDoubleStopHarmless:
     @pytest.mark.asyncio
     async def test_double_stop_app(self) -> None:
         """Start and stop a MedreApp, then stop again (idempotent)."""
-        fd, cfg_path = tempfile.mkstemp(suffix=".toml")
+        fd, cfg_path = tempfile.mkstemp(suffix=".yaml")
         os.close(fd)
         try:
             cfg_path_obj = __import__("pathlib").Path(cfg_path)
             cfg_path_obj.write_text(
-                '[runtime]\nname = "double-stop"\n\n'
-                '[storage]\nbackend = "memory"\n\n'
-                '[adapters.matrix.solo]\nenabled = true\nadapter_kind = "fake"\n'
-                'homeserver = "https://fake.local"\n'
-                'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
-                'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n'
+                "runtime:\n  name: double-stop\n\n"
+                "storage:\n  backend: memory\n\n"
+                "adapters:\n  matrix:\n    solo:\n      enabled: true\n      adapter_kind: fake\n"
+                "      homeserver: https://fake.local\n"
+                '      user_id: "@bot:fake.local"\n      access_token: tok\n'
+                '      room_allowlist:\n        - "!room:fake.local"\n      encryption_mode: plaintext\n'
             )
 
             from medre.config.loader import load_config

@@ -72,7 +72,7 @@ class TestBridgePolicy:
 
 
 class TestRouteConfigValid:
-    """RouteConfig construction from valid TOML data."""
+    """RouteConfig construction from valid config data."""
 
     def test_minimal_route(self) -> None:
         data = {
@@ -673,35 +673,39 @@ class TestRouteConfigSet:
 
 
 # ---------------------------------------------------------------------------
-# Integration: routes through TOML loader
+# Integration: routes through YAML loader
 # ---------------------------------------------------------------------------
 
 
-ROUTES_TOML = """\
-[runtime]
-name = "test_routes"
+ROUTES_YAML = """\
+runtime:
+  name: test_routes
 
-[routes.matrix_to_radio]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = true
-source_room = "!room:example.com"
-dest_channel = "1"
-
-[routes.radio_to_lxmf]
-source_adapters = ["radio"]
-dest_adapters = ["lxmf_local"]
-directionality = "dest_to_source"
-enabled = false
-
-[routes.matrix_to_radio.policy]
-allowed_event_types = ["message"]
+routes:
+  matrix_to_radio:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: source_to_dest
+    enabled: true
+    source_room: "!room:example.com"
+    dest_channel: "1"
+    policy:
+      allowed_event_types:
+        - message
+  radio_to_lxmf:
+    source_adapters:
+      - radio
+    dest_adapters:
+      - lxmf_local
+    directionality: dest_to_source
+    enabled: false
 """
 
-ROUTES_NO_ROUTES_TOML = """\
-[runtime]
-name = "no_routes"
+ROUTES_NO_ROUTES_YAML = """\
+runtime:
+  name: no_routes
 """
 
 
@@ -709,21 +713,21 @@ class TestRouteLoaderIntegration:
     """Routes are parsed correctly through load_config."""
 
     def test_routes_parsed(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_YAML)
         config, _, _ = load_config(str(p))
         assert len(config.routes.routes) == 2
 
     def test_route_ordering_preserved(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_YAML)
         config, _, _ = load_config(str(p))
         ids = [r.route_id for r in config.routes.routes]
         assert ids == ["matrix_to_radio", "radio_to_lxmf"]
 
     def test_first_route_fields(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_YAML)
         config, _, _ = load_config(str(p))
         r = config.routes.routes[0]
         assert r.route_id == "matrix_to_radio"
@@ -738,8 +742,8 @@ class TestRouteLoaderIntegration:
         assert r.policy.allowed_event_types == ("message",)
 
     def test_second_route_fields(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_YAML)
         config, _, _ = load_config(str(p))
         r = config.routes.routes[1]
         assert r.route_id == "radio_to_lxmf"
@@ -749,15 +753,15 @@ class TestRouteLoaderIntegration:
         assert r.policy is None
 
     def test_no_routes_section(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_NO_ROUTES_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_NO_ROUTES_YAML)
         config, _, _ = load_config(str(p))
         assert config.routes.routes == ()
 
     def test_existing_config_no_routes_unchanged(self, tmp_path: Path) -> None:
         """Existing configs without routes still load correctly."""
-        minimal = "[runtime]\nname = 'legacy'\n"
-        p = tmp_path / "config.toml"
+        minimal = "runtime:\n  name: legacy\n"
+        p = tmp_path / "config.yaml"
         p.write_text(minimal)
         config, _, _ = load_config(str(p))
         assert config.routes.routes == ()
@@ -1069,42 +1073,47 @@ class TestRouteConfigRetry:
 
 
 # ---------------------------------------------------------------------------
-# Route retry TOML loader integration
+# Route retry YAML loader integration
 # ---------------------------------------------------------------------------
 
 
-ROUTES_WITH_RETRY_TOML = """\
-[runtime]
-name = "test_retry_routes"
+ROUTES_WITH_RETRY_YAML = """\
+runtime:
+  name: test_retry_routes
 
-[routes.matrix_to_mesh]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-
-[routes.matrix_to_mesh.retry]
-enabled = true
-max_attempts = 3
-backoff_base = 2.0
-max_delay_seconds = 60.0
-jitter = false
-
-[routes.no_retry_route]
-source_adapters = ["main"]
-dest_adapters = ["lxmf"]
+routes:
+  matrix_to_mesh:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: source_to_dest
+    retry:
+      enabled: true
+      max_attempts: 3
+      backoff_base: 2.0
+      max_delay_seconds: 60.0
+      jitter: false
+  no_retry_route:
+    source_adapters:
+      - main
+    dest_adapters:
+      - lxmf
 """
 
-ROUTES_WITH_DISABLED_RETRY_TOML = """\
-[runtime]
-name = "disabled_retry"
+ROUTES_WITH_DISABLED_RETRY_YAML = """\
+runtime:
+  name: disabled_retry
 
-[routes.disabled_retry]
-source_adapters = ["a"]
-dest_adapters = ["b"]
-
-[routes.disabled_retry.retry]
-enabled = false
-max_attempts = 5
+routes:
+  disabled_retry:
+    source_adapters:
+      - a
+    dest_adapters:
+      - b
+    retry:
+      enabled: false
+      max_attempts: 5
 """
 
 
@@ -1112,8 +1121,8 @@ class TestRouteRetryLoaderIntegration:
     """Route retry config is parsed correctly through load_config."""
 
     def test_retry_parsed_via_loader(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_WITH_RETRY_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_WITH_RETRY_YAML)
         config, _, _ = load_config(str(p))
         assert len(config.routes.routes) == 2
 
@@ -1127,16 +1136,16 @@ class TestRouteRetryLoaderIntegration:
         assert retry_route.retry.jitter is False
 
     def test_no_retry_route_still_none(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_WITH_RETRY_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_WITH_RETRY_YAML)
         config, _, _ = load_config(str(p))
         no_retry = config.routes.routes[1]
         assert no_retry.route_id == "no_retry_route"
         assert no_retry.retry is None
 
     def test_disabled_retry_parsed(self, tmp_path: Path) -> None:
-        p = tmp_path / "config.toml"
-        p.write_text(ROUTES_WITH_DISABLED_RETRY_TOML)
+        p = tmp_path / "config.yaml"
+        p.write_text(ROUTES_WITH_DISABLED_RETRY_YAML)
         config, _, _ = load_config(str(p))
         route = config.routes.routes[0]
         assert route.retry is not None

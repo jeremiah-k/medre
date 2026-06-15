@@ -27,36 +27,38 @@ from medre.runtime.builder import RuntimeBuilder
 # ---------------------------------------------------------------------------
 
 _MESHTASTIC_SESSION_CONFIG = """\
-[runtime]
-name = "meshtastic-run-session"
-shutdown_timeout_seconds = 5
+runtime:
+  name: meshtastic-run-session
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{db_path}"
+storage:
+  backend: sqlite
+  path: '{db_path}'
 
-[adapters.meshtastic.mesh_source]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "TestMesh"
+adapters:
+  meshtastic:
+    mesh_source:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: TestMesh
+    mesh_dest:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: TestMesh
 
-[adapters.meshtastic.mesh_dest]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "TestMesh"
-
-[routes.mesh_to_mesh]
-source_adapters = ["mesh_source"]
-dest_adapters = ["mesh_dest"]
-directionality = "source_to_dest"
-enabled = true
-dest_channel = "0"
+routes:
+  mesh_to_mesh:
+    source_adapters: [mesh_source]
+    dest_adapters: [mesh_dest]
+    directionality: source_to_dest
+    enabled: true
+    dest_channel: '0'
 """
 
 
@@ -66,8 +68,8 @@ dest_channel = "0"
 
 
 def _write_config(tmp_path: Path, db_path: str) -> Path:
-    """Write the Meshtastic-only config TOML and return its path."""
-    config_path = tmp_path / "meshtastic_session.toml"
+    """Write the Meshtastic-only YAML config and return its path."""
+    config_path = tmp_path / "meshtastic_session.yaml"
     config_path.write_text(_MESHTASTIC_SESSION_CONFIG.format(db_path=db_path))
     return config_path
 

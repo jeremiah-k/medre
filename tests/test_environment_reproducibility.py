@@ -589,12 +589,12 @@ class TestCLIConfigCheckWorkflow:
         from medre.cli import main
 
         # Write a minimal valid config
-        config_file = tmp_path / "test.toml"
+        config_file = tmp_path / "test.yaml"
         config_file.write_text(
-            '[runtime]\nname = "test"\n'
-            '[logging]\nlevel = "INFO"\n'
-            '[storage]\nbackend = "memory"\n'
-            "[adapters]\n"
+            'runtime:\n  name: test\n'
+            'logging:\n  level: INFO\n'
+            'storage:\n  backend: memory\n'
+            "adapters: {}\n"
         )
 
         buf = io.StringIO()

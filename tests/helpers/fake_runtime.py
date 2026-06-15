@@ -63,7 +63,7 @@ async def wait_until(
 
 
 def make_multi_adapter_config() -> RuntimeConfig:
-    """Build RuntimeConfig matching examples/configs/fake-multi-adapter.toml.
+    """Build RuntimeConfig matching examples/configs/fake-multi-adapter.yaml.
 
     All four adapter types enabled with ``adapter_kind="fake"``.
     """

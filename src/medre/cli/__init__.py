@@ -29,7 +29,7 @@ Specialized (available, not primary daily path)::
 
 Utility::
 
-    medre config sample                 Print a sample TOML config
+    medre config sample                 Print a sample YAML config
     medre paths                         Print resolved MEDRE paths
     medre version                       Print MEDRE version
     medre adapters                      List available and configured adapters

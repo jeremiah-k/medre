@@ -3,7 +3,7 @@
 End-to-end tests that exercise delivery reliability semantics — successful
 delivery, duplicate suppression, native-ref dedup persistence, and
 route-stats tracking — using the full RuntimeBuilder + MedreApp stack driven entirely
-from environment variables with a minimal TOML skeleton.
+from environment variables with a minimal YAML skeleton.
 
 No Docker, no live transports, no SDK dependencies required.
 """
@@ -50,21 +50,21 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Minimal TOML config — no adapters, no routes
+# Minimal YAML config — no adapters, no routes
 # ---------------------------------------------------------------------------
 
-_ENV_ONLY_TOML_TEMPLATE = """\
-[runtime]
-name = "env-only-reliability-test"
-shutdown_timeout_seconds = 5
+_ENV_ONLY_YAML_TEMPLATE = """\
+runtime:
+  name: env-only-reliability-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{db_path}"
+storage:
+  backend: sqlite
+  path: '{db_path}'
 """
 
 
@@ -74,9 +74,9 @@ path = "{db_path}"
 
 
 def _write_config(tmp_path: Path, db_path: str) -> Path:
-    """Write the minimal TOML config and return its path."""
-    config_path = tmp_path / "reliability.toml"
-    config_path.write_text(_ENV_ONLY_TOML_TEMPLATE.format(db_path=db_path))
+    """Write the minimal YAML config and return its path."""
+    config_path = tmp_path / "reliability.yaml"
+    config_path.write_text(_ENV_ONLY_YAML_TEMPLATE.format(db_path=db_path))
     return config_path
 
 
@@ -103,7 +103,7 @@ def _load_and_build(
     db_path: str,
     env_setup: Any = None,
 ) -> Any:
-    """Write config, load TOML, apply env overrides, build and return app."""
+    """Write config, load YAML, apply env overrides, build and return app."""
     if env_setup is not None:
         env_setup(monkeypatch)
     else:

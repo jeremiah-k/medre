@@ -4,7 +4,7 @@ Covers:
 
 1. ``medre config sample`` — round-trip (generate, parse, validate)
 2. ``medre config check`` — full output structure and adapter inventory
-3. ``medre config sample`` expanded validation (all sections, TOML parseable)
+3. ``medre config sample`` expanded validation (all sections, YAML parseable)
 4. Cross-cutting no-traceback guarantee for config-related error paths
 """
 
@@ -22,11 +22,11 @@ from tests.helpers.cli import (
 )
 
 CONFIG_MINIMAL_MEMORY = """\
-[runtime]
-name = "minimal-workflow"
+runtime:
+  name: minimal-workflow
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 """
 
 
@@ -51,8 +51,8 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestConfigSampleWorkflow:
     """Operators generate a sample config, save it, and validate it."""
 
-    def test_sample_is_valid_toml(self) -> None:
-        """Sample config output is parseable TOML."""
+    def test_sample_is_valid_yaml(self) -> None:
+        """Sample config output is parseable YAML."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         assert isinstance(parsed, dict)
@@ -65,12 +65,12 @@ class TestConfigSampleWorkflow:
             stripped = line.strip()
             if not stripped.startswith("#") and stripped:
                 active_lines.append(line)
-        active_toml = "\n".join(active_lines)
-        if not active_toml.strip():
+        active_yaml = "\n".join(active_lines)
+        if not active_yaml.strip():
             pytest.skip("sample config is entirely commented out")
 
         cfg_path = tmp_path / "from_sample.yaml"
-        cfg_path.write_text(active_toml)
+        cfg_path.write_text(active_yaml)
         output, stderr, code = _run_cli_raw(
             "config", "check", "--config", str(cfg_path)
         )
@@ -195,20 +195,20 @@ class TestConfigCheckWorkflow:
 class TestConfigSampleExpanded:
     """Expanded validation of 'medre config sample' output."""
 
-    def test_sample_toml_sections_parse(self) -> None:
-        """Every uncommented section in the sample parses as valid TOML."""
+    def test_sample_yaml_sections_parse(self) -> None:
+        """Every uncommented section in the sample parses as valid YAML."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         assert "runtime" in parsed
 
     def test_sample_runtime_has_name(self) -> None:
-        """Sample [runtime] has a name field."""
+        """Sample ``runtime`` section has a name field."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         assert "name" in parsed.get("runtime", {})
 
     def test_sample_storage_has_backend(self) -> None:
-        """Sample [storage] has a backend field."""
+        """Sample ``storage`` section has a backend field."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         storage = parsed.get("storage", {})
@@ -251,7 +251,7 @@ class TestConfigSampleExpanded:
             ), f"sample route {route_id} missing dest_adapters"
 
     def test_sample_limits_have_defaults(self) -> None:
-        """Sample [runtime.limits] has all four limit fields."""
+        """Sample ``runtime.limits`` has all four limit fields."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         runtime = parsed.get("runtime", {})
@@ -275,7 +275,7 @@ class TestConfigSampleExpanded:
             ), f"sample contains deprecated term: {term}"
 
     def test_sample_logging_section(self) -> None:
-        """Sample includes [logging] with level and format."""
+        """Sample includes ``logging`` section with level and format."""
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
         logging_cfg = parsed.get("logging", {})
