@@ -756,7 +756,7 @@ class RouteConfig:
                 entry_dest_label: str | None = None
                 if isinstance(raw_value, str):
                     # Legacy bare-string shape: room ID only, no labels.
-                    room_value_raw: str = raw_value
+                    room_value_raw = raw_value
                 elif isinstance(raw_value, dict):
                     # New structured shape: table with room + optional labels.
                     unknown = set(raw_value.keys()) - _CRM_ENTRY_KNOWN_KEYS

@@ -442,3 +442,17 @@ def test_structured_entry_non_canonical_room_rejected() -> None:
                 },
             },
         )
+
+
+def test_structured_entry_non_string_room_rejected() -> None:
+    """A non-string 'room' value in a structured entry is rejected."""
+    with pytest.raises(ConfigValidationError, match="room"):
+        RouteConfig.from_toml_dict(
+            "t",
+            {
+                **_BASE_DATA,
+                "channel_room_map": {
+                    "0": {"room": 12345},
+                },
+            },
+        )
