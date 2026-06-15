@@ -9,6 +9,7 @@ import pytest
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.routes import (
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -318,10 +319,13 @@ class TestChannelRoomMapExpansion:
         self,
         route_id: str = "bridge",
         directionality: RouteDirectionality = RouteDirectionality.BIDIRECTIONAL,
-        channel_room_map: dict[str, str] | None = None,
+        channel_room_map: dict[str, ChannelRoomMapEntry] | None = None,
     ) -> RouteConfig:
         if channel_room_map is None:
-            channel_room_map = {"0": "!room0:example.com", "1": "!room1:example.com"}
+            channel_room_map = {
+                "0": ChannelRoomMapEntry(room="!room0:example.com"),
+                "1": ChannelRoomMapEntry(room="!room1:example.com"),
+            }
         return RouteConfig(
             route_id=route_id,
             source_adapters=("matrix_adapter",),
@@ -406,7 +410,7 @@ class TestChannelRoomMapExpansion:
         """Meshtastic channel '2' (not in map) produces no matched route."""
         from medre.runtime.route_engine import build_runtime_routes
 
-        rc = self._crm_config(channel_room_map={"0": "!room0:example.com"})
+        rc = self._crm_config(channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")})
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
         # Only channel 0 should have routes
@@ -420,7 +424,7 @@ class TestChannelRoomMapExpansion:
 
         rc = self._crm_config(
             directionality=RouteDirectionality.SOURCE_TO_DEST,
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
@@ -434,7 +438,7 @@ class TestChannelRoomMapExpansion:
 
         rc = self._crm_config(
             directionality=RouteDirectionality.DEST_TO_SOURCE,
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
@@ -465,7 +469,10 @@ class TestChannelRoomMapExpansion:
         from medre.runtime.route_engine import build_runtime_routes
 
         rc = self._crm_config(
-            channel_room_map={"0": "!r0:e.com", "1": "!r1:e.com"},
+            channel_room_map={
+                "0": ChannelRoomMapEntry(room="!r0:e.com"),
+                "1": ChannelRoomMapEntry(room="!r1:e.com"),
+            },
         )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
@@ -502,7 +509,7 @@ class TestChannelRoomMapExpansion:
             source_adapters=("mesh_adapter",),
             dest_adapters=("matrix_adapter",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
@@ -566,7 +573,7 @@ class TestChannelRoomMapExpansion:
             route_id="empty_src",
             source_adapters=(),
             dest_adapters=("mesh_adapter",),
-            channel_room_map={"0": "!room:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
@@ -583,7 +590,7 @@ class TestChannelRoomMapExpansion:
             route_id="multi_src",
             source_adapters=("a", "b"),
             dest_adapters=("mesh_adapter",),
-            channel_room_map={"0": "!room:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
@@ -602,7 +609,7 @@ class TestChannelRoomMapExpansion:
             route_id="empty_dst",
             source_adapters=("matrix_adapter",),
             dest_adapters=(),
-            channel_room_map={"0": "!room:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
@@ -619,7 +626,7 @@ class TestChannelRoomMapExpansion:
             route_id="multi_dst",
             source_adapters=("matrix_adapter",),
             dest_adapters=("a", "b"),
-            channel_room_map={"0": "!room:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
@@ -636,7 +643,10 @@ class TestChannelRoomMapExpansion:
             source_adapters=("matrix_adapter",),
             dest_adapters=("mesh_adapter",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
-            channel_room_map={"0": "!room0:example.com", "1": "!room1:example.com"},
+            channel_room_map={
+                "0": ChannelRoomMapEntry(room="!room0:example.com"),
+                "1": ChannelRoomMapEntry(room="!room1:example.com"),
+            },
         )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
@@ -657,7 +667,7 @@ class TestChannelRoomMapExpansion:
             route_id="dest_missing",
             source_adapters=("matrix_adapter",),
             dest_adapters=("unknown_adapter",),
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(
@@ -677,7 +687,7 @@ class TestChannelRoomMapExpansion:
             source_adapters=("mesh_adapter",),
             dest_adapters=("matrix_adapter",),
             directionality=RouteDirectionality.BIDIRECTIONAL,
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
         )
         rcs = RouteConfigSet(routes=(rc,))
         platforms = {"mesh_adapter": "meshtastic", "matrix_adapter": "matrix"}
@@ -714,7 +724,7 @@ class TestChannelRoomMapExpansion:
             source_adapters=("matrix_adapter",),
             dest_adapters=("mesh_adapter",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
-            channel_room_map={"0": "!room0:example.com"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")},
             policy=policy,
         )
         rcs = RouteConfigSet(routes=(rc,))

@@ -33,6 +33,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.routes import (
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -174,7 +175,7 @@ class TestEnvOverridePreservesOriginLabelsWithComplexFields:
             dest_adapters=("adapter-b",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
             enabled=True,
-            channel_room_map={"0": "!room0:matrix.org"},
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:matrix.org")},
             policy=BridgePolicy(allowed_event_types=("message",)),
             retry=RouteRetryConfig(enabled=True, max_attempts=5),
             source_origin_label="Source",

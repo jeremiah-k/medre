@@ -22,6 +22,7 @@ import pytest
 
 from medre.config.routes import (
     BridgePolicy,
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -1068,13 +1069,13 @@ def _crm_rc(
     route_id: str = "crm_bridge",
     *,
     directionality: RouteDirectionality = RouteDirectionality.BIDIRECTIONAL,
-    channel_room_map: dict[str, str] | None = None,
+    channel_room_map: dict[str, ChannelRoomMapEntry] | None = None,
 ) -> RouteConfig:
     """Build a RouteConfig with channel_room_map for channels 0 + 1."""
     if channel_room_map is None:
         channel_room_map = {
-            "0": "!channel-0:example.com",
-            "1": "!channel-1:example.com",
+            "0": ChannelRoomMapEntry(room="!channel-0:example.com"),
+            "1": ChannelRoomMapEntry(room="!channel-1:example.com"),
         }
     return RouteConfig(
         route_id=route_id,

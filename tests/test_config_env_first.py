@@ -32,6 +32,7 @@ from medre.config.model import (
 )
 from medre.config.routes import (
     BridgePolicy,
+    ChannelRoomMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -968,7 +969,7 @@ def _make_config_with_route_complex() -> RuntimeConfig:
         dest_adapters=("adapter-b",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
         enabled=True,
-        channel_room_map={"0": "!room1:matrix.org"},
+        channel_room_map={"0": ChannelRoomMapEntry(room="!room1:matrix.org")},
         policy=BridgePolicy(allowed_event_types=("message",)),
         retry=RouteRetryConfig(enabled=True, max_attempts=5),
     )
