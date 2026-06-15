@@ -74,6 +74,7 @@ class TestConfigSampleWorkflow:
         output, stderr, code = _run_cli_raw(
             "config", "check", "--config", str(cfg_path)
         )
+        assert code == 0, f"expected exit 0, got {code}; stderr={stderr!r}"
         assert "Traceback" not in stderr
         assert "Traceback" not in output
 

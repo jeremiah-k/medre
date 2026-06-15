@@ -208,14 +208,6 @@ class TestSampleConfigFakeBuildable:
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
-    def test_sample_parses_as_yaml(self) -> None:
-        """generate_sample_config() produces valid YAML."""
-        sample = generate_sample_config()
-        data = parse_yaml_config(sample)
-        assert isinstance(data, dict)
-        assert "runtime" in data
-        assert "adapters" in data
-
     def test_sample_loads_via_config_loader(self, tmp_path: Path) -> None:
         """Sample config loads successfully via load_config()."""
         sample = generate_sample_config()
@@ -286,3 +278,12 @@ class TestSampleConfigFakeBuildable:
                     assert (
                         conf["access_token"] != ""
                     ), "Sample has empty access_token — would fail config validation"
+
+
+def test_sample_parses_as_yaml() -> None:
+    """generate_sample_config() produces valid YAML."""
+    sample = generate_sample_config()
+    data = parse_yaml_config(sample)
+    assert isinstance(data, dict)
+    assert "runtime" in data
+    assert "adapters" in data

@@ -350,7 +350,7 @@ class TestEvidenceBundleCore:
     @pytest.mark.asyncio
     async def test_config_error_status(self) -> None:
         """Invalid config path produces error status."""
-        report = await collect_evidence_bundle("/nonexistent/config.toml")
+        report = await collect_evidence_bundle("/nonexistent/config.yaml")
         assert report["status"] == "error"
         assert len(report["errors"]) > 0
         assert report["sections"] == {}
@@ -581,7 +581,7 @@ class TestEvidenceOverallStatus:
     @pytest.mark.asyncio
     async def test_error_when_config_missing(self) -> None:
         """Error when config file does not exist."""
-        report = await collect_evidence_bundle("/nonexistent/path.toml")
+        report = await collect_evidence_bundle("/nonexistent/path.yaml")
         assert report["status"] == "error"
 
 
