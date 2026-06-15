@@ -106,6 +106,21 @@ def _discover_yaml(directory: Path, basename: str) -> Path | None:
     return None
 
 
+def _raise_if_legacy_toml(directory: Path) -> None:
+    """Raise :class:`ConfigFileError` if a legacy TOML config exists in *directory*.
+
+    Operators who still have a ``config.toml`` or ``medre.toml`` left over
+    from the historical TOML config format get a clear migration pointer
+    instead of a silent "not found" when YAML discovery misses.  Both
+    historical basenames are checked so the hint fires regardless of which
+    naming convention the operator used.
+    """
+    for basename in ("config", "medre"):
+        toml_path = directory / f"{basename}{_TOML_SUFFIX}"
+        if toml_path.is_file():
+            raise ConfigFileError(f"{toml_path}: {_TOML_NOT_SUPPORTED_MSG}")
+
+
 # ---------------------------------------------------------------------------
 # Config file discovery
 # ---------------------------------------------------------------------------
@@ -128,8 +143,9 @@ def find_config(
     5. ``./medre.yaml`` (or ``./medre.yml``) — current working directory.
 
     ``.yaml`` is preferred over ``.yml`` in every auto-discovery step.
-    A ``.toml`` file found via an explicit path or ``MEDRE_CONFIG`` is
-    rejected with :data:`_TOML_NOT_SUPPORTED_MSG`.
+    A ``.toml`` file found via an explicit path, ``MEDRE_CONFIG``, or any
+    of the auto-discovery locations (``MEDRE_HOME``, XDG config dir, local
+    cwd) is rejected with :data:`_TOML_NOT_SUPPORTED_MSG`.
 
     Parameters
     ----------
@@ -175,6 +191,7 @@ def find_config(
         found = _discover_yaml(home, "config")
         if found is not None:
             return (found, ConfigSource.MEDRE_HOME)
+        _raise_if_legacy_toml(home)
         checked.append(f"MEDRE_HOME config={home / 'config.yaml'}")
 
     # 4. XDG default
@@ -183,12 +200,14 @@ def find_config(
         found = _discover_yaml(paths.config_dir, "config")
         if found is not None:
             return (found, ConfigSource.XDG)
+        _raise_if_legacy_toml(paths.config_dir)
     checked.append(f"XDG config={paths.config_file}")
 
     # 5. Local ./medre.yaml (or .yml)
     found = _discover_yaml(Path.cwd(), "medre")
     if found is not None:
         return (found, ConfigSource.LOCAL)
+    _raise_if_legacy_toml(Path.cwd())
     checked.append(f"local={Path.cwd() / 'medre.yaml'}")
 
     # Nothing found
