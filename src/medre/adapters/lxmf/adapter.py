@@ -229,8 +229,13 @@ class LxmfAdapter(AdapterContract):
             resolved = self._resolve_display_name(source_hash)
             if resolved:
                 packet["source_name"] = resolved
-        except Exception:
-            pass  # enrichment is best-effort; never fail ingestion
+        except Exception as exc:
+            if self.ctx is not None:
+                self.ctx.logger.debug(
+                    "LxmfAdapter %s: display-name enrichment skipped: %s",
+                    self.adapter_id,
+                    exc,
+                )
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the LXMF router/node and begin receiving events.

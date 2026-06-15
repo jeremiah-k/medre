@@ -234,6 +234,21 @@ def test_resolve_display_name_returns_none_for_odd_length_hex() -> None:
     assert result is None
 
 
+def test_resolve_display_name_returns_none_for_incorrect_length_hex() -> None:
+    """A hex string of incorrect length (not 32 chars / 16 bytes) returns None.
+
+    Contract: valid hex that decodes to != 16 bytes is rejected before
+    any SDK lookup.
+    """
+    session = _make_session(connection_type="fake")
+    session._reticulum = MagicMock()
+
+    with patch("medre.adapters.lxmf.session.HAS_LXMF", True):
+        result = session.resolve_display_name("0123456789abcdef")
+
+    assert result is None
+
+
 # ===================================================================
 # SDK availability guards
 # ===================================================================

@@ -1385,6 +1385,11 @@ class LxmfSession:
         except (ValueError, TypeError):
             return None
 
+        # RNS destination hashes are always 16 bytes (32 hex chars).
+        # Reject wrong-length input before querying the SDK.
+        if len(dest_bytes) != 16:
+            return None
+
         # SDK availability — require both the library and an active session.
         # ``_reticulum`` is the lifecycle sentinel: None before start, after
         # stop, during partial startup, and in fake mode.
