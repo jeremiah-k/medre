@@ -92,7 +92,7 @@ def _set_radio_a_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _load_with_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, yaml_content: str = _ENV_FIRST_YAML
+    tmp_path: Path, yaml_content: str = _ENV_FIRST_YAML
 ) -> tuple[Any, Any, Any]:
     """Write config, load YAML, apply env overrides, return (config, source, paths)."""
     config_path = _write_config(tmp_path, yaml_content)
@@ -114,7 +114,7 @@ class TestEnvCreatedMeshtasticAdaptersLoad:
     ) -> None:
         """Both radio-a and radio-b created from env vars with correct fields."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # Both adapters exist in meshtastic section
         assert "radio-a" in config.adapters.meshtastic
@@ -145,7 +145,7 @@ class TestEnvCreatedAdaptersBuildViaRuntimeBuilder:
     ) -> None:
         """Build and start a runtime with env-created Meshtastic adapters."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, paths = _load_with_env(tmp_path)
 
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -184,7 +184,7 @@ class TestEnvCreatedRoutesValidate:
     ) -> None:
         """Routes have correct source/dest adapter IDs after env overlay."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # At least one route exists
         assert len(config.routes.routes) >= 1
@@ -203,7 +203,7 @@ class TestEnvCreatedNoCrossContamination:
     ) -> None:
         """radio-a is created; radio-b is NOT (no TRANSPORT, no config stanza)."""
         _set_radio_a_env_only(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # radio-a exists
         assert "radio-a" in config.adapters.meshtastic

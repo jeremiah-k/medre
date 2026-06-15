@@ -268,7 +268,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_max_attempts_rejected(self, tmp_path) -> None:
         """Negative max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      max_attempts: -1\n"
+            "    retry:\n      enabled: true\n      max_attempts: -1\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -282,7 +282,7 @@ class TestRouteRetryConfigValidation:
     def test_zero_max_attempts_rejected(self, tmp_path) -> None:
         """Zero max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      max_attempts: 0\n"
+            "    retry:\n      enabled: true\n      max_attempts: 0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -296,7 +296,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_jitter_rejected(self, tmp_path) -> None:
         """Non-boolean jitter in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      jitter: 'yes'\n"
+            "    retry:\n      enabled: true\n      jitter: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -310,7 +310,7 @@ class TestRouteRetryConfigValidation:
     def test_non_number_backoff_base_rejected(self, tmp_path) -> None:
         """Non-numeric backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      backoff_base: 'fast'\n"
+            "    retry:\n      enabled: true\n      backoff_base: 'fast'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -324,7 +324,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_backoff_base_rejected(self, tmp_path) -> None:
         """Negative backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      backoff_base: -1.0\n"
+            "    retry:\n      enabled: true\n      backoff_base: -1.0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -338,7 +338,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_enabled_rejected(self, tmp_path) -> None:
         """Non-boolean enabled in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: 'yes'\n"
+            "    retry:\n      enabled: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -372,7 +372,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_negative_max_attempts_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for negative max_attempts."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      max_attempts: -1\n"
+            "    retry:\n      enabled: true\n      max_attempts: -1\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -384,7 +384,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_non_bool_jitter_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-bool jitter."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      jitter: 'yes'\n"
+            "    retry:\n      enabled: true\n      jitter: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -396,7 +396,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_non_number_backoff_base_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-number backoff_base."""
         config_text = _config_with_route_retry_override(
-            "    retry:\n" "      enabled: true\n" "      backoff_base: 'fast'\n"
+            "    retry:\n      enabled: true\n      backoff_base: 'fast'\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
