@@ -358,3 +358,70 @@ display name > `None`. The opaque `source_hash` is never promoted to
   `lxmf.display_name`.
 - Core rendering, relation enrichment, routing, delivery, storage,
   evidence: no changes.
+
+---
+
+## Example Configs and Documentation Moved from TOML to YAML
+
+Convert all shipped example configs and primary user-facing documentation
+from TOML to YAML. This is a documentation and example change only; it does
+not alter parser/runtime/test behavior (the parser swap is owned by a
+separate wave). `pyproject.toml` stays TOML — it is packaging metadata, not
+runtime configuration.
+
+**Changed:**
+
+- `examples/configs/`: replaced all 15 `*.toml` files with equivalent
+  `*.yaml` files. Base names preserved (including
+  `mixed-matrix-meshtastic.yaml`, retained as a superseded historical
+  reference). All 15 converted configs were validated to parse as a boring
+  YAML subset (explicit mappings/lists only) and to be semantically
+  identical to their TOML originals.
+- `examples/configs/README.md`: now references `.yaml` files and documents
+  the boring-YAML subset and quoting rules.
+- `docs/spec/configuration.md`: normative schema block, search order, and
+  prose now use YAML. Route schema updated to the running
+  `routes.<id>` shape (`source_adapters`/`dest_adapters`/`directionality`)
+  rather than the historical `[[routes]]` array form.
+- `docs/spec/index.md`, `docs/spec/routing-delivery.md`: TOML mentions
+  updated to YAML.
+- `docs/ops/configuration.md`: full TOML reference rewritten as YAML.
+- `docs/ops/README.md`, `docs/ops/install.md`, `docs/ops/running-medre.md`,
+  `docs/ops/troubleshooting.md`, `docs/ops/operator-workflows.md`,
+  `docs/ops/recovery-and-replay.md`, `docs/ops/diagnostics-and-evidence.md`,
+  `docs/ops/live-validation/matrix-meshtastic.md`,
+  `docs/ops/live-validation/matrix-meshtastic-meshcore.md`,
+  `docs/ops/transport-setup/matrix.md`,
+  `docs/ops/transport-setup/meshtastic.md`: user-facing `.toml` filenames,
+  `medre.toml`/`config.toml` references, and TOML code blocks converted to
+  `.yaml`/`medre.yaml`/`config.yaml` and YAML blocks.
+- `docs/dev/operator-surface-audit.md`, `docs/dev/release-readiness-audit.md`,
+  `docs/dev/source-audits.md`, `docs/dev/resource-lifecycle.md`:
+  TOML-format mentions in operator/runtime descriptions updated to YAML.
+
+**YAML subset and quoting rules applied:**
+
+- Explicit mappings and sequences only. No anchors, aliases, merge keys, or
+  custom tags.
+- Quoted values that YAML could misread: Matrix room IDs (`"!room:server"`),
+  MXIDs (`"@user:server"`), channel IDs where string semantics matter
+  (`"0"`), BLE/MAC addresses, `${ENV}` placeholders, and path placeholders
+  like `"{state}/medre.sqlite"`.
+- `channel_room_map` and `channel_mapping` keys are quoted strings
+  (`"0"`, `"1"`, ...) to preserve channel-index string semantics; the
+  loader coerces these to canonical `"0"`–`"7"` keys.
+
+**Intentionally untouched (out of scope for this wave):**
+
+- Parser/loader/runtime/sample-config source (`src/medre/config/**`,
+  `src/medre/cli/**`), tests, and JSON Schemas — owned by separate
+  implementation waves.
+- `pyproject.toml` references in docs (packaging metadata, stays TOML).
+- `docs/spec/security-privacy.md`, `docs/spec/conformance.md`,
+  `docs/spec/storage.md`, `docs/dev/yaml-config-migration-audit.md`, and
+  `docs/dev/live-test-harness.md` — TOML mentions there are out of scope for
+  this docs/examples wave and remain for follow-up.
+
+**Breaking:** existing `medre.toml`/`config.toml` files must be renamed to
+`.yaml` (or `.yml`). The loader accepts `.yaml`/`.yml` and rejects `.toml`
+with a clear error.

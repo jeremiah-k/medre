@@ -23,10 +23,10 @@
 #   - Reconnect resilience or retry-against-live
 #
 # REQUIRED ENVIRONMENT VARIABLES:
-#   MEDRE_HOMESERVER  - Synapse homeserver URL (e.g. http://localhost:8008)
-#   MEDRE_USER_ID     - Bot user ID (e.g. @bot:localhost)
+#   MEDRE_HOMESERVER   - Synapse homeserver URL (e.g. http://localhost:8008)
+#   MEDRE_USER_ID      - Bot user ID (e.g. @bot:localhost)
 #   MEDRE_ACCESS_TOKEN - Bot access token
-#   MEDRE_ROOM_ID     - Target room ID (e.g. !room:localhost)
+#   MEDRE_ROOM_ID      - Target room ID (e.g. !room:localhost)
 #
 # USAGE:
 #   This config cannot be used directly with `medre run` — credentials
@@ -38,45 +38,52 @@
 # NOT for production.  NOT for direct `medre run` usage without Docker
 # Synapse running and environment variables set.
 
-[runtime]
-name = "docker-matrix-bridge"
+runtime:
+  name: docker-matrix-bridge
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[logging]
-level = "INFO"
-format = "text"
+logging:
+  level: INFO
+  format: text
 
-# ---------------------------------------------------------------------------
-# Real Matrix adapter — points at Docker Synapse
-# ---------------------------------------------------------------------------
-# Credentials come from environment variables set by Docker integration
-# test fixtures (conftest.py).  No real secrets in this file.
-[adapters.matrix.synapse]
-enabled = true
-adapter_kind = "real"
-homeserver = "${MEDRE_HOMESERVER}"
-user_id = "${MEDRE_USER_ID}"
-access_token = "${MEDRE_ACCESS_TOKEN}"
-room_allowlist = ["${MEDRE_ROOM_ID}"]
-encryption_mode = "plaintext"
+adapters:
+  # ---------------------------------------------------------------------------
+  # Real Matrix adapter — points at Docker Synapse
+  # ---------------------------------------------------------------------------
+  # Credentials come from environment variables set by Docker integration
+  # test fixtures (conftest.py).  No real secrets in this file.
+  matrix:
+    synapse:
+      enabled: true
+      adapter_kind: real
+      homeserver: "${MEDRE_HOMESERVER}"
+      user_id: "${MEDRE_USER_ID}"
+      access_token: "${MEDRE_ACCESS_TOKEN}"
+      room_allowlist:
+        - "${MEDRE_ROOM_ID}"
+      encryption_mode: plaintext
 
-# ---------------------------------------------------------------------------
-# Fake Meshtastic adapter — no SDK, no network, no hardware
-# ---------------------------------------------------------------------------
-[adapters.meshtastic.fake_out]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
+  # ---------------------------------------------------------------------------
+  # Fake Meshtastic adapter — no SDK, no network, no hardware
+  # ---------------------------------------------------------------------------
+  meshtastic:
+    fake_out:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
 
 # ---------------------------------------------------------------------------
 # Route: Synapse (real Matrix) -> fake_out (fake Meshtastic)
 # ---------------------------------------------------------------------------
-[routes.synapse_to_fake]
-source_adapters = ["synapse"]
-dest_adapters = ["fake_out"]
-directionality = "source_to_dest"
-enabled = true
-source_room = "${MEDRE_ROOM_ID}"
-dest_channel = "1"
+routes:
+  synapse_to_fake:
+    source_adapters:
+      - synapse
+    dest_adapters:
+      - fake_out
+    directionality: source_to_dest
+    enabled: true
+    source_room: "${MEDRE_ROOM_ID}"
+    dest_channel: "1"

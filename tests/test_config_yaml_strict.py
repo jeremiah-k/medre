@@ -1,0 +1,380 @@
+"""Tests for the strict YAML parser in medre.config._yaml.
+
+These tests verify that the parser accepts a boring YAML subset and
+rejects every unsafe or surprising construct:
+
+- duplicate mapping keys
+- custom tags (``!!python/*``, ``!!binary``, ``!!set``, ``!!omap``)
+- anchors (``&name``) and aliases (``*name``)
+- merge keys (``<<``)
+- non-mapping top-level documents (lists, scalars, null)
+- multi-document streams
+- unsafe parse errors without leaking secret values
+
+Error messages must include line/column/path where practical but must
+never echo back secret values from the config file.
+"""
+
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from medre.config._yaml import StrictYAMLError, parse_yaml_config
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse(text: str, source: str = "test.yaml") -> dict:
+    """Convenience wrapper around parse_yaml_config."""
+    return parse_yaml_config(text, source)
+
+
+# ---------------------------------------------------------------------------
+# Valid YAML accepted
+# ---------------------------------------------------------------------------
+
+
+class TestValidYAMLAccepted:
+    """The boring YAML subset parses into plain Python data."""
+
+    def test_simple_mapping(self) -> None:
+        data = _parse("a: 1\nb: hello\n")
+        assert data == {"a": 1, "b": "hello"}
+
+    def test_nested_mappings(self) -> None:
+        data = _parse("outer:\n  inner: value\n")
+        assert data == {"outer": {"inner": "value"}}
+
+    def test_list_of_scalars(self) -> None:
+        data = _parse("items:\n  - one\n  - two\n  - three\n")
+        assert data == {"items": ["one", "two", "three"]}
+
+    def test_list_of_mappings(self) -> None:
+        data = _parse(
+            "routes:\n"
+            "  - source: a\n"
+            "    dest: b\n"
+            "  - source: c\n"
+            "    dest: d\n"
+        )
+        assert data == {
+            "routes": [
+                {"source": "a", "dest": "b"},
+                {"source": "c", "dest": "d"},
+            ]
+        }
+
+    def test_int_float_bool_null_types(self) -> None:
+        data = _parse(
+            "int_val: 42\n"
+            "float_val: 3.14\n"
+            "bool_val: true\n"
+            "null_val: null\n"
+            "str_val: hello\n"
+        )
+        assert data["int_val"] == 42 and isinstance(data["int_val"], int)
+        assert data["float_val"] == 3.14 and isinstance(data["float_val"], float)
+        assert data["bool_val"] is True
+        assert data["null_val"] is None
+        assert data["str_val"] == "hello"
+
+    def test_flow_mapping(self) -> None:
+        data = _parse("config: {a: 1, b: 2}\n")
+        assert data == {"config": {"a": 1, "b": 2}}
+
+    def test_flow_sequence(self) -> None:
+        data = _parse("items: [1, 2, 3]\n")
+        assert data == {"items": [1, 2, 3]}
+
+    def test_quoted_string_with_special_chars(self) -> None:
+        data = _parse('room: "!room:test"\n')
+        assert data == {"room": "!room:test"}
+
+    def test_empty_mapping(self) -> None:
+        """An empty but explicitly-mapping document is still a dict."""
+        data = _parse("{}\n")
+        assert data == {}
+
+    def test_returns_dict_type(self) -> None:
+        data = _parse("a: 1\n")
+        assert isinstance(data, dict)
+
+
+# ---------------------------------------------------------------------------
+# Duplicate keys rejected
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateKeysRejected:
+    """Duplicate mapping keys are rejected at parse time."""
+
+    def test_top_level_duplicate_string_key(self) -> None:
+        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+            _parse("a: 1\na: 2\n")
+
+    def test_nested_duplicate_key(self) -> None:
+        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+            _parse("outer:\n  x: 1\n  x: 2\n")
+
+    def test_duplicate_key_error_includes_line(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("a: 1\na: 2\n", "myconfig.yaml")
+        msg = str(exc_info.value)
+        # Line 2, column 1 for the second 'a'
+        assert "myconfig.yaml" in msg
+        assert ":2:" in msg
+
+    def test_duplicate_int_key(self) -> None:
+        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+            _parse("1: a\n1: b\n")
+
+    def test_three_duplicates_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+            _parse("x: 1\nx: 2\nx: 3\n")
+
+
+# ---------------------------------------------------------------------------
+# Custom tags rejected
+# ---------------------------------------------------------------------------
+
+
+class TestCustomTagsRejected:
+    """Custom and exotic tags that produce non-plain types are rejected."""
+
+    def test_python_object_apply_tag_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse('!!python/object/apply:os.system ["echo hi"]\n')
+
+    def test_python_object_tag_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("!!python/object:__main__.MyClass\n" "  x: 1\n")
+
+    def test_binary_tag_rejected(self) -> None:
+        """!!binary produces bytes, which is not a plain scalar."""
+        with pytest.raises(StrictYAMLError, match="unsupported YAML value type bytes"):
+            _parse("x: !!binary aGVsbG8=\n")
+
+    def test_set_tag_rejected(self) -> None:
+        """!!set produces a set, which is not a plain mapping."""
+        with pytest.raises(StrictYAMLError):
+            _parse("!!set {a, b, c}\n")
+
+    def test_omap_tag_rejected(self) -> None:
+        """!!omap produces a list of tuples, not a plain mapping."""
+        with pytest.raises(StrictYAMLError):
+            _parse("!!omap [a: 1, b: 2]\n")
+
+    def test_unknown_custom_tag_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("!mytag value\n")
+
+    def test_nested_binary_tag_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("data:\n  secret: !!binary aGVsbG8=\n")
+
+
+# ---------------------------------------------------------------------------
+# Anchors and aliases rejected
+# ---------------------------------------------------------------------------
+
+
+class TestAnchorsAliasesRejected:
+    """YAML anchors (&) and aliases (*) are rejected."""
+
+    def test_anchor_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="anchors"):
+            _parse("x: &a\n  k: v\n")
+
+    def test_alias_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="anchor"):
+            _parse("x: &a\n  k: v\ny: *a\n")
+
+    def test_anchor_in_flow_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="anchor"):
+            _parse("x: &a {k: v}\n")
+
+    def test_anchor_error_includes_line(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("a: 1\nx: &a\n  k: v\n", "cfg.yaml")
+        msg = str(exc_info.value)
+        assert "cfg.yaml" in msg
+        assert ":2:" in msg
+
+
+# ---------------------------------------------------------------------------
+# Merge keys rejected
+# ---------------------------------------------------------------------------
+
+
+class TestMergeKeysRejected:
+    """YAML merge keys (<<) are rejected."""
+
+    def test_block_merge_key_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="merge keys"):
+            _parse("a: 1\n<<:\n  b: 2\n")
+
+    def test_flow_merge_key_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("{<<: {b: 2}, a: 1}\n")
+
+    def test_merge_does_not_inherit_values(self) -> None:
+        """The merge key must not silently inject values."""
+        with pytest.raises(StrictYAMLError):
+            _parse("base: &ignored\n" "  x: 1\n" "child:\n" "  <<: base\n")
+
+
+# ---------------------------------------------------------------------------
+# Non-mapping top-level rejected
+# ---------------------------------------------------------------------------
+
+
+class TestNonMappingTopLevelRejected:
+    """The top-level YAML document must be a mapping."""
+
+    def test_top_level_list_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="top level must be a mapping"):
+            _parse("- a\n- b\n")
+
+    def test_top_level_scalar_string_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="top level must be a mapping"):
+            _parse("hello world\n")
+
+    def test_top_level_int_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="top level must be a mapping"):
+            _parse("42\n")
+
+    def test_top_level_null_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="empty"):
+            _parse("\n")
+
+    def test_top_level_explicit_null_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="empty|top level"):
+            _parse("null\n")
+
+    def test_top_level_flow_sequence_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="top level must be a mapping"):
+            _parse("[1, 2, 3]\n")
+
+
+# ---------------------------------------------------------------------------
+# Multi-document streams rejected
+# ---------------------------------------------------------------------------
+
+
+class TestMultiDocumentRejected:
+    """Only a single YAML document is accepted."""
+
+    def test_two_documents_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("---\na: 1\n---\nb: 2\n")
+
+    def test_three_documents_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError):
+            _parse("---\na: 1\n---\nb: 2\n---\nc: 3\n")
+
+
+# ---------------------------------------------------------------------------
+# Secret redaction in parse errors
+# ---------------------------------------------------------------------------
+
+
+class TestSecretRedaction:
+    """Parse-error messages must not echo secret values from the config."""
+
+    def test_parse_error_does_not_leak_nearby_secret(self) -> None:
+        """A syntax error on a later line must not leak the token value."""
+        secret_value = "SUPER_SECRET_TOKEN_12345"
+        text = f"access_token: {secret_value}\nbroken: [\n"
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse(text, "secret.yaml")
+        msg = str(exc_info.value)
+        assert secret_value not in msg, f"Secret value leaked in error message: {msg}"
+
+    def test_parse_error_does_not_leak_password(self) -> None:
+        password = "my-secret-password"
+        text = f"password: {password}\nbroken: [\n"
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse(text, "pw.yaml")
+        msg = str(exc_info.value)
+        assert password not in msg
+
+    def test_duplicate_key_error_shows_key_name_not_value(self) -> None:
+        """When a secret key is duplicated, the key NAME is shown but the
+        key NAME is redacted in the error message."""
+        text = "access_token: secret1\naccess_token: secret2\n"
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse(text, "redact.yaml")
+        msg = str(exc_info.value)
+        # The error should reference "redacted" for the secret key name
+        assert "redacted" in msg.lower()
+        # The actual values must not appear
+        assert "secret1" not in msg
+        assert "secret2" not in msg
+
+    def test_non_secret_duplicate_key_shown_in_plain(self) -> None:
+        """Non-secret keys are shown as-is in duplicate-key errors."""
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("timeout: 1\ntimeout: 2\n", "plain.yaml")
+        msg = str(exc_info.value)
+        assert "timeout" in msg
+
+
+# ---------------------------------------------------------------------------
+# Error location info
+# ---------------------------------------------------------------------------
+
+
+class TestErrorLocationInfo:
+    """Error messages include source path, line, and column where practical."""
+
+    def test_duplicate_key_has_line_column(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("a: 1\nb: 2\na: 3\n", "loc.yaml")
+        msg = str(exc_info.value)
+        # Third line, first column for the duplicate 'a'
+        assert "loc.yaml" in msg
+        assert re.search(r":3:\d", msg)
+
+    def test_anchor_has_source_path(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("x: &a\n  k: v\n", "path/to/cfg.yaml")
+        msg = str(exc_info.value)
+        assert "path/to/cfg.yaml" in msg
+
+    def test_merge_key_has_line_column(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("a: 1\n<<:\n  b: 2\n", "merge.yaml")
+        msg = str(exc_info.value)
+        assert "merge.yaml" in msg
+        assert re.search(r":2:\d", msg)
+
+    def test_syntax_error_has_location(self) -> None:
+        with pytest.raises(StrictYAMLError) as exc_info:
+            _parse("a: [unclosed\n", "syntax.yaml")
+        msg = str(exc_info.value)
+        assert "syntax.yaml" in msg
+
+
+# ---------------------------------------------------------------------------
+# StrictYAMLError inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestErrorInheritance:
+    """StrictYAMLError inherits from ConfigFileError for backward compat."""
+
+    def test_strict_error_is_config_file_error(self) -> None:
+        from medre.config.errors import ConfigFileError
+
+        with pytest.raises(ConfigFileError):
+            _parse("- not a mapping\n")
+
+    def test_strict_error_is_config_error(self) -> None:
+        from medre.config.errors import ConfigError
+
+        with pytest.raises(ConfigError):
+            _parse("- not a mapping\n")

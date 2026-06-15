@@ -5,7 +5,7 @@ Starting, stopping, and operating the MEDRE runtime — including lifecycle, exi
 ## Starting MEDRE
 
 ```bash
-medre run --config config.toml
+medre run --config config.yaml
 ```
 
 The runtime loads the config, validates it, creates required directories, and starts all enabled adapters. Adapters start in deterministic order: sorted by `(transport, adapter_id)`.
@@ -61,7 +61,7 @@ Diagnostic surfaces for degraded startup:
 | Code | Constant       | Meaning                                                                                                                                            |
 | ---- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | `EXIT_OK`      | Successful run and clean shutdown.                                                                                                                 |
-| 2    | `EXIT_CONFIG`  | Config not found, TOML parse error, validation error, or no adapters enabled.                                                                      |
+| 2    | `EXIT_CONFIG`  | Config not found, YAML parse error, validation error, or no adapters enabled.                                                                      |
 | 3    | `EXIT_BUILD`   | Runtime build failure — missing SDK, invalid storage path, or adapter construction error. Exits with this code only if all adapters fail to build. |
 | 4    | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully.                                                                                        |
 
@@ -142,7 +142,7 @@ Signal handlers are reset at the start of each `medre run` invocation.
 ### Shutdown Snapshot (`--snapshot-on-shutdown PATH`)
 
 ```bash
-medre run --config config.toml --snapshot-on-shutdown snapshot.json
+medre run --config config.yaml --snapshot-on-shutdown snapshot.json
 ```
 
 Writes a runtime snapshot JSON to the specified PATH after graceful shutdown. Contains:
@@ -218,133 +218,150 @@ Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry li
 
 ### Single Matrix Adapter (Plaintext)
 
-```toml
-[runtime]
-name = "matrix-bridge"
-shutdown_timeout_seconds = 10
+```yaml
+runtime:
+  name: matrix-bridge
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "INFO"
-format = "text"
+logging:
+  level: INFO
+  format: text
 
-[storage]
-backend = "sqlite"
+storage:
+  backend: sqlite
 
-[adapters.matrix.bot]
-enabled = true
-adapter_kind = "real"
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = "<matrix-access-token>"
-room_allowlist = ["!room:example.com"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    bot:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@bot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!room:example.com"
+      encryption_mode: plaintext
 ```
 
 ### Single Matrix Adapter (E2EE)
 
-```toml
-[runtime]
-name = "matrix-e2ee"
-shutdown_timeout_seconds = 10
+```yaml
+runtime:
+  name: matrix-e2ee
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "INFO"
-format = "text"
+logging:
+  level: INFO
+  format: text
 
-[storage]
-backend = "sqlite"
+storage:
+  backend: sqlite
 
-[adapters.matrix.securebot]
-enabled = true
-adapter_kind = "real"
-homeserver = "https://matrix.example.com"
-user_id = "@securebot:example.com"
-access_token = "<matrix-access-token>"
-room_allowlist = ["!secretroom:example.com"]
-encryption_mode = "e2ee_required"
+adapters:
+  matrix:
+    securebot:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@securebot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!secretroom:example.com"
+      encryption_mode: e2ee_required
 ```
 
 E2EE mode requires the `mindroom-nio[e2e]` optional dependency. The crypto store is created automatically at `{state}/adapters/securebot/matrix/store/`. Device ID is discovered via the Matrix `whoami()` endpoint on first connect — do not configure it manually.
 
 ### Two Meshtastic Radios (LongFast + ShortTurbo)
 
-```toml
-[runtime]
-name = "dual-radio"
-shutdown_timeout_seconds = 15
+```yaml
+runtime:
+  name: dual-radio
+  shutdown_timeout_seconds: 15
 
-[logging]
-level = "INFO"
-format = "json"
+logging:
+  level: INFO
+  format: json
 
-[storage]
-backend = "sqlite"
+storage:
+  backend: sqlite
 
-[adapters.meshtastic.longfast]
-enabled = true
-adapter_kind = "real"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "LongFast Net"
-default_channel = 0
-channel_mapping = {0 = "general", 1 = "alerts"}
+adapters:
+  meshtastic:
+    longfast:
+      enabled: true
+      adapter_kind: real
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: LongFast Net
+      default_channel: 0
+      channel_mapping:
+        "0": general
+        "1": alerts
 
-[adapters.meshtastic.shortturbo]
-enabled = true
-adapter_kind = "real"
-connection_type = "tcp"
-host = "meshtastic-turbo.local"
-port = 4403
-origin_label = "ShortTurbo Net"
-default_channel = 0
-channel_mapping = {0 = "fast"}
+    shortturbo:
+      enabled: true
+      adapter_kind: real
+      connection_type: tcp
+      host: meshtastic-turbo.local
+      port: 4403
+      origin_label: ShortTurbo Net
+      default_channel: 0
+      channel_mapping:
+        "0": fast
 ```
 
 Each radio is a separate adapter with its own connection. Startup order: `meshtastic.longfast`, then `meshtastic.shortturbo` (sorted by adapter_id).
 
 ### Mixed Runtime (Matrix + Meshtastic)
 
-```toml
-[runtime]
-name = "mixed-bridge"
-shutdown_timeout_seconds = 15
+```yaml
+runtime:
+  name: mixed-bridge
+  shutdown_timeout_seconds: 15
 
-[logging]
-level = "INFO"
-format = "json"
+logging:
+  level: INFO
+  format: json
 
-[storage]
-backend = "sqlite"
+storage:
+  backend: sqlite
 
-[adapters.matrix.bridge]
-enabled = true
-adapter_kind = "real"
-homeserver = "https://matrix.example.com"
-user_id = "@bridge:example.com"
-access_token = "<matrix-access-token>"
-room_allowlist = ["!bridge-room:example.com"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    bridge:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@bridge:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!bridge-room:example.com"
+      encryption_mode: plaintext
 
-[adapters.meshtastic.radio]
-enabled = true
-adapter_kind = "real"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "LocalMesh"
-default_channel = 0
-channel_mapping = {0 = "general"}
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: real
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: LocalMesh
+      default_channel: 0
+      channel_mapping:
+        "0": general
 ```
 
 Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtastic.radio`.
 
 ## Resource Limits
 
-```toml
-[runtime.limits]
-max_inflight_deliveries = 100
-max_inflight_replay_events = 100
-shutdown_drain_timeout_seconds = 10
-delivery_acquire_timeout_seconds = 1.0
+```yaml
+runtime:
+  limits:
+    max_inflight_deliveries: 100
+    max_inflight_replay_events: 100
+    shutdown_drain_timeout_seconds: 10
+    delivery_acquire_timeout_seconds: 1.0
 ```
 
 The pipeline uses semaphores to bound concurrent delivery and replay. When capacity is exhausted, new deliveries are rejected with `error="delivery_capacity_exceeded"` — no retry.
@@ -363,30 +380,32 @@ The pipeline uses semaphores to bound concurrent delivery and replay. When capac
 
 **Conservative (low-resource device):**
 
-```toml
-[runtime.limits]
-max_inflight_deliveries = 8
-max_inflight_replay_events = 4
-delivery_acquire_timeout_seconds = 10.0
-shutdown_drain_timeout_seconds = 3
+```yaml
+runtime:
+  limits:
+    max_inflight_deliveries: 8
+    max_inflight_replay_events: 4
+    delivery_acquire_timeout_seconds: 10.0
+    shutdown_drain_timeout_seconds: 3
 ```
 
 **High-throughput (server):**
 
-```toml
-[runtime.limits]
-max_inflight_deliveries = 128
-max_inflight_replay_events = 64
-delivery_acquire_timeout_seconds = 60.0
-shutdown_drain_timeout_seconds = 10
+```yaml
+runtime:
+  limits:
+    max_inflight_deliveries: 128
+    max_inflight_replay_events: 64
+    delivery_acquire_timeout_seconds: 60.0
+    shutdown_drain_timeout_seconds: 10
 ```
 
 ## Retry
 
 Retry is **opt-in** — disabled by default. Two levels need to be enabled:
 
-1. **Per-route retry** (`[routes.<id>.retry]`) — controls whether retry receipts are scheduled.
-2. **Global retry** (`[retry] enabled = true`) — controls whether the RetryWorker processes them.
+1. **Per-route retry** (`routes.<id>.retry`) — controls whether retry receipts are scheduled.
+2. **Global retry** (`retry.enabled: true`) — controls whether the RetryWorker processes them.
 
 Retry uses frozen target semantics — retries target the originally recorded adapter and channel, not the current route config. The retry policy is captured at first failure and does not change with route config updates.
 
@@ -408,10 +427,10 @@ Always run `dry_run` first. `best_effort` produces real outbound messages withou
 
 ```bash
 # Preview
-medre replay --mode dry_run --config bridge.toml --json
+medre replay --mode dry_run --config bridge.yaml --json
 
 # Re-deliver
-medre replay --mode best_effort --config bridge.toml --json
+medre replay --mode best_effort --config bridge.yaml --json
 ```
 
 Replay receipts carry `source="replay"` and `replay_run_id` for audit.
@@ -457,7 +476,7 @@ What loop prevention does not cover:
 
 ### Crash Recovery Procedure
 
-1. Restart with the same config: `medre run --config config.toml`
+1. Restart with the same config: `medre run --config config.yaml`
 2. Adapters reconnect autonomously. No cleanup needed.
 3. Check logs: `grep ERROR {log_dir}/medre.log`
 4. Find orphaned events (stored but never delivered):
@@ -534,7 +553,7 @@ The container user needs read/write access to the device. Options: run as user i
 
 ```text
 /opt/medre/
-├── config.toml
+├── config.yaml
 ├── state/
 │   ├── medre.sqlite
 │   └── adapters/
@@ -567,7 +586,7 @@ docker run --user 1000:1000 \
 
 1. Container runtime sets `MEDRE_HOME` and adapter variables.
 2. Path resolution — pure computation, no I/O.
-3. Config loaded from `$MEDRE_HOME/config.toml`.
+3. Config loaded from `$MEDRE_HOME/config.yaml`.
 4. Runtime built — Matrix store paths derived here.
 5. `app.start()` — directories created (idempotent), storage initialized, adapters started in sorted order.
 6. Running — pipeline processes events.
@@ -585,7 +604,7 @@ docker run --user 1000:1000 \
 | Deterministic paths       | `MEDRE_HOME` set to fixed absolute path                    |
 | Adapter isolation         | Unique `adapter_id` per adapter, path separator validation |
 | Idempotent startup        | `_ensure_dirs()` uses `exist_ok=True`                      |
-| Config injection          | Environment variables or mounted `config.toml`             |
+| Config injection          | Environment variables or mounted `config.yaml`             |
 
 ### Operational Procedures
 
@@ -593,7 +612,7 @@ docker run --user 1000:1000 \
 
 ```bash
 mkdir -p /host/medre-data
-cp config.toml /host/medre-data/
+cp config.yaml /host/medre-data/
 docker run -d --name medre \
   --env MEDRE_HOME=/opt/medre \
   --volume /host/medre-data:/opt/medre \
@@ -651,7 +670,7 @@ The resolved log directory depends on the active path mode:
 - **XDG mode** (default): `~/.local/state/medre/logs/medre.log` (log directory is `{state}/logs`)
 - **MEDRE_HOME mode** (container): `$MEDRE_HOME/logs/medre.log` (log directory is a direct child of `MEDRE_HOME`)
 
-Single global log file. No per-adapter log files. Log format controlled by `[logging]`:
+Single global log file. No per-adapter log files. Log format controlled by the `logging` section:
 
 - `format = "text"` — human-readable.
 - `format = "json"` — structured for log aggregation.

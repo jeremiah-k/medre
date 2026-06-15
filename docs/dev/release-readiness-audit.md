@@ -113,7 +113,7 @@ required cleanup, and evidence class. This is an honest prerelease snapshot.
 
 | Artifact              | Current status                              | Source of truth | Stale / conflicting language | Required cleanup | Evidence class |
 | --------------------- | ------------------------------------------- | --------------- | ---------------------------- | ---------------- | -------------- |
-| `medre config sample` | Generates TOML sample config from templates | CLI / templates | None                         | None             | S-tier         |
+| `medre config sample` | Generates YAML sample config from templates | CLI / templates | None                         | None             | S-tier         |
 
 ## 10. Ops Runbooks
 

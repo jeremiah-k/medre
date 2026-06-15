@@ -8,7 +8,7 @@
 
 CLI flags that accept file paths follow a strict contract:
 
-- `--config` accepts a **TOML runtime configuration file**. Used by: `run`,
+- `--config` accepts a **YAML runtime configuration file**. Used by: `run`,
   `diagnostics`, `routes`, `config check`, `replay`.
 - `--storage-path` accepts a **SQLite database file**. Required by: `inspect`,
   `trace`, `evidence`, `recover`.
@@ -17,10 +17,10 @@ CLI flags that accept file paths follow a strict contract:
 - `smoke --run-session` defaults to an auto-created temp SQLite file
   (see `smoke_commands.py:148-153`); it accepts `--storage-path` only as an
   explicit persistence override.
-- A config TOML path must **never** be passed as `--storage-path` — they are
+- A config YAML path must **never** be passed as `--storage-path` — they are
   different file formats consumed by different subsystems.
 - Confusing the two causes silent wrong-path errors; the CLI keeps these paths
-  separate at the command surface. A config TOML path must never be passed as
+  separate at the command surface. A config YAML path must never be passed as
   `--storage-path`; if it is, read-only storage open/schema validation will
   fail rather than treating it as configuration.
 
@@ -126,7 +126,7 @@ Source modules:
 | Command                                 | Source                | Output                            |
 | --------------------------------------- | --------------------- | --------------------------------- |
 | `medre config check --config <path>`    | Config loader         | Human-readable validation summary |
-| `medre config sample`                   | Template              | TOML sample config text           |
+| `medre config sample`                   | Template              | YAML sample config text           |
 | `medre paths`                           | Path resolver         | Resolved MEDRE paths with status  |
 | `medre adapters`                        | Config + SDK probe    | Adapter inventory                 |
 | `medre routes validate --config <path>` | Config + route engine | Per-route validation summary      |

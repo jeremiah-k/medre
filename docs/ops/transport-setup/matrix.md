@@ -121,7 +121,7 @@ medre run
 
 The `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables follow the runtime
 configuration convention. `<TOKEN>` matches the adapter instance name under
-`[adapters.matrix.<token>]` in TOML. The `MATRIX_*` variables are used only by
+`adapters.matrix.<token>` in YAML. The `MATRIX_*` variables are used only by
 pytest fixtures and direct adapter instantiation (see the table above).
 
 The runner:

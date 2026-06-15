@@ -368,19 +368,19 @@ class TestNoTcpPortInExamples:
 
 
 class TestLiveConfigHelperUsesPort:
-    """tests/helpers/live_config.py must write ``port = `` (not
-    ``tcp_port``) in the TOML it generates, keeping the helper consistent
+    """tests/helpers/live_config.py must write ``port:`` (not
+    ``tcp_port``) in the YAML it generates, keeping the helper consistent
     with the config schema and example configs."""
 
     def test_live_config_uses_port_not_tcp_port(self) -> None:
-        """write_live_bridge_toml must emit ``port = `` and never
+        """write_live_bridge_yaml must emit ``port:`` and never
         ``tcp_port``."""
         if not _LIVE_CONFIG_HELPER.exists():
             pytest.skip("tests/helpers/live_config.py not found")
         text = _read(_LIVE_CONFIG_HELPER)
-        assert "port = " in text, (
-            "tests/helpers/live_config.py must contain 'port = ' in the "
-            "write_live_bridge_toml function area."
+        assert "port: " in text, (
+            "tests/helpers/live_config.py must contain 'port: ' in the "
+            "write_live_bridge_yaml function area."
         )
         assert "tcp_port" not in text, (
             "tests/helpers/live_config.py must not contain 'tcp_port'. "

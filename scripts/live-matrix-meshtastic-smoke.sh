@@ -15,9 +15,9 @@
 # Idempotent: safe to re-run; existing output files are overwritten.
 #
 # Usage:
-#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./my-config.toml
-#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./cfg.toml --output-dir /tmp/smoke-run-2
-#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./cfg.toml --storage-path /data/medre.db
+#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./my-config.yaml
+#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./cfg.yaml --output-dir /tmp/smoke-run-2
+#   ./scripts/live-matrix-meshtastic-smoke.sh --config ./cfg.yaml --storage-path /data/medre.db
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -36,12 +36,12 @@ Usage: live-matrix-meshtastic-smoke.sh [OPTIONS]
 Capture live smoke-test artifacts from a medre run.
 
 Options:
-  --config       PATH    (required) Path to medre TOML config file.
+  --config       PATH    (required) Path to medre YAML config file.
   --output-dir   PATH    Directory for captured artifacts.
                           Default: /tmp/medre-live-smoke
   --storage-path PATH    Database path for medre inspect commands.
                           If omitted, the script attempts to read
-                          path from the [storage] section of the config file.
+                          path from the storage: section of the config file.
   --event-id     ID      Write four separate inspect-*.json artifacts after
                           the run completes: inspect-event.json,
                           inspect-timeline.json, inspect-evidence.json,
@@ -105,35 +105,38 @@ if [[ ! -f ${CONFIG} ]]; then
 fi
 
 # ---- Attempt to extract storage path from config if not provided -----------
-# Parses the TOML [storage] section to find `path = "..."`.
+# Parses the YAML storage: block to find `path: "..."` or `path: ...`.
 if [[ -z ${STORAGE_PATH} ]]; then
-	in_storage_section=false
+	in_storage_block=false
 	while IFS= read -r line; do
-		# Detect section headers: [storage] or [storage.xxx]
-		if [[ ${line} =~ ^[[:space:]]*\[storage\] ]]; then
-			in_storage_section=true
+		# Detect a top-level storage: key (column 0, colon, no value).
+		if [[ ${line} =~ ^storage:[[:space:]]*$ ]]; then
+			in_storage_block=true
 			continue
 		fi
-		# Any other section header exits the [storage] scope
-		if [[ ${line} =~ ^[[:space:]]*\[ ]]; then
-			if ${in_storage_section}; then
-				in_storage_section=false
+		# Any other top-level key (column 0, non-space) exits the storage block.
+		if [[ ${line} =~ ^[[:alnum:]_-]+: ]]; then
+			if ${in_storage_block}; then
+				in_storage_block=false
 			fi
 			continue
 		fi
-		# Inside [storage]: look for path = "..." or path = ...
-		if ${in_storage_section} && [[ ${line} =~ ^[[:space:]]*path[[:space:]]*= ]]; then
-			# Extract value after '=', strip quotes and surrounding whitespace
-			raw_val="${line#*=}"
-			raw_val="${raw_val#"${raw_val%%[![:space:]]*}"}" # trim leading whitespace
-			raw_val="${raw_val%"${raw_val##*[![:space:]]}"}" # trim trailing whitespace
-			raw_val="${raw_val#\"}"                          # strip leading double quote
-			raw_val="${raw_val%\"}"                          # strip trailing double quote
-			raw_val="${raw_val#\'}"                          # strip leading single quote
-			raw_val="${raw_val%\'}"                          # strip trailing single quote
+		# Inside storage: look for path: "..." or path: ...
+		if ${in_storage_block} && [[ ${line} =~ ^[[:space:]]+path:[[:space:]]*(.*)$ ]]; then
+			raw_val="${BASH_REMATCH[1]}"
+			# Strip inline comments (YAML: ' #' separator).
+			raw_val="${raw_val%% #*}"
+			# Trim leading/trailing whitespace.
+			raw_val="${raw_val#"${raw_val%%[![:space:]]*}"}"
+			raw_val="${raw_val%"${raw_val##*[![:space:]]}"}"
+			# Strip surrounding quotes (double or single).
+			raw_val="${raw_val#\"}"
+			raw_val="${raw_val%\"}"
+			raw_val="${raw_val#\'}"
+			raw_val="${raw_val%\'}"
 			# Check for XDG placeholder {state}
 			if [[ ${raw_val} == *'{state}'* ]]; then
-				echo "ERROR: Config [storage] path contains unresolved XDG placeholder '{state}':" >&2
+				echo "ERROR: Config storage path contains unresolved XDG placeholder '{state}':" >&2
 				echo "       ${raw_val}" >&2
 				echo "       This requires Python-level resolution. Pass --storage-path to provide" >&2
 				echo "       the resolved database path explicitly." >&2
@@ -219,9 +222,9 @@ fi
 
 # ---- Step 4: Redacted config copy ------------------------------------------
 # Replace any access_token value with "***" to avoid leaking secrets.
-# Matches TOML pattern:  access_token = "any-token-here"
+# Matches YAML pattern:  access_token: "any-token-here"  or  access_token: token
 echo "  -> config.redacted"
-sed -E 's/(access_token\s*=\s*").*"/\1***"/' "${CONFIG}" >"${OUTPUT_DIR}/config.redacted"
+sed -E 's/([[:space:]]*access_token:[[:space:]]*).*/\1"***"/' "${CONFIG}" >"${OUTPUT_DIR}/config.redacted"
 
 # ---- Step 5: Summary -------------------------------------------------------
 echo ""

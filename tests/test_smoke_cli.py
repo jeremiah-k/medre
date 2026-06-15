@@ -44,11 +44,11 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
-    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    assert path is not None, "examples/configs/fake-bridge-smoke.yaml not found"
     return path
 
 
@@ -100,7 +100,7 @@ class TestFakeBridgeSmokeReport:
         targets = report["target_adapters"]
         assert isinstance(targets, list)
         assert len(targets) >= 1
-        # fake-bridge-smoke.toml routes from fake_matrix produce
+        # fake-bridge-smoke.yaml routes from fake_matrix produce
         # deliveries to at least fake_meshtastic.
         assert "fake_meshtastic" in targets
 
@@ -244,7 +244,7 @@ class TestFakeBridgeSmokeReport:
 
     @pytest.mark.asyncio
     async def test_smoke_fanout_produces_multiple_targets(self) -> None:
-        """fake-bridge-smoke.toml fanout route delivers to multiple targets."""
+        """fake-bridge-smoke.yaml fanout route delivers to multiple targets."""
         config_path = _smoke_config_path()
         report = await run_fake_bridge_smoke(config_path)
         # The fanout route (mx_fanout) targets both fake_meshtastic and fake_meshcore.

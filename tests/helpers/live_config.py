@@ -1,4 +1,4 @@
-"""Build RuntimeConfig or temp TOML from env vars for live bridge tests.
+"""Build RuntimeConfig or temp YAML from env vars for live bridge tests.
 
 This helper module centralises the environment-variable gates and config
 construction shared by the live Matrix↔Meshtastic bridge smoke tests.
@@ -49,6 +49,8 @@ __all__ = [
     "matrix_second_user_env_set",
     "meshtastic_env_set",
     "build_live_bridge_runtime_config",
+    "write_live_bridge_yaml",
+    # Temporary compat alias — remove after all callers migrate.
     "write_live_bridge_toml",
 ]
 
@@ -272,48 +274,35 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
 
 
 # ---------------------------------------------------------------------------
-# TOML writer
+# YAML writer
 # ---------------------------------------------------------------------------
 
 
-def _escape_toml_string(value: str) -> str:
-    """Escape *value* for safe embedding in a TOML double-quoted string.
+def _yaml_escape(value: str) -> str:
+    """Escape *value* for safe embedding in a YAML single-quoted string.
 
-    Handles backslashes, double quotes, newlines, tabs, and other control
-    characters.  No external dependencies required.
+    Single-quoted YAML strings only require doubling embedded single
+    quotes (``''``); all other characters are literal. No external
+    dependencies required.
     """
-    out: list[str] = []
-    for ch in value:
-        code = ord(ch)
-        if ch == "\\":
-            out.append("\\\\")
-        elif ch == '"':
-            out.append('\\"')
-        elif ch == "\n":
-            out.append("\\n")
-        elif ch == "\t":
-            out.append("\\t")
-        elif code < 0x20:
-            out.append(f"\\u{code:04x}")
-        else:
-            out.append(ch)
-    return "".join(out)
+    return value.replace("'", "''")
 
 
-def write_live_bridge_toml(tmp_path: Path) -> Path:
-    """Write a TOML config file from live environment variables.
+def write_live_bridge_yaml(tmp_path: Path) -> Path:
+    """Write a YAML config file from live environment variables.
 
-    Uses string formatting (f-string template), not ``tomli_w``.
+    Uses string formatting (f-string template), not ``yaml.dump``, so
+    that every field placement is explicit and auditable.
 
     Parameters
     ----------
     tmp_path:
-        Directory in which to write the TOML file.
+        Directory in which to write the YAML file.
 
     Returns
     -------
     Path
-        Path to the written TOML file.
+        Path to the written YAML file.
 
     Raises
     ------
@@ -326,76 +315,81 @@ def write_live_bridge_toml(tmp_path: Path) -> Path:
     if not (homeserver and user_id and access_token):
         raise RuntimeError(
             "Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, "
-            "and MATRIX_ROOM_ID env vars to write live bridge TOML"
+            "and MATRIX_ROOM_ID env vars to write live bridge YAML"
         )
     if not ct:
         raise RuntimeError(
             "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) to write "
-            "live bridge TOML"
+            "live bridge YAML"
         )
 
     # Build meshtastic connection fields based on type.
     if ct == "tcp":
         meshtastic_connection_block = (
-            f'connection_type = "tcp"\n'
-            f'host = "{_escape_toml_string(host)}"\n'
-            f"port = {int(port) if port else 4403}"
+            f"connection_type: tcp\n"
+            f"      host: '{_yaml_escape(host)}'\n"
+            f"      port: {int(port) if port else 4403}"
         )
     elif ct == "serial":
         meshtastic_connection_block = (
-            f'connection_type = "serial"\n'
-            f'serial_port = "{_escape_toml_string(serial_port)}"'
+            f"connection_type: serial\n"
+            f"      serial_port: '{_yaml_escape(serial_port)}'"
         )
     elif ct == "ble":
         meshtastic_connection_block = (
-            f'connection_type = "ble"\n'
-            f'ble_address = "{_escape_toml_string(ble_address)}"'
+            f"connection_type: ble\n"
+            f"      ble_address: '{_yaml_escape(ble_address)}'"
         )
     else:
-        meshtastic_connection_block = f'connection_type = "{_escape_toml_string(ct)}"'
+        meshtastic_connection_block = f"connection_type: '{_yaml_escape(ct)}'"
 
-    toml_content = f"""\
-[runtime]
-name = "live-bridge-test"
-
-[logging]
-level = "DEBUG"
-format = "text"
-
-[storage]
-backend = "sqlite"
-path = "{_escape_toml_string(str(tmp_path / "test.sqlite"))}"
-
-[adapters.matrix.matrix]
-adapter_kind = "real"
-enabled = true
-homeserver = "{_escape_toml_string(homeserver)}"
-user_id = "{_escape_toml_string(user_id)}"
-access_token = "{_escape_toml_string(access_token)}"
-room_allowlist = ["{_escape_toml_string(room_id)}"]
-
-[adapters.meshtastic.radio]
-adapter_kind = "real"
-enabled = true
-{meshtastic_connection_block}
-
-[routes.matrix_to_radio]
-source_adapters = ["matrix"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-source_room = "{_escape_toml_string(room_id)}"
-dest_channel = "{_escape_toml_string(channel_index)}"
-enabled = true
-
-[routes.radio_to_matrix]
-source_adapters = ["radio"]
-dest_adapters = ["matrix"]
-directionality = "source_to_dest"
-source_channel = "{_escape_toml_string(channel_index)}"
-dest_room = "{_escape_toml_string(room_id)}"
-enabled = true
+    yaml_content = f"""\
+runtime:
+  name: live-bridge-test
+logging:
+  level: DEBUG
+  format: text
+storage:
+  backend: sqlite
+  path: '{_yaml_escape(str(tmp_path / "test.sqlite"))}'
+adapters:
+  matrix:
+    matrix:
+      adapter_kind: real
+      enabled: true
+      homeserver: '{_yaml_escape(homeserver)}'
+      user_id: '{_yaml_escape(user_id)}'
+      access_token: '{_yaml_escape(access_token)}'
+      room_allowlist: ['{_yaml_escape(room_id)}']
+  meshtastic:
+    radio:
+      adapter_kind: real
+      enabled: true
+      {meshtastic_connection_block}
+routes:
+  matrix_to_radio:
+    source_adapters: [matrix]
+    dest_adapters: [radio]
+    directionality: source_to_dest
+    source_room: '{_yaml_escape(room_id)}'
+    dest_channel: '{_yaml_escape(channel_index)}'
+    enabled: true
+  radio_to_matrix:
+    source_adapters: [radio]
+    dest_adapters: [matrix]
+    directionality: source_to_dest
+    source_channel: '{_yaml_escape(channel_index)}'
+    dest_room: '{_yaml_escape(room_id)}'
+    enabled: true
 """
 
-    toml_path = tmp_path / "live-bridge-test.toml"
-    toml_path.write_text(toml_content, encoding="utf-8")
-    return toml_path
+    yaml_path = tmp_path / "live-bridge-test.yaml"
+    yaml_path.write_text(yaml_content, encoding="utf-8")
+    return yaml_path
+
+
+# Temporary compatibility alias — scheduled for removal once all live test
+# callers switch to ``write_live_bridge_yaml``.  The ``write_live_bridge_toml``
+# name is kept so existing imports do not break during the TOML→YAML
+# migration; it now writes YAML, not TOML.
+write_live_bridge_toml = write_live_bridge_yaml

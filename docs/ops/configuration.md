@@ -1,33 +1,40 @@
 # Configuration Reference
 
-MEDRE uses TOML configuration files as the primary configuration source. Environment variables provide overrides for every config field and are useful for secrets and container deployments. Path defaults follow the XDG Base Directory Specification, with a single-directory `MEDRE_HOME` mode for Docker and Kubernetes.
+MEDRE uses YAML configuration files as the primary configuration source. Environment variables provide overrides for every config field and are useful for secrets and container deployments. Path defaults follow the XDG Base Directory Specification, with a single-directory `MEDRE_HOME` mode for Docker and Kubernetes.
 
 The configuration system is only used by the MEDRE runtime (`medre run`). Library consumers construct adapter configs directly in Python — no config file needed.
+
+MEDRE accepts a boring subset of YAML: explicit mappings and sequences only.
+No anchors, aliases, merge keys, or custom tags are supported. Values that
+YAML could misread must be quoted — Matrix room IDs (`"!room:server"`), MXIDs
+(`"@user:server"`), channel IDs where string semantics matter (`"0"`), and
+path placeholders like `"{state}/medre.sqlite"`.
 
 ## Configuration Search Order
 
 The runtime locates its config file by searching in this order:
 
 1. `--config` CLI flag — explicit path. Exits with error if file does not exist.
-2. `MEDRE_CONFIG` environment variable — full path to a TOML file.
-3. `$MEDRE_HOME/config.toml` — if `MEDRE_HOME` is set.
-4. XDG config path — `~/.config/medre/config.toml` (or `$XDG_CONFIG_HOME/medre/config.toml`).
-5. `./medre.toml` — fallback in the current working directory.
+2. `MEDRE_CONFIG` environment variable — full path to a YAML file.
+3. `$MEDRE_HOME/config.yaml` — if `MEDRE_HOME` is set.
+4. XDG config path — `~/.config/medre/config.yaml` (or `$XDG_CONFIG_HOME/medre/config.yaml`).
+5. `./medre.yaml` — fallback in the current working directory.
 
-The first file found wins. If no file is found, the runtime exits with `ConfigNotFoundError`.
+The loader accepts `.yaml` and `.yml` extensions and rejects `.toml` with a
+clear error. The first file found wins. If no file is found, the runtime exits with `ConfigNotFoundError`.
 
 Use `medre config check` to verify which file is loaded and whether it parses correctly.
 
-## TOML Schema Reference
+## YAML Schema Reference
 
-### `[runtime]`
+### `runtime`
 
 Top-level runtime behaviour.
 
-```toml
-[runtime]
-name = "medre"                  # instance name (informational)
-shutdown_timeout_seconds = 10   # graceful shutdown deadline in seconds
+```yaml
+runtime:
+  name: medre # instance name (informational)
+  shutdown_timeout_seconds: 10 # graceful shutdown deadline in seconds
 ```
 
 | Field                      | Type   | Default   | Description                                                       |
@@ -35,12 +42,12 @@ shutdown_timeout_seconds = 10   # graceful shutdown deadline in seconds
 | `name`                     | string | `"medre"` | Instance name used in logs and diagnostics.                       |
 | `shutdown_timeout_seconds` | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit. |
 
-### `[logging]`
+### `logging`
 
-```toml
-[logging]
-level = "INFO"    # INFO, DEBUG, WARNING, ERROR
-format = "text"   # text or json
+```yaml
+logging:
+  level: INFO # INFO, DEBUG, WARNING, ERROR
+  format: text # text or json
 ```
 
 | Field    | Type   | Default  | Description                                                                               |
@@ -48,9 +55,9 @@ format = "text"   # text or json
 | `level`  | string | `"INFO"` | Log level for the `medre.*` logger namespace. One of `INFO`, `DEBUG`, `WARNING`, `ERROR`. |
 | `format` | string | `"text"` | Output format. `text` for human-readable, `json` for structured logging.                  |
 
-`level` controls MEDRE logs only — dependency libraries (nio, meshtastic, aiohttp, etc.) inherit the root logger level (`WARNING`) unless explicitly configured via `[logging.overrides]`.
+`level` controls MEDRE logs only — dependency libraries (nio, meshtastic, aiohttp, etc.) inherit the root logger level (`WARNING`) unless explicitly configured via `logging.overrides`.
 
-#### `[logging.overrides]` — Troubleshooting Escape Hatch
+#### `logging.overrides` — Troubleshooting Escape Hatch
 
 Per-logger level overrides for dependency libraries. Each key is a Python logger name and the value is a log level string. This is a troubleshooting tool — add overrides only when debugging an integration issue, then remove them.
 
@@ -70,20 +77,21 @@ Per-logger level overrides for dependency libraries. Each key is a Python logger
 
 Example troubleshooting config (remove after debugging):
 
-```toml
-[logging.overrides]
-aiohttp = "INFO"
-meshtastic = "DEBUG"
-nio = "DEBUG"
-"nio.crypto.log" = "WARNING"
+```yaml
+logging:
+  overrides:
+    aiohttp: INFO
+    meshtastic: DEBUG
+    nio: DEBUG
+    "nio.crypto.log": WARNING
 ```
 
-### `[storage]`
+### `storage`
 
-```toml
-[storage]
-backend = "sqlite"
-path = "{state}/medre.sqlite"
+```yaml
+storage:
+  backend: sqlite
+  path: "{state}/medre.sqlite"
 ```
 
 | Field     | Type   | Default    | Description                                                                                               |
@@ -93,28 +101,32 @@ path = "{state}/medre.sqlite"
 
 MEDRE uses a single configured storage backend holding canonical events, delivery receipts, native references, replay state, and cross-adapter relationships. There is no per-adapter database. Transport-owned local files (Matrix crypto stores, LXMF identities) live under adapter state roots.
 
-### `[adapters.matrix.INSTANCE_NAME]`
+### `adapters.matrix.<instance_name>`
 
-Each Matrix adapter instance is a separate TOML table. `INSTANCE_NAME` becomes the `adapter_id` unless overridden.
+Each Matrix adapter instance is a separate mapping entry under `adapters.matrix`.
+The `<instance_name>` key becomes the `adapter_id` unless overridden.
 
-```toml
-[adapters.matrix.main]
-enabled = true
-adapter_kind = "real"
-adapter_id = "main"
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = "<matrix-access-token>"
-room_allowlist = ["!room:example.com"]
-sync_timeout_ms = 30000
-encryption_mode = "plaintext"
+```yaml
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: real
+      adapter_id: main
+      homeserver: "https://matrix.example.com"
+      user_id: "@bot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!room:example.com"
+      sync_timeout_ms: 30000
+      encryption_mode: plaintext
 ```
 
 | Field                     | Type           | Default       | Description                                                                               |
 | ------------------------- | -------------- | ------------- | ----------------------------------------------------------------------------------------- |
 | `enabled`                 | bool           | `true`        | Whether this adapter instance is active.                                                  |
 | `adapter_kind`            | string         | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                    |
-| `adapter_id`              | string         | instance name | Unique identifier. Defaults to the TOML table key.                                        |
+| `adapter_id`              | string         | instance name | Unique identifier. Defaults to the mapping key.                                           |
 | `homeserver`              | string         | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                           |
 | `user_id`                 | string         | _(required)_  | Fully-qualified Matrix user ID.                                                           |
 | `access_token`            | string         | `""`          | Access token. Treat as a secret.                                                          |
@@ -126,25 +138,29 @@ encryption_mode = "plaintext"
 
 `device_id` and `store_path` are not operator-facing — the runtime derives them automatically.
 
-### `[adapters.meshtastic.INSTANCE_NAME]`
+### `adapters.meshtastic.<instance_name>`
 
-```toml
-[adapters.meshtastic.radio]
-enabled = false
-adapter_kind = "real"
-adapter_id = "radio"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-host = "meshtastic.local"
-port = 4403
-ble_address = ""
-origin_label = "MyMesh"
-default_channel = 0
-channel_mapping = {0 = "general", 1 = "admin"}
-message_delay_seconds = 0.5
-startup_backlog_suppress_seconds = 5.0
-sync_timeout_ms = 30000
-outbound_mode = "enabled"
+```yaml
+adapters:
+  meshtastic:
+    radio:
+      enabled: false
+      adapter_kind: real
+      adapter_id: radio
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      host: meshtastic.local
+      port: 4403
+      ble_address: ""
+      origin_label: MyMesh
+      default_channel: 0
+      channel_mapping:
+        "0": general
+        "1": admin
+      message_delay_seconds: 0.5
+      startup_backlog_suppress_seconds: 5.0
+      sync_timeout_ms: 30000
+      outbound_mode: enabled
 ```
 
 | Field                              | Type               | Default       | Description                                                                           |
@@ -173,25 +189,27 @@ outbound_mode = "enabled"
 | `"enabled"`     | Normal  | Normal                             | Normal                                  |
 | `"listen_only"` | Normal  | Suppressed — non-retryable failure | `outbound suppressed: listen_only mode` |
 
-### `[adapters.meshcore.INSTANCE_NAME]`
+### `adapters.meshcore.<instance_name>`
 
-```toml
-[adapters.meshcore.radio]
-enabled = false
-adapter_kind = "real"
-adapter_id = "radio"
-connection_type = "serial"
-serial_port = "/dev/ttyUSB0"
-serial_baudrate = 115200
-host = "meshcore.local"
-port = 4000
-ble_address = ""
-origin_label = ""
-default_channel = 0
-message_delay_seconds = 0.5
-identity = "my-node"
-pubkey = "abcdef0123456789"
-node_config = {}
+```yaml
+adapters:
+  meshcore:
+    radio:
+      enabled: false
+      adapter_kind: real
+      adapter_id: radio
+      connection_type: serial
+      serial_port: /dev/ttyUSB0
+      serial_baudrate: 115200
+      host: meshcore.local
+      port: 4000
+      ble_address: ""
+      origin_label: ""
+      default_channel: 0
+      message_delay_seconds: 0.5
+      identity: my-node
+      pubkey: abcdef0123456789
+      node_config: {}
 ```
 
 | Field                                           | Type       | Default       | Description                                                        |
@@ -210,23 +228,25 @@ node_config = {}
 | `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                                   |
 | `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.                     |
 
-### `[adapters.lxmf.INSTANCE_NAME]`
+### `adapters.lxmf.<instance_name>`
 
-```toml
-[adapters.lxmf.local]
-enabled = false
-adapter_kind = "real"
-adapter_id = "local"
-connection_type = "reticulum"
-display_name = "MEDRE"
-stamp_cost = 8
-default_delivery_method = "direct"
-origin_label = ""
-default_channel = 0
-message_delay_seconds = 0.5
-metadata_embedding = true
-identity_path = "{state}/lxmf/identity"
-# storage_path = "{state}/lxmf/router"  # required for reticulum mode
+```yaml
+adapters:
+  lxmf:
+    local:
+      enabled: false
+      adapter_kind: real
+      adapter_id: local
+      connection_type: reticulum
+      display_name: MEDRE
+      stamp_cost: 8
+      default_delivery_method: direct
+      origin_label: ""
+      default_channel: 0
+      message_delay_seconds: 0.5
+      metadata_embedding: true
+      identity_path: "{state}/lxmf/identity"
+      # storage_path: "{state}/lxmf/router"  # required for reticulum mode
 ```
 
 | Field                     | Type   | Default       | Description                                                                                        |
@@ -245,23 +265,26 @@ identity_path = "{state}/lxmf/identity"
 | `identity_path`           | string | `None`        | Path to Reticulum identity file. Supports path placeholders.                                       |
 | `storage_path`            | string | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders. |
 
-### `[routes.ROUTE_ID]`
+### `routes.<route_id>`
 
-Routes define named bridges between adapters. `ROUTE_ID` contains only alphanumeric characters, underscores, or hyphens, and must be unique across the entire configuration.
+Routes define named bridges between adapters. `route_id` contains only alphanumeric characters, underscores, or hyphens, and must be unique across the entire configuration.
 
-Routes reference **adapter IDs** (the resolved `adapter_id` value), not the TOML section key.
+Routes reference **adapter IDs** (the resolved `adapter_id` value), not the mapping key.
 
-```toml
-[routes.matrix_radio_bridge]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "bidirectional"
-enabled = true
-source_room = "!room:example.com"
-dest_channel = "1"
-
-[routes.matrix_radio_bridge.policy]
-allowed_event_types = ["message.created"]
+```yaml
+routes:
+  matrix_radio_bridge:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: bidirectional
+    enabled: true
+    source_room: "!room:example.com"
+    dest_channel: "1"
+    policy:
+      allowed_event_types:
+        - message.created
 ```
 
 | Field                                                           | Type           | Default            | Description                                                                                             |
@@ -272,7 +295,7 @@ allowed_event_types = ["message.created"]
 | `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                    |
 | `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`. |
 
-#### Route Policy (`[routes.ROUTE_ID.policy]`)
+#### Route Policy (`routes.<route_id>.policy`)
 
 Optional static allowlist policy. A policy denial produces a `status="suppressed"` receipt with `failure_kind="policy_suppressed"` — not retryable. All policy fields are config-file-only (not settable via environment variables).
 
@@ -287,17 +310,19 @@ Optional static allowlist policy. A policy denial produces a `status="suppressed
 
 Unknown keys are rejected at config load time. Allowlist values must be arrays of strings.
 
-#### Route Retry (`[routes.ROUTE_ID.retry]`)
+#### Route Retry (`routes.<route_id>.retry`)
 
-Optional per-route retry policy for transient delivery failures. Both the route retry and the global `[retry]` section need to be enabled for automatic retry.
+Optional per-route retry policy for transient delivery failures. Both the route retry and the global `retry` section need to be enabled for automatic retry.
 
-```toml
-[routes.matrix_radio_bridge.retry]
-enabled = true
-max_attempts = 3
-backoff_base = 2.0
-max_delay_seconds = 60.0
-jitter = false
+```yaml
+routes:
+  matrix_radio_bridge:
+    retry:
+      enabled: true
+      max_attempts: 3
+      backoff_base: 2.0
+      max_delay_seconds: 60.0
+      jitter: false
 ```
 
 | Field               | Type  | Default | Description                                          |
@@ -312,13 +337,18 @@ jitter = false
 
 For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route into N channel→room pairs:
 
-```toml
-[routes.multi_channel_bridge]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "bidirectional"
-enabled = true
-channel_room_map = {0 = "!general:example.com", 1 = "!admin:example.com"}
+```yaml
+routes:
+  multi_channel_bridge:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: bidirectional
+    enabled: true
+    channel_room_map:
+      "0": "!general:example.com"
+      "1": "!admin:example.com"
 ```
 
 Limitations:
@@ -329,16 +359,17 @@ Limitations:
 - Channel keys 0–7 only (Meshtastic supports up to 8 channels).
 - Each room ID unique across the map.
 
-### `[runtime.limits]`
+### `runtime.limits`
 
 Controls concurrency and drain behaviour for the pipeline and replay engine. If absent, all limits use their defaults.
 
-```toml
-[runtime.limits]
-max_inflight_deliveries = 100            # max concurrent delivery coroutines (default: 100)
-max_inflight_replay_events = 100         # max concurrent replay event deliveries (default: 100)
-shutdown_drain_timeout_seconds = 10      # seconds to drain in-flight deliveries on shutdown (default: 10)
-delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (default: 1.0)
+```yaml
+runtime:
+  limits:
+    max_inflight_deliveries: 100 # max concurrent delivery coroutines (default: 100)
+    max_inflight_replay_events: 100 # max concurrent replay event deliveries (default: 100)
+    shutdown_drain_timeout_seconds: 10 # seconds to drain in-flight deliveries on shutdown (default: 10)
+    delivery_acquire_timeout_seconds: 1.0 # seconds to wait for a delivery slot (default: 1.0)
 ```
 
 | Field                              | Type  | Default | Description                                                                             |
@@ -350,16 +381,16 @@ delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (
 
 When capacity is exhausted, new deliveries are permanently rejected with `error="delivery_capacity_exceeded"` — no retry.
 
-### `[retry]`
+### `retry`
 
 Controls the background RetryWorker that polls for due retry receipts.
 
-```toml
-[retry]
-enabled = true
-interval_seconds = 10.0
-batch_size = 20
-max_attempts = 3
+```yaml
+retry:
+  enabled: true
+  interval_seconds: 10.0
+  batch_size: 20
+  max_attempts: 3
 ```
 
 | Field              | Type  | Default | Description                                                         |
@@ -402,7 +433,7 @@ Setting `MEDRE_HOME` switches to single-directory mode — all paths resolve und
 
 ```text
 MEDRE_HOME=/opt/medre
-Config:    /opt/medre/config.toml
+Config:    /opt/medre/config.yaml
 State:     /opt/medre/state/
 Data:      /opt/medre/data/
 Cache:     /opt/medre/cache/
@@ -413,12 +444,12 @@ Use this mode for Docker, Kubernetes, portable deployments, and development. See
 ```bash
 export MEDRE_HOME=/opt/medre
 medre paths    # verify paths
-medre run      # reads /opt/medre/config.toml
+medre run      # reads /opt/medre/config.yaml
 ```
 
 ## Path Placeholders
 
-TOML config values for filesystem paths support placeholder expansion:
+YAML config values for filesystem paths support placeholder expansion:
 
 | Placeholder | Expands to       |
 | ----------- | ---------------- |
@@ -430,19 +461,21 @@ TOML config values for filesystem paths support placeholder expansion:
 
 Example:
 
-```toml
-[storage]
-path = "{state}/medre.sqlite"
+```yaml
+storage:
+  path: "{state}/medre.sqlite"
 
-[adapters.lxmf.local]
-identity_path = "{state}/lxmf/identity"
+adapters:
+  lxmf:
+    local:
+      identity_path: "{state}/lxmf/identity"
 ```
 
 Unrecognized placeholders cause a `MedrePathsError` at startup.
 
 ## Environment Variable Overrides
 
-Environment variables always override TOML values. The original TOML config is never mutated — a new frozen config is returned with overrides applied.
+Environment variables always override YAML values. The original YAML config is never mutated — a new frozen config is returned with overrides applied.
 
 Three categories:
 
@@ -458,10 +491,10 @@ Three categories:
 | `MEDRE_CONFIG`                                   | Config file path                          | _(not set)_            |
 | `MEDRE_DB_PATH`                                  | `storage.path`                            | `{state}/medre.sqlite` |
 | `MEDRE_LOG_LEVEL`                                | `logging.level`                           | `INFO`                 |
-| `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | `limits.max_inflight_deliveries`          | _(TOML default)_       |
-| `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | `limits.max_inflight_replay_events`       | _(TOML default)_       |
-| `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | `limits.shutdown_drain_timeout_seconds`   | _(TOML default)_       |
-| `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | _(TOML default)_       |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | `limits.max_inflight_deliveries`          | _(YAML default)_       |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | `limits.max_inflight_replay_events`       | _(YAML default)_       |
+| `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | `limits.shutdown_drain_timeout_seconds`   | _(YAML default)_       |
+| `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | _(YAML default)_       |
 
 ### Retry Config via Env
 
@@ -544,7 +577,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `identity_path`   | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
 | `origin_label`    | `MEDRE_ADAPTER__LOCAL__ORIGIN_LABEL=MyMesh`                 |
 
-Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use TOML instead.
+Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use YAML instead.
 
 ### Unsupported Legacy Prefixes
 
@@ -568,7 +601,7 @@ export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>"
 
 ### Env-First Adapter Creation
 
-You can create entirely new adapters from environment variables when the token does not match any TOML adapter:
+You can create entirely new adapters from environment variables when the token does not match any YAML adapter:
 
 ```bash
 # Matrix adapter — created from env
@@ -598,19 +631,19 @@ MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY=source_to_dest
 MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 ```
 
-Token is an arbitrary uppercase identifier. Route ID defaults to the lowercased, hyphenated token. Advanced route features (policy, retry) still require TOML.
+Token is an arbitrary uppercase identifier. Route ID defaults to the lowercased, hyphenated token. Advanced route features (policy, retry) still require YAML.
 
 ### Full Env-Only Example
 
-Minimal TOML + all adapters and routes from env:
+Minimal YAML + all adapters and routes from env:
 
-```toml
-[runtime]
-name = "env-deployed"
+```yaml
+runtime:
+  name: env-deployed
 
-[storage]
-backend = "sqlite"
-path = "/var/medre/medre.db"
+storage:
+  backend: sqlite
+  path: /var/medre/medre.db
 ```
 
 ```bash
@@ -674,10 +707,10 @@ This command prompts securely, keeps the token out of terminal output, and saves
 2. Re-run `medre adapter matrix auth login` to obtain a fresh token.
 3. Rotate the config file and delete any artifacts containing the old token.
 
-**Bearer token in config files:** When using a TOML config file, the `access_token` field is plaintext. Treat the config file as a secret:
+**Bearer token in config files:** When using a YAML config file, the `access_token` field is plaintext. Treat the config file as a secret:
 
 ```bash
-chmod 600 /path/to/config.toml
+chmod 600 /path/to/config.yaml
 ```
 
 Use a dedicated Matrix bot account for MEDRE — never a personal account. Test with a throwaway room before bridging to real rooms. `MatrixConfig.__repr__()` redacts tokens to a short 3-character preview (`syt_…`) to prevent accidental leakage in logs and debug output.
@@ -738,7 +771,7 @@ medre config check [--config PATH]
     Load and validate config. Exits with code 2 on errors.
 
 medre config sample
-    Print a complete sample TOML config to stdout.
+    Print a complete sample YAML config to stdout.
 
 medre paths
     Print all resolved MEDRE paths.
@@ -900,9 +933,9 @@ adapter = MatrixAdapter(config)
 ### Runtime (Config File Driven)
 
 ```bash
-medre config sample > ~/.config/medre/config.toml
+medre config sample > ~/.config/medre/config.yaml
 # Edit config, then:
 medre run
 # or:
-medre run --config /path/to/config.toml
+medre run --config /path/to/config.yaml
 ```

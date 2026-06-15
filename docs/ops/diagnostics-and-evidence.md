@@ -50,7 +50,7 @@ PYTHONPATH=src medre smoke --json > bundle-smoke.json
 Use a config with `storage.backend = "sqlite"` and `storage.path`:
 
 ```bash
-PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.toml --json > bundle-smoke-persist.json
+PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.yaml --json > bundle-smoke-persist.json
 ```
 
 ### Failure Drills (all available drills)
@@ -60,7 +60,7 @@ for drill in renderer_failure adapter_permanent_failure \
   adapter_transient_failure capacity_rejection shutdown_rejection \
   replay_duplicate_risk degraded_live_health; do
   PYTHONPATH=src medre smoke --drill "$drill" \
-    --config /tmp/medre-sqlite.toml --json \
+    --config /tmp/medre-sqlite.yaml --json \
     >> bundle-drills.jsonl
 done
 ```
@@ -71,7 +71,7 @@ done
 for drill in bad_route_config all_adapters_build_fail \
   partial_degraded_startup all_adapters_start_fail; do
   PYTHONPATH=src medre smoke --drill "$drill" \
-    --config /tmp/medre-sqlite.toml --json \
+    --config /tmp/medre-sqlite.yaml --json \
     >> bundle-preruntime.jsonl
 done
 ```
@@ -321,14 +321,14 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
 ### Operator Smoke Command
 
 ```bash
-# Default: uses shipped fake-bridge-smoke.toml
+# Default: uses shipped fake-bridge-smoke.yaml
 PYTHONPATH=src medre smoke
 
 # JSON report (machine-readable)
 PYTHONPATH=src medre smoke --json
 
 # Explicit config
-PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.toml
+PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.yaml
 
 # Custom message text
 PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
@@ -404,17 +404,17 @@ pytest -m "" -v
 | Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
 | Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `pip install -e ".[meshtastic]"`                   |
 | Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `pip install -e ".[matrix]"`                       |
-| Config validation exits 2                           | TOML syntax or credential error | `medre config check --config <path>`               |
+| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`               |
 | Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
 
 ## Diagnostics Commands
 
 ```bash
 # Build-time snapshot (no adapter start, no I/O)
-PYTHONPATH=src medre diagnostics --config examples/configs/fake-bridge-smoke.toml
+PYTHONPATH=src medre diagnostics --config examples/configs/fake-bridge-smoke.yaml
 
 # Live health refresh (starts adapters, polls health, stops)
-PYTHONPATH=src medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.toml
+PYTHONPATH=src medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.yaml
 ```
 
 ### Storage Path in Diagnostics
@@ -499,7 +499,7 @@ In addition to unidirectional criteria for each direction:
 Run pre-runtime drills with:
 
 ```bash
-PYTHONPATH=src medre smoke --drill <drill_name> --config /tmp/medre-sqlite.toml --json
+PYTHONPATH=src medre smoke --drill <drill_name> --config /tmp/medre-sqlite.yaml --json
 ```
 
 Each drill **exits 0** when the expected failure is correctly observed. The drill report documents what exit code and error the runtime would produce if run independently.
@@ -612,10 +612,10 @@ Check adapter status at any time:
 
 ```bash
 # Build-time snapshot (no adapter start)
-medre diagnostics --config my-bridge.toml
+medre diagnostics --config my-bridge.yaml
 
 # Live health refresh (starts and polls adapters)
-medre diagnostics --refresh-health --config my-bridge.toml
+medre diagnostics --refresh-health --config my-bridge.yaml
 ```
 
 ## Shutdown Delivery Evidence
@@ -635,7 +635,7 @@ Pending retry receipts and outbox items are not cancelled during shutdown. They 
 Use `--snapshot-on-shutdown PATH` to capture the final runtime state including counters, route stats, and the bounded event buffer:
 
 ```bash
-medre run --config my-bridge.toml --snapshot-on-shutdown /tmp/shutdown-snapshot.json
+medre run --config my-bridge.yaml --snapshot-on-shutdown /tmp/shutdown-snapshot.json
 ```
 
 ## Live Validation Boundaries

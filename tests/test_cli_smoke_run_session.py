@@ -18,11 +18,11 @@ import pytest
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
-    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    assert path is not None, "examples/configs/fake-bridge-smoke.yaml not found"
     return path
 
 

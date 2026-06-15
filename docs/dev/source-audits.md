@@ -317,7 +317,7 @@ No upper-bound caps are used.
 
 A gap analysis is maintained at `/tmp/medre-spec-impl-gaps.md`. Notable items:
 
-1. **TOML key inconsistency** -- some runbook examples use `type = "fake"` for
+1. **Config key inconsistency** -- some legacy runbook examples used `type = "fake"` for
    adapters and `source`/`target` keys for routes, but the actual config schema
    uses `adapter_kind` and `source_adapters`/`dest_adapters` (arrays).
 2. **Truncation enforcement status** -- some runbooks claim truncation is not

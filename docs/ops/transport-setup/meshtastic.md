@@ -154,7 +154,7 @@ Invalid configurations raise `MeshtasticConfigError` before any connection attem
 
 ### Multi-Instance Env Overrides
 
-Override an existing TOML adapter:
+Override an existing YAML adapter:
 
 ```bash
 export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0

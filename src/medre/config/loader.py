@@ -1,9 +1,9 @@
-"""TOML configuration file loader for MEDRE.
+"""YAML configuration file loader for MEDRE.
 
 Public API
 ----------
 :func:`load_config`
-    Find, read, and parse the TOML config file into a :class:`RuntimeConfig`.
+    Find, read, and parse the YAML config file into a :class:`RuntimeConfig`.
 :func:`find_config`
     Search for a config file along the defined search path.
 :class:`ConfigSource`
@@ -13,12 +13,12 @@ Public API
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, Self, TypeVar
 
+from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
@@ -51,9 +51,59 @@ class ConfigSource(Enum):
 
     EXPLICIT = "explicit"  # --config CLI flag
     MEDRE_CONFIG = "MEDRE_CONFIG"  # $MEDRE_CONFIG env var
-    MEDRE_HOME = "MEDRE_HOME"  # $MEDRE_HOME/config.toml
+    MEDRE_HOME = "MEDRE_HOME"  # $MEDRE_HOME/config.yaml
     XDG = "xdg"  # XDG default config path
-    LOCAL = "local"  # ./medre.toml
+    LOCAL = "local"  # ./medre.yaml
+
+
+# ---------------------------------------------------------------------------
+# Extension / format guards
+# ---------------------------------------------------------------------------
+
+#: File suffixes accepted as YAML config.
+_SUPPORTED_YAML_SUFFIXES: frozenset[str] = frozenset({".yaml", ".yml"})
+
+#: File suffix that used to be supported and now must produce a clear error.
+_TOML_SUFFIX = ".toml"
+
+#: Exact message operators see when pointing at a TOML config file.
+_TOML_NOT_SUPPORTED_MSG = (
+    "TOML config files are no longer supported; use YAML (.yaml or .yml)."
+)
+
+
+def _validate_config_suffix(path: Path) -> None:
+    """Ensure *path* has a supported YAML extension.
+
+    Raises
+    ------
+    ConfigFileError
+        If the suffix is ``.toml`` (with the dedicated migration message) or
+        any other unsupported extension.
+    """
+    suffix = path.suffix.lower()
+    if suffix in _SUPPORTED_YAML_SUFFIXES:
+        return
+    if suffix == _TOML_SUFFIX:
+        raise ConfigFileError(f"{path}: {_TOML_NOT_SUPPORTED_MSG}")
+    raise ConfigFileError(
+        f"{path}: unsupported config file extension {suffix!r}; " f"use .yaml or .yml"
+    )
+
+
+def _discover_yaml(directory: Path, basename: str) -> Path | None:
+    """Find ``{basename}.yaml`` or ``{basename}.yml`` in *directory*.
+
+    ``.yaml`` is preferred over ``.yml``.  Returns ``None`` if neither
+    file exists.
+    """
+    yaml_path = directory / f"{basename}.yaml"
+    if yaml_path.is_file():
+        return yaml_path
+    yml_path = directory / f"{basename}.yml"
+    if yml_path.is_file():
+        return yml_path
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -68,11 +118,18 @@ def find_config(
 
     Search order:
 
-    1. *explicit_path* — if provided, must exist.
+    1. *explicit_path* — if provided, must exist and have a supported
+       YAML extension (``.yaml`` or ``.yml``).
     2. ``MEDRE_CONFIG`` environment variable.
-    3. ``$MEDRE_HOME/config.toml`` — when ``MEDRE_HOME`` is set.
-    4. XDG config path (``~/.config/medre/config.toml`` by default).
-    5. ``./medre.toml`` — current working directory.
+    3. ``$MEDRE_HOME/config.yaml`` (or ``.yml``) — when ``MEDRE_HOME`` is
+       set.
+    4. XDG config path (``~/.config/medre/config.yaml`` by default, or
+       ``.yml``).
+    5. ``./medre.yaml`` (or ``./medre.yml``) — current working directory.
+
+    ``.yaml`` is preferred over ``.yml`` in every auto-discovery step.
+    A ``.toml`` file found via an explicit path or ``MEDRE_CONFIG`` is
+    rejected with :data:`_TOML_NOT_SUPPORTED_MSG`.
 
     Parameters
     ----------
@@ -89,13 +146,15 @@ def find_config(
     ConfigNotFoundError
         If no configuration file could be found.
     ConfigFileError
-        If *explicit_path* is provided but does not exist.
+        If *explicit_path* is provided but does not exist, or if any
+        discovered path has an unsupported extension.
     """
     # 1. Explicit path
     if explicit_path is not None:
         p = Path(explicit_path).expanduser().resolve()
         if not p.is_file():
             raise ConfigFileError(f"Config file not found: {p} (specified explicitly)")
+        _validate_config_suffix(p)
         return (p, ConfigSource.EXPLICIT)
 
     checked: list[str] = []
@@ -105,29 +164,32 @@ def find_config(
     if medre_config:
         p = Path(medre_config).expanduser().resolve()
         if p.is_file():
+            _validate_config_suffix(p)
             return (p, ConfigSource.MEDRE_CONFIG)
         checked.append(f"MEDRE_CONFIG={p}")
 
-    # 3. MEDRE_HOME/config.toml
+    # 3. MEDRE_HOME/config.yaml (or .yml)
     medre_home = os.environ.get("MEDRE_HOME", "").strip()
     if medre_home:
-        p = Path(medre_home).expanduser().resolve() / "config.toml"
-        if p.is_file():
-            return (p, ConfigSource.MEDRE_HOME)
-        checked.append(f"MEDRE_HOME config={p}")
+        home = Path(medre_home).expanduser().resolve()
+        found = _discover_yaml(home, "config")
+        if found is not None:
+            return (found, ConfigSource.MEDRE_HOME)
+        checked.append(f"MEDRE_HOME config={home / 'config.yaml'}")
 
     # 4. XDG default
     paths = resolve()
-    p = paths.config_file
-    if p.is_file():
-        return (p, ConfigSource.XDG)
-    checked.append(f"XDG config={p}")
+    if paths.config_dir is not None:
+        found = _discover_yaml(paths.config_dir, "config")
+        if found is not None:
+            return (found, ConfigSource.XDG)
+    checked.append(f"XDG config={paths.config_file}")
 
-    # 5. Local ./medre.toml
-    p = Path.cwd() / "medre.toml"
-    if p.is_file():
-        return (p, ConfigSource.LOCAL)
-    checked.append(f"local={p}")
+    # 5. Local ./medre.yaml (or .yml)
+    found = _discover_yaml(Path.cwd(), "medre")
+    if found is not None:
+        return (found, ConfigSource.LOCAL)
+    checked.append(f"local={Path.cwd() / 'medre.yaml'}")
 
     # Nothing found
     raise ConfigNotFoundError(
@@ -145,7 +207,7 @@ def find_config(
 def load_config(
     config_path: str | Path | None = None,
 ) -> tuple[RuntimeConfig, ConfigSource, MedrePaths]:
-    """Find, read, and parse the MEDRE TOML configuration.
+    """Find, read, and parse the MEDRE YAML configuration.
 
     Parameters
     ----------
@@ -163,23 +225,25 @@ def load_config(
     ConfigNotFoundError
         No config file found.
     ConfigFileError
-        Config file cannot be read or parsed as valid TOML.
+        Config file cannot be read or parsed as valid YAML, or the file
+        has an unsupported extension (e.g. ``.toml``).
     """
     path, source = find_config(config_path)
     paths = replace(resolve(), config_file=path)
 
     try:
-        raw = path.read_bytes()
+        raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ConfigFileError(f"Cannot read config file {path}: {exc}") from exc
 
     try:
-        data = tomllib.loads(raw.decode("utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-        raise ConfigFileError(f"Invalid TOML in {path}: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ConfigFileError(f"Config file {path} did not produce a TOML table")
+        data = parse_yaml_config(raw, str(path))
+    except StrictYAMLError:
+        # StrictYAMLError already inherits ConfigFileError and carries a
+        # clean, secret-safe message.
+        raise
+    except UnicodeDecodeError as exc:
+        raise ConfigFileError(f"Config file {path} is not valid UTF-8: {exc}") from exc
 
     config = _parse_runtime_config(data, paths)
     return (config, source, paths)
@@ -191,7 +255,12 @@ def load_config(
 
 
 def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
-    """Construct a :class:`RuntimeConfig` from a parsed TOML dict."""
+    """Construct a :class:`RuntimeConfig` from a parsed YAML dict.
+
+    The *data* argument is a plain ``dict`` produced by the strict YAML
+    parser; the runtime config construction is format-agnostic and feeds
+    plain dict/list/scalar values into the typed config dataclasses.
+    """
     # [runtime] section
     runtime_data = data.get("runtime", {})
     runtime = RuntimeOptions(
@@ -217,7 +286,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     _validate_logging_section(log_data)
 
     # Canonicalise level/format/overrides so downstream consumers always
-    # receive normalised values regardless of TOML casing.
+    # receive normalised values regardless of source config casing.
     canonical_level = log_data.get("level", "INFO").upper()
     canonical_format = log_data.get("format", "text").lower()
     raw_overrides = log_data.get("overrides", {})
@@ -345,7 +414,7 @@ def _validate_retry_section(retry_data: dict) -> None:
 
 
 def _validate_logging_section(log_data: dict) -> None:
-    """Validate [logging] section types and values from raw TOML data.
+    """Validate [logging] section types and values from raw config data.
 
     Validates that *level*, *format*, and *overrides* have correct types
     and permissible values **before** constructing :class:`LoggingConfig`,

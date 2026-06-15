@@ -150,7 +150,7 @@ ARTIFACT_PLAN: dict[str, list[str]] = {
     "required": [
         "summary.json",
         "run-metadata.json",
-        "config.toml",
+        "config.yaml",
         "synapse.log",
         "meshtasticd.log",
     ],
@@ -179,7 +179,7 @@ direct PipelineRunner tests cannot produce it without a full MedreApp.
 _BASE_REQUIRED = [
     "summary.json",
     "run-metadata.json",
-    "config.toml",
+    "config.yaml",
 ]
 
 _BEST_EFFORT: list[str] = [
@@ -475,44 +475,72 @@ def _read_run_metadata(run_dir: Path) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# Redacted config.toml writing
+# Redacted config.yaml writing
 # ---------------------------------------------------------------------------
 
 
+def _yaml_escape_string(value: str) -> str:
+    """Escape a string for a double-quoted YAML scalar.
+
+    Doubles backslashes and double quotes so the value survives a YAML
+    double-quoted scalar parse round-trip.  Other control characters are
+    left to the consumer; the redacted snapshot only contains operator-safe
+    strings at this point.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _format_yaml_value(value: Any, indent: int = 0) -> str:
+    """Format a single scalar value as a YAML inline representation.
+
+    Used for non-collection leaf values.  Returns the text placed after
+    the ``key: `` separator.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return f'"{_yaml_escape_string(value)}"'
+    # Lists and complex objects fall back to a JSON inline scalar so the
+    # file remains valid YAML (YAML is a JSON superset).
+    return json.dumps(value)
+
+
+def _write_yaml_lines(
+    data: dict[str, Any],
+    lines: list[str],
+    indent: int = 0,
+) -> None:
+    """Append YAML mapping lines for *data* into *lines*.
+
+    Nested mappings recurse with increased indentation.  Non-mapping
+    values are rendered as inline scalars.
+    """
+    pad = "  " * indent
+    for key, value in sorted(data.items()):
+        safe_key = str(key)
+        if isinstance(value, dict):
+            lines.append(f"{pad}{safe_key}:")
+            _write_yaml_lines(value, lines, indent + 1)
+        else:
+            lines.append(f"{pad}{safe_key}: {_format_yaml_value(value)}")
+
+
 def _write_redacted_config(run_dir: Path, config_data: dict[str, Any]) -> Path | None:
-    """Write a redacted ``config.toml`` to the run directory.
+    """Write a redacted ``config.yaml`` to the run directory.
 
     Uses :func:`redact_config_snapshot` to strip secrets before writing.
-    Returns the path on success, ``None`` on failure.
+    The output is a hand-rolled YAML mapping (no third-party YAML
+    dependency).  Returns the path on success, ``None`` on failure.
     """
     redacted = redact_config_snapshot(config_data)
-    config_path = run_dir / "config.toml"
+    config_path = run_dir / "config.yaml"
     try:
         lines: list[str] = []
-        for key, value in sorted(redacted.items()):
-            if isinstance(value, str):
-                lines.append(f'{key} = "{value}"')
-            elif isinstance(value, bool):
-                lines.append(f'{key} = {"true" if value else "false"}')
-            elif isinstance(value, (int, float)):
-                lines.append(f"{key} = {value}")
-            elif value is None:
-                lines.append(f"# {key} = null")
-            elif isinstance(value, dict):
-                lines.append(f"\n[{key}]")
-                for sub_key, sub_value in sorted(value.items()):
-                    if isinstance(sub_value, str):
-                        lines.append(f'{sub_key} = "{sub_value}"')
-                    elif isinstance(sub_value, bool):
-                        lines.append(f'{sub_key} = {"true" if sub_value else "false"}')
-                    elif isinstance(sub_value, (int, float)):
-                        lines.append(f"{sub_key} = {sub_value}")
-                    elif sub_value is None:
-                        lines.append(f"# {sub_key} = null")
-                    else:
-                        lines.append(f"# {sub_key} = {json.dumps(sub_value)}")
-            else:
-                lines.append(f"# {key} = {json.dumps(value)}")
+        _write_yaml_lines(redacted, lines, 0)
         config_path.write_text("\n".join(lines) + "\n")
         return config_path
     except Exception:
@@ -879,11 +907,11 @@ def collect_docker_bridge_artifacts(
         except Exception as exc:
             errors.append(f"Storage artifact export failed: {exc}")
 
-    # -- Step 7: Write redacted config.toml -----------------------------------
-    config_toml_path: Path | None = None
-    config_data_for_toml: dict[str, Any] | None = None
+    # -- Step 7: Write redacted config.yaml -----------------------------------
+    config_yaml_path: Path | None = None
+    config_data_for_yaml: dict[str, Any] | None = None
     if metadata and metadata.get("config_data"):
-        config_data_for_toml = metadata["config_data"]
+        config_data_for_yaml = metadata["config_data"]
     # Fall back to existing config snapshot env data (collected later).
 
     # -- Step 8: Collect log artifacts from metadata --------------------------
@@ -906,12 +934,12 @@ def collect_docker_bridge_artifacts(
     except Exception as exc:
         errors.append(f"Config snapshot collection failed: {exc}")
 
-    # Write config.toml if not already written from metadata.
-    if config_toml_path is None:
-        if config_data_for_toml is not None:
-            config_toml_path = _write_redacted_config(run_dir, config_data_for_toml)
+    # Write config.yaml if not already written from metadata.
+    if config_yaml_path is None:
+        if config_data_for_yaml is not None:
+            config_yaml_path = _write_redacted_config(run_dir, config_data_for_yaml)
         elif config_snapshot is not None:
-            config_toml_path = _write_redacted_config(run_dir, config_snapshot)
+            config_yaml_path = _write_redacted_config(run_dir, config_snapshot)
 
     # -- Step 11: Collect inspect artifacts (best-effort) --------------------
     inspect_artifacts: list[str] = []
@@ -991,8 +1019,8 @@ def collect_docker_bridge_artifacts(
         all_artifact_paths[name] = str(path)
     for name, path in log_artifacts_from_meta.items():
         all_artifact_paths[name] = str(path)
-    if config_toml_path is not None:
-        all_artifact_paths["config.toml"] = str(config_toml_path)
+    if config_yaml_path is not None:
+        all_artifact_paths["config.yaml"] = str(config_yaml_path)
 
     summary = build_summary(
         status=status,

@@ -53,7 +53,7 @@ class MedrePathsError(Exception):
 # Immutable paths container
 # ---------------------------------------------------------------------------
 
-_CONFIG_FILENAME: str = "config.toml"
+_CONFIG_FILENAME: str = "config.yaml"
 _APP_SUBDIR: str = "medre"
 
 
@@ -71,7 +71,7 @@ class MedrePaths:
         ``MEDRE_HOME`` is set because that mode uses a single config file
         rather than a directory.
     config_file:
-        Absolute path to the main TOML configuration file.
+        Absolute path to the main YAML configuration file.
     state_dir:
         Directory for mutable application state.
     data_dir:

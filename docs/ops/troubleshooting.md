@@ -29,44 +29,49 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 Config errors are caught before any adapter construction or I/O. The runtime never starts.
 
-### Bad TOML Syntax
+### Bad YAML Syntax
 
 ```bash
-cat > /tmp/bad-syntax.toml <<'EOF'
-[runtime]
-name = "test
+cat > /tmp/bad-syntax.yaml <<'EOF'
+runtime:
+  name: "test
 EOF
-PYTHONPATH=src medre config check --config /tmp/bad-syntax.toml
+PYTHONPATH=src medre config check --config /tmp/bad-syntax.yaml
 ```
 
-Expected: exit code **2**, human-readable TOML parse error on stderr. Fix the syntax and re-run.
+Expected: exit code **2**, human-readable YAML parse error on stderr. Fix the syntax and re-run.
 
 ### Unknown Adapter Ref in Route
 
 ```bash
-cat > /tmp/bad-route.toml <<'EOF'
-[runtime]
-name = "bad-route"
+cat > /tmp/bad-route.yaml <<'EOF'
+runtime:
+  name: bad-route
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.matrix.bot]
-enabled = true
-adapter_kind = "fake"
+adapters:
+  matrix:
+    bot:
+      enabled: true
+      adapter_kind: fake
 
-[routes.bad]
-source_adapters = ["bot"]
-dest_adapters = ["nonexistent_adapter"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  bad:
+    source_adapters:
+      - bot
+    dest_adapters:
+      - nonexistent_adapter
+    directionality: source_to_dest
+    enabled: true
 EOF
-PYTHONPATH=src medre routes validate --config /tmp/bad-route.toml
+PYTHONPATH=src medre routes validate --config /tmp/bad-route.yaml
 ```
 
 Expected: exit code **2**, `RouteValidationError` naming the unknown adapter.
 
-Fix: verify `dest_adapters` references match adapter IDs in `[adapters.*]`.
+Fix: verify `dest_adapters` references match adapter IDs in the `adapters.*` sections.
 
 Or run the drill:
 
@@ -81,7 +86,7 @@ The drill exits 0 (it caught the expected error correctly).
 ### Duplicate Route ID
 
 ```bash
-PYTHONPATH=src medre routes validate --config /tmp/dup-route.toml
+PYTHONPATH=src medre routes validate --config /tmp/dup-route.yaml
 ```
 
 Expected: exit code **2**, duplicate route ID error. Rename one of the routes.
@@ -100,23 +105,26 @@ Expected: drill exits 0 (catches the error correctly), report includes `simulati
 
 ```bash
 # Create a config requesting a real adapter without its SDK installed.
-cat > /tmp/missing-sdk.toml <<'EOF'
-[runtime]
-name = "missing-sdk"
+cat > /tmp/missing-sdk.yaml <<'EOF'
+runtime:
+  name: missing-sdk
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.matrix.bot]
-enabled = true
-adapter_kind = "real"
-homeserver = "https://example.com"
-user_id = "@bot:example.com"
-access_token = "fake"
-room_allowlist = ["!room:example.com"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    bot:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://example.com"
+      user_id: "@bot:example.com"
+      access_token: fake
+      room_allowlist:
+        - "!room:example.com"
+      encryption_mode: plaintext
 EOF
-PYTHONPATH=src medre diagnostics --config /tmp/missing-sdk.toml
+PYTHONPATH=src medre diagnostics --config /tmp/missing-sdk.yaml
 ```
 
 Expected: if **all** adapters fail to build: exit code **3**. If **some** succeed: exit code **0** with `startup_health == "degraded"`.
@@ -128,15 +136,15 @@ Fix: install the missing SDK (`pip install -e ".[matrix]"`), then re-run `medre 
 ### Invalid Storage Path
 
 ```bash
-cat > /tmp/bad-storage.toml <<'EOF'
-[runtime]
-name = "bad-storage"
+cat > /tmp/bad-storage.yaml <<'EOF'
+runtime:
+  name: bad-storage
 
-[storage]
-backend = "sqlite"
-path = "/nonexistent/readonly/path/medre.sqlite"
+storage:
+  backend: sqlite
+  path: /nonexistent/readonly/path/medre.sqlite
 EOF
-PYTHONPATH=src medre run --config /tmp/bad-storage.toml
+PYTHONPATH=src medre run --config /tmp/bad-storage.yaml
 ```
 
 Expected: exit code **3**, error about directory creation or file open failure.
@@ -282,9 +290,9 @@ stop timeout, its background task is cancelled and a second bounded grace
 period (also `stop_timeout_seconds`) is applied.
 
 The RetryWorker stop timeout is wired from
-`config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML section,
+`config.runtime.shutdown_timeout_seconds` (the `runtime` section,
 default `10`) — the same value that governs per-adapter stop deadlines.
-It is not a `[retry]` config field. The standalone `RetryWorker`
+It is not a `retry` config field. The standalone `RetryWorker`
 constructor has its own default of `5.0` seconds, which only applies
 when constructing the worker outside `MedreApp`; the app-managed
 worker always uses the runtime config value above.
@@ -346,10 +354,10 @@ and emits a `retry_abandoned` event. See
 
 #### Tuning shutdown timeouts
 
-```toml
-[runtime]
-shutdown_timeout_seconds = 15      # per-adapter stop deadline (default 10)
-shutdown_drain_timeout_seconds = 20  # in-flight work drain deadline (default 10)
+```yaml
+runtime:
+  shutdown_timeout_seconds: 15 # per-adapter stop deadline (default 10)
+  shutdown_drain_timeout_seconds: 20 # in-flight work drain deadline (default 10)
 ```
 
 Increasing these values gives adapters more time to clean up, but also makes
@@ -444,17 +452,20 @@ A route progresses through: Configuration -> Validation -> Registration -> Match
 
 ### Configuration
 
-Routes are defined in TOML under `[routes.<id>]` sections:
+Routes are defined in YAML under `routes.<id>`:
 
-```toml
-[routes.matrix_to_radio]
-source_adapters = ["bot1"]
-dest_adapters = ["longfast"]
-directionality = "source_to_dest"
-enabled = true
-
-[routes.matrix_to_radio.policy]
-allowed_event_types = ["message.created"]
+```yaml
+routes:
+  matrix_to_radio:
+    source_adapters:
+      - bot1
+    dest_adapters:
+      - longfast
+    directionality: source_to_dest
+    enabled: true
+    policy:
+      allowed_event_types:
+        - message.created
 ```
 
 ### Validation
@@ -463,9 +474,9 @@ At startup, `validate_route_adapter_refs` checks that every enabled route's `sou
 
 ### Registration
 
-1. `build_runtime_routes` converts TOML configs into `Route` objects. Bidirectional routes expand into two internal routes.
+1. `build_runtime_routes` converts route configs into `Route` objects. Bidirectional routes expand into two internal routes.
 2. `check_route_loops` runs DFS cycle detection.
-3. Routes register on the `Router` in TOML declaration order.
+3. Routes register on the `Router` in config declaration order.
 4. Registration is all-or-nothing.
 
 ### Matching
@@ -508,7 +519,7 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 **Cause:** An enabled route references an adapter ID not present in the runtime configuration.
 
-**Fix:** Check the route's `source_adapters` and `dest_adapters` against the `[adapters.*]` sections. Either add the missing adapter or update the route references.
+**Fix:** Check the route's `source_adapters` and `dest_adapters` against the `adapters.*` sections. Either add the missing adapter or update the route references.
 
 ### Cycle Warning at Startup
 
@@ -522,17 +533,17 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 ### Disabled Routes Not Matching
 
-**Symptom:** A route is defined in TOML but events never match it.
+**Symptom:** A route is defined in the config but events never match it.
 
-**Cause:** The route has `enabled = false`.
+**Cause:** The route has `enabled: false`.
 
-**Fix:** Set `enabled = true` and restart.
+**Fix:** Set `enabled: true` and restart.
 
 ### Stale Route Configuration
 
-**Symptom:** Route behavior doesn't match expectations after a TOML edit.
+**Symptom:** Route behavior doesn't match expectations after a config edit.
 
-**Cause:** Route configuration is loaded at startup. Runtime changes to TOML files are not picked up until restart.
+**Cause:** Route configuration is loaded at startup. Runtime changes to YAML files are not picked up until restart.
 
 **Fix:** Restart the MEDRE process after route configuration changes.
 

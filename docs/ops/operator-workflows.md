@@ -94,7 +94,7 @@ then the database is stale and needs a reset.
 4. **Rerun MEDRE.**
 
    ```bash
-   medre run --config your-config.toml
+   medre run --config your-config.yaml
    ```
 
    The next startup creates a fresh database with the current schema shape.
@@ -127,15 +127,15 @@ The fastest way to confirm MEDRE works on your machine. No network, no credentia
 
 ```bash
 # Source checkout (in-memory storage, ephemeral)
-medre smoke --config examples/configs/fake-bridge-smoke.toml --json
+medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
 
-# Source checkout (persistent SQLite — edit config to set storage.backend = "sqlite")
-medre smoke --config /tmp/medre-sqlite.toml --json
+# Source checkout (persistent SQLite — edit config to set storage.backend: sqlite)
+medre smoke --config /tmp/medre-sqlite.yaml --json
 
 # Installed package
-medre config sample > /tmp/medre-walkthrough.toml
-# Edit storage section: backend = "sqlite", path = "/tmp/medre-walkthrough.db"
-medre smoke --config /tmp/medre-walkthrough.toml --json
+medre config sample > /tmp/medre-walkthrough.yaml
+# Edit storage section: backend: sqlite, path: /tmp/medre-walkthrough.db
+medre smoke --config /tmp/medre-walkthrough.yaml --json
 ```
 
 Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
@@ -430,7 +430,7 @@ Replay is a lower-level tool for recovery and verification, not part of daily op
 1. Dry run first:
 
    ```bash
-   medre replay --mode DRY_RUN --config bridge.toml --event <event_id> --json
+   medre replay --mode DRY_RUN --config bridge.yaml --event <event_id> --json
    ```
 
 2. Review output — check which routes match and which events would be re-delivered.
@@ -438,7 +438,7 @@ Replay is a lower-level tool for recovery and verification, not part of daily op
 3. If preview is correct, best-effort replay:
 
    ```bash
-   medre replay --mode BEST_EFFORT --config bridge.toml --event <event_id> --json
+   medre replay --mode BEST_EFFORT --config bridge.yaml --event <event_id> --json
    ```
 
 4. Trace the replayed events:
@@ -453,7 +453,7 @@ Replay requires a config file with declared routes and adapters. It is config-re
 
 ### Replay and Retry Interaction
 
-`BEST_EFFORT` replay through a route with retry enabled will create retry receipts if delivery fails transiently. These carry `source='replay'` and `replay_run_id`. The `medre replay` command does not start the RetryWorker. If the runtime is later started with `[retry] enabled = true`, the worker will discover and process these receipts.
+`BEST_EFFORT` replay through a route with retry enabled will create retry receipts if delivery fails transiently. These carry `source='replay'` and `replay_run_id`. The `medre replay` command does not start the RetryWorker. If the runtime is later started with `retry.enabled: true`, the worker will discover and process these receipts.
 
 ## Specific Investigation Workflows
 
@@ -542,16 +542,16 @@ The evidence bundle is designed to be safe to paste directly. Always review befo
 
 ## Env-Only Fake Deployment
 
-MEDRE can run entirely from environment variables without defining adapters or routes in TOML.
+MEDRE can run entirely from environment variables without defining adapters or routes in YAML.
 
-```toml
-# Minimal TOML
-[runtime]
-name = "env-deployed"
+```yaml
+# Minimal YAML
+runtime:
+  name: env-deployed
 
-[storage]
-backend = "sqlite"
-path = "/var/medre/medre.db"
+storage:
+  backend: sqlite
+  path: /var/medre/medre.db
 ```
 
 ```bash
@@ -574,7 +574,7 @@ export MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY=source_to_dest
 export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 
 # Run
-medre run --config /path/to/config.toml
+medre run --config /path/to/config.yaml
 ```
 
 Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens (`RADIO_A`, `MATRIX_FAKE`).
@@ -834,11 +834,11 @@ These are aggregate counters, not per-packet records. They reset on adapter rest
 
 ```bash
 # Pre-flight
-medre config check --config config.toml
-medre routes validate --config config.toml
+medre config check --config config.yaml
+medre routes validate --config config.yaml
 
-# Smoke test (use a config with storage.backend = "sqlite" for persistence)
-medre smoke --config config.toml --json
+# Smoke test (use a config with storage.backend: sqlite for persistence)
+medre smoke --config config.yaml --json
 
 # Inspect (primary path)
 medre inspect event <event_id> --storage-path /tmp/medre.db
@@ -856,8 +856,8 @@ medre evidence --storage-path /tmp/medre.db --json
 medre trace event <event_id> --storage-path /tmp/medre.db --json
 
 # Replay (recovery only)
-medre replay --mode DRY_RUN --config config.toml --event <event_id> --json
-medre replay --mode BEST_EFFORT --config config.toml --event <event_id> --json
+medre replay --mode DRY_RUN --config config.yaml --event <event_id> --json
+medre replay --mode BEST_EFFORT --config config.yaml --event <event_id> --json
 
 # Diagnostics
 medre diagnostics

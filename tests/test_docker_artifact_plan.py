@@ -33,7 +33,7 @@ class TestArtifactPlan:
         required = ARTIFACT_PLAN["required"]
         assert "summary.json" in required
         assert "run-metadata.json" in required
-        assert "config.toml" in required
+        assert "config.yaml" in required
         assert "synapse.log" in required
         assert "meshtasticd.log" in required
 
@@ -78,7 +78,7 @@ class TestGetArtifactPlan:
     def test_all_scenarios_share_base_required(self) -> None:
         for scenario in SUPPORTED_SCENARIOS:
             plan = get_artifact_plan(scenario)
-            for name in ("summary.json", "run-metadata.json", "config.toml"):
+            for name in ("summary.json", "run-metadata.json", "config.yaml"):
                 assert (
                     name in plan["required"]
                 ), f"{scenario} missing base required: {name}"
@@ -142,15 +142,15 @@ class TestCollectArtifactManifest:
     def test_reports_present_artifacts(self, tmp_path: Path) -> None:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
-        # Create summary.json and config.toml
+        # Create summary.json and config.yaml
         (run_dir / "summary.json").write_text("{}")
-        (run_dir / "config.toml").write_text("key = 'value'")
+        (run_dir / "config.yaml").write_text("key: value")
         (run_dir / "pytest-stdout.log").write_text("stdout")
         (run_dir / "pytest-stderr.log").write_text("stderr")
 
         manifest = _collect_artifact_manifest(run_dir)
         assert "summary.json" in manifest["artifact_paths"]
-        assert "config.toml" in manifest["artifact_paths"]
+        assert "config.yaml" in manifest["artifact_paths"]
         assert "pytest-stdout.log" in manifest["artifact_paths"]
         assert "pytest-stderr.log" in manifest["artifact_paths"]
 

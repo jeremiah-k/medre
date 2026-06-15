@@ -105,14 +105,14 @@ def _empty_runtime_evidence() -> dict[str, Any]:
 
 
 def _default_smoke_config_path() -> str | None:
-    """Return the shipped fake-bridge-smoke.toml path if it exists."""
+    """Return the shipped fake-bridge-smoke.yaml path if it exists."""
     # Walk up from this file to find the repo root (src/medre/runtime/smoke.py)
     this_dir = Path(__file__).resolve().parent
     candidate = (
         this_dir.parent.parent.parent
         / "examples"
         / "configs"
-        / "fake-bridge-smoke.toml"
+        / "fake-bridge-smoke.yaml"
     )
     if candidate.is_file():
         return str(candidate)
@@ -163,7 +163,7 @@ def _pick_source_adapter(app: MedreApp) -> tuple[str, Any]:
     """Select a deterministic source adapter for smoke injection.
 
     Prefers a Matrix-platform adapter (presentation layer) since
-    ``fake-bridge-smoke.toml`` routes originate from ``fake_matrix``.
+    ``fake-bridge-smoke.yaml`` routes originate from ``fake_matrix``.
     Falls back to the first adapter sorted alphabetically.
     """
     for aid in sorted(app.adapters.keys()):
@@ -306,8 +306,8 @@ async def run_fake_bridge_smoke(
     Parameters
     ----------
     config_path:
-        Path to TOML config file.  Defaults to
-        ``examples/configs/fake-bridge-smoke.toml`` when available.
+        Path to YAML config file.  Defaults to
+        ``examples/configs/fake-bridge-smoke.yaml`` when available.
     message_text:
         Body text for the injected event.
     storage_path:

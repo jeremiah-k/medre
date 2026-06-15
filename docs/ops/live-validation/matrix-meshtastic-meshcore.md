@@ -16,7 +16,7 @@ directions, and records evidence at each step.
 | Python               | 3.11 or later                                                           |
 | Package install      | `pip install -e ".[matrix,meshtastic]"` plus `pip install meshcore`     |
 | Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices |
-| Working 2-way config | Existing `medre.toml` with Matrix + Meshtastic already validated        |
+| Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated        |
 
 BLE is available as a fallback connection method for MeshCore. See
 [Bluetooth fallback](#bluetooth-fallback) below.
@@ -27,10 +27,10 @@ Do not modify the working config in place. Create a separate copy so the
 existing Matrix + Meshtastic bridge stays untouched.
 
 ```bash
-cp /path/to/medre.toml /path/to/medre-3way.toml
+cp /path/to/medre.yaml /path/to/medre-3way.yaml
 ```
 
-All subsequent edits go into `medre-3way.toml`.
+All subsequent edits go into `medre-3way.yaml`.
 
 ## Step 2: Identify serial ports
 
@@ -59,19 +59,21 @@ If `by-id` entries do not appear, check:
 
 ## Step 3: Configure MeshCore serial
 
-Add a MeshCore adapter section to `medre-3way.toml`. Use `connection_type =
-"serial"` and the stable path from Step 2.
+Add a MeshCore adapter section to `medre-3way.yaml`. Use `connection_type: serial`
+and the stable path from Step 2.
 
-```toml
-[adapters.meshcore.meshcore]
-enabled = true
-adapter_kind = "real"
-adapter_id = "meshcore"
-connection_type = "serial"
-serial_port = "/dev/serial/by-id/usb-MeshCore_CDC_AABBCCDD"
-serial_baudrate = 115200
-origin_label = "MEDRE"
-default_channel = 0
+```yaml
+adapters:
+  meshcore:
+    meshcore:
+      enabled: true
+      adapter_kind: real
+      adapter_id: meshcore
+      connection_type: serial
+      serial_port: /dev/serial/by-id/usb-MeshCore_CDC_AABBCCDD
+      serial_baudrate: 115200
+      origin_label: MEDRE
+      default_channel: 0
 ```
 
 ### MeshCore channel index
@@ -81,7 +83,7 @@ diagnostics prove otherwise. To verify channel mapping after the runtime starts,
 check the MeshCore self-info output in the diagnostics report:
 
 ```bash
-medre diagnostics --refresh-health --config /path/to/medre-3way.toml
+medre diagnostics --refresh-health --config /path/to/medre-3way.yaml
 ```
 
 If the diagnostics show a different default channel, update `default_channel`
@@ -92,15 +94,17 @@ accordingly.
 If serial is not viable (no USB port, device does not enumerate a serial
 device, or cable issues), MeshCore can connect over BLE:
 
-```toml
-[adapters.meshcore.meshcore]
-enabled = true
-adapter_kind = "real"
-adapter_id = "meshcore"
-connection_type = "ble"
-ble_address = "AA:BB:CC:DD:EE:FF"
-origin_label = "MEDRE"
-default_channel = 0
+```yaml
+adapters:
+  meshcore:
+    meshcore:
+      enabled: true
+      adapter_kind: real
+      adapter_id: meshcore
+      connection_type: ble
+      ble_address: "AA:BB:CC:DD:EE:FF"
+      origin_label: MEDRE
+      default_channel: 0
 ```
 
 BLE requires a pre-scan and may need stale BlueZ device cleanup before
@@ -114,16 +118,20 @@ access token, room allowlist, and encryption mode should remain exactly as they
 are in the working 2-way config. The Matrix adapter continues to use the same
 credentials and rooms.
 
-Verify the Matrix section in `medre-3way.toml` is unchanged from the original:
+Verify the Matrix section in `medre-3way.yaml` is unchanged from the original:
 
-```toml
-[adapters.matrix.matrix]
-enabled = true
-homeserver = ""                        # existing value — do not change
-user_id = ""                           # existing value — do not change
-access_token = ""                      # existing value — do not change
-room_allowlist = ["!exampleRoom1:example.org", "!exampleRoom2:example.org"]
-encryption_mode = "e2ee_optional"
+```yaml
+adapters:
+  matrix:
+    matrix:
+      enabled: true
+      homeserver: "" # existing value — do not change
+      user_id: "" # existing value — do not change
+      access_token: "" # existing value — do not change
+      room_allowlist:
+        - "!exampleRoom1:example.org"
+        - "!exampleRoom2:example.org"
+      encryption_mode: e2ee_optional
 ```
 
 ## Step 5: Verify Meshtastic adapter
@@ -131,13 +139,15 @@ encryption_mode = "e2ee_optional"
 The Meshtastic adapter section should also be unchanged. Confirm the serial
 port matches the device identified in Step 2:
 
-```toml
-[adapters.meshtastic.radio]
-enabled = true
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "MEDRE"
-mmrelay_compatibility = true
+```yaml
+adapters:
+  meshtastic:
+    radio:
+      enabled: true
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: MEDRE
+      mmrelay_compatibility: true
 ```
 
 If the Meshtastic device path shifted (due to adding the MeshCore device),
@@ -151,46 +161,55 @@ config. Below it, add four one-way MeshCore routes. This gives clear visibility
 into each MeshCore leg and makes it easy to isolate failures without disrupting
 the known-good Matrix↔Meshtastic bridge.
 
-```toml
+```yaml
 # --- Preserved: existing Matrix ↔ Meshtastic route (do not remove) -----------
 # The bidirectional (or paired one-way) Matrix↔Meshtastic route from the
 # original 2-way config is already present above. Keep it unchanged.
 
-# Matrix room → MeshCore channel 0
-[routes.matrix_to_meshcore]
-source_adapters = ["matrix"]
-dest_adapters = ["meshcore"]
-directionality = "source_to_dest"
-enabled = true
-source_room = "!exampleRoom1:example.org"
-dest_channel = "0"
+routes:
+  # Matrix room → MeshCore channel 0
+  matrix_to_meshcore:
+    source_adapters:
+      - matrix
+    dest_adapters:
+      - meshcore
+    directionality: source_to_dest
+    enabled: true
+    source_room: "!exampleRoom1:example.org"
+    dest_channel: "0"
 
-# MeshCore channel 0 → Matrix room
-[routes.meshcore_to_matrix]
-source_adapters = ["meshcore"]
-dest_adapters = ["matrix"]
-directionality = "source_to_dest"
-enabled = true
-source_channel = "0"
-dest_room = "!exampleRoom1:example.org"
+  # MeshCore channel 0 → Matrix room
+  meshcore_to_matrix:
+    source_adapters:
+      - meshcore
+    dest_adapters:
+      - matrix
+    directionality: source_to_dest
+    enabled: true
+    source_channel: "0"
+    dest_room: "!exampleRoom1:example.org"
 
-# Meshtastic channel → MeshCore channel 0
-[routes.meshtastic_to_meshcore]
-source_adapters = ["radio"]
-dest_adapters = ["meshcore"]
-directionality = "source_to_dest"
-enabled = true
-source_channel = "0"
-dest_channel = "0"
+  # Meshtastic channel → MeshCore channel 0
+  meshtastic_to_meshcore:
+    source_adapters:
+      - radio
+    dest_adapters:
+      - meshcore
+    directionality: source_to_dest
+    enabled: true
+    source_channel: "0"
+    dest_channel: "0"
 
-# MeshCore channel 0 → Meshtastic channel
-[routes.meshcore_to_meshtastic]
-source_adapters = ["meshcore"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = true
-source_channel = "0"
-dest_channel = "0"
+  # MeshCore channel 0 → Meshtastic channel
+  meshcore_to_meshtastic:
+    source_adapters:
+      - meshcore
+    dest_adapters:
+      - radio
+    directionality: source_to_dest
+    enabled: true
+    source_channel: "0"
+    dest_channel: "0"
 ```
 
 Adjust room IDs and channel indices to match your actual setup.
@@ -248,7 +267,7 @@ evidence from three sources.
 Run the bridge with debug logging to capture full adapter activity:
 
 ```bash
-medre run --config /path/to/medre-3way.toml
+medre run --config /path/to/medre-3way.yaml
 ```
 
 Search the log output for marker strings to confirm each routing direction
@@ -274,7 +293,7 @@ medre inspect event <event-id>
 ### Diagnostics snapshot
 
 ```bash
-medre diagnostics --refresh-health --config /path/to/medre-3way.toml
+medre diagnostics --refresh-health --config /path/to/medre-3way.yaml
 ```
 
 This probes each adapter's health endpoint and prints a summary table. All
@@ -283,18 +302,18 @@ three adapters should report healthy.
 For a shutdown snapshot:
 
 ```bash
-medre run --config /path/to/medre-3way.toml --snapshot-on-shutdown /tmp/medre-3way-snapshot.json
+medre run --config /path/to/medre-3way.yaml --snapshot-on-shutdown /tmp/medre-3way-snapshot.json
 ```
 
 ## What Success Looks Like
 
 A complete serial-first 3-way bridge bring-up produces:
 
-1. **Config** - `medre-3way.toml` exists alongside the original `medre.toml`,
+1. **Config** - `medre-3way.yaml` exists alongside the original `medre.yaml`,
    original untouched.
 2. **Serial discovery** - Stable `/dev/serial/by-id/` paths identified for
    Meshtastic and MeshCore devices.
-3. **Startup** - `medre run --config medre-3way.toml` starts without errors,
+3. **Startup** - `medre run --config medre-3way.yaml` starts without errors,
    all three adapters report healthy.
 4. **Matrix to Meshtastic** (preserved) - Marker message posted in Matrix room
    appears on the Meshtastic radio.

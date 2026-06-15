@@ -143,8 +143,8 @@ cannot emit duplicate `retry_stopped` / `retry_abandoned` events:
 Both stages use the `stop_timeout_seconds` grace. The **standalone
 default** (when constructing `RetryWorker` directly) is **5.0 s**.
 When the worker is created by `MedreApp.start()`, it is wired from
-`config.runtime.shutdown_timeout_seconds` (the `[runtime]` TOML
-section, default **10.0 s**), not from any `[retry]` config field —
+`config.runtime.shutdown_timeout_seconds` (the `runtime` section,
+default **10.0 s**), not from any `retry` config field —
 see the shutdown sequence below.
 
 Outcomes:

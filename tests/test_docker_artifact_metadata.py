@@ -2,7 +2,7 @@
 
 Covers TestReadRunMetadata, TestWriteRedactedConfig, TestCollectLogArtifacts,
 TestStructuredMetadataPrecedence, TestArtifactPathsInSummary,
-TestMissingArtifactsReported, and TestConfigTomlRedaction.
+TestMissingArtifactsReported, and TestConfigYamlRedaction.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class TestReadRunMetadata:
 
 
 class TestWriteRedactedConfig:
-    def test_writes_redacted_toml(self, tmp_path: Path) -> None:
+    def test_writes_redacted_yaml(self, tmp_path: Path) -> None:
         config = {
             "synapse_image": "synapse:latest",
             "access_token": "syt_secret123",
@@ -60,7 +60,7 @@ class TestWriteRedactedConfig:
         }
         result = _write_redacted_config(tmp_path, config)
         assert result is not None
-        assert result.name == "config.toml"
+        assert result.name == "config.yaml"
         content = result.read_text()
         assert "synapse:latest" in content
         assert "access_token" not in content
@@ -83,7 +83,7 @@ class TestWriteRedactedConfig:
         result = _write_redacted_config(tmp_path, config)
         assert result is not None
         content = result.read_text()
-        assert "timeout" in content  # present as comment
+        assert "timeout" in content  # present as null
         assert "test" in content
 
 
@@ -390,7 +390,7 @@ class TestArtifactPathsInSummary:
         # But run-metadata.json, synapse.log, meshtasticd.log should be.
         assert "run-metadata.json" in missing_req
 
-    def test_config_toml_written_from_env_snapshot(self, tmp_path: Path) -> None:
+    def test_config_yaml_written_from_env_snapshot(self, tmp_path: Path) -> None:
         mock_runner = self._make_mock_runner(stdout="1 passed in 1s\n")
         summary = collect_docker_bridge_artifacts(
             scenario="matrix_to_meshtastic",
@@ -399,10 +399,10 @@ class TestArtifactPathsInSummary:
             _run_pytest=mock_runner,
             _storage_export_fn=lambda rd, sp, eid: {},
         )
-        # config.toml should be written from env-based config snapshot.
+        # config.yaml should be written from env-based config snapshot.
         run_dir = Path(summary["run_directory"])
-        assert (run_dir / "config.toml").exists()
-        assert "config.toml" in summary["artifact_paths"]
+        assert (run_dir / "config.yaml").exists()
+        assert "config.yaml" in summary["artifact_paths"]
 
     def test_storage_artifact_paths_included(self, tmp_path: Path) -> None:
         """Paths from storage export are included in artifact_paths."""
@@ -521,12 +521,12 @@ class TestMissingArtifactsReported:
 
 
 # ---------------------------------------------------------------------------
-# Redaction in config.toml
+# Redaction in config.yaml
 # ---------------------------------------------------------------------------
 
 
-class TestConfigTomlRedaction:
-    """Verify config.toml is redacted when written by the collector."""
+class TestConfigYamlRedaction:
+    """Verify config.yaml is redacted when written by the collector."""
 
     @staticmethod
     def _make_mock_runner(returncode: int = 0, stdout: str = "", stderr: str = ""):
@@ -535,7 +535,7 @@ class TestConfigTomlRedaction:
 
         return _runner
 
-    def test_config_toml_redacts_secrets(self, tmp_path: Path) -> None:
+    def test_config_yaml_redacts_secrets(self, tmp_path: Path) -> None:
         mock_runner = self._make_mock_runner(stdout="1 passed in 1s\n")
         summary = collect_docker_bridge_artifacts(
             scenario="matrix_to_meshtastic",
@@ -549,14 +549,14 @@ class TestConfigTomlRedaction:
             _storage_export_fn=lambda rd, sp, eid: {},
         )
         run_dir = Path(summary["run_directory"])
-        config_path = run_dir / "config.toml"
+        config_path = run_dir / "config.yaml"
         assert config_path.exists()
         content = config_path.read_text()
         # Images should be present (not secrets).
         assert "synapse:test" in content
         assert "meshtasticd:test" in content
 
-    def test_config_toml_from_metadata_redacts(self, tmp_path: Path) -> None:
+    def test_config_yaml_from_metadata_redacts(self, tmp_path: Path) -> None:
         mock_runner = self._make_mock_runner(stdout="1 passed in 1s\n")
         base_dir = tmp_path / "runs"
         call_count = 0
@@ -586,7 +586,7 @@ class TestConfigTomlRedaction:
             _storage_export_fn=lambda rd, sp, eid: {},
         )
         run_dir = Path(summary["run_directory"])
-        config_path = run_dir / "config.toml"
+        config_path = run_dir / "config.yaml"
         assert config_path.exists()
         content = config_path.read_text()
         assert "syt_super_secret_token" not in content
