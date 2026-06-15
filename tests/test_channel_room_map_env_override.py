@@ -54,7 +54,7 @@ def _make_config_with_parsed_channel_room_map() -> RuntimeConfig:
     shapes after normalization.
     """
     route = RouteConfig.from_dict(
-        "toml-route",
+        "config-route",
         {
             "source_adapters": ["adapter-a"],
             "dest_adapters": ["adapter-b"],
@@ -87,7 +87,7 @@ def test_env_override_preserves_parsed_channel_room_map(
     re-parse rejected the entry objects (they are neither ``str`` nor
     ``dict``).
     """
-    monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+    monkeypatch.setenv("MEDRE_ROUTE__CONFIG_ROUTE__ENABLED", "false")
     base = _make_config_with_parsed_channel_room_map()
     result = apply_env_overrides(base)
 

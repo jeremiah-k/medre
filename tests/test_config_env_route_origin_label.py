@@ -1,7 +1,7 @@
 """Env-override round-trip preserves route origin labels.
 
 Regression tests for a bug in :func:`apply_route_overrides`: when an
-existing TOML route was overridden via ``MEDRE_ROUTE__<TOKEN>__<FIELD>``
+existing config route was overridden via ``MEDRE_ROUTE__<TOKEN>__<FIELD>``
 env vars, the override path rebuilt the route through
 :meth:`RouteConfig.from_dict` and carried forward complex fields
 (``channel_room_map``, ``policy``, ``retry``) but **dropped**
@@ -9,7 +9,7 @@ env vars, the override path rebuilt the route through
 
 Origin labels are not settable via env vars (they are not in the
 supported field list), so they must survive the override round-trip
-exactly as declared in TOML.  Dropping them silently reset relay-prefix
+exactly as declared in the config file.  Dropping them silently reset relay-prefix
 attribution for overridden routes.
 
 These tests construct a base config with a labelled route, override an
@@ -57,9 +57,9 @@ def _config_with_route(
     source_origin_label: str | None,
     dest_origin_label: str | None,
 ) -> RuntimeConfig:
-    """RuntimeConfig with one TOML route carrying the given origin labels."""
+    """RuntimeConfig with one config route carrying the given origin labels."""
     route = RouteConfig(
-        route_id="toml-route",
+        route_id="config-route",
         source_adapters=("adapter-a",),
         dest_adapters=("adapter-b",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
@@ -78,7 +78,7 @@ def _config_with_route(
 
 def _override_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set a benign env override that triggers the override round-trip path."""
-    monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+    monkeypatch.setenv("MEDRE_ROUTE__CONFIG_ROUTE__ENABLED", "false")
 
 
 # ===========================================================================
@@ -87,7 +87,7 @@ def _override_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestEnvOverridePreservesOriginLabels:
-    """Overriding an existing TOML route via env must not drop its
+    """Overriding an existing config route via env must not drop its
     source_origin_label / dest_origin_label."""
 
     def test_both_labels_preserved_on_override(
@@ -170,7 +170,7 @@ class TestEnvOverridePreservesOriginLabelsWithComplexFields:
         from medre.config.routes import BridgePolicy, RouteRetryConfig
 
         route = RouteConfig(
-            route_id="toml-route",
+            route_id="config-route",
             source_adapters=("adapter-a",),
             dest_adapters=("adapter-b",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,

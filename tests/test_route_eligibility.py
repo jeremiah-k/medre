@@ -1304,11 +1304,11 @@ class TestRouteReferencesDisabledAdapter:
 
 
 class TestRouteAdapterIdOverride:
-    """Routes resolve against the adapter_id (not the TOML section key).
+    """Routes resolve against the adapter_id (not the config section key).
 
     When an adapter sets adapter_id = "custom", the route must reference
     "custom" — not the section key.  This tests the route engine's
-    understanding of adapter IDs, not the TOML parsing (which happens in
+    understanding of adapter IDs, not the config parsing (which happens in
     test_config_loader.py).
     """
 
@@ -1316,7 +1316,7 @@ class TestRouteAdapterIdOverride:
         """Routes must reference the resolved adapter_id value."""
         rcs = RouteConfigSet(routes=(_rc("r1", ("custom_id",), ("b",)),))
         router = Router()
-        # "custom_id" is the resolved adapter_id (not a TOML section key)
+        # "custom_id" is the resolved adapter_id (not a config section key)
         result = register_routes(router, rcs, frozenset({"custom_id", "b"}))
         assert result.eligibility.registered == ("r1",)
 
