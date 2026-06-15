@@ -235,6 +235,10 @@ def load_config(
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ConfigFileError(f"Cannot read config file {path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        # read_text decodes the file as UTF-8; a non-UTF-8 config is wrapped
+        # as ConfigFileError rather than leaking the raw codec error.
+        raise ConfigFileError(f"Config file {path} is not valid UTF-8: {exc}") from exc
 
     try:
         data = parse_yaml_config(raw, str(path))
@@ -242,8 +246,6 @@ def load_config(
         # StrictYAMLError already inherits ConfigFileError and carries a
         # clean, secret-safe message.
         raise
-    except UnicodeDecodeError as exc:
-        raise ConfigFileError(f"Config file {path} is not valid UTF-8: {exc}") from exc
 
     config = _parse_runtime_config(data, paths)
     return (config, source, paths)

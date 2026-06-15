@@ -425,3 +425,20 @@ runtime configuration.
 **Breaking:** existing `medre.toml`/`config.toml` files must be renamed to
 `.yaml` (or `.yml`). The loader accepts `.yaml`/`.yml` and rejects `.toml`
 with a clear error.
+
+---
+
+## Wrap Invalid-UTF-8 Config Files as ConfigFileError
+
+`load_config` decoded the config file with
+``path.read_text(encoding="utf-8")`` inside a ``try`` that only caught
+``OSError``. A ``UnicodeDecodeError`` (a ``ValueError``, not an ``OSError``)
+from a non-UTF-8 config escaped unwrapped, surfacing as a raw codec
+traceback to the operator. The ``except UnicodeDecodeError`` handler
+existed but guarded ``parse_yaml_config``, which receives an
+already-decoded ``str`` and could never raise it.
+
+**Fixed:** the ``UnicodeDecodeError`` handler now guards the ``read_text``
+call, so a non-UTF-8 config file raises
+``ConfigFileError("Config file <path> is not valid UTF-8: ...")`` —
+consistent with the other file-read error paths.

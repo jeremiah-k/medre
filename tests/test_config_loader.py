@@ -599,3 +599,32 @@ class TestLoggingCanonicalisation:
         )
         config, _, _ = load_config(str(p))
         assert config.logging.overrides["nio"] == "DEBUG"
+
+
+class TestLoadConfigFileReadErrors:
+    """load_config wraps file-read failures as ConfigFileError."""
+
+    def test_load_config_wraps_oserror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError reading the resolved config file is wrapped as
+        ConfigFileError, not leaked raw."""
+        cfg = tmp_path / "unreadable.yaml"
+        cfg.write_text("runtime:\n  name: x\n")
+
+        def _boom(self: Path, *args: object, **kwargs: object) -> str:
+            raise OSError("permission denied (simulated)")
+
+        # find_config only checks is_file(); the first (and only) read_text
+        # call is the one in load_config we want to fail.
+        monkeypatch.setattr("pathlib.Path.read_text", _boom)
+        with pytest.raises(ConfigFileError, match="Cannot read config file"):
+            load_config(str(cfg))
+
+    def test_load_config_wraps_unicode_decode_error(self, tmp_path: Path) -> None:
+        """A config file that is not valid UTF-8 is wrapped as ConfigFileError."""
+        cfg = tmp_path / "bad-utf8.yaml"
+        # \xff / \xfe are invalid as a UTF-8 start sequence.
+        cfg.write_bytes(b"\xff\xfe\xfd\xfc not valid utf8")
+        with pytest.raises(ConfigFileError, match="not valid UTF-8"):
+            load_config(str(cfg))
