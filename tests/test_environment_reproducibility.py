@@ -591,9 +591,9 @@ class TestCLIConfigCheckWorkflow:
         # Write a minimal valid config
         config_file = tmp_path / "test.yaml"
         config_file.write_text(
-            'runtime:\n  name: test\n'
-            'logging:\n  level: INFO\n'
-            'storage:\n  backend: memory\n'
+            "runtime:\n  name: test\n"
+            "logging:\n  level: INFO\n"
+            "storage:\n  backend: memory\n"
             "adapters: {}\n"
         )
 

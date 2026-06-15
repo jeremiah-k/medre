@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 
 import pytest
+import yaml
 
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 
@@ -378,3 +379,101 @@ class TestErrorInheritance:
 
         with pytest.raises(ConfigError):
             _parse("- not a mapping\n")
+
+
+# ---------------------------------------------------------------------------
+# Alias without a preceding anchor (fetch_alias rejection path)
+# ---------------------------------------------------------------------------
+
+
+class TestAliasWithoutAnchor:
+    """A bare alias (``*name``) with no preceding anchor reaches the alias
+    scanner rejection directly.
+
+    The existing anchor/alias tests pair ``&a`` then ``*a``, so the anchor
+    scanner (:meth:`fetch_anchor`) raises before the alias scanner
+    (:meth:`fetch_alias`) ever runs.  A lone alias exercises the alias
+    branch on its own.
+    """
+
+    def test_alias_value_without_anchor_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="aliases"):
+            _parse("value: *missing\n")
+
+    def test_alias_in_flow_without_anchor_rejected(self) -> None:
+        with pytest.raises(StrictYAMLError, match="aliases"):
+            _parse("key: {b: *x}\n")
+
+
+# ---------------------------------------------------------------------------
+# construct_mapping defensive guards and key validation
+# ---------------------------------------------------------------------------
+
+
+class TestConstructMappingGuards:
+    """Cover the defensive guards and key-validation block in
+    :meth:`_StrictSafeLoader.construct_mapping` that are hard to reach
+    through normal parsing.
+    """
+
+    def test_non_mapping_node_rejected(self) -> None:
+        """A non-MappingNode handed to construct_mapping is rejected.
+
+        Also exercises ``_format_mark`` with a ``None`` mark, since a
+        hand-built ``ScalarNode`` defaults ``start_mark`` to ``None``.
+        """
+        from medre.config._yaml import _StrictSafeLoader
+
+        loader = _StrictSafeLoader("")
+        node = yaml.ScalarNode("tag:yaml.org,2002:str", "x")
+        with pytest.raises(StrictYAMLError, match="expected a mapping"):
+            loader.construct_mapping(node)
+
+    def test_format_mark_none_returns_config_prefix(self) -> None:
+        from medre.config._yaml import _format_mark
+
+        assert _format_mark(None, "boom") == "<config>: boom"
+
+    def test_bool_key_passes_hashable_check(self) -> None:
+        """A boolean key enters the leaf-type/bool branch (the no-op pass
+        block) and then passes the hashable check, so the document loads."""
+        data = _parse("true: value\n")
+        assert data == {True: "value"}
+
+    def test_unhashable_sequence_key_rejected(self) -> None:
+        """A YAML complex key that parses to a list is rejected by the
+        hashable-key guard."""
+        with pytest.raises(StrictYAMLError, match="not hashable"):
+            _parse("? [a, b]\n: v\n")
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_yaml_error branch coverage
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeYamlError:
+    """Cover the problem/context branches of the YAML error sanitizer."""
+
+    def test_problem_branch_included(self) -> None:
+        from medre.config._yaml import _sanitize_yaml_error
+
+        exc = yaml.YAMLError()
+        exc.problem = "could not find expected ':'"
+        msg = _sanitize_yaml_error(exc, "cfg.yaml")
+        assert "could not find expected ':'" in msg
+
+    def test_context_branch_included(self) -> None:
+        from medre.config._yaml import _sanitize_yaml_error
+
+        exc = yaml.YAMLError()
+        exc.context = "while parsing a block mapping"
+        msg = _sanitize_yaml_error(exc, "cfg.yaml")
+        assert "while parsing a block mapping" in msg
+
+    def test_no_problem_or_context_uses_default(self) -> None:
+        from medre.config._yaml import _sanitize_yaml_error
+
+        exc = yaml.YAMLError()
+        msg = _sanitize_yaml_error(exc, "cfg.yaml")
+        assert "YAML parse error" in msg

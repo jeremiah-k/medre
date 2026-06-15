@@ -120,6 +120,21 @@ class TestMedreConfigEnvVar:
         ):
             find_config(None)
 
+    def test_medre_config_env_nonexistent_falls_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MEDRE_CONFIG pointing at a missing file does not abort discovery;
+        the path is recorded in the checked list and the search continues."""
+        monkeypatch.setenv("MEDRE_CONFIG", str(tmp_path / "missing.yaml"))
+        # Ensure no other location can supply a config so discovery exhausts.
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_xdg"))
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ConfigNotFoundError) as exc_info:
+            find_config(None)
+        # The checked-list records the attempted MEDRE_CONFIG path.
+        assert "MEDRE_CONFIG=" in str(exc_info.value)
+
 
 # ---------------------------------------------------------------------------
 # MEDRE_HOME discovery
