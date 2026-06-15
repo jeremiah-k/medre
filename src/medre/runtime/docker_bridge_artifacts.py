@@ -482,12 +482,19 @@ def _read_run_metadata(run_dir: Path) -> dict[str, Any] | None:
 def _yaml_escape_string(value: str) -> str:
     """Escape a string for a double-quoted YAML scalar.
 
-    Doubles backslashes and double quotes so the value survives a YAML
-    double-quoted scalar parse round-trip.  Other control characters are
-    left to the consumer; the redacted snapshot only contains operator-safe
-    strings at this point.
+    Doubles backslashes, escapes double quotes, and translates the common
+    control characters (newline, carriage return, tab) into their YAML
+    escape sequences so the value survives a YAML double-quoted scalar
+    parse round-trip without breaking line structure. Backslash is
+    escaped first so the subsequent escapes are not double-escaped.
     """
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
 
 
 def _format_yaml_value(value: Any, indent: int = 0) -> str:
@@ -509,6 +516,24 @@ def _format_yaml_value(value: Any, indent: int = 0) -> str:
     return json.dumps(value)
 
 
+_PLAIN_YAML_KEY_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
+
+def _format_yaml_key(key: Any) -> str:
+    """Format a mapping key as a YAML key, quoting when necessary.
+
+    Keys matching the plain-scalar pattern ``[A-Za-z0-9_][A-Za-z0-9_.-]*``
+    are emitted as-is; all other keys are double-quoted and escaped via
+    :func:`_yaml_escape_string` so characters like ``:``, ``#``, leading
+    ``-``/``?``, or trailing spaces cannot produce ambiguous or invalid
+    YAML.
+    """
+    key_text = str(key)
+    if _PLAIN_YAML_KEY_RE.fullmatch(key_text):
+        return key_text
+    return f'"{_yaml_escape_string(key_text)}"'
+
+
 def _write_yaml_lines(
     data: dict[str, Any],
     lines: list[str],
@@ -517,11 +542,12 @@ def _write_yaml_lines(
     """Append YAML mapping lines for *data* into *lines*.
 
     Nested mappings recurse with increased indentation.  Non-mapping
-    values are rendered as inline scalars.
+    values are rendered as inline scalars.  Mapping keys that are not
+    plain-safe identifiers are double-quoted and escaped.
     """
     pad = "  " * indent
     for key, value in sorted(data.items()):
-        safe_key = str(key)
+        safe_key = _format_yaml_key(key)
         if isinstance(value, dict):
             lines.append(f"{pad}{safe_key}:")
             _write_yaml_lines(value, lines, indent + 1)
