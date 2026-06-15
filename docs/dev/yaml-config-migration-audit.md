@@ -308,9 +308,9 @@ will need paired updates when YAML lands):
 | `examples/configs/README.md`                             | table of all example `.toml` files, quick-start `--config` commands                                                    |
 | `docs/changes/unreleased.md`                             | change-fragment references                                                                                             |
 
-Per `docs/dev/README.md`, the old `docs/runbooks/` tree was replaced; current
+Per `docs/dev/README.md`, the old runbooks tree was replaced; current
 runbook-style content lives under `docs/ops/`. The example README's pointer to
-`docs/runbooks/secure-credentials.md` and `docs/runbooks/configuration.md` is
+the former secure-credentials and configuration runbook pages is
 stale and tracked separately — it is not blocking for this migration.
 
 Spec authority rule (from `docs/spec/README.md`): if `docs/spec/` conflicts
@@ -527,7 +527,7 @@ testing guides exist and were read in full:
   lines). Covers `ResourceWarning`/`PytestUnraisableExceptionWarning`
   prevention, sqlite lifecycle, asyncio loop rules, AsyncMock decision table.
 
-No separate `docs/runbooks/` testing material exists; `docs/dev/README.md`
+No separate runbook testing material exists; `docs/dev/README.md`
 states the runbooks tree was replaced and current content lives under
 `docs/ops/` and `docs/dev/`.
 
