@@ -492,6 +492,19 @@ YAML-special characters could produce an invalid artifact file.
 
 ---
 
+## Remove Matrix TOML Credential Mutation Helpers
+
+Removed dead-code TOML credential helpers from
+`src/medre/adapters/matrix/auth.py`:
+`update_toml_credentials`, `_update_toml_field`,
+`_toml_escape_string`, `_check_section_exists`. These were dead code
+after the YAML-only migration; sidecar JSON credentials
+(`save_credentials_json`) remain the preferred path. No YAML credential
+editor was added. Module docstring updated to drop
+"config-file token update" from the feature description.
+
+---
+
 ## Per-Context Origin Labels for channel_room_map Entries
 
 Allow each `channel_room_map` entry to carry its own origin labels so

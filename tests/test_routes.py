@@ -611,7 +611,7 @@ class TestRouteConfigValidation:
 
 
 class TestRouteConfigSet:
-    """RouteConfigSet ordering, validation, and TOML parsing."""
+    """RouteConfigSet ordering, validation, and config parsing."""
 
     def test_empty_set(self) -> None:
         rs = RouteConfigSet.from_dict({})
@@ -626,7 +626,7 @@ class TestRouteConfigSet:
         assert rs.routes == ()
 
     def test_deterministic_ordering(self) -> None:
-        """Routes are returned in TOML definition order."""
+        """Routes are returned in config definition order."""
         data = {
             "routes": {
                 "zebra": {"source_adapters": ["a"], "dest_adapters": ["b"]},

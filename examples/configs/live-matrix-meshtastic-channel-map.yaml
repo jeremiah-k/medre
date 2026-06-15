@@ -108,7 +108,7 @@ routes:
       # docs/spec/routing-delivery.md §17.5.8.
 
       # --- Fan-in alternative (commented out) ---
-      # Two (or more) Meshtastic channels MAY deliver into the SAME Matrix
+      # Two (or more) Meshtastic channels can deliver into the SAME Matrix
       # room when the route does not also create a Matrix→Meshtastic leg.
       # Here directionality would need to be source_to_dest with a Meshtastic
       # source and Matrix destination (swap source_adapters/dest_adapters and

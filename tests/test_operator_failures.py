@@ -1032,12 +1032,12 @@ class TestExpandedRouteIDCollision:
 
 
 # ---------------------------------------------------------------------------
-# 22. Route table must be a TOML table
+# 22. Route table must be a config table
 # ---------------------------------------------------------------------------
 
 
 class TestRouteTableTypeValidation:
-    """Route values must be TOML tables, not scalars."""
+    """Route values must be config tables, not scalars."""
 
     def test_route_not_a_table(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:

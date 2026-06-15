@@ -357,7 +357,7 @@ Limitations:
 - Mutually exclusive with `source_room`, `dest_room`, `source_channel`, `dest_channel`.
 - Route must have exactly one source and one destination adapter.
 - Channel keys 0–7 only (Meshtastic supports up to 8 channels).
-- Two or more entries MAY share the same Matrix room for Meshtastic→Matrix
+- Two or more entries can share the same Matrix room for Meshtastic→Matrix
   fan-in (multiple radio channels relaying into one room). Duplicate rooms
   are rejected at route expansion when the route also creates a
   Matrix→Meshtastic leg — a Matrix event from a shared room is ambiguous
