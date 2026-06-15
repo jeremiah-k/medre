@@ -124,11 +124,19 @@ class _StrictSafeLoader(yaml.SafeLoader):
                 )
 
             key = self.construct_object(key_node, deep=deep)
-            if not isinstance(key, _ALLOWED_LEAF_TYPES) or isinstance(key, bool):
-                # Bools are technically leaf types but keys should be
-                # string-like; still allow int/float/bool/None as keys
-                # for compatibility — just reject non-hashable / exotic.
-                pass
+            if not isinstance(key, _ALLOWED_LEAF_TYPES):
+                # Only plain scalar types (str, int, float, bool, None)
+                # are permitted as mapping keys for compatibility. Exotic
+                # hashable types (tuple, frozenset, etc.) produced by tags
+                # like ``!!omap`` or ``!!set`` are rejected to keep config
+                # boring and reviewable.
+                raise StrictYAMLError(
+                    _format_mark(
+                        key_node.start_mark,
+                        f"unsupported mapping key type {type(key).__name__}; "
+                        f"only plain scalar keys are allowed",
+                    )
+                )
             if not _is_hashable(key):
                 raise StrictYAMLError(
                     _format_mark(
@@ -258,6 +266,11 @@ def _validate_plain_types(data: Any, path: str) -> None:
     """
     if isinstance(data, dict):
         for key, value in data.items():
+            if not isinstance(key, _ALLOWED_LEAF_TYPES):
+                raise StrictYAMLError(
+                    f"{path or '<root>'}: unsupported mapping key type "
+                    f"{type(key).__name__}; only plain scalar keys are allowed"
+                )
             child_path = f"{path}.{key}" if path else str(key)
             _validate_plain_types(value, child_path)
     elif isinstance(data, list):
