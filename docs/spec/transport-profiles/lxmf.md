@@ -158,13 +158,28 @@ hash is content-addressed. The attribution module returns
 
 ### Display-Name Capture
 
-The adapter performs a defensive ingress capture of any display name
-attached to the inbound message. `_normalise_inbound_message` reads
-`getattr(message, "source_name", None)` without issuing a network call.
-The current LXMF library does not populate `source_name` on `LXMessage`,
-so this read returns `None` and no display name is captured. When a
-value is present, the codec maps it to `lxmf.display_name` in native
-metadata.
+At ingress the adapter resolves the sender display name before codec
+decode. Two sources are consulted, in precedence order:
+
+1. **Message-carried `source_name`** — `_normalise_inbound_message`
+   reads `getattr(message, "source_name", None)` without issuing a
+   network call. The current LXMF library does not populate
+   `source_name` on `LXMessage`, so this source is empty in practice.
+   When a value is present, the codec maps it to `lxmf.display_name` in
+   native metadata.
+2. **Announce-cache resolution** — when `source_name` is empty, the
+   adapter calls `session.resolve_display_name(source_hash)`, which
+   performs a synchronous local read of
+   `RNS.Identity.known_destinations` via
+   `RNS.Identity.recall_app_data(dest_hash_bytes)` and
+   `LXMF.display_name_from_app_data(app_data)`. No network call is
+   issued. The resolved value is injected into the packet's
+   `source_name` so the codec projects it into `lxmf.display_name`.
+
+The adapter enriches the packet at ingress only when the message does
+not already carry a display name. Fake mode (no real SDK) yields no
+display name: `resolve_display_name` returns `None` because the SDK
+objects are absent.
 
 ### Projection Rules
 
@@ -180,20 +195,37 @@ opaque `source_hash` never populates `source_sender_label`, so `{sender}`
 renders empty rather than a truncated hash. Operators who want the hash
 in a prefix use `{sender_id}`. The default `lxmf_relay_prefix` is `""`;
 templates referencing `{sender}` or `{sender_short}` resolve to empty
-strings until a display name is captured.
+strings when no display name is captured (neither message-carried nor
+announce-resolved).
 
 Per the opacity rule ([§17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)),
 a Reticulum hash is not a label.
 
-### Announce-Based Enrichment Deferred
+### Announce-Based Enrichment
 
 LXMF display names live in the sender Identity `announce` `app_data`,
-not in messages. Announce-based display-name enrichment is not
-implemented. A local announce-cache lookup is feasible but is outside
-this implementation scope. The announce loop diagnostics are preserved
-and unaffected. The defensive `source_name` capture keeps the ingress
-path ready for a library version or announce-cache layer that populates
-the attribute.
+not in messages. The session resolves the sender display name from the
+local RNS announce cache via `resolve_display_name(source_hash)`. This
+performs a synchronous local read of
+`RNS.Identity.known_destinations` — no network call. The session reads
+`app_data` via `RNS.Identity.recall_app_data(dest_hash_bytes)` and
+parses it via `LXMF.display_name_from_app_data(app_data)`, returning the
+stripped display name or `None`. The method never raises.
+
+**Precedence:** message-carried `source_name` (if non-empty) >
+announce-cache resolved display name > `None`. The adapter enriches the
+packet at ingress only when the message does not already carry a
+display name.
+
+The resolution MAY return a stale name if the peer has renamed since
+the last heard announce. Enrichment is observational and MUST NOT be
+treated as delivery or receipt evidence.
+
+The opaque `source_hash` MUST NOT be promoted to `source_sender_label`.
+It remains available as `source_sender_id` (`{sender_id}`). Operators
+who want the hash in a prefix use `{sender_id}`.
+
+The announce loop diagnostics are preserved and unaffected.
 
 Identity labels may appear in rendered messages and renderer-local
 metadata; enrichment is observational and is not delivery evidence.
@@ -330,7 +362,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **Reticulum singleton constraint.** `RNS.Reticulum()` raises `OSError` if already running; the session uses `get_instance()` to reuse existing instances. Multiple sessions share the same Reticulum transport.
 - **No LXMRouter callback deregistration API.** Callbacks are silenced by `_stop_requested` guard and `_teardown_sdk()` nulling the router reference rather than explicit deregistration.
 - **stamp_cost validation is minimal.** Non-zero values must be positive integers, but no upper bound is enforced.
-- **16-byte identity hashes are not human-readable.** Downstream consumers must map hex hashes to display names externally.
+- **16-byte identity hashes are not human-readable.** The announce-cache lookup resolves display names for locally-known senders; when the sender is unknown to the announce cache, the hash remains the only identifier and is exposed via `source_sender_id` (`{sender_id}`).
 
 ---
 
@@ -347,7 +379,7 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - Codec tests cover text decode, title extraction, metadata construction, MEDRE envelope extraction from fields.
 - Renderer tests cover text/title rendering, metadata embedding toggle, envelope structure.
 - Fields helper tests cover embed/extract round-trip, corrupt/missing envelope handling, attachment detection, envelope relations check.
-- Session tests cover lifecycle (start/stop idempotency), fake mode, real mode (mocked SDK), reconnect backoff, outbound send with retry, delivery state tracking, thread bridging.
+- Session tests cover lifecycle (start/stop idempotency), fake mode, real mode (mocked SDK), reconnect backoff, outbound send with retry, delivery state tracking, thread bridging, and `resolve_display_name` announce-cache lookup.
 
 ---
 

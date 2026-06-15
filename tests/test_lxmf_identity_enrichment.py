@@ -1,438 +1,362 @@
-"""End-to-end tests for LXMF display-name enrichment and dispatch wiring.
+"""End-to-end integration tests for the LXMF display-name enrichment pipeline.
 
-Covers the full ingress-to-rendering pipeline:
-- Codec maps ``source_name`` from packet to ``lxmf.display_name`` in
-  native metadata.
-- Dispatch ``project_source_fields`` for an LXMF native dict sets
-  ``source_sender_id`` AND ``source_sender_label`` /
-  ``source_sender_short_label`` when a display name is present.
-- Renderer prefix ``{sender}`` shows the display name when present and
-  renders empty when absent (opaque hash never becomes ``{sender}``).
-- Renderer prefix ``{sender_id}`` shows the source_hash.
-- Session ``_normalise_inbound_message`` captures ``source_name``
-  defensively without breaking existing normalisation or announce
-  diagnostics.
+Verifies the complete chain across multiple components::
 
-These tests exercise the architecture rule:
-``adapter-native state -> adapter-local enrichment/projection ->
-generic RelayAttribution fields -> renderer templates``.
+    adapter ingress (announce-cache resolution)
+      -> codec decode (produces ``lxmf.display_name`` in native metadata)
+      -> attribution projection (produces ``source_sender_label``)
+      -> renderer prefix formatting (``{sender}``, ``{sender_id}``,
+         ``{sender_short}``)
+
+Unit tests for the individual components live in
+``test_lxmf_session_display_name.py`` and
+``test_lxmf_adapter_display_name.py``.  The tests here exercise the
+*integration* between those components — verifying that data produced
+by one stage is correctly consumed by the next, catching wiring bugs
+that isolated unit tests miss.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 from medre.adapters._attribution_dispatch import project_source_fields
-from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.renderer import LxmfRenderer
-from medre.adapters.lxmf.session import LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
-from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
-# Helpers (inlined — no shared test helpers per task constraints)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-def _config(adapter_id: str = "lxmf-test") -> LxmfConfig:
-    return LxmfConfig(adapter_id=adapter_id)
+def _make_config(**overrides: Any) -> LxmfConfig:
+    """Build a fake-mode LxmfConfig with optional overrides."""
+    defaults: dict = dict(adapter_id="lxmf-1", connection_type="fake")
+    defaults.update(overrides)
+    return LxmfConfig(**defaults)
 
 
-def _make_lxmf_packet(
-    *,
-    content: str = "hello from lxmf",
-    source_hash: str = "ab" * 16,
-    source_name: Any = "",
-    msg_id: str = "ff" * 32,
-    title: str = "",
-) -> dict[str, Any]:
-    """Build a normalised LXMF packet dict (as produced by the session)."""
-    return {
-        "content": content,
+def _make_text_packet(
+    content: str = "hello",
+    source_hash: str = "abcdef0123456789",
+    msg_id: str = "cd" * 32,
+    source_name: str | None = None,
+) -> dict:
+    """Build a minimal text-classifiable LXMF packet dict.
+
+    ``source_name`` is omitted by default so enrichment is exercised.
+    """
+    packet: dict = {
         "source_hash": source_hash,
         "destination_hash": "00" * 16,
         "message_id": msg_id,
         "timestamp": 1700000000.0,
-        "title": title,
+        "title": "",
+        "content": content,
         "fields": {},
         "signature_validated": True,
         "has_fields": False,
-        "source_name": source_name,
     }
-
-
-def _native_data(event: CanonicalEvent) -> dict[str, Any]:
-    """Extract native metadata data with type narrowing."""
-    assert event.metadata.native is not None
-    return event.metadata.native.data
+    if source_name is not None:
+        packet["source_name"] = source_name
+    return packet
 
 
 def _make_event_with_native(
-    native_data: dict[str, Any] | None = None,
-    *,
+    native_data: dict | None = None,
+    payload: dict | None = None,
     source_adapter: str = "lxmf-1",
-    source_transport_id: str = "ab" * 16,
-    payload: dict[str, Any] | None = None,
 ) -> CanonicalEvent:
-    """Create a CanonicalEvent with LXMF native metadata."""
+    """Build a CanonicalEvent carrying LXMF native metadata.
+
+    Used for renderer tests that simulate codec output without running
+    the full adapter ingress path.
+    """
+    metadata = EventMetadata(native=NativeMetadata(data=native_data or {}))
     return CanonicalEvent(
-        event_id="evt-enrich-1",
+        event_id="evt-int-1",
         event_kind="message.created",
         schema_version=1,
         timestamp=datetime.now(timezone.utc),
         source_adapter=source_adapter,
-        source_transport_id=source_transport_id,
+        source_transport_id="ab" * 16,
         source_channel_id=None,
         parent_event_id=None,
         lineage=(),
         relations=(),
-        payload=payload or {"body": "hello world"},
-        metadata=EventMetadata(native=NativeMetadata(data=native_data or {})),
+        payload=payload or {"body": "message_body"},
+        metadata=metadata,
     )
 
 
 # ---------------------------------------------------------------------------
-# Codec: source_name → lxmf.display_name enrichment
+# Path A: adapter ingress -> codec -> native metadata
 # ---------------------------------------------------------------------------
 
 
-def test_codec_injects_display_name_when_source_name_present() -> None:
-    """Codec maps non-empty source_name to lxmf.display_name in native metadata."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_name="Alice Walker")
-    event = codec.decode(packet)
-    assert _native_data(event)["lxmf.display_name"] == "Alice Walker"
+async def test_announce_resolved_display_name_in_native_metadata(
+    make_adapter_context, inbound_collector
+) -> None:
+    """The announce-resolved display name flows through enrich then codec.
+
+    When the packet carries no ``source_name``, enrichment fills it
+    from the session's announce cache, and the codec projects the value
+    into ``lxmf.display_name`` native metadata on the published event.
+    """
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.return_value = "Alice"
+
+    packet = _make_text_packet(source_hash="abcdef0123456789", content="hi")
+    await adapter.simulate_inbound(packet)
+
+    assert len(inbound_collector.events) == 1
+    event = inbound_collector.events[0]
+    assert event.metadata.native.data["lxmf.display_name"] == "Alice"
 
 
-def test_codec_omits_display_name_when_source_name_absent() -> None:
-    """No source_name key → lxmf.display_name absent from native metadata."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_name="")
-    event = codec.decode(packet)
-    assert "lxmf.display_name" not in _native_data(event)
+async def test_announce_resolved_display_name_in_attribution(
+    make_adapter_context, inbound_collector
+) -> None:
+    """Codec-produced native metadata drives correct attribution fields.
 
+    Takes the event produced by adapter ingress and runs the shared
+    attribution dispatch (``project_source_fields``) over its native
+    data.  The display name projects to ``source_sender_label`` and the
+    source hash projects to ``source_sender_id``.
+    """
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.return_value = "Alice"
 
-def test_codec_preserves_source_hash_alongside_display_name() -> None:
-    """Both source_hash and display_name are present in native metadata."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_hash="cd" * 16, source_name="Bob")
-    event = codec.decode(packet)
-    native = _native_data(event)
-    assert native["source_hash"] == "cd" * 16
-    assert native["lxmf.display_name"] == "Bob"
+    source_hash = "abcdef0123456789"
+    packet = _make_text_packet(source_hash=source_hash, content="hi")
+    await adapter.simulate_inbound(packet)
 
+    assert len(inbound_collector.events) == 1
+    event = inbound_collector.events[0]
+    native_data = dict(event.metadata.native.data)
 
-def test_codec_decodes_bytes_source_name() -> None:
-    """Bytes source_name is decoded as UTF-8."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_name="Café".encode("utf-8"))
-    event = codec.decode(packet)
-    assert _native_data(event)["lxmf.display_name"] == "Café"
+    projected = project_source_fields(native_data, source_adapter="lxmf-1")
 
-
-def test_codec_ignores_non_text_source_name() -> None:
-    """Non-text source_name (int) is ignored — no lxmf.display_name injected."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_name="")
-    packet["source_name"] = 12345
-    event = codec.decode(packet)
-    assert "lxmf.display_name" not in _native_data(event)
-
-
-def test_codec_metadata_envelope_preserved_with_display_name() -> None:
-    """MEDRE envelope extraction is unaffected by display_name enrichment."""
-    codec = LxmfCodec("lxmf-test", _config())
-    packet = _make_lxmf_packet(source_name="Alice")
-    event = codec.decode(packet)
-    # Standard fields are still present.
-    native = _native_data(event)
-    assert "source_hash" in native
-    assert "destination_hash" in native
-    assert "message_id" in native
-    assert "timestamp" in native
-    assert "title" in native
-    assert "delivery_method" in native
-    assert "has_fields" in native
+    assert projected["source_platform"] == "lxmf"
+    assert projected["source_sender_label"] == "Alice"
+    assert projected["source_sender_id"] == source_hash
+    # _compact("Alice") == "Alice" (no spaces to strip).
+    assert projected["source_sender_short_label"] == "Alice"
 
 
 # ---------------------------------------------------------------------------
-# Dispatch: project_source_fields for LXMF native dicts
+# Path B: renderer prefix from native metadata
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_lxmf_display_name_sets_all_three_fields() -> None:
-    """Dispatch wires sender_id, sender_label, and sender_short_label."""
-    native = {
-        "source_hash": "ab" * 16,
-        "lxmf.display_name": "Alice Walker",
-    }
-    fields = project_source_fields(native, source_adapter="lxmf-1")
-    assert fields["source_platform"] == "lxmf"
-    assert fields["source_sender_id"] == "ab" * 16
-    assert fields["source_sender_label"] == "Alice Walker"
-    assert fields["source_sender_short_label"] == "AliceWalker"
+async def test_announce_resolved_display_name_in_renderer_prefix() -> None:
+    """An event with ``lxmf.display_name`` renders ``{sender}`` as that name.
 
-
-def test_dispatch_lxmf_no_display_name_labels_none() -> None:
-    """Without display_name, labels are None; sender_id is the hash."""
-    native = {"source_hash": "cd" * 16}
-    fields = project_source_fields(native, source_adapter="lxmf-1")
-    assert fields["source_sender_id"] == "cd" * 16
-    assert fields["source_sender_label"] is None
-    assert fields["source_sender_short_label"] is None
-
-
-def test_dispatch_lxmf_with_short_name() -> None:
-    """Dispatch maps lxmf.short_name to sender_short_label."""
-    native = {
-        "source_hash": "ef" * 16,
-        "lxmf.display_name": "Mesh Node",
-        "lxmf.short_name": "MN",
-    }
-    fields = project_source_fields(native, source_adapter="lxmf-1")
-    assert fields["source_sender_label"] == "Mesh Node"
-    assert fields["source_sender_short_label"] == "MN"
-
-
-def test_dispatch_lxmf_bytes_source_hash_normalised() -> None:
-    """Bytes source_hash normalised to hex through dispatch."""
-    native = {
-        "source_hash": b"\xab\xcd\xef\x01",
-    }
-    fields = project_source_fields(native, source_adapter="lxmf-1")
-    assert fields["source_sender_id"] == "abcdef01"
-    assert fields["source_sender_label"] is None
-
-
-def test_dispatch_lxmf_platform_detected_from_keys() -> None:
-    """Platform detection identifies LXMF from source_hash key."""
-    native = {"source_hash": "ab" * 16}
-    fields = project_source_fields(native, source_adapter="unknown-adapter")
-    assert fields["source_platform"] == "lxmf"
-
-
-# ---------------------------------------------------------------------------
-# Renderer prefix: {sender} and {sender_id}
-# ---------------------------------------------------------------------------
-
-
-async def test_renderer_sender_shows_display_name() -> None:
-    """{sender} shows the display name when present."""
+    The renderer resolves attribution via the dispatch, which delegates
+    to ``project_lxmf_attribution``.  ``{sender}`` maps to
+    ``source_sender_label``, which comes from ``lxmf.display_name``.
+    """
     renderer = LxmfRenderer(relay_prefix="[{sender}] ")
     event = _make_event_with_native(
         native_data={
             "source_hash": "ab" * 16,
-            "lxmf.display_name": "Alice Walker",
+            "lxmf.display_name": "Alice",
         },
-        payload={"body": "hello"},
+        payload={"body": "message_body"},
     )
+
     result = await renderer.render(
         event,
         RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
     )
-    assert result.payload["content"] == "[Alice Walker] hello"
-    assert result.metadata["relay_prefix_rendered"] == "[Alice Walker] "
+
+    assert result.payload["content"] == "[Alice] message_body"
 
 
-async def test_renderer_sender_empty_without_display_name() -> None:
-    """{sender} renders empty when no display name; hash never leaks."""
-    renderer = LxmfRenderer(relay_prefix="[{sender}] ")
-    event = _make_event_with_native(
-        native_data={"source_hash": "ab" * 16},
-        payload={"body": "hello"},
+# ---------------------------------------------------------------------------
+# Path A: message-carried name precedence
+# ---------------------------------------------------------------------------
+
+
+async def test_message_carried_display_name_precedence(
+    make_adapter_context, inbound_collector
+) -> None:
+    """A message-carried ``source_name`` takes precedence over the cache.
+
+    The packet carries ``source_name="Bob"``; even though the mock
+    session would resolve "Alice", enrichment must not overwrite the
+    message-carried value.  The codec then projects "Bob" into native
+    metadata.
+    """
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.return_value = "Alice"
+
+    packet = _make_text_packet(
+        source_hash="abcdef0123456789",
+        content="hi",
+        source_name="Bob",
     )
+    await adapter.simulate_inbound(packet)
+
+    assert len(inbound_collector.events) == 1
+    event = inbound_collector.events[0]
+    assert event.metadata.native.data["lxmf.display_name"] == "Bob"
+    # Enrichment must not have called the session for a non-empty source_name.
+    adapter._session.resolve_display_name.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Path A + Path B: no display name — source hash only
+# ---------------------------------------------------------------------------
+
+
+async def test_no_display_name_source_hash_only(
+    make_adapter_context, inbound_collector
+) -> None:
+    """When no display name resolves, labels stay absent and ``{sender}`` is empty.
+
+    Path A: the mock session returns ``None``, so no
+    ``lxmf.display_name`` key is emitted by the codec.
+    Path B: rendering that event shows ``{sender}`` empty and
+    ``{sender_id}`` populated with the source hash — the opaque hash
+    never leaks into ``{sender}``.
+    """
+    # --- Path A: adapter ingress produces no display-name key ---
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.return_value = None
+
+    source_hash = "abcdef0123456789"
+    packet = _make_text_packet(source_hash=source_hash, content="message_body")
+    await adapter.simulate_inbound(packet)
+
+    assert len(inbound_collector.events) == 1
+    event = inbound_collector.events[0]
+    assert "lxmf.display_name" not in event.metadata.native.data
+
+    # --- Path B: render the same event through the renderer ---
+    renderer = LxmfRenderer(relay_prefix="[{sender}]({sender_id}) ")
     result = await renderer.render(
         event,
         RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
     )
-    assert result.payload["content"] == "[] hello"
-    # The hash must not appear in the prefix.
-    rendered_prefix = str(result.metadata["relay_prefix_rendered"])
-    assert "ab" * 16 not in rendered_prefix
+
+    # {sender} renders empty (no display name); {sender_id} has the hash.
+    assert result.payload["content"] == f"[]({source_hash}) message_body"
 
 
-async def test_renderer_sender_id_shows_source_hash() -> None:
-    """{sender_id} shows the source_hash."""
-    renderer = LxmfRenderer(relay_prefix="({sender_id}) ")
-    event = _make_event_with_native(
-        native_data={"source_hash": "deadbeef" * 4},
-        payload={"body": "ping"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
-    )
-    assert result.payload["content"] == f"({('deadbeef' * 4)}) ping"
+# ---------------------------------------------------------------------------
+# Path B: short label derivation
+# ---------------------------------------------------------------------------
 
 
-async def test_renderer_sender_short_shows_compact_name() -> None:
-    """{sender_short} shows compact display name when no explicit short_name."""
+async def test_display_name_short_label_derivation() -> None:
+    """``{sender_short}`` falls back to a compact form of the display name.
+
+    When ``lxmf.short_name`` is absent, the attribution projection
+    derives ``source_sender_short_label`` by stripping spaces from the
+    display name (the ``_compact`` helper in ``attribution.py``).
+    """
     renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
     event = _make_event_with_native(
         native_data={
             "source_hash": "ab" * 16,
             "lxmf.display_name": "Alice Walker",
         },
-        payload={"body": "msg"},
+        payload={"body": "message_body"},
     )
+
     result = await renderer.render(
         event,
         RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
     )
-    assert result.payload["content"] == "<AliceWalker> msg"
 
-
-async def test_renderer_sender_and_sender_id_together() -> None:
-    """Both {sender} and {sender_id} resolve correctly in one template."""
-    renderer = LxmfRenderer(relay_prefix="{sender}({sender_id}): ")
-    event = _make_event_with_native(
-        native_data={
-            "source_hash": "cafebabe",
-            "lxmf.display_name": "Bob",
-        },
-        payload={"body": "hi"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
-    )
-    assert result.payload["content"] == "Bob(cafebabe): hi"
-
-
-async def test_renderer_no_none_in_prefix_without_display_name() -> None:
-    """No literal 'None' appears when display name is absent."""
-    renderer = LxmfRenderer(relay_prefix="[{sender}] ")
-    event = _make_event_with_native(
-        native_data={"source_hash": "ab" * 16},
-        payload={"body": "mystery"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
-    )
-    assert "None" not in str(result.payload["content"])
+    # _compact("Alice Walker") == "AliceWalker".
+    assert result.payload["content"] == "<AliceWalker> message_body"
 
 
 # ---------------------------------------------------------------------------
-# Session: _normalise_inbound_message defensive source_name capture
+# Path A: enrichment failure resilience
 # ---------------------------------------------------------------------------
 
 
-def test_session_normalise_includes_source_name_key() -> None:
-    """_normalise_inbound_message includes source_name in output dict."""
-    msg = SimpleNamespace(
-        source_hash=b"\xab" * 16,
-        destination_hash=b"\x00" * 16,
-        hash=b"\xff" * 32,
-        timestamp=1700000000.0,
-        content="hello",
-        title="",
-        fields={},
-        signature_validated=True,
-        method=None,
-        source_name="Alice",
-    )
-    result = LxmfSession._normalise_inbound_message(msg)
-    assert result["source_name"] == "Alice"
-    # Existing fields are preserved.
-    assert result["source_hash"] == "ab" * 16
-    assert result["content"] == "hello"
+async def test_enrichment_does_not_fail_ingestion_on_error(
+    make_adapter_context, inbound_collector
+) -> None:
+    """A raising session never blocks ingestion; the event still publishes.
 
+    ``resolve_display_name`` raises, but ``_resolve_display_name``
+    swallows the exception and returns ``None``.  Enrichment injects
+    nothing and the packet flows through decode and publish unchanged.
+    """
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.side_effect = RuntimeError("boom")
 
-def test_session_normalise_source_name_defaults_empty() -> None:
-    """Missing source_name attribute normalises to empty string."""
-    msg = SimpleNamespace(
-        source_hash=b"\xab" * 16,
-        destination_hash=b"\x00" * 16,
-        hash=b"\xff" * 32,
-        timestamp=1700000000.0,
-        content="hello",
-        title="",
-        fields={},
-        signature_validated=True,
-        method=None,
-    )
-    result = LxmfSession._normalise_inbound_message(msg)
-    assert result["source_name"] == ""
+    packet = _make_text_packet(source_hash="abcdef0123456789", content="hi")
+    await adapter.simulate_inbound(packet)
 
-
-def test_session_normalise_source_name_bytes_decoded() -> None:
-    """Bytes source_name is decoded as UTF-8."""
-    msg = SimpleNamespace(
-        source_hash=b"\xab" * 16,
-        destination_hash=b"\x00" * 16,
-        hash=b"\xff" * 32,
-        timestamp=1700000000.0,
-        content="hello",
-        title="",
-        fields={},
-        signature_validated=True,
-        method=None,
-        source_name="Café".encode("utf-8"),
-    )
-    result = LxmfSession._normalise_inbound_message(msg)
-    assert result["source_name"] == "Café"
-
-
-def test_session_normalise_preserves_all_existing_fields() -> None:
-    """Adding source_name does not remove or alter existing normalised fields."""
-    msg = SimpleNamespace(
-        source_hash=b"\xab" * 16,
-        destination_hash=b"\xcd" * 16,
-        hash=b"\xff" * 32,
-        timestamp=1700000000.0,
-        content="test content",
-        title="Test Title",
-        fields={1: "value"},
-        signature_validated=True,
-        method=None,
-        source_name="Alice",
-    )
-    result = LxmfSession._normalise_inbound_message(msg)
-    assert result["source_hash"] == "ab" * 16
-    assert result["destination_hash"] == "cd" * 16
-    assert result["message_id"] == "ff" * 32
-    assert result["timestamp"] == 1700000000.0
-    assert result["content"] == "test content"
-    assert result["title"] == "Test Title"
-    assert result["fields"] == {1: "value"}
-    assert result["signature_validated"] is True
-    assert result["has_fields"] is True
-    assert result["delivery_method"] is None
-    assert result["source_name"] == "Alice"
+    assert len(inbound_collector.events) == 1
+    event = inbound_collector.events[0]
+    assert "lxmf.display_name" not in event.metadata.native.data
 
 
 # ---------------------------------------------------------------------------
-# Announce loop diagnostics regression
+# Path A: consistent resolution across multiple messages
 # ---------------------------------------------------------------------------
 
 
-def test_session_diagnostics_structure_unchanged() -> None:
-    """Session diagnostics dataclass still exposes announce fields after
-    the source_name addition to _normalise_inbound_message."""
-    # The diagnostics dataclass is frozen and its field set must remain
-    # stable — adding source_name to normalisation does not alter it.
-    from medre.adapters.lxmf.session import LxmfSessionDiagnostics
+async def test_multiple_messages_same_peer_consistent_resolution(
+    make_adapter_context, inbound_collector
+) -> None:
+    """Two messages from the same peer both resolve to the same display name.
 
-    expected_fields = {
-        "connected",
-        "router_running",
-        "reconnecting",
-        "reconnect_attempts",
-        "last_message_time",
-        "transient_delivery_failures",
-        "permanent_delivery_failures",
-        "last_error",
-        "known_path_count",
-        "propagation_enabled",
-        "pending_delivery_count",
-        "mode",
-        "announces_sent",
-        "announce_failures",
-        "last_announce_error",
-    }
-    actual_fields = set(LxmfSessionDiagnostics.__dataclass_fields__.keys())
-    assert actual_fields == expected_fields
+    Uses distinct ``message_id`` values so the dedup filter does not
+    suppress the second packet.
+    """
+    adapter = LxmfAdapter(_make_config())
+    ctx = make_adapter_context("lxmf-1")
+    await adapter.start(ctx)
+    adapter._session = MagicMock()
+    adapter._session.resolve_display_name.return_value = "Alice"
+
+    source_hash = "abcdef0123456789"
+    await adapter.simulate_inbound(
+        _make_text_packet(
+            source_hash=source_hash,
+            msg_id="aa" * 32,
+            content="first",
+        )
+    )
+    await adapter.simulate_inbound(
+        _make_text_packet(
+            source_hash=source_hash,
+            msg_id="bb" * 32,
+            content="second",
+        )
+    )
+
+    assert len(inbound_collector.events) == 2
+    for event in inbound_collector.events:
+        assert event.metadata.native.data["lxmf.display_name"] == "Alice"
+    # Both lookups targeted the same source hash.
+    assert adapter._session.resolve_display_name.call_count == 2

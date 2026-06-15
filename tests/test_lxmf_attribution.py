@@ -267,6 +267,18 @@ def test_dict_display_name_not_coerced() -> None:
     assert fields["source_sender_short_label"] is None
 
 
+def test_list_display_name_not_coerced() -> None:
+    """Non-text display_name (list) is not coerced; label stays None."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": ["Alice", "Bob"],
+    }
+    fields = project_lxmf_attribution(native)
+    # Strict label typing: list is rejected, not coerced via str().
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
+
+
 def test_bytes_display_name_decoded() -> None:
     """bytes display_name is decoded as UTF-8 to a real label."""
     native = {
@@ -277,6 +289,16 @@ def test_bytes_display_name_decoded() -> None:
     assert fields["source_sender_id"] == "ab"
     assert fields["source_sender_label"] == "Alice"
     assert fields["source_sender_short_label"] == "Alice"
+
+
+def test_bytearray_display_name_decoded() -> None:
+    """bytearray display_name is decoded as UTF-8 to a real label."""
+    native = {
+        "source_hash": "ab" * 16,
+        "lxmf.display_name": bytearray("Café".encode("utf-8")),
+    }
+    fields = project_lxmf_attribution(native)
+    assert fields["source_sender_label"] == "Café"
 
 
 def test_short_name_int_not_coerced() -> None:
@@ -321,15 +343,22 @@ def test_project_hash_never_becomes_label() -> None:
 
 
 def test_project_display_name_spaces_only() -> None:
-    """Display name that is only spaces: label set, compact form None."""
+    """Display name that is only spaces is rejected as a label (defense-in-depth).
+
+    Whitespace-only strings are truthy but not meaningful labels.  The
+    ``_label_str`` helper now checks ``.strip()`` so ``"   "`` yields
+    ``None`` instead of leaking into rendered output.  The upstream
+    ``resolve_display_name`` in session.py already strips, so this is
+    defense-in-depth at the projection boundary.
+    """
     native = {
         "source_hash": "ab" * 16,
         "lxmf.display_name": "   ",
     }
     fields = project_lxmf_attribution(native)
-    # "   " is non-empty so label is "   ".
-    assert fields["source_sender_label"] == "   "
-    # Compact form strips spaces → empty → None.
+    # Whitespace-only is rejected → None.
+    assert fields["source_sender_label"] is None
+    # Compact form of None is also None.
     assert fields["source_sender_short_label"] is None
 
 

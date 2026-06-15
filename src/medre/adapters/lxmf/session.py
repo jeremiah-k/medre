@@ -1357,6 +1357,68 @@ class LxmfSession:
         return None
 
     # ------------------------------------------------------------------
+    # Display-name resolution (local, synchronous)
+    # ------------------------------------------------------------------
+
+    def resolve_display_name(self, source_hash: str) -> str | None:
+        """Resolve a display name for an LXMF source hash from the local announce cache.
+
+        Performs a synchronous local lookup via RNS.Identity.recall_app_data (which
+        reads from the in-memory RNS.Identity.known_destinations cache)
+        (populated by received announces). No network calls are issued. Returns
+        the display name from the announce app_data, or None when the sender is
+        unknown, the session lacks SDK objects, or any error occurs.
+
+        This method is the sole bridge between the RNS/LXMF announce cache and
+        adapter-native enrichment. It keeps SDK object access inside the session
+        boundary and returns only a plain str | None. Never raises.
+        """
+        # Type and value guards — no SDK access needed.
+        if not isinstance(source_hash, str):
+            return None
+        if not source_hash.strip():
+            return None
+
+        # Hex decode — rejects non-hex and odd-length inputs.
+        try:
+            dest_bytes = bytes.fromhex(source_hash)
+        except (ValueError, TypeError):
+            return None
+
+        # RNS destination hashes are always 16 bytes (32 hex chars).
+        # Reject wrong-length input before querying the SDK.
+        if len(dest_bytes) != 16:
+            return None
+
+        # SDK availability — require both the library and an active session.
+        # ``_reticulum`` is the lifecycle sentinel: None before start, after
+        # stop, during partial startup, and in fake mode.
+        if not HAS_LXMF or self._reticulum is None:
+            return None
+
+        # Local announce-cache lookup (no network).  recall_app_data reads
+        # Identity.known_destinations but calls RNS.Reticulum.get_instance()
+        # internally, which may raise if no Reticulum is running.
+        try:
+            RNS, lxmf = _require_lxmf()
+            app_data = RNS.Identity.recall_app_data(dest_bytes)
+        except Exception:
+            return None
+
+        if app_data is None:
+            return None
+
+        try:
+            display_name = lxmf.display_name_from_app_data(app_data)
+        except Exception:
+            return None
+
+        if not isinstance(display_name, str):
+            return None
+
+        return display_name.strip() or None
+
+    # ------------------------------------------------------------------
     # Outbound send (real)
     # ------------------------------------------------------------------
 

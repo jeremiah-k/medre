@@ -283,13 +283,50 @@ Identity `announce` `app_data`, not in the message itself.
 
 ### Locally-available contact data (LXMF)
 
-The adapter performs a defensive ingress capture of any display name
-attached to the inbound message. `_normalise_inbound_message` reads
-`getattr(message, "source_name", None)` without issuing a network call.
-The current LXMF library does not populate `source_name` on `LXMessage`,
-so this read returns `None` and no display name is captured. The codec
-maps a captured `source_name` to `lxmf.display_name` in native metadata
-when one is present.
+The session exposes `resolve_display_name(source_hash)` which performs a
+synchronous local lookup against `RNS.Identity.known_destinations`
+(populated by received announces). The lookup calls
+`RNS.Identity.recall_app_data(dest_hash_bytes)` and parses the returned
+`app_data` via `LXMF.display_name_from_app_data`. No network call is
+issued; `recall_app_data` is a pure read of the process-global announce
+cache. The method never raises and returns the stripped display name or
+`None` for unknown, unavailable, or invalid inputs. This mirrors
+MeshCore's `resolve_contact_label`.
+
+The adapter also performs a defensive ingress capture of any display
+name attached to the inbound message object.
+`_normalise_inbound_message` reads `getattr(message, "source_name",
+None)` without issuing a network call. The current LXMF library does
+not populate `source_name` on `LXMessage`, so this read returns `None`
+in practice. The codec maps a captured `source_name` to
+`lxmf.display_name` in native metadata when one is present.
+
+Fake mode (no real SDK) yields no display name: `resolve_display_name`
+returns `None` because the SDK objects are absent.
+
+### Enrichment pipeline (LXMF)
+
+At ingress, before codec decode, the adapter calls
+`_enrich_with_display_name(packet)`. When the packet's `source_name` is
+empty, the adapter resolves the display name from the announce cache via
+`_resolve_display_name(source_hash)` and injects it into the packet dict.
+The codec then maps `source_name` to `lxmf.display_name` in native
+metadata.
+
+Precedence: message-carried `source_name` (if non-empty) >
+announce-cache resolved display name > `None`. A message-carried name
+always wins; the announce-cache value fills in only when the message
+does not already carry a name.
+
+Resolution is local-only (reads `RNS.Identity.known_destinations`),
+synchronous on the asyncio event loop thread, and observational. For
+peers present in the in-memory announce cache (the common case) the
+lookup is a sub-microsecond dict read; for cold peers a brief local
+file read via `RNS.Identity.recall_app_data` may occur. This matches
+MeshCore's `resolve_contact_label` pattern. The resolved name reflects the sender's
+name at the time of the last heard announce and may be stale if the peer
+has renamed since. The `source_hash` is never returned as the display
+name — enrichment leaves it as `source_sender_id` only.
 
 ### Projection (`project_lxmf_attribution`)
 
@@ -307,9 +344,9 @@ in a prefix use `{sender_id}`.
 
 `lxmf.short_name` is projected by the attribution module but is not
 populated by the codec: the codec sets only `lxmf.display_name` (from a
-captured `source_name`). `lxmf.short_name` is reserved for future
-announce-based enrichment, so `source_sender_short_label` falls through
-to the compact form of `lxmf.display_name` in practice.
+captured or announce-resolved `source_name`).
+`source_sender_short_label` falls through to the compact form of
+`lxmf.display_name` in practice.
 
 The attribution module returns `dict[str, str | None]`, matching the
 Meshtastic and MeshCore pattern. The older `LxmfAttribution` dataclass
@@ -320,17 +357,22 @@ that the dispatch path already discarded.
 ### What remains opaque (LXMF)
 
 The 16-byte Reticulum identity hash is stable per sender but is not
-human-readable. Without an announce-derived display name, only the
-opaque hash is available.
+human-readable. When the sender is not in the local announce cache (no
+heard announce), the display name resolves to `None` and only the
+opaque hash is available via `source_sender_id`.
 
 ### Intentionally deferred (LXMF)
 
-Announce-based display-name enrichment is not implemented. LXMF display
-names live in Identity `announce` `app_data`; a local announce-cache
-lookup is feasible but is outside this implementation scope. Until a
-display name is captured, LXMF-origin events render `{sender}` and
-`{sender_short}` as empty strings. The announce loop diagnostics are
-preserved and unaffected.
+No LXMF-specific identity enrichment is deferred. Announce-based
+display-name enrichment is implemented (see Locally-available contact
+data above). The announce loop diagnostics are preserved and
+unaffected.
+
+The announce-derived display name is observational: it reflects the
+sender's name at the time of the last heard announce and may be stale if
+the peer has renamed since. Resolution is local-only and synchronous;
+no network call is issued and the method never raises. Fake mode (no
+real SDK) yields no display name.
 
 ---
 
@@ -395,14 +437,15 @@ the policy.
 
 ### Enrichment entry points
 
-| File                                       | Focus                                                             |
-| ------------------------------------------ | ----------------------------------------------------------------- |
-| `src/medre/adapters/matrix/adapter.py`     | Room-member display-name enrichment at ingress                    |
-| `src/medre/adapters/meshtastic/session.py` | `get_node_info` (SDK `nodes` dict read)                           |
-| `src/medre/adapters/meshtastic/adapter.py` | `_enrich_with_node_info` ingress wiring                           |
-| `src/medre/adapters/meshtastic/codec.py`   | `decode(node_info=...)` namespaced-key embedding (`meshtastic.*`) |
-| `src/medre/adapters/meshcore/session.py`   | `resolve_contact_label` (SDK contacts dict lookup)                |
-| `src/medre/adapters/meshcore/adapter.py`   | Contact-label resolution at ingress                               |
-| `src/medre/adapters/meshcore/codec.py`     | `meshcore.contact_label` native metadata                          |
-| `src/medre/adapters/lxmf/session.py`       | `_normalise_inbound_message` `source_name` capture                |
-| `src/medre/adapters/lxmf/codec.py`         | `source_name` → `lxmf.display_name` mapping                       |
+| File                                       | Focus                                                                                              |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `src/medre/adapters/matrix/adapter.py`     | Room-member display-name enrichment at ingress                                                     |
+| `src/medre/adapters/meshtastic/session.py` | `get_node_info` (SDK `nodes` dict read)                                                            |
+| `src/medre/adapters/meshtastic/adapter.py` | `_enrich_with_node_info` ingress wiring                                                            |
+| `src/medre/adapters/meshtastic/codec.py`   | `decode(node_info=...)` namespaced-key embedding (`meshtastic.*`)                                  |
+| `src/medre/adapters/meshcore/session.py`   | `resolve_contact_label` (SDK contacts dict lookup)                                                 |
+| `src/medre/adapters/meshcore/adapter.py`   | Contact-label resolution at ingress                                                                |
+| `src/medre/adapters/meshcore/codec.py`     | `meshcore.contact_label` native metadata                                                           |
+| `src/medre/adapters/lxmf/session.py`       | `resolve_display_name` (announce-cache lookup), `_normalise_inbound_message` `source_name` capture |
+| `src/medre/adapters/lxmf/adapter.py`       | `_resolve_display_name`, `_enrich_with_display_name` ingress wiring                                |
+| `src/medre/adapters/lxmf/codec.py`         | `source_name` → `lxmf.display_name` mapping                                                        |

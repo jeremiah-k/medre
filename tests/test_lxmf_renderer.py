@@ -1030,3 +1030,82 @@ class TestLxmfSourceOriginLabel:
         )
         # origin_label resolves to empty string
         assert result.payload["content"] == "[] mystery"
+
+
+class TestLxmfSourceAttributionPrefix:
+    """LXMF source adapter attribution projected through prefix formatting.
+
+    These tests exercise the full chain: LXMF native metadata
+    (``source_hash``, ``lxmf.display_name``, ``lxmf.short_name``) →
+    ``project_lxmf_attribution`` → prefix placeholder formatting.
+
+    They verify the LXMF-specific policy that the opaque ``source_hash``
+    projects to ``{sender_id}`` only and never leaks into ``{sender}``.
+    """
+
+    async def test_lxmf_source_display_name_renders_sender(self) -> None:
+        """LXMF source: {sender} renders lxmf.display_name."""
+        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        event = _make_event_with_native(
+            source_adapter="lxmf-source",
+            native_data={
+                "source_hash": "ab" * 16,
+                "lxmf.display_name": "Mesh Node Alpha",
+            },
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "[Mesh Node Alpha] hello"
+
+    async def test_lxmf_source_hash_only_sender_empty(self) -> None:
+        """LXMF source with only source_hash: {sender} renders empty, not hash."""
+        h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
+        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        event = _make_event_with_native(
+            source_adapter="lxmf-source",
+            native_data={"source_hash": h},
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        # {sender} renders empty -- the opaque hash must NOT become {sender}
+        assert result.payload["content"] == "[] hello"
+        assert h not in result.payload["content"]
+
+    async def test_lxmf_source_hash_renders_sender_id(self) -> None:
+        """LXMF source: {sender_id} renders the source_hash."""
+        h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
+        renderer = LxmfRenderer(relay_prefix="({sender_id}) ")
+        event = _make_event_with_native(
+            source_adapter="lxmf-source",
+            native_data={"source_hash": h},
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == f"({h}) hello"
+
+    async def test_lxmf_source_short_name_renders_sender_short(self) -> None:
+        """LXMF source: {sender_short} renders lxmf.short_name."""
+        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
+        event = _make_event_with_native(
+            source_adapter="lxmf-source",
+            native_data={
+                "source_hash": "ab" * 16,
+                "lxmf.display_name": "Mesh Node Alpha",
+                "lxmf.short_name": "MNA",
+            },
+            payload={"body": "hello"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
+        )
+        assert result.payload["content"] == "<MNA> hello"
