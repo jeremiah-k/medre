@@ -478,6 +478,84 @@ def _expand_route_config(
     return routes
 
 
+def _validate_duplicate_rooms_for_direction(
+    rc: RouteConfig,
+    *,
+    fwd_is_matrix_to_mesh: bool,
+) -> None:
+    """Reject duplicate Matrix rooms when the route creates a Matrix→Meshtastic leg.
+
+    Duplicate room values across a ``channel_room_map`` are safe for
+    Meshtastic→Matrix fan-in (the inbound radio channel disambiguates the
+    source event) but ambiguous for Matrix→Meshtastic routing, because a
+    Matrix event arriving from the shared room could target multiple
+    Meshtastic channels with no way to pick one.  This route-level check
+    runs after platform assignment and directionality are known, which the
+    pure config parser cannot determine.
+
+    Parameters
+    ----------
+    rc:
+        The route configuration.  Must have a non-``None``
+        ``channel_room_map``.
+    fwd_is_matrix_to_mesh:
+        ``True`` when the forward (source→dest) leg is Matrix→Meshtastic;
+        ``False`` when it is Meshtastic→Matrix.
+
+    Raises
+    ------
+    RouteValidationError
+        If two or more entries share a room value *and* the route's
+        directionality plus platform assignment creates a
+        Matrix→Meshtastic leg.
+    """
+    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
+
+    assert rc.channel_room_map is not None  # guarded by caller
+
+    # Collect room values, tolerating both ChannelRoomMapEntry and the
+    # bare-str legacy shape used by direct RouteConfig construction.
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for entry in rc.channel_room_map.values():
+        room = entry.room if isinstance(entry, ChannelRoomMapEntry) else entry
+        if room in seen:
+            dupes.add(room)
+        seen.add(room)
+
+    # No duplicate rooms → always safe regardless of direction.
+    if not dupes:
+        return
+
+    # Route-level directionality decision (all channels share the same
+    # source/dest adapters and directionality, so compute once).
+    direction = rc.directionality
+    create_fwd = direction in (
+        RouteDirectionality.SOURCE_TO_DEST,
+        RouteDirectionality.BIDIRECTIONAL,
+    )
+    create_rev = direction in (
+        RouteDirectionality.DEST_TO_SOURCE,
+        RouteDirectionality.BIDIRECTIONAL,
+    )
+    if fwd_is_matrix_to_mesh:
+        create_matrix_to_mesh = create_fwd
+    else:
+        create_matrix_to_mesh = create_rev
+
+    if create_matrix_to_mesh:
+        raise RouteValidationError(
+            f"Route {rc.route_id!r}: channel_room_map has duplicate Matrix "
+            f"room(s) {sorted(dupes)}, and this route's directionality "
+            f"creates a Matrix→Meshtastic leg. Duplicate rooms are allowed "
+            f"only for Meshtastic→Matrix fan-in (the inbound channel "
+            f"disambiguates the source). Matrix→Meshtastic routing from a "
+            f"shared room is ambiguous: a Matrix event from that room could "
+            f"target multiple Meshtastic channels. Use distinct rooms per "
+            f"channel, or split the channels into separate routes."
+        )
+
+
 def _expand_channel_room_map_route(
     rc: RouteConfig,
     adapter_platforms: dict[str, str],
@@ -565,6 +643,14 @@ def _expand_channel_room_map_route(
             f"Route {rc.route_id!r}: channel_room_map requires one "
             f"Matrix and one Meshtastic adapter"
         )
+
+    # Route-level duplicate-room ambiguity check. Duplicate Matrix rooms
+    # are safe only for Meshtastic→Matrix fan-in; they are ambiguous for
+    # any route that also creates a Matrix→Meshtastic leg. Must run before
+    # the per-channel loop since it is a route-level decision.
+    _validate_duplicate_rooms_for_direction(
+        rc, fwd_is_matrix_to_mesh=fwd_is_matrix_to_mesh
+    )
 
     # BridgePolicy event types → RouteSource event_kinds
     event_kinds: tuple[str, ...] = ()

@@ -1463,6 +1463,61 @@ credentials, BLE pairing PINs, session blobs, and unredacted device
 secrets. The policy is enforced by existing adapter patterns and is
 restated here for clarity.
 
+## 17.6 Duplicate-Room Fan-In for `channel_room_map`
+
+A `channel_room_map` MAY map two or more Meshtastic channel indices to the
+same canonical Matrix room. Whether such duplicate room values are accepted
+depends on the legs the route expands, which are determined by the route's
+directionality and the source/dest platform orientation. The check runs at
+runtime expansion time (in `_validate_duplicate_rooms_for_direction`), not at
+config parse time, because resolving the forward/reverse legs requires the
+platform assignment that the pure config parser cannot determine.
+
+### 17.6.1 Why directionality decides
+
+Duplicate Matrix rooms are safe for Meshtastic→Matrix fan-in: when an inbound
+radio event arrives, the source Meshtastic channel unambiguously identifies
+which `channel_room_map` entry produced the leg, so multiple channels can
+deliver into one shared Matrix room without ambiguity. Each such leg carries
+its own per-entry `source_origin_label` (§17.5.8) so the relay prefix can
+distinguish the channels in the shared room.
+
+Duplicate Matrix rooms are ambiguous for Matrix→Meshtastic routing: a Matrix
+event arriving from the shared room could match two or more expanded legs
+that target different Meshtastic channels, with no signal in the Matrix event
+to pick one. Such configurations MUST be rejected.
+
+### 17.6.2 Directionality decision matrix
+
+`fwd_is_matrix_to_mesh` records whether the declared forward (source→dest)
+leg is Matrix→Meshtastic, derived from the source/dest adapter platforms.
+`create_fwd` / `create_rev` are derived from `RouteDirectionality`. A
+Matrix→Meshtastic leg exists when the forward leg is Matrix→Meshtastic and
+`create_fwd`, or when the forward leg is Meshtastic→Matrix and `create_rev`.
+
+| Declared directionality | `fwd_is_matrix_to_mesh` | Matrix→Meshtastic leg created? | Duplicate rooms |
+| ----------------------- | ----------------------- | ------------------------------ | --------------- |
+| `source_to_dest`        | `True`                  | Yes (forward)                  | Rejected        |
+| `source_to_dest`        | `False`                 | No                             | Allowed         |
+| `dest_to_source`        | `True`                  | No                             | Allowed         |
+| `dest_to_source`        | `False`                 | Yes (reverse)                  | Rejected        |
+| `bidirectional`         | `True`                  | Yes (forward)                  | Rejected        |
+| `bidirectional`         | `False`                 | Yes (reverse)                  | Rejected        |
+
+A map with no duplicate room values is always accepted regardless of
+directionality — the ambiguity cannot arise.
+
+### 17.6.3 Operator guidance
+
+For one-way Meshtastic→Matrix aggregation (for example, two radio channels
+relaying into a single Matrix room), use `directionality: source_to_dest` (or
+`dest_to_source`, depending on adapter orientation) with a Meshtastic source
+and a Matrix destination, and give each entry a distinct
+`source_origin_label`. For any topology that also routes Matrix→Meshtastic,
+each `channel_room_map` entry MUST use a distinct Matrix room. Operators who
+need both fan-in and Matrix→Meshtastic bridging for the same channels SHOULD
+split the channels into separate routes, each with its own dedicated room.
+
 ## 18. Non-Goals
 
 This specification explicitly does **not** provide:

@@ -106,3 +106,20 @@ routes:
       # origin_label. An explicit "" suppresses that fallback.
       # See docs/ops/configuration.md (Per-entry origin labels) and
       # docs/spec/routing-delivery.md §17.5.8.
+
+      # --- Fan-in alternative (commented out) ---
+      # Two (or more) Meshtastic channels MAY deliver into the SAME Matrix
+      # room when the route does not also create a Matrix→Meshtastic leg.
+      # Here directionality would need to be source_to_dest with a Meshtastic
+      # source and Matrix destination (swap source_adapters/dest_adapters and
+      # set directionality: source_to_dest to use this shape). Duplicate rooms
+      # are rejected at route expansion when a Matrix→Meshtastic leg would be
+      # created, because a Matrix event from the shared room is ambiguous
+      # across channels. See docs/spec/routing-delivery.md §17.6.
+      #
+      # "0":
+      #   room: "!shared:example.com"
+      #   source_origin_label: "LongFast"
+      # "1":
+      #   room: "!shared:example.com"
+      #   source_origin_label: "ShortFast"

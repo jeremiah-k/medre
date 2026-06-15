@@ -1,7 +1,7 @@
 """Typed configuration models for the MEDRE runtime.
 
 This module defines the frozen-dataclass configuration hierarchy consumed by
-the TOML loader (:mod:`medre.config.loader`), environment-variable overrides
+the config loader (:mod:`medre.config.loader`), environment-variable overrides
 (:mod:`medre.config.env`), the runtime builder, and the CLI.
 
 Adapter-specific settings are *wrapped*, not duplicated — each runtime config
@@ -47,7 +47,7 @@ def _coerce_adapter_kwargs(
 ) -> dict[str, Any]:
     """Filter *raw* to fields accepted by *config_cls* and coerce types.
 
-    TOML produces ``list`` (not ``set``) and string-keyed dicts (not int-keyed).
+    YAML produces ``list`` (not ``set``) and string-keyed dicts (not int-keyed).
     This helper inspects field annotations and converts values so the frozen
     dataclass constructor receives what it expects.
     """
@@ -66,7 +66,7 @@ def _coerce_adapter_kwargs(
         # list → tuple coercion for tuple-typed fields (e.g. auto_join_rooms)
         if isinstance(value, list) and _is_tuple_annotation(hint):
             value = tuple(value)
-        # TOML dicts have string keys; coerce to int if the annotation
+        # YAML dicts have string keys; coerce to int if the annotation
         # expects int keys (e.g. channel_mapping: dict[int, str]).
         if isinstance(value, dict) and _is_int_keyed_dict(hint):
             try:
@@ -515,7 +515,7 @@ class AdapterConfigSet:
 class RuntimeConfig:
     """Top-level runtime configuration.
 
-    This is the single object produced by the TOML loader and consumed by the
+    This is the single object produced by the config loader and consumed by the
     runtime builder and CLI.
     """
 

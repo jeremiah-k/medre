@@ -2,7 +2,7 @@
 
 This module defines the deterministic, immutable data structures that
 describe named routes between adapters — the configuration-level view
-consumed by the TOML loader (:mod:`medre.config.loader`) and later by
+consumed by the config loader (:mod:`medre.config.loader`) and later by
 the runtime builder.
 
 It is deliberately **transport-agnostic**: adapter IDs, event kinds,
@@ -39,7 +39,7 @@ from medre.config.errors import ConfigValidationError
 class RouteDirectionality(Enum):
     """Direction of event flow between source and destination adapters.
 
-    Values correspond to the ``directionality`` TOML key in
+    Values correspond to the ``directionality`` config key in
     ``[routes.<id>]`` sections.
     """
 
@@ -106,7 +106,7 @@ class BridgePolicy:
     channel_allowlist: tuple[str, ...] = ()
     sender_allowlist: tuple[str, ...] = ()
 
-    # Canonical field names accepted in the policy TOML table.
+    # Canonical field names accepted in the policy config table.
     _KNOWN_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "allowed_event_types",
@@ -634,8 +634,10 @@ def _validate_room_string(
     * Reject ``#`` room aliases.
     * Require the ``!`` canonical-room-ID prefix.
 
-    Does **not** check duplicates — the caller handles that via a
-    ``seen_rooms`` set.
+    Does **not** check duplicates — duplicate-room ambiguity is validated
+    at runtime route expansion (see :mod:`medre.runtime.route_engine`),
+    where adapter platforms are known and the routing direction can
+    disambiguate fan-in from ambiguous Matrix→Meshtastic routing.
 
     Parameters
     ----------
@@ -697,7 +699,7 @@ class RouteConfig:
     Attributes
     ----------
     route_id:
-        Unique identifier for this route (the TOML section key).
+        Unique identifier for this route (the config section key).
     source_adapters:
         Tuple of source adapter IDs.
     dest_adapters:
@@ -967,13 +969,17 @@ class RouteConfig:
                     section_path=section_path,
                 )
             # Validate and normalize entries.
+            # NOTE: duplicate *rooms* across the map are intentionally
+            # permitted here — multiple Meshtastic channels may fan into
+            # the same Matrix room. Ambiguity for Matrix→Meshtastic
+            # routing is enforced at runtime expansion (see
+            # :mod:`medre.runtime.route_engine`), where adapter platforms
+            # and route directionality are known. Duplicate *channels*
+            # remain rejected below.
             normalized: dict[str, ChannelRoomMapEntry] = {}
             seen_channels: set[str] = set()
-            seen_rooms: set[str] = set()
             for raw_key, raw_value in raw_crm.items():
-                ch_normalized = _validate_channel_key(
-                    raw_key, route_id, section_path
-                )
+                ch_normalized = _validate_channel_key(raw_key, route_id, section_path)
                 if ch_normalized in seen_channels:
                     raise ConfigValidationError(
                         f"Route {route_id!r}: channel_room_map has duplicate "
@@ -990,13 +996,6 @@ class RouteConfig:
                 room_value = _validate_room_string(
                     room_value_raw, route_id, ch_normalized, section_path
                 )
-                if room_value in seen_rooms:
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map has duplicate "
-                        f"room {room_value!r}",
-                        section_path=section_path,
-                    )
-                seen_rooms.add(room_value)
                 normalized[ch_normalized] = ChannelRoomMapEntry(
                     room=room_value,
                     source_origin_label=entry_source_label,
@@ -1161,7 +1160,7 @@ class RouteConfigSet:
         for route_id, route_table in routes_section.items():
             if not isinstance(route_table, dict):
                 raise ConfigValidationError(
-                    f"Route {route_id!r} must be a TOML table, "
+                    f"Route {route_id!r} must be a config table (mapping), "
                     f"got {type(route_table).__name__}",
                     section_path=f"routes.{route_id}",
                 )

@@ -1043,7 +1043,7 @@ class TestRouteTableTypeValidation:
         with pytest.raises(ConfigValidationError) as exc_info:
             RouteConfigSet.from_dict({"routes": {"bad_route": "not_a_table"}})
         msg = str(exc_info.value)
-        assert "must be a TOML table" in msg
+        assert "must be a config table" in msg
         assert "str" in msg
 
 

@@ -52,10 +52,10 @@ the resolved value end-to-end.
 
 Defined at `src/medre/config/routes.py:363-431`. The class is
 `@dataclass(frozen=True)`; construction is performed by
-`RouteConfig.from_toml_dict(route_id, data)` at
+`RouteConfig.from_dict(route_id, data)` at
 `src/medre/config/routes.py:433-798`.
 
-The EXACT current YAML / TOML field names (parsed from the route table
+The EXACT current YAML field names (parsed from the route table
 dict) are:
 
 | Field                 | Type                             | Default             | Validation site (file:line)                                                                        |
@@ -75,11 +75,11 @@ dict) are:
 | `source_origin_label` | `str \| None`                    | `None`              | `src/medre/config/routes.py:561-577`                                                               |
 | `dest_origin_label`   | `str \| None`                    | `None`              | `src/medre/config/routes.py:579-595`                                                               |
 
-The runtime / loader layer refers to "TOML" in docstrings and error
-messages (e.g. `src/medre/config/routes.py:43` — "the `directionality`
-TOML key"), but MEDRE's only runtime config format is YAML
-(`docs/ops/configuration.md`, AGENTS.md). Field names and dict shapes
-are identical; the loader produces plain Python dicts either way.
+The runtime is YAML-only for config files
+(`docs/ops/configuration.md`, AGENTS.md). The historical `from_toml_dict`
+constructor name was renamed to `from_dict` when the project dropped TOML
+config support; field names and dict shapes are unchanged and the loader
+produces plain Python dicts.
 
 ### 2.2 `directionality` enum
 
@@ -139,27 +139,27 @@ normalisation) to a canonical Matrix room ID (string starting with
 `"!"`). There is **no per-entry label slot** — values are bare room-ID
 strings, not tables.
 
-Normalization and validation steps performed in `from_toml_dict`:
+Normalization and validation steps performed in `from_dict`:
 
-| Step                                                                            | file:line                            |
-| ------------------------------------------------------------------------------- | ------------------------------------ |
-| Reject non-dict                                                                 | `src/medre/config/routes.py:601-606` |
-| Mutual exclusion with `source_channel`/`dest_channel`/`source_room`/`dest_room` | `src/medre/config/routes.py:607-621` |
-| Require exactly one source adapter                                              | `src/medre/config/routes.py:622-628` |
-| Require exactly one dest adapter                                                | `src/medre/config/routes.py:629-634` |
-| Reject bool channel key                                                         | `src/medre/config/routes.py:641-646` |
-| Accept int or str channel key, normalise to `str(int)`                          | `src/medre/config/routes.py:647-656` |
-| Reject non-integer-string channel key                                           | `src/medre/config/routes.py:658-665` |
-| Reject channel out of range 0–7                                                 | `src/medre/config/routes.py:666-671` |
-| Reject duplicate channel (after normalisation)                                  | `src/medre/config/routes.py:673-678` |
-| Reject blank / empty room value                                                 | `src/medre/config/routes.py:682-688` |
-| Reject room alias (starting with `#`)                                           | `src/medre/config/routes.py:690-697` |
-| Reject non-canonical room ID (must start with `!`)                              | `src/medre/config/routes.py:698-704` |
-| Reject duplicate room                                                           | `src/medre/config/routes.py:705-711` |
-| Reject empty map (after normalisation)                                          | `src/medre/config/routes.py:716-721` |
+| Step                                                                            | file:line                                                                       |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Reject non-dict                                                                 | `src/medre/config/routes.py:601-606`                                            |
+| Mutual exclusion with `source_channel`/`dest_channel`/`source_room`/`dest_room` | `src/medre/config/routes.py:607-621`                                            |
+| Require exactly one source adapter                                              | `src/medre/config/routes.py:622-628`                                            |
+| Require exactly one dest adapter                                                | `src/medre/config/routes.py:629-634`                                            |
+| Reject bool channel key                                                         | `src/medre/config/routes.py:641-646`                                            |
+| Accept int or str channel key, normalise to `str(int)`                          | `src/medre/config/routes.py:647-656`                                            |
+| Reject non-integer-string channel key                                           | `src/medre/config/routes.py:658-665`                                            |
+| Reject channel out of range 0–7                                                 | `src/medre/config/routes.py:666-671`                                            |
+| Reject duplicate channel (after normalisation)                                  | `src/medre/config/routes.py:673-678`                                            |
+| Reject blank / empty room value                                                 | `src/medre/config/routes.py:682-688`                                            |
+| Reject room alias (starting with `#`)                                           | `src/medre/config/routes.py:690-697`                                            |
+| Reject non-canonical room ID (must start with `!`)                              | `src/medre/config/routes.py:698-704`                                            |
+| Duplicate-room ambiguity (runtime, not config parse)                            | `src/medre/runtime/route_engine.py` (`_validate_duplicate_rooms_for_direction`) |
+| Reject empty map (after normalisation)                                          | `src/medre/config/routes.py:716-721`                                            |
 
 The mutual-exclusion check at `src/medre/config/routes.py:607-621` is
-important for the feature: per-entry labels MUST remain compatible
+important for the feature: per-entry labels have to remain compatible
 with this rule. `source_channel` / `dest_channel` are still produced
 _per expanded leg_ by the expansion function, not by the config
 parser.
@@ -178,10 +178,10 @@ checks:
 | No duplicate entries in `source_adapters`                            | `src/medre/config/routes.py:776-780`                                |
 | Duplicate `route_id` across the route set                            | `src/medre/config/routes.py:835-843` (`RouteConfigSet.validate`)    |
 
-`RouteConfigSet.from_toml_dict` at
+`RouteConfigSet.from_dict` at
 `src/medre/config/routes.py:845-879` is the top-level parser entry
 point; it iterates `data["routes"]` in declaration order, calls
-`RouteConfig.from_toml_dict` for each entry, and finally invokes
+`RouteConfig.from_dict` for each entry, and finally invokes
 `RouteConfigSet.validate` for duplicate-ID detection.
 
 ---
@@ -251,7 +251,7 @@ Defined at `src/medre/runtime/route_engine.py:389-478`. Behaviour:
 Defined at `src/medre/runtime/route_engine.py:481-646`. Behaviour:
 
 1. Cardinality check (`src/medre/runtime/route_engine.py:518-522`):
-   the route MUST have exactly one source adapter and one dest
+   the route requires exactly one source adapter and one dest
    adapter. (This is also enforced at config-parse time — see §2.4 —
    but the expansion function re-checks defensively for
    directly-constructed `RouteConfig` instances.)
@@ -593,7 +593,7 @@ The coarseness is structural, not accidental:
 
 1. **Config layer** (`src/medre/config/routes.py:429`): the value type
    is `dict[str, str]`. There is no syntax for attaching a label to a
-   specific entry. Operators who want per-channel labels today MUST
+   specific entry. Operators who want per-channel labels today have to
    decompose the map into N separate routes, each with its own
    `source_origin_label` / `dest_origin_label` (this is the workaround
    documented in `docs/spec/routing-delivery.md:1366-1371` and
@@ -663,7 +663,7 @@ with sensible defaults (fall back to the route-level labels, then to
 ## 7. What must remain unchanged
 
 The following invariants are currently enforced and the upcoming
-feature MUST NOT break them. Each is cited at its enforcement site.
+feature is required not to break them. Each is cited at its enforcement site.
 
 ### 7.1 `origin_label` semantic invariants
 
@@ -685,17 +685,17 @@ feature MUST NOT break them. Each is cited at its enforcement site.
 
 ### 7.3 Config-model invariants
 
-| Invariant                                                                                                | Enforcement (file:line)               |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `channel_room_map` is mutually exclusive with `source_channel`/`dest_channel`/`source_room`/`dest_room`. | `src/medre/config/routes.py:607-621`. |
-| `channel_room_map` requires exactly one source and one dest adapter.                                     | `src/medre/config/routes.py:622-634`. |
-| Channel keys are integers 0–7 after normalisation.                                                       | `src/medre/config/routes.py:658-671`. |
-| Duplicate channel keys (after normalisation) are rejected.                                               | `src/medre/config/routes.py:673-678`. |
-| Room values are non-empty strings starting with `!` (not `#`).                                           | `src/medre/config/routes.py:682-704`. |
-| Duplicate room values are rejected.                                                                      | `src/medre/config/routes.py:705-711`. |
-| Empty `channel_room_map` is rejected.                                                                    | `src/medre/config/routes.py:716-721`. |
-| `source_origin_label` / `dest_origin_label` must be strings (bool rejected before generic type check).   | `src/medre/config/routes.py:561-595`. |
-| `RouteConfig` is frozen.                                                                                 | `src/medre/config/routes.py:363`.     |
+| Invariant                                                                                                | Enforcement (file:line)                                                         |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `channel_room_map` is mutually exclusive with `source_channel`/`dest_channel`/`source_room`/`dest_room`. | `src/medre/config/routes.py:607-621`.                                           |
+| `channel_room_map` requires exactly one source and one dest adapter.                                     | `src/medre/config/routes.py:622-634`.                                           |
+| Channel keys are integers 0–7 after normalisation.                                                       | `src/medre/config/routes.py:658-671`.                                           |
+| Duplicate channel keys (after normalisation) are rejected.                                               | `src/medre/config/routes.py:673-678`.                                           |
+| Room values are non-empty strings starting with `!` (not `#`).                                           | `src/medre/config/routes.py:682-704`.                                           |
+| Duplicate room values: not rejected at config parse; ambiguity validated at runtime expansion.           | `src/medre/runtime/route_engine.py` (`_validate_duplicate_rooms_for_direction`) |
+| Empty `channel_room_map` is rejected.                                                                    | `src/medre/config/routes.py:716-721`.                                           |
+| `source_origin_label` / `dest_origin_label` must be strings (bool rejected before generic type check).   | `src/medre/config/routes.py:561-595`.                                           |
+| `RouteConfig` is frozen.                                                                                 | `src/medre/config/routes.py:363`.                                               |
 
 ### 7.4 Expansion invariants
 
@@ -732,9 +732,9 @@ feature MUST NOT break them. Each is cited at its enforcement site.
 | Per-transport sender projection is owned by each adapter package.   | `src/medre/adapters/matrix/attribution.py`, `src/medre/adapters/meshtastic/attribution.py`, etc.                              |
 | The runtime injects the projection callback into core planning.     | `src/medre/runtime/builder.py:447-494` (`_build_project_sender_metadata_fn`).                                                 |
 
-The upcoming feature work MUST NOT add native-key inspection to
-core rendering, MUST NOT change the projection dispatch signature,
-and MUST NOT add transport-specific branching to
+The upcoming feature work should not add native-key inspection to
+core rendering, should not change the projection dispatch signature,
+and should not add transport-specific branching to
 `_expand_channel_room_map_route` beyond the existing Matrix /
 Meshtastic platform identification.
 
@@ -773,12 +773,16 @@ where `ChannelRoomMapEntry` is a new frozen dataclass with fields:
 | `source_origin_label` | `str \| None` | `None`  | Per-entry forward-leg label. `None` = inherit route-level label. |
 | `dest_origin_label`   | `str \| None` | `None`  | Per-entry reverse-leg label. `None` = inherit route-level label. |
 
-The parser at `src/medre/config/routes.py:597-721` must learn to
-detect whether each map value is a `str` (legacy) or a `dict` (new
-form), normalise both to `ChannelRoomMapEntry`, and run the existing
-room validation on the `room` sub-field. All existing channel-key,
-duplicate-channel, duplicate-room, alias-rejection, and
-canonical-room-ID checks remain unchanged.
+The parser at `src/medre/config/routes.py:597-721` detects whether each
+map value is a `str` (legacy) or a `dict` (new form), normalises both
+to `ChannelRoomMapEntry`, and runs the existing room validation on the
+`room` sub-field. The existing channel-key, duplicate-channel,
+alias-rejection, and canonical-room-ID checks are unchanged. Duplicate
+room values are no longer rejected at config parse; the duplicate-room
+ambiguity check moved to runtime expansion
+(`src/medre/runtime/route_engine.py`,
+`_validate_duplicate_rooms_for_direction`), where it rejects duplicate
+rooms only when a Matrix→Meshtastic leg would be created.
 
 The proposed field names `source_origin_label` and
 `dest_origin_label` match the existing route-level field names at
@@ -912,10 +916,10 @@ The implementation waves must add tests for:
 ### 8.7 Risks and sequencing recommendations
 
 **Risk 1: Breaking the bare-string form.** The polymorphic value
-parse is the riskiest change. The implementation MUST guard the
+parse is the riskiest change. The implementation guards the
 "legacy string" path with an explicit `isinstance(raw_value, str)`
 check before attempting the "new table" path, and the table path
-MUST reject any value that is not a `dict`. The existing test suite
+rejects any value that is not a `dict`. The existing test suite
 at `tests/test_routes_channel_room_map.py` is the regression net.
 
 **Risk 2: Confusing per-entry `""` with per-entry `None`.** Both
@@ -941,7 +945,7 @@ change" rule (`AGENTS.md:50-54`).
 **Recommended wave sequencing:**
 
 1. **Wave 1 — Config model.** Add `ChannelRoomMapEntry`, extend
-   `RouteConfig.from_toml_dict` to parse the polymorphic value shape,
+   `RouteConfig.from_dict` to parse the polymorphic value shape,
    keep the existing `channel_room_map: dict[str, ?]` attribute typed
    as `dict[str, ChannelRoomMapEntry]` (always normalised). Add
    parsing tests (§8.6 item 1). No expansion changes yet — existing
@@ -1031,7 +1035,7 @@ Key implementation sites:
 
 - `src/medre/config/routes.py` — `ChannelRoomMapEntry` (frozen
   dataclass with `room`, `source_origin_label`, `dest_origin_label`)
-  and the polymorphic parse in `RouteConfig.from_toml_dict`. Each map
+  and the polymorphic parse in `RouteConfig.from_dict`. Each map
   value is accepted as a bare room-ID string or a structured table;
   unknown keys, non-string labels, and booleans are rejected.
 - `src/medre/runtime/route_engine.py` —

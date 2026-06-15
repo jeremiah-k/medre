@@ -658,7 +658,7 @@ class TestRouteConfigSet:
                 "bad": "not_a_table",
             },
         }
-        with pytest.raises(ConfigValidationError, match="must be a TOML table"):
+        with pytest.raises(ConfigValidationError, match="must be a config table"):
             RouteConfigSet.from_dict(data)
 
     def test_single_route(self) -> None:

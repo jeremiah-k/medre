@@ -16,8 +16,11 @@ tests:
   ``source_origin_label`` values and each expanded forward leg carries
   the matching label.  This is the headline operator use case for the
   feature: per-channel attribution.  (Two channels pointing to the
-  SAME room is intentionally rejected by the parser — duplicate rooms
-  are a documented invariant in audit §7.3.)
+  SAME room is allowed at parse time and accepted at expansion time
+  for Meshtastic→Matrix fan-in — the inbound channel disambiguates the
+  source.  It is rejected at expansion time when the route also creates
+  a Matrix→Meshtastic leg.  That directionality matrix is covered by
+  ``tests/test_channel_room_map_duplicate_room_fanin.py``.)
 * Two channels targeting different Matrix rooms with different labels
   also resolve the per-leg labels correctly across both the forward
   and reverse legs.
@@ -121,12 +124,13 @@ def _structured_entry(
 # ===========================================================================
 # 1. Distinct per-channel labels land on distinct forward legs
 #
-# Note on the "same room, different channel" scenario: the config
-# parser intentionally rejects duplicate Matrix rooms inside a single
-# ``channel_room_map`` (see ``src/medre/config/routes.py:705-711``,
-# covered by ``test_routes_channel_room_map.py::TestChannelRoomMapConfig
-# ::test_reject_duplicate_room``).  The realistic operator pattern for
-# per-channel labelling is therefore one channel per room, each
+# Note on the "same room, different channel" scenario: the config parser
+# accepts duplicate Matrix rooms inside a single ``channel_room_map``
+# (Wave 1 lifted the former parse-time rejection).  Whether duplicates
+# are legal is decided at runtime expansion based on directionality and
+# adapter platforms — see ``test_channel_room_map_duplicate_room_fanin.py``
+# for that directionality matrix.  The realistic operator pattern for
+# per-channel labelling is nevertheless one channel per room, each
 # carrying its own label.  These tests prove each expanded forward leg
 # carries the per-entry label of its own channel and not its sibling's.
 # ===========================================================================

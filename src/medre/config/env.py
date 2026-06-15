@@ -2,10 +2,10 @@
 
 This module reads ``MEDRE_*`` environment variables and applies them *on top*
 of a :class:`~medre.config.model.RuntimeConfig` that was already loaded from
-TOML.  The original config is **never mutated**; a new frozen instance is
+YAML.  The original config is **never mutated**; a new frozen instance is
 returned.
 
-Environment variables always win over TOML values.  Adapter overrides use
+Environment variables always win over YAML values.  Adapter overrides use
 instance-scoped env vars of the form::
 
     MEDRE_ADAPTER__<TOKEN>__<FIELD>=<value>
@@ -883,7 +883,7 @@ def apply_instance_env_overrides(
 ) -> RuntimeConfig:
     """Apply ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` overrides to *config*.
 
-    For tokens that match an existing TOML adapter, field values are
+    For tokens that match an existing configured adapter, field values are
     overridden in-place.  For tokens with **no** matching adapter but
     with a ``TRANSPORT`` field, a brand-new adapter instance is created
     from environment variables alone (env-first creation).
@@ -982,14 +982,14 @@ def apply_instance_env_overrides(
             if "adapter_id" in field_map:
                 raise ConfigValidationError(
                     "adapter_id cannot be changed through env; "
-                    "rename the adapter in TOML."
+                    "rename the adapter in the YAML config."
                 )
 
             existing = transport_dict.get(adapter_key)
             if existing is None:
                 raise ConfigValidationError(
                     f"Adapter {adapter_key!r} not found in {transport} config. "
-                    f"Env overrides can only modify adapters defined in TOML."
+                    f"Env overrides can only modify adapters defined in the config file."
                 )
 
             new_enabled = existing.enabled
@@ -1025,7 +1025,7 @@ def apply_instance_env_overrides(
                             f"Field {field_name!r} has type "
                             f"{'dict' if (unwrapped is dict or origin is dict) else 'tuple'}"
                             f" and cannot be set through env; "
-                            f"configure it in TOML."
+                            f"configure it in YAML."
                         )
 
                     coerced = _coerce_field_value(
@@ -1107,7 +1107,7 @@ def apply_instance_env_overrides(
                     f"Field {field_name!r} has type "
                     f"{'dict' if (unwrapped is dict or origin is dict) else 'tuple'}"
                     f" and cannot be set through env; "
-                    f"configure it in TOML."
+                    f"configure it in YAML."
                 )
 
             coerced = _coerce_field_value(
@@ -1233,7 +1233,7 @@ def _build_route_data_from_env_fields(
             if existing is not None:
                 raise ConfigValidationError(
                     f"route_id cannot be changed through env for existing "
-                    f"route {existing.route_id!r}. Rename the route in TOML."
+                    f"route {existing.route_id!r}. Rename the route in the YAML config."
                 )
             route_id = parsed.raw_value.strip()
         elif fname == "source_adapters":
@@ -1434,7 +1434,7 @@ def apply_env_overrides(
     Parameters
     ----------
     config:
-        The base configuration (typically loaded from TOML).
+        The base configuration (typically loaded from YAML).
     paths:
         Reserved for future use (e.g. resolving relative store paths).
         Currently unused.

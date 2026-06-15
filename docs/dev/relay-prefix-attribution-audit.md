@@ -722,7 +722,7 @@ string suppresses the adapter fallback. General routes (those not using
 routes per channel, each with its own direction-aware label.
 
 See `src/medre/config/routes.py` (`ChannelRoomMapEntry`,
-`RouteConfig.from_toml_dict`) for the polymorphic parse and
+`RouteConfig.from_dict`) for the polymorphic parse and
 `src/medre/runtime/route_engine.py`
 (`_expand_channel_room_map_route`) for the per-entry label resolution.
 

@@ -94,9 +94,7 @@ class TestChannelRoomMapConfig:
 
     def test_reject_list(self) -> None:
         with pytest.raises(ConfigValidationError, match="must be a table"):
-            RouteConfig.from_dict(
-                "bad", self._base(channel_room_map=[{"0": "!r:t"}])
-            )
+            RouteConfig.from_dict("bad", self._base(channel_room_map=[{"0": "!r:t"}]))
 
     # --- rejection: channel key validation ---
 
@@ -265,19 +263,34 @@ class TestChannelRoomMapConfig:
                 },
             )
 
-    # --- rejection: duplicate rooms ---
+    # --- duplicate rooms: allowed at parse time, validated at expansion ---
 
-    def test_reject_duplicate_room(self) -> None:
-        with pytest.raises(ConfigValidationError, match="duplicate room"):
-            RouteConfig.from_dict(
-                "bad",
-                self._base(
-                    channel_room_map={
-                        "0": "!room:example.com",
-                        "1": "!room:example.com",
-                    }
-                ),
-            )
+    def test_config_allows_duplicate_room(self) -> None:
+        """Duplicate room *values* are accepted by the config parser.
+
+        Wave 1 moved the duplicate-room check from config parsing to
+        runtime route expansion (see
+        :mod:`medre.runtime.route_engine`), because whether duplicates
+        are ambiguous depends on the route's directionality and the
+        resolved adapter platforms — neither of which is known at
+        parse time.  Duplicate *channels* are still rejected (see
+        :func:`test_reject_duplicate_channel`).  The runtime rejection
+        of duplicate rooms for Matrix→Meshtastic routing is covered by
+        ``tests/test_channel_room_map_duplicate_room_fanin.py``.
+        """
+        r = RouteConfig.from_dict(
+            "ok",
+            self._base(
+                channel_room_map={
+                    "0": "!room:example.com",
+                    "1": "!room:example.com",
+                }
+            ),
+        )
+        assert r.channel_room_map is not None
+        assert set(r.channel_room_map.keys()) == {"0", "1"}
+        assert r.channel_room_map["0"] == "!room:example.com"
+        assert r.channel_room_map["1"] == "!room:example.com"
 
     # --- integration: TOML loader ---
 
@@ -410,7 +423,9 @@ class TestChannelRoomMapExpansion:
         """Meshtastic channel '2' (not in map) produces no matched route."""
         from medre.runtime.route_engine import build_runtime_routes
 
-        rc = self._crm_config(channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")})
+        rc = self._crm_config(
+            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:example.com")}
+        )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs, self._platforms())
         # Only channel 0 should have routes

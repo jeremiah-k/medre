@@ -357,7 +357,36 @@ Limitations:
 - Mutually exclusive with `source_room`, `dest_room`, `source_channel`, `dest_channel`.
 - Route must have exactly one source and one destination adapter.
 - Channel keys 0–7 only (Meshtastic supports up to 8 channels).
-- Each room ID unique across the map.
+- Two or more entries MAY share the same Matrix room for Meshtastic→Matrix
+  fan-in (multiple radio channels relaying into one room). Duplicate rooms
+  are rejected at route expansion when the route also creates a
+  Matrix→Meshtastic leg — a Matrix event from a shared room is ambiguous
+  across channels. See the Routing and Delivery Specification §17.6 for the
+  full directionality decision matrix.
+
+Fan-in example — two Meshtastic channels delivering into one Matrix room,
+each with its own `source_origin_label` so the relay prefix distinguishes
+them. This shape is valid only when the route does not also create a
+Matrix→Meshtastic leg (here `source_to_dest` with a Meshtastic source and a
+Matrix destination):
+
+```yaml
+routes:
+  radio_fan_in:
+    source_adapters:
+      - radio
+    dest_adapters:
+      - main
+    directionality: source_to_dest
+    enabled: true
+    channel_room_map:
+      "0":
+        room: "!room:example.com"
+        source_origin_label: "LongFast"
+      "1":
+        room: "!room:example.com"
+        source_origin_label: "ShortFast"
+```
 
 #### Per-entry origin labels
 
