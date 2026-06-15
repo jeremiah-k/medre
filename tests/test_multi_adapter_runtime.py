@@ -554,9 +554,9 @@ class TestEdgeCases:
     """Edge cases: duplicate adapter_id, empty runtime, disabled, ordering."""
 
     def test_duplicate_adapter_id_rejected(self) -> None:
-        """Invalid adapter_kind raises ConfigValidationError via from_toml_dict."""
+        """Invalid adapter_kind raises ConfigValidationError via from_dict."""
         with pytest.raises(ConfigValidationError):
-            MatrixRuntimeConfig.from_toml_dict(
+            MatrixRuntimeConfig.from_dict(
                 "test_dup",
                 {"adapter_kind": "invalid_kind"},
             )

@@ -1,16 +1,16 @@
 """Regression: env override round-trip preserves ``channel_room_map`` entries.
 
-The round-trip in ``_build_route_toml_data_from_env_fields`` (env.py) must
+The round-trip in ``_build_route_data_from_env_fields`` (env.py) must
 serialize normalized ``ChannelRoomMapEntry`` objects back to plain dicts so
-that ``RouteConfig.from_toml_dict`` can re-parse them after an env override
+that ``RouteConfig.from_dict`` can re-parse them after an env override
 is applied.
 
 The existing ``test_channel_room_map_preserved_on_override`` in
 ``test_config_env_first.py`` constructs ``RouteConfig`` directly with a bare
-``dict[str, str]`` channel_room_map. That bypasses ``from_toml_dict``
+``dict[str, str]`` channel_room_map. That bypasses ``from_dict``
 normalization, so ``existing.channel_room_map`` stays as ``dict[str, str]``
 and the round-trip works even though the production parser path is broken.
-These tests exercise the real parser path (``from_toml_dict``), which
+These tests exercise the real parser path (``from_dict``), which
 normalizes every entry to ``ChannelRoomMapEntry`` — the shape that triggered
 the regression.
 """
@@ -45,7 +45,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _make_config_with_parsed_channel_room_map() -> RuntimeConfig:
-    """Build a RuntimeConfig whose route goes through ``from_toml_dict``.
+    """Build a RuntimeConfig whose route goes through ``from_dict``.
 
     Using the parser ensures ``channel_room_map`` is normalized to
     ``dict[str, ChannelRoomMapEntry]`` — the shape that broke the env
@@ -53,7 +53,7 @@ def _make_config_with_parsed_channel_room_map() -> RuntimeConfig:
     legacy bare-string entry are included so the regression covers both
     shapes after normalization.
     """
-    route = RouteConfig.from_toml_dict(
+    route = RouteConfig.from_dict(
         "toml-route",
         {
             "source_adapters": ["adapter-a"],
@@ -83,7 +83,7 @@ def test_env_override_preserves_parsed_channel_room_map(
     """Env override on a route whose map is normalized ChannelRoomMapEntry.
 
     Regression: previously the round-trip copied the normalized
-    ``dict[str, ChannelRoomMapEntry]`` straight into ``toml_data``, and the
+    ``dict[str, ChannelRoomMapEntry]`` straight into ``route_data``, and the
     re-parse rejected the entry objects (they are neither ``str`` nor
     ``dict``).
     """

@@ -784,7 +784,7 @@ class TestRouteEnvCreation:
 
     # --- Override-mode validation tests ---
     # These tests override an existing TOML route and verify that
-    # RouteConfig.from_toml_dict validation is applied.
+    # RouteConfig.from_dict validation is applied.
 
     # (w) Empty source_adapters in override mode raises.
     def test_route_override_empty_source_adapters_raises(

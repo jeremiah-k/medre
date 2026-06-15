@@ -33,7 +33,7 @@ class TestBridgePolicy:
         assert p.channel_allowlist == ()
         assert p.sender_allowlist == ()
 
-    def test_from_toml_dict_full(self) -> None:
+    def test_from_dict_full(self) -> None:
         data = {
             "allowed_event_types": ["message", "reaction"],
             "allowed_source_adapters": ["main"],
@@ -42,7 +42,7 @@ class TestBridgePolicy:
             "channel_allowlist": ["1", "2"],
             "sender_allowlist": ["@alice:example.com"],
         }
-        p = BridgePolicy.from_toml_dict(data)
+        p = BridgePolicy.from_dict(data)
         assert p.allowed_event_types == ("message", "reaction")
         assert p.allowed_source_adapters == ("main",)
         assert p.allowed_dest_adapters == ("radio",)
@@ -50,8 +50,8 @@ class TestBridgePolicy:
         assert p.channel_allowlist == ("1", "2")
         assert p.sender_allowlist == ("@alice:example.com",)
 
-    def test_from_toml_dict_empty(self) -> None:
-        p = BridgePolicy.from_toml_dict({})
+    def test_from_dict_empty(self) -> None:
+        p = BridgePolicy.from_dict({})
         assert p == BridgePolicy()
 
     def test_frozen(self) -> None:
@@ -59,9 +59,9 @@ class TestBridgePolicy:
         with pytest.raises(AttributeError):
             p.allowed_event_types = ("message",)  # type: ignore[misc]
 
-    def test_from_toml_dict_partial(self) -> None:
+    def test_from_dict_partial(self) -> None:
         data = {"allowed_event_types": ["message"]}
-        p = BridgePolicy.from_toml_dict(data)
+        p = BridgePolicy.from_dict(data)
         assert p.allowed_event_types == ("message",)
         assert p.allowed_source_adapters == ()
 
@@ -79,7 +79,7 @@ class TestRouteConfigValid:
             "source_adapters": ["main"],
             "dest_adapters": ["radio"],
         }
-        r = RouteConfig.from_toml_dict("test_route", data)
+        r = RouteConfig.from_dict("test_route", data)
         assert r.route_id == "test_route"
         assert r.source_adapters == ("main",)
         assert r.dest_adapters == ("radio",)
@@ -106,7 +106,7 @@ class TestRouteConfigValid:
                 "allowed_event_types": ["message"],
             },
         }
-        r = RouteConfig.from_toml_dict("full_route", data)
+        r = RouteConfig.from_dict("full_route", data)
         assert r.route_id == "full_route"
         assert r.source_adapters == ("main", "alt")
         assert r.dest_adapters == ("radio", "lxmf_local")
@@ -126,17 +126,17 @@ class TestRouteConfigValid:
         base: dict[str, object] = {"source_adapters": ["a"], "dest_adapters": ["b"]}
         for val in ("source_to_dest", "dest_to_source", "bidirectional"):
             base["directionality"] = val
-            r = RouteConfig.from_toml_dict(f"route_{val}", base)
+            r = RouteConfig.from_dict(f"route_{val}", base)
             assert r.directionality == RouteDirectionality(val)
 
     def test_route_id_with_hyphens_and_underscores(self) -> None:
         data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
-        r = RouteConfig.from_toml_dict("my-route_id-123", data)
+        r = RouteConfig.from_dict("my-route_id-123", data)
         assert r.route_id == "my-route_id-123"
 
     def test_frozen(self) -> None:
         data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
-        r = RouteConfig.from_toml_dict("frozen_test", data)
+        r = RouteConfig.from_dict("frozen_test", data)
         with pytest.raises(AttributeError):
             r.route_id = "changed"  # type: ignore[misc]
 
@@ -153,7 +153,7 @@ def test_source_origin_label_parsed() -> None:
         "dest_adapters": ["b"],
         "source_origin_label": "East Relay",
     }
-    r = RouteConfig.from_toml_dict("labelled_route", data)
+    r = RouteConfig.from_dict("labelled_route", data)
     assert r.source_origin_label == "East Relay"
     assert r.dest_origin_label is None
 
@@ -165,7 +165,7 @@ def test_dest_origin_label_parsed() -> None:
         "dest_adapters": ["b"],
         "dest_origin_label": "West Relay",
     }
-    r = RouteConfig.from_toml_dict("labelled_route", data)
+    r = RouteConfig.from_dict("labelled_route", data)
     assert r.dest_origin_label == "West Relay"
     assert r.source_origin_label is None
 
@@ -178,7 +178,7 @@ def test_both_origin_labels_parsed() -> None:
         "source_origin_label": "East Relay",
         "dest_origin_label": "West Relay",
     }
-    r = RouteConfig.from_toml_dict("labelled_route", data)
+    r = RouteConfig.from_dict("labelled_route", data)
     assert r.source_origin_label == "East Relay"
     assert r.dest_origin_label == "West Relay"
 
@@ -186,7 +186,7 @@ def test_both_origin_labels_parsed() -> None:
 def test_origin_labels_default_none() -> None:
     """source_origin_label and dest_origin_label default to None when not configured."""
     data = {"source_adapters": ["a"], "dest_adapters": ["b"]}
-    r = RouteConfig.from_toml_dict("plain_route", data)
+    r = RouteConfig.from_dict("plain_route", data)
     assert r.source_origin_label is None
     assert r.dest_origin_label is None
 
@@ -203,26 +203,26 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="missing required 'source_adapters'"
         ):
-            RouteConfig.from_toml_dict("bad", {"dest_adapters": ["b"]})
+            RouteConfig.from_dict("bad", {"dest_adapters": ["b"]})
 
     def test_missing_dest_adapters(self) -> None:
         with pytest.raises(
             ConfigValidationError, match="missing required 'dest_adapters'"
         ):
-            RouteConfig.from_toml_dict("bad", {"source_adapters": ["a"]})
+            RouteConfig.from_dict("bad", {"source_adapters": ["a"]})
 
     def test_empty_source_adapters(self) -> None:
         with pytest.raises(
             ConfigValidationError, match="'source_adapters' must not be empty"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad", {"source_adapters": [], "dest_adapters": ["b"]}
             )
 
     def test_empty_source_adapters_names_route(self) -> None:
         """Empty source_adapters error names the route."""
         with pytest.raises(ConfigValidationError, match="Route 'empty_src'"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "empty_src", {"source_adapters": [], "dest_adapters": ["b"]}
             )
 
@@ -230,20 +230,20 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'dest_adapters' must not be empty"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad", {"source_adapters": ["a"], "dest_adapters": []}
             )
 
     def test_empty_dest_adapters_names_route(self) -> None:
         """Empty dest_adapters error names the route."""
         with pytest.raises(ConfigValidationError, match="Route 'empty_dst'"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "empty_dst", {"source_adapters": ["a"], "dest_adapters": []}
             )
 
     def test_invalid_directionality(self) -> None:
         with pytest.raises(ConfigValidationError, match="invalid directionality"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad",
                 {
                     "source_adapters": ["a"],
@@ -254,7 +254,7 @@ class TestRouteConfigValidation:
 
     def test_empty_route_id(self) -> None:
         with pytest.raises(ConfigValidationError, match="must not be empty"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "", {"source_adapters": ["a"], "dest_adapters": ["b"]}
             )
 
@@ -263,7 +263,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'source_origin_label' must be a string"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad_label",
                 {
                     "source_adapters": ["a"],
@@ -277,7 +277,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'source_origin_label' must be a string"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad_label",
                 {
                     "source_adapters": ["a"],
@@ -291,7 +291,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'dest_origin_label' must be a string"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad_label",
                 {
                     "source_adapters": ["a"],
@@ -305,7 +305,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'dest_origin_label' must be a string"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad_label",
                 {
                     "source_adapters": ["a"],
@@ -316,13 +316,13 @@ class TestRouteConfigValidation:
 
     def test_invalid_route_id_spaces(self) -> None:
         with pytest.raises(ConfigValidationError, match="Invalid route ID"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad id", {"source_adapters": ["a"], "dest_adapters": ["b"]}
             )
 
     def test_invalid_route_id_special_chars(self) -> None:
         with pytest.raises(ConfigValidationError, match="Invalid route ID"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad@id!", {"source_adapters": ["a"], "dest_adapters": ["b"]}
             )
 
@@ -330,7 +330,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="source and destination adapters overlap"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "self_route",
                 {
                     "source_adapters": ["main", "alt"],
@@ -342,7 +342,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="duplicate entries in 'dest_adapters'"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "dup_dest",
                 {
                     "source_adapters": ["a"],
@@ -354,7 +354,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="duplicate entries in 'source_adapters'"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "dup_src",
                 {
                     "source_adapters": ["a", "a"],
@@ -366,7 +366,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'source_adapters' must be a list"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad", {"source_adapters": "not_a_list", "dest_adapters": ["b"]}
             )
 
@@ -374,13 +374,13 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'dest_adapters' must be a list"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad", {"source_adapters": ["a"], "dest_adapters": 42}
             )
 
     def test_policy_not_dict(self) -> None:
         with pytest.raises(ConfigValidationError, match="'policy' must be a table"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad",
                 {
                     "source_adapters": ["a"],
@@ -393,7 +393,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="'filter_hooks' must be a list"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad",
                 {
                     "source_adapters": ["a"],
@@ -406,7 +406,7 @@ class TestRouteConfigValidation:
 
     def test_filter_hooks_nonempty_rejected(self) -> None:
         with pytest.raises(ConfigValidationError, match="filter_hooks.*reserved"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad",
                 {
                     "source_adapters": ["a"],
@@ -418,7 +418,7 @@ class TestRouteConfigValidation:
     # --- room/channel aliasing ---
 
     def test_source_room_aliases_to_source_channel(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "alias",
             {
                 "source_adapters": ["a"],
@@ -430,7 +430,7 @@ class TestRouteConfigValidation:
         assert r.source_channel == "!room:test"
 
     def test_dest_room_aliases_to_dest_channel(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "alias",
             {
                 "source_adapters": ["a"],
@@ -442,7 +442,7 @@ class TestRouteConfigValidation:
         assert r.dest_channel == "!room2:test"
 
     def test_room_channel_same_value_ok(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "same",
             {
                 "source_adapters": ["a"],
@@ -458,7 +458,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="source_room.*source_channel.*differ"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "conflict",
                 {
                     "source_adapters": ["a"],
@@ -471,7 +471,7 @@ class TestRouteConfigValidation:
     def test_source_room_source_channel_conflict_names_values(self) -> None:
         """Conflicting alias error names both fields and their values."""
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "conflict",
                 {
                     "source_adapters": ["a"],
@@ -488,7 +488,7 @@ class TestRouteConfigValidation:
         with pytest.raises(
             ConfigValidationError, match="dest_room.*dest_channel.*differ"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "conflict",
                 {
                     "source_adapters": ["a"],
@@ -501,7 +501,7 @@ class TestRouteConfigValidation:
     def test_dest_room_dest_channel_conflict_names_values(self) -> None:
         """Conflicting alias error names both fields and their values."""
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "conflict",
                 {
                     "source_adapters": ["a"],
@@ -518,7 +518,7 @@ class TestRouteConfigValidation:
 
     def test_sender_allowlist_accepted(self) -> None:
         """sender_allowlist is now enforced by the route-policy evaluator."""
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -530,7 +530,7 @@ class TestRouteConfigValidation:
         assert r.policy.sender_allowlist == ("@alice:test",)
 
     def test_allowed_source_adapters_accepted(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -542,7 +542,7 @@ class TestRouteConfigValidation:
         assert r.policy.allowed_source_adapters == ("main",)
 
     def test_allowed_dest_adapters_accepted(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -554,7 +554,7 @@ class TestRouteConfigValidation:
         assert r.policy.allowed_dest_adapters == ("radio",)
 
     def test_room_allowlist_accepted(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -566,7 +566,7 @@ class TestRouteConfigValidation:
         assert r.policy.room_allowlist == ("!room:test",)
 
     def test_channel_allowlist_accepted(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -578,7 +578,7 @@ class TestRouteConfigValidation:
         assert r.policy.channel_allowlist == ("1", "2")
 
     def test_policy_allowed_event_types_still_supported(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "ok",
             {
                 "source_adapters": ["a"],
@@ -595,7 +595,7 @@ class TestRouteConfigValidation:
             ConfigValidationError,
             match=r"policy\.sender_allowlist\[1\] must be a string",
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "bad",
                 {
                     "source_adapters": ["a"],
@@ -614,15 +614,15 @@ class TestRouteConfigSet:
     """RouteConfigSet ordering, validation, and TOML parsing."""
 
     def test_empty_set(self) -> None:
-        rs = RouteConfigSet.from_toml_dict({})
+        rs = RouteConfigSet.from_dict({})
         assert rs.routes == ()
 
     def test_empty_routes_section(self) -> None:
-        rs = RouteConfigSet.from_toml_dict({"routes": {}})
+        rs = RouteConfigSet.from_dict({"routes": {}})
         assert rs.routes == ()
 
     def test_none_routes_section(self) -> None:
-        rs = RouteConfigSet.from_toml_dict({"routes": None})
+        rs = RouteConfigSet.from_dict({"routes": None})
         assert rs.routes == ()
 
     def test_deterministic_ordering(self) -> None:
@@ -634,17 +634,17 @@ class TestRouteConfigSet:
                 "middle": {"source_adapters": ["e"], "dest_adapters": ["f"]},
             },
         }
-        rs = RouteConfigSet.from_toml_dict(data)
+        rs = RouteConfigSet.from_dict(data)
         ids = [r.route_id for r in rs.routes]
         assert ids == ["zebra", "alpha", "middle"]
 
     def test_duplicate_route_ids(self) -> None:
         """Duplicate route IDs raise ConfigValidationError."""
         # First, create manually to test set-level validation
-        r1 = RouteConfig.from_toml_dict(
+        r1 = RouteConfig.from_dict(
             "dup", {"source_adapters": ["a"], "dest_adapters": ["b"]}
         )
-        r2 = RouteConfig.from_toml_dict(
+        r2 = RouteConfig.from_dict(
             "dup", {"source_adapters": ["c"], "dest_adapters": ["d"]}
         )
         rs = RouteConfigSet(routes=(r1, r2))
@@ -659,7 +659,7 @@ class TestRouteConfigSet:
             },
         }
         with pytest.raises(ConfigValidationError, match="must be a TOML table"):
-            RouteConfigSet.from_toml_dict(data)
+            RouteConfigSet.from_dict(data)
 
     def test_single_route(self) -> None:
         data = {
@@ -667,7 +667,7 @@ class TestRouteConfigSet:
                 "r1": {"source_adapters": ["a"], "dest_adapters": ["b"]},
             },
         }
-        rs = RouteConfigSet.from_toml_dict(data)
+        rs = RouteConfigSet.from_dict(data)
         assert len(rs.routes) == 1
         assert rs.routes[0].route_id == "r1"
 
@@ -777,7 +777,7 @@ class TestRouteRetryConfig:
     """RouteRetryConfig parsing, defaults, and validation."""
 
     def test_defaults(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {},
             route_id="test",
             section_path="routes.test",
@@ -789,7 +789,7 @@ class TestRouteRetryConfig:
         assert rc.jitter is False
 
     def test_full_config(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {
                 "enabled": True,
                 "max_attempts": 5,
@@ -807,7 +807,7 @@ class TestRouteRetryConfig:
         assert rc.jitter is True
 
     def test_disabled(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {"enabled": False},
             route_id="test",
             section_path="routes.test",
@@ -815,7 +815,7 @@ class TestRouteRetryConfig:
         assert rc.enabled is False
 
     def test_frozen(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {},
             route_id="test",
             section_path="routes.test",
@@ -829,7 +829,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.enabled must be a boolean"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"enabled": "yes"},
                 route_id="test",
                 section_path="routes.test",
@@ -839,7 +839,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_attempts must be an integer"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_attempts": 3.5},
                 route_id="test",
                 section_path="routes.test",
@@ -849,7 +849,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_attempts must be an integer"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_attempts": True},
                 route_id="test",
                 section_path="routes.test",
@@ -859,7 +859,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_attempts must be > 0"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_attempts": 0},
                 route_id="test",
                 section_path="routes.test",
@@ -869,7 +869,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_attempts must be > 0"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_attempts": -1},
                 route_id="test",
                 section_path="routes.test",
@@ -879,7 +879,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.backoff_base must be >= 0"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"backoff_base": -0.1},
                 route_id="test",
                 section_path="routes.test",
@@ -889,7 +889,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.backoff_base must be a number"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"backoff_base": "fast"},
                 route_id="test",
                 section_path="routes.test",
@@ -899,7 +899,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_delay_seconds must be >= 0"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_delay_seconds": -1.0},
                 route_id="test",
                 section_path="routes.test",
@@ -909,7 +909,7 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.max_delay_seconds must be a number"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"max_delay_seconds": "forever"},
                 route_id="test",
                 section_path="routes.test",
@@ -919,14 +919,14 @@ class TestRouteRetryConfig:
         with pytest.raises(
             ConfigValidationError, match="retry.jitter must be a boolean"
         ):
-            RouteRetryConfig.from_toml_dict(
+            RouteRetryConfig.from_dict(
                 {"jitter": "yes"},
                 route_id="test",
                 section_path="routes.test",
             )
 
     def test_zero_backoff_base_ok(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {"backoff_base": 0},
             route_id="test",
             section_path="routes.test",
@@ -934,7 +934,7 @@ class TestRouteRetryConfig:
         assert rc.backoff_base == 0.0
 
     def test_zero_max_delay_ok(self) -> None:
-        rc = RouteRetryConfig.from_toml_dict(
+        rc = RouteRetryConfig.from_dict(
             {"max_delay_seconds": 0},
             route_id="test",
             section_path="routes.test",
@@ -951,7 +951,7 @@ class TestRouteConfigRetry:
     """RouteConfig correctly parses and validates the retry field."""
 
     def test_no_retry_defaults_none(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "test",
             {
                 "source_adapters": ["a"],
@@ -961,7 +961,7 @@ class TestRouteConfigRetry:
         assert r.retry is None
 
     def test_retry_table_parsed(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "test",
             {
                 "source_adapters": ["a"],
@@ -983,7 +983,7 @@ class TestRouteConfigRetry:
         assert r.retry.jitter is False
 
     def test_retry_defaults_only_enabled(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "test",
             {
                 "source_adapters": ["a"],
@@ -996,7 +996,7 @@ class TestRouteConfigRetry:
         assert r.retry.max_attempts == 3  # default
 
     def test_retry_disabled(self) -> None:
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "test",
             {
                 "source_adapters": ["a"],
@@ -1009,7 +1009,7 @@ class TestRouteConfigRetry:
 
     def test_retry_not_table_raises(self) -> None:
         with pytest.raises(ConfigValidationError, match="'retry' must be a table"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "test",
                 {
                     "source_adapters": ["a"],
@@ -1022,7 +1022,7 @@ class TestRouteConfigRetry:
         with pytest.raises(
             ConfigValidationError, match="retry.max_attempts must be > 0"
         ):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "test",
                 {
                     "source_adapters": ["a"],
@@ -1033,7 +1033,7 @@ class TestRouteConfigRetry:
 
     def test_retry_with_policy(self) -> None:
         """Retry and policy can coexist on a route."""
-        r = RouteConfig.from_toml_dict(
+        r = RouteConfig.from_dict(
             "test",
             {
                 "source_adapters": ["a"],
@@ -1049,7 +1049,7 @@ class TestRouteConfigRetry:
     def test_retry_preserves_route_id_in_errors(self) -> None:
         """Retry validation errors include the route ID."""
         with pytest.raises(ConfigValidationError, match="Route 'my_route'"):
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "my_route",
                 {
                     "source_adapters": ["a"],
@@ -1061,7 +1061,7 @@ class TestRouteConfigRetry:
     def test_retry_section_path_in_errors(self) -> None:
         """Retry validation errors include the section_path."""
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict(
+            RouteConfig.from_dict(
                 "my_route",
                 {
                     "source_adapters": ["a"],

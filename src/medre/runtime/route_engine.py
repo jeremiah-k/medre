@@ -580,7 +580,7 @@ def _expand_channel_room_map_route(
     routes: list[Route] = []
 
     for ch, entry in sorted(rc.channel_room_map.items()):
-        # Normalize the entry: ChannelRoomMapEntry (from from_toml_dict)
+        # Normalize the entry: ChannelRoomMapEntry (from from_dict)
         # or a bare str (from direct RouteConfig construction in tests).
         if isinstance(entry, ChannelRoomMapEntry):
             room_id = entry.room

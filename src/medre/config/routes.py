@@ -129,19 +129,19 @@ class BridgePolicy:
     )
 
     @classmethod
-    def from_toml_dict(
+    def from_dict(
         cls,
         data: dict[str, Any],
         *,
         route_id: str = "",
         section_path: str = "",
     ) -> Self:
-        """Construct from a TOML table dict (the ``[routes.<id>.policy]`` section).
+        """Construct from a config dict (the ``[routes.<id>.policy]`` section).
 
         Parameters
         ----------
         data:
-            The parsed TOML table for the policy section.
+            The parsed dict for the policy section.
         route_id:
             Route ID for error messages (optional).
         section_path:
@@ -226,7 +226,7 @@ def _validate_policy(
     """
     # Intentionally empty: structural validation (unknown keys, type
     # checking, per-element string checks) is performed in
-    # BridgePolicy.from_toml_dict before this function is called.
+    # BridgePolicy.from_dict before this function is called.
 
 
 # ---------------------------------------------------------------------------
@@ -266,19 +266,19 @@ class RouteRetryConfig:
     jitter: bool = False
 
     @classmethod
-    def from_toml_dict(
+    def from_dict(
         cls,
         data: dict[str, Any],
         *,
         route_id: str,
         section_path: str,
     ) -> Self:
-        """Construct from a ``[routes.<id>.retry]`` TOML table dict.
+        """Construct from a ``[routes.<id>.retry]`` config dict.
 
         Parameters
         ----------
         data:
-            The parsed TOML table for the retry section.
+            The parsed dict for the retry section.
         route_id:
             The route ID (for error messages).
         section_path:
@@ -503,15 +503,15 @@ class RouteConfig:
     dest_origin_label: str | None = None
 
     @classmethod
-    def from_toml_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
-        """Construct from a ``[routes.<id>]`` TOML table dict.
+    def from_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
+        """Construct from a ``[routes.<id>]`` config dict.
 
         Parameters
         ----------
         route_id:
-            The route ID (TOML section key after ``routes.``).
+            The route ID (config section key after ``routes.``).
         data:
-            The parsed TOML table for this route.
+            The parsed dict for this route.
 
         Raises
         ------
@@ -880,7 +880,7 @@ class RouteConfig:
                     f"Route {route_id!r}: 'policy' must be a table",
                     section_path=section_path,
                 )
-            policy = BridgePolicy.from_toml_dict(
+            policy = BridgePolicy.from_dict(
                 raw_policy,
                 route_id=route_id,
                 section_path=section_path,
@@ -900,7 +900,7 @@ class RouteConfig:
                     f"Route {route_id!r}: 'retry' must be a table",
                     section_path=section_path,
                 )
-            retry = RouteRetryConfig.from_toml_dict(
+            retry = RouteRetryConfig.from_dict(
                 raw_retry,
                 route_id=route_id,
                 section_path=section_path,
@@ -958,7 +958,7 @@ class RouteConfig:
 class RouteConfigSet:
     """Ordered, validated collection of :class:`RouteConfig` instances.
 
-    Routes are stored in the order they appear in the TOML file,
+    Routes are stored in the order they appear in the config file,
     ensuring deterministic iteration.  Call :meth:`validate` after
     construction to check for duplicate IDs.
 
@@ -994,13 +994,13 @@ class RouteConfigSet:
             seen[route.route_id] = f"routes.{route.route_id}"
 
     @classmethod
-    def from_toml_dict(cls, data: dict[str, Any]) -> Self:
-        """Parse all ``[routes.<id>]`` sections from the TOML root dict.
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Parse all ``[routes.<id>]`` sections from the config root dict.
 
         Parameters
         ----------
         data:
-            The full parsed TOML dict.  Looks for a top-level ``"routes"``
+            The full parsed config dict.  Looks for a top-level ``"routes"``
             key whose values are per-route tables.
 
         Returns
@@ -1024,7 +1024,7 @@ class RouteConfigSet:
                     f"got {type(route_table).__name__}",
                     section_path=f"routes.{route_id}",
                 )
-            routes.append(RouteConfig.from_toml_dict(route_id, route_table))
+            routes.append(RouteConfig.from_dict(route_id, route_table))
         route_set = cls(routes=tuple(routes))
         route_set.validate()
         return route_set

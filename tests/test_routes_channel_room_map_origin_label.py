@@ -26,7 +26,7 @@ Also covers the two sentinel states renderers rely on:
 
 These behaviours must survive the YAML migration (config produced as
 plain dicts) unchanged, so tests construct ``RouteConfig`` directly and
-via ``from_toml_dict`` to cover both shapes.
+via ``from_dict`` to cover both shapes.
 """
 
 from __future__ import annotations
@@ -254,8 +254,8 @@ def test_none_labels_yield_none_origin_label() -> None:
 
 
 def test_unspecified_labels_default_to_none() -> None:
-    """from_toml_dict path (YAML produces plain dicts): no labels → None."""
-    rc = RouteConfig.from_toml_dict(
+    """from_dict path (YAML produces plain dicts): no labels → None."""
+    rc = RouteConfig.from_dict(
         "t",
         {
             "source_adapters": ["matrix_adapter"],

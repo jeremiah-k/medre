@@ -489,7 +489,7 @@ class TestAdapterKindValidation:
         from medre.config.errors import ConfigValidationError
 
         with pytest.raises(ConfigValidationError, match="adapter_kind"):
-            MatrixRuntimeConfig.from_toml_dict(
+            MatrixRuntimeConfig.from_dict(
                 "test",
                 {
                     "enabled": True,
@@ -509,7 +509,7 @@ class TestAdapterKindValidation:
         assert rt.adapter_kind == "real"
 
     def test_fake_adapter_kind_accepted(self) -> None:
-        rt = MatrixRuntimeConfig.from_toml_dict(
+        rt = MatrixRuntimeConfig.from_dict(
             "test",
             {
                 "enabled": True,

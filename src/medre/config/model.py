@@ -278,14 +278,14 @@ class MatrixRuntimeConfig:
     config: MatrixConfig | None = None
 
     @classmethod
-    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a TOML table dict.
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
+        """Construct from a config dict.
 
         *instance_name* is the key under ``[adapters.matrix]`` and becomes
         ``adapter_id`` unless the table explicitly provides one.
 
         Encryption settings (``encryption_mode``,
-        ``require_encrypted_rooms``) are set directly in the TOML table and
+        ``require_encrypted_rooms``) are set directly in the config table and
         pass through to :class:`MatrixConfig` via
         :func:`_coerce_adapter_kwargs`.
         """
@@ -322,8 +322,8 @@ class MeshtasticRuntimeConfig:
     config: MeshtasticConfig | None = None
 
     @classmethod
-    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a TOML table dict."""
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
+        """Construct from a config dict."""
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
@@ -357,8 +357,8 @@ class MeshCoreRuntimeConfig:
     config: MeshCoreConfig | None = None
 
     @classmethod
-    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a TOML table dict."""
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
+        """Construct from a config dict."""
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
@@ -392,8 +392,8 @@ class LxmfRuntimeConfig:
     config: LxmfConfig | None = None
 
     @classmethod
-    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a TOML table dict."""
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
+        """Construct from a config dict."""
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)

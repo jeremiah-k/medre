@@ -1,11 +1,11 @@
 """YAML parsing and validation edge cases for structured ``channel_room_map``.
 
 The smoke tests in ``test_channel_room_map_context_labels.py`` exercise
-the polymorphic parsing via ``RouteConfig.from_toml_dict`` (the same
+the polymorphic parsing via ``RouteConfig.from_dict`` (the same
 entry point the YAML loader uses).  This file complements them by
 verifying the YAML-front path itself: operators write YAML, the strict
 parser produces plain dicts, and the structured-entry shape survives
-the full ``parse_yaml_config`` → ``RouteConfigSet.from_toml_dict``
+the full ``parse_yaml_config`` → ``RouteConfigSet.from_dict``
 chain.
 
 Invariants verified here that are NOT already covered by the smoke
@@ -13,7 +13,7 @@ tests:
 
 * A YAML config with structured ``channel_room_map`` entries loads
   correctly through ``parse_yaml_config`` +
-  ``RouteConfigSet.from_toml_dict``.
+  ``RouteConfigSet.from_dict``.
 * Quoted Matrix room IDs (``"!roomA:example.org"``) load correctly.
   The ``!`` sigil is the YAML tag prefix, so quoting is required in
   practice; these tests prove the loader handles it.
@@ -28,7 +28,7 @@ tests:
   so route-level fallback is preserved.
 * Bare-string ``channel_room_map`` without labels loads unchanged
   through the YAML loader (backward compat at the file format level,
-  not just at ``from_toml_dict``).
+  not just at ``from_dict``).
 * Integer channel keys (``0:`` instead of ``"0":``) work for
   structured entries — YAML 1.1 parses unquoted integers as ``int``,
   and the parser normalises them to the string form.
@@ -58,12 +58,12 @@ def _routes_from_yaml(yaml_text: str) -> RouteConfigSet:
     """Parse a YAML string into a ``RouteConfigSet``.
 
     Mirrors the loader path: strict YAML parse →
-    ``RouteConfigSet.from_toml_dict``.  This is exactly what
+    ``RouteConfigSet.from_dict``.  This is exactly what
     ``load_config`` does between reading the file and returning the
     typed config.
     """
     data = parse_yaml_config(yaml_text, source="<test>")
-    return RouteConfigSet.from_toml_dict(data)
+    return RouteConfigSet.from_dict(data)
 
 
 def _crm_entry(rcs: RouteConfigSet, route_id: str, channel: str) -> ChannelRoomMapEntry:
@@ -408,7 +408,7 @@ def test_load_config_full_path_bare_string_backward_compat(
 # 8. Validation surfaces still fire through the YAML path
 #
 # Structured entries do not bypass room/channel validation.  These
-# guards are already tested directly through ``from_toml_dict`` in the
+# guards are already tested directly through ``from_dict`` in the
 # smoke tests; here we confirm they also fire through the YAML loader
 # so an operator writing YAML gets the same error.
 # ===========================================================================

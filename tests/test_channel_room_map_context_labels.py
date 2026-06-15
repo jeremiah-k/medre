@@ -70,7 +70,7 @@ def _leg(routes: list[Route], direction: str, channel: str = "0") -> Route:
 
 
 def test_structured_entry_parses_with_labels() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -93,7 +93,7 @@ def test_structured_entry_parses_with_labels() -> None:
 
 def test_structured_entry_parses_room_only() -> None:
     """A structured entry with just ``room`` (no labels) defaults to None."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -115,7 +115,7 @@ def test_structured_entry_parses_room_only() -> None:
 
 def test_bare_string_shape_backward_compat() -> None:
     """Legacy bare-string values parse to ChannelRoomMapEntry with None labels."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -140,7 +140,7 @@ def test_bare_string_shape_backward_compat() -> None:
 
 def test_mixed_bare_and_structured_entries() -> None:
     """A map with one bare-string and one structured entry parses correctly."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -165,7 +165,7 @@ def test_mixed_bare_and_structured_entries() -> None:
 
 def test_per_entry_source_label_on_forward_leg() -> None:
     """Entry source_origin_label overrides route-level on forward leg."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -184,7 +184,7 @@ def test_per_entry_source_label_on_forward_leg() -> None:
 
 def test_per_entry_source_label_other_channel_keeps_route_label() -> None:
     """Only the entry with the label gets it; other entries fall back."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -212,7 +212,7 @@ def test_per_entry_source_label_other_channel_keeps_route_label() -> None:
 
 def test_per_entry_dest_label_on_reverse_leg() -> None:
     """Entry dest_origin_label overrides route-level on reverse leg."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -236,7 +236,7 @@ def test_per_entry_dest_label_on_reverse_leg() -> None:
 
 def test_empty_string_entry_label_preserved() -> None:
     """Explicit '' on an entry suppresses fallback — does NOT inherit route label."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -256,7 +256,7 @@ def test_empty_string_entry_label_preserved() -> None:
 
 def test_empty_string_entry_dest_label_preserved() -> None:
     """Explicit '' on dest_origin_label is preserved on the reverse leg."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -275,7 +275,7 @@ def test_empty_string_entry_dest_label_preserved() -> None:
 
 def test_entry_label_none_falls_back_to_route_label() -> None:
     """Entry with absent/None label inherits the route-level label."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_DATA,
@@ -299,7 +299,7 @@ def test_entry_label_none_falls_back_to_route_label() -> None:
 
 def test_unknown_entry_key_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="unknown key"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -315,7 +315,7 @@ def test_unknown_entry_key_rejected() -> None:
 
 def test_structured_entry_missing_room_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="missing required 'room'"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -333,7 +333,7 @@ def test_structured_entry_missing_room_rejected() -> None:
 
 def test_bool_source_label_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="must be a string"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -349,7 +349,7 @@ def test_bool_source_label_rejected() -> None:
 
 def test_bool_dest_label_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="must be a string"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -370,7 +370,7 @@ def test_bool_dest_label_rejected() -> None:
 
 def test_int_label_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="must be a string"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -386,7 +386,7 @@ def test_int_label_rejected() -> None:
 
 def test_list_label_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="must be a string"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -403,7 +403,7 @@ def test_list_label_rejected() -> None:
 def test_non_str_non_dict_value_rejected() -> None:
     """A raw value that is neither a string nor a dict is rejected."""
     with pytest.raises(ConfigValidationError):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -420,7 +420,7 @@ def test_non_str_non_dict_value_rejected() -> None:
 def test_structured_entry_alias_room_rejected() -> None:
     """Room aliases (starting with '#') are rejected even in structured form."""
     with pytest.raises(ConfigValidationError, match="room alias"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -433,7 +433,7 @@ def test_structured_entry_alias_room_rejected() -> None:
 
 def test_structured_entry_non_canonical_room_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,
@@ -447,7 +447,7 @@ def test_structured_entry_non_canonical_room_rejected() -> None:
 def test_structured_entry_non_string_room_rejected() -> None:
     """A non-string 'room' value in a structured entry is rejected."""
     with pytest.raises(ConfigValidationError, match="room"):
-        RouteConfig.from_toml_dict(
+        RouteConfig.from_dict(
             "t",
             {
                 **_BASE_DATA,

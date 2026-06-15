@@ -785,14 +785,14 @@ class TestRouteIdUniqueness:
         # Route "r1" with 2 sources expands to "r1__0" and "r1__1".
         # Route "r1__0" with 1 source expands to "r1__0" (single source, no suffix).
         # Collision: "r1__0" appears from both routes.
-        r1 = RouteConfig.from_toml_dict(
+        r1 = RouteConfig.from_dict(
             "r1",
             {
                 "source_adapters": ["a1", "a2"],
                 "dest_adapters": ["b"],
             },
         )
-        r1_dunder_0 = RouteConfig.from_toml_dict(
+        r1_dunder_0 = RouteConfig.from_dict(
             "r1__0",
             {
                 "source_adapters": ["c"],
@@ -811,7 +811,7 @@ class TestRouteIdUniqueness:
         #   forward: "bridge"  (single source)
         #   reverse: "bridge__rev_0"
         # Route "bridge__rev_0" would collide.
-        r1 = RouteConfig.from_toml_dict(
+        r1 = RouteConfig.from_dict(
             "bridge",
             {
                 "source_adapters": ["a"],
@@ -819,7 +819,7 @@ class TestRouteIdUniqueness:
                 "directionality": "bidirectional",
             },
         )
-        r2 = RouteConfig.from_toml_dict(
+        r2 = RouteConfig.from_dict(
             "bridge__rev_0",
             {
                 "source_adapters": ["c"],
@@ -973,8 +973,8 @@ class TestBidirectionalTargetingExpansion:
 
     def test_bidirectional_with_source_room_and_dest_channel(self) -> None:
         """Bidirectional route expands with correct targeting for both legs."""
-        # Build config using from_toml_dict to exercise source_room→source_channel alias
-        rc = RouteConfig.from_toml_dict(
+        # Build config using from_dict to exercise source_room→source_channel alias
+        rc = RouteConfig.from_dict(
             "bridge",
             {
                 "source_adapters": ["matrix"],
@@ -1009,7 +1009,7 @@ class TestBidirectionalTargetingExpansion:
 
     def test_bidirectional_targeting_registered_on_router(self) -> None:
         """Bidirectional route with targeting registers and matches correctly."""
-        rc = RouteConfig.from_toml_dict(
+        rc = RouteConfig.from_dict(
             "bridge",
             {
                 "source_adapters": ["matrix"],

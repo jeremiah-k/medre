@@ -93,7 +93,7 @@ class _CapturingRenderer:
 
 
 def test_standard_expansion_threads_source_origin_label() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "r1",
         {
             "source_adapters": ["src-a"],
@@ -107,7 +107,7 @@ def test_standard_expansion_threads_source_origin_label() -> None:
 
 
 def test_standard_expansion_none_when_unset() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "r2",
         {"source_adapters": ["src-a"], "dest_adapters": ["dst-b"]},
     )
@@ -118,7 +118,7 @@ def test_standard_expansion_none_when_unset() -> None:
 
 def test_swap_direction_uses_dest_origin_label() -> None:
     """dest_to_source reverse leg uses dest_origin_label."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "r3",
         {
             "source_adapters": ["src-a"],
@@ -135,7 +135,7 @@ def test_swap_direction_uses_dest_origin_label() -> None:
 
 def test_forward_uses_source_origin_label() -> None:
     """Forward expansion uses source_origin_label, not dest_origin_label."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "r3f",
         {
             "source_adapters": ["src-a"],
@@ -150,7 +150,7 @@ def test_forward_uses_source_origin_label() -> None:
 
 
 def test_multi_source_threads_label_to_each_leg() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "r4",
         {
             "source_adapters": ["src-a", "src-c"],

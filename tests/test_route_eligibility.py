@@ -750,7 +750,7 @@ class TestBuilderIntegration:
             connection_type="fake",
         ).validate()
 
-        route1 = RouteConfig.from_toml_dict(
+        route1 = RouteConfig.from_dict(
             "bridge",
             {
                 "source_adapters": ["radio_a"],

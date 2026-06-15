@@ -3,7 +3,7 @@
 Regression tests for a bug in :func:`apply_route_overrides`: when an
 existing TOML route was overridden via ``MEDRE_ROUTE__<TOKEN>__<FIELD>``
 env vars, the override path rebuilt the route through
-:meth:`RouteConfig.from_toml_dict` and carried forward complex fields
+:meth:`RouteConfig.from_dict` and carried forward complex fields
 (``channel_room_map``, ``policy``, ``retry``) but **dropped**
 ``source_origin_label`` and ``dest_origin_label``.
 

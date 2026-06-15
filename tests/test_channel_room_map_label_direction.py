@@ -35,7 +35,7 @@ tests:
   leg carrying the entry source label and a reverse leg carrying the
   entry dest label for the same channel.
 
-All tests use ``RouteConfig.from_toml_dict`` and
+All tests use ``RouteConfig.from_dict`` and
 :func:`build_runtime_routes` so the parsing + expansion path is the
 same one operators hit through YAML config.
 """
@@ -138,7 +138,7 @@ def test_two_channels_distinct_source_labels_matrix_source() -> None:
     Each forward (Matrix→Meshtastic) leg must carry its own per-entry
     label, not its sibling's.
     """
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -167,7 +167,7 @@ def test_two_channels_distinct_source_labels_matrix_source() -> None:
 
 def test_two_channels_distinct_labels_mesh_source() -> None:
     """Source = Meshtastic: per-entry source label lands on meshtastic_to_matrix leg."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MESH_SOURCE,
@@ -198,7 +198,7 @@ def test_two_channels_distinct_labels_mesh_source() -> None:
 
 
 def test_distinct_rooms_distinct_channels_distinct_labels() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -234,7 +234,7 @@ def test_distinct_rooms_distinct_channels_distinct_labels() -> None:
 
 
 def test_entry_source_label_does_not_leak_onto_reverse_leg() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -260,7 +260,7 @@ def test_entry_source_label_does_not_leak_onto_reverse_leg() -> None:
 
 
 def test_entry_dest_label_does_not_leak_onto_forward_leg() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -294,7 +294,7 @@ def test_entry_dest_label_does_not_leak_onto_forward_leg() -> None:
 
 
 def test_both_entry_labels_override_both_route_labels_matrix_source() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -319,7 +319,7 @@ def test_both_entry_labels_override_both_route_labels_matrix_source() -> None:
 
 def test_both_entry_labels_override_both_route_labels_mesh_source() -> None:
     """Same entry-both-labels behaviour with Meshtastic as the source."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MESH_SOURCE,
@@ -353,7 +353,7 @@ def test_both_entry_labels_override_both_route_labels_mesh_source() -> None:
 
 
 def test_entry_source_label_only_no_route_label_reverse_is_none() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -375,7 +375,7 @@ def test_entry_source_label_only_no_route_label_reverse_is_none() -> None:
 
 
 def test_entry_dest_label_only_no_route_label_forward_is_none() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -405,7 +405,7 @@ def test_entry_dest_label_only_no_route_label_forward_is_none() -> None:
 
 
 def test_mixed_entries_one_overrides_one_inherits() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -447,7 +447,7 @@ def test_mixed_entries_one_overrides_one_inherits() -> None:
 
 
 def test_source_to_dest_per_entry_source_label_applies() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             "source_adapters": ["matrix_adapter"],
@@ -470,7 +470,7 @@ def test_source_to_dest_per_entry_source_label_applies() -> None:
 
 
 def test_dest_to_source_per_entry_dest_label_applies() -> None:
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             "source_adapters": ["matrix_adapter"],
@@ -535,7 +535,7 @@ def test_labeled_entries_equal_only_when_all_fields_match() -> None:
 
 def test_unlabeled_entry_dict_equals_legacy_flat_dict() -> None:
     """A normalised map with only unlabeled entries equals a ``dict[str, str]``."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
@@ -555,7 +555,7 @@ def test_unlabeled_entry_dict_equals_legacy_flat_dict() -> None:
 def test_labeled_entry_dict_does_not_equal_legacy_flat_dict() -> None:
     """Once any entry has a label, the normalised map no longer equals
     the legacy ``dict[str, str]`` shape."""
-    rc = RouteConfig.from_toml_dict(
+    rc = RouteConfig.from_dict(
         "t",
         {
             **_BASE_MATRIX_SOURCE,
