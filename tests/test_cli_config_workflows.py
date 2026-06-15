@@ -11,11 +11,11 @@ Covers:
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
 
 import pytest
 
+from medre.config._yaml import parse_yaml_config
 from tests.helpers.cli import (
     _run_cli,
     _run_cli_raw,
@@ -54,7 +54,7 @@ class TestConfigSampleWorkflow:
     def test_sample_is_valid_toml(self) -> None:
         """Sample config output is parseable TOML."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         assert isinstance(parsed, dict)
 
     def test_sample_round_trip_config_check(self, tmp_path: Path) -> None:
@@ -69,7 +69,7 @@ class TestConfigSampleWorkflow:
         if not active_toml.strip():
             pytest.skip("sample config is entirely commented out")
 
-        cfg_path = tmp_path / "from_sample.toml"
+        cfg_path = tmp_path / "from_sample.yaml"
         cfg_path.write_text(active_toml)
         output, stderr, code = _run_cli_raw(
             "config", "check", "--config", str(cfg_path)
@@ -181,7 +181,7 @@ class TestConfigCheckWorkflow:
     def test_config_check_no_traceback_on_all_errors(self, tmp_path: Path) -> None:
         """Any config error produces clean output, never a raw traceback."""
         _, stderr, _ = _run_cli_raw(
-            "config", "check", "--config", str(tmp_path / "missing.toml")
+            "config", "check", "--config", str(tmp_path / "missing.yaml")
         )
         assert "Traceback" not in stderr
         assert "Config error:" in stderr
@@ -198,26 +198,26 @@ class TestConfigSampleExpanded:
     def test_sample_toml_sections_parse(self) -> None:
         """Every uncommented section in the sample parses as valid TOML."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         assert "runtime" in parsed
 
     def test_sample_runtime_has_name(self) -> None:
         """Sample [runtime] has a name field."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         assert "name" in parsed.get("runtime", {})
 
     def test_sample_storage_has_backend(self) -> None:
         """Sample [storage] has a backend field."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         storage = parsed.get("storage", {})
         assert "backend" in storage
 
     def test_sample_matrix_adapter_fields(self) -> None:
         """Sample Matrix adapter has required fields."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         adapters = parsed.get("adapters", {})
         matrix = adapters.get("matrix", {})
         assert len(matrix) > 0, "sample has no matrix adapters"
@@ -230,7 +230,7 @@ class TestConfigSampleExpanded:
     def test_sample_meshtastic_adapter_fields(self) -> None:
         """Sample Meshtastic adapter has required fields."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         adapters = parsed.get("adapters", {})
         meshtastic = adapters.get("meshtastic", {})
         if meshtastic:
@@ -240,7 +240,7 @@ class TestConfigSampleExpanded:
     def test_sample_routes_have_required_fields(self) -> None:
         """Active sample routes have source_adapters and dest_adapters."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         routes = parsed.get("routes", {})
         for route_id, route_data in routes.items():
             assert (
@@ -253,7 +253,7 @@ class TestConfigSampleExpanded:
     def test_sample_limits_have_defaults(self) -> None:
         """Sample [runtime.limits] has all four limit fields."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         runtime = parsed.get("runtime", {})
         limits = runtime.get("limits", {})
         expected_fields = {
@@ -277,15 +277,15 @@ class TestConfigSampleExpanded:
     def test_sample_logging_section(self) -> None:
         """Sample includes [logging] with level and format."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         logging_cfg = parsed.get("logging", {})
         assert "level" in logging_cfg
         assert "format" in logging_cfg
 
     def test_sample_no_duplicate_keys(self) -> None:
-        """Sample TOML has no duplicate keys (tomllib enforces this)."""
+        """Sample YAML has no duplicate keys."""
         output = _run_cli("config", "sample")
-        parsed = tomllib.loads(output)
+        parsed = parse_yaml_config(output)
         assert isinstance(parsed, dict)
 
 
@@ -300,11 +300,11 @@ class TestNoTracebackGuarantee:
     @pytest.mark.parametrize(
         "args",
         [
-            ("config", "check", "--config", "/nonexistent/path.toml"),
-            ("routes", "validate", "--config", "/nonexistent/path.toml"),
-            ("routes", "topology", "--config", "/nonexistent/path.toml"),
-            ("routes", "list", "--config", "/nonexistent/path.toml"),
-            ("diagnostics", "--config", "/nonexistent/path.toml"),
+            ("config", "check", "--config", "/nonexistent/path.yaml"),
+            ("routes", "validate", "--config", "/nonexistent/path.yaml"),
+            ("routes", "topology", "--config", "/nonexistent/path.yaml"),
+            ("routes", "list", "--config", "/nonexistent/path.yaml"),
+            ("diagnostics", "--config", "/nonexistent/path.yaml"),
         ],
     )
     def test_missing_config_no_traceback(self, args: tuple[str, ...]) -> None:
@@ -325,7 +325,7 @@ class TestNoTracebackGuarantee:
 
     def test_run_missing_config_no_traceback(self, tmp_path: Path) -> None:
         _, stderr, code = _run_cli_raw(
-            "run", "--config", str(tmp_path / "missing.toml")
+            "run", "--config", str(tmp_path / "missing.yaml")
         )
         assert code != 0
         assert "Traceback" not in stderr

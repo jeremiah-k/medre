@@ -6,7 +6,7 @@ to read source code.
 
 Scenarios covered:
 
-1. Config errors (file not found, bad TOML, invalid limits)
+1. Config errors (file not found, bad YAML, invalid limits)
 2. Duplicate route IDs
 3. Duplicate adapter IDs
 4. Missing adapter references in routes
@@ -100,7 +100,7 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
 
 
 def _write_config(path: Path, content: str) -> Path:
-    """Write TOML content to *path* and return it."""
+    """Write YAML content to *path* and return it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path
@@ -131,26 +131,27 @@ class TestConfigErrors:
 
     def test_explicit_config_not_found(self, tmp_path: Path) -> None:
         """ConfigFileError for an explicit --config path that does not exist."""
-        bogus = tmp_path / "nonexistent" / "config.toml"
+        bogus = tmp_path / "nonexistent" / "config.yaml"
         with pytest.raises(ConfigFileError) as exc_info:
             load_config(str(bogus))
         msg = str(exc_info.value)
         assert "Config file not found" in msg
         assert "specified explicitly" in msg
 
-    def test_invalid_toml_syntax(
+    def test_invalid_yaml_syntax(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ConfigFileError for TOML that cannot be parsed."""
+        """ConfigFileError for YAML that cannot be parsed."""
         cfg = _write_config(
-            tmp_path / "config.toml",
-            '[runtime\nname = "bad brace',  # missing closing bracket
+            tmp_path / "config.yaml",
+            "runtime:\n  name: [unclosed sequence\n",  # unclosed flow sequence
         )
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg))
         with pytest.raises(ConfigFileError) as exc_info:
             load_config(None)
         msg = str(exc_info.value)
-        assert "Invalid TOML" in msg
+        # YAML parse errors always reference the source file path.
+        assert "config.yaml" in msg
 
     def test_invalid_limits_non_positive(self) -> None:
         """ConfigValidationError for non-positive runtime limits."""
@@ -777,7 +778,7 @@ class TestCLINoTraceback:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["medre", "config", "check", "--config", str(tmp_path / "nope.toml")],
+            ["medre", "config", "check", "--config", str(tmp_path / "nope.yaml")],
         )
         buf = io.StringIO()
         with pytest.raises(SystemExit) as exc_info:
@@ -800,7 +801,7 @@ class TestCLINoTraceback:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["medre", "routes", "validate", "--config", str(tmp_path / "gone.toml")],
+            ["medre", "routes", "validate", "--config", str(tmp_path / "gone.yaml")],
         )
         buf = io.StringIO()
         with pytest.raises(SystemExit) as exc_info:

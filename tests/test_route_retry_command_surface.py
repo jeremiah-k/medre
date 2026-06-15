@@ -41,71 +41,77 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
-# TOML config snippets
+# YAML config snippets
 # ---------------------------------------------------------------------------
 
 _BASE_CONFIG = """\
-[runtime]
-name = "retry-cmd-surface-test"
-shutdown_timeout_seconds = 5
-
-[logging]
-level = "INFO"
-format = "text"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "fake_tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.fake_mesh]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "TestMesh"
+runtime:
+  name: retry-cmd-surface-test
+  shutdown_timeout_seconds: 5
+logging:
+  level: INFO
+  format: text
+storage:
+  backend: memory
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: fake_tok
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    fake_mesh:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: TestMesh
 """
 
 _ROUTES_NO_RETRY = """\
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  mx_to_mesh:
+    source_adapters: [fake_matrix]
+    dest_adapters: [fake_mesh]
+    directionality: source_to_dest
+    enabled: true
 """
 
 _ROUTES_WITH_RETRY = """\
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
-
-[routes.mx_to_mesh.retry]
-enabled = true
-max_attempts = 3
-backoff_base = 2.0
-max_delay_seconds = 60.0
-jitter = false
+routes:
+  mx_to_mesh:
+    source_adapters: [fake_matrix]
+    dest_adapters: [fake_mesh]
+    directionality: source_to_dest
+    enabled: true
+    retry:
+      enabled: true
+      max_attempts: 3
+      backoff_base: 2.0
+      max_delay_seconds: 60.0
+      jitter: false
 """
 
 
-def _config_with_route_retry_override(retry_section: str) -> str:
-    """Build a full TOML config with a custom [routes.mx_to_mesh.retry] section."""
-    return _BASE_CONFIG + """
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
+def _config_with_route_retry_override(retry_yaml: str) -> str:
+    r"""Build a full YAML config with a custom retry section under mx_to_mesh.
 
-""" + retry_section
+    *retry_yaml* must be a YAML fragment at 4-space indentation (a sibling
+    of ``source_adapters`` under ``routes.mx_to_mesh``), e.g.::
+
+        "    retry:\\n      enabled: true\\n      max_attempts: -1\\n"
+    """
+    return _BASE_CONFIG + (
+        "routes:\n"
+        "  mx_to_mesh:\n"
+        "    source_adapters: [fake_matrix]\n"
+        "    dest_adapters: [fake_mesh]\n"
+        "    directionality: source_to_dest\n"
+        "    enabled: true\n" + retry_yaml
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -244,8 +250,8 @@ def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
 
 
 def _write_config(tmp_path, content: str) -> str:
-    """Write TOML content to a temp file and return its path."""
-    p = tmp_path / "config.toml"
+    """Write YAML content to a temp file and return its path."""
+    p = tmp_path / "config.yaml"
     p.write_text(content)
     return str(p)
 
@@ -262,7 +268,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_max_attempts_rejected(self, tmp_path) -> None:
         """Negative max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = -1\n"
+            "    retry:\n" "      enabled: true\n" "      max_attempts: -1\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -276,7 +282,7 @@ class TestRouteRetryConfigValidation:
     def test_zero_max_attempts_rejected(self, tmp_path) -> None:
         """Zero max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = 0\n"
+            "    retry:\n" "      enabled: true\n" "      max_attempts: 0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -290,7 +296,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_jitter_rejected(self, tmp_path) -> None:
         """Non-boolean jitter in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'jitter = "yes"\n'
+            "    retry:\n" "      enabled: true\n" "      jitter: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -304,7 +310,7 @@ class TestRouteRetryConfigValidation:
     def test_non_number_backoff_base_rejected(self, tmp_path) -> None:
         """Non-numeric backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'backoff_base = "fast"\n'
+            "    retry:\n" "      enabled: true\n" "      backoff_base: 'fast'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -318,7 +324,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_backoff_base_rejected(self, tmp_path) -> None:
         """Negative backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "backoff_base = -1.0\n"
+            "    retry:\n" "      enabled: true\n" "      backoff_base: -1.0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -332,7 +338,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_enabled_rejected(self, tmp_path) -> None:
         """Non-boolean enabled in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" 'enabled = "yes"\n'
+            "    retry:\n" "      enabled: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -366,7 +372,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_negative_max_attempts_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for negative max_attempts."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = -1\n"
+            "    retry:\n" "      enabled: true\n" "      max_attempts: -1\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -378,7 +384,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_non_bool_jitter_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-bool jitter."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'jitter = "yes"\n'
+            "    retry:\n" "      enabled: true\n" "      jitter: 'yes'\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -390,7 +396,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_non_number_backoff_base_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-number backoff_base."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'backoff_base = "fast"\n'
+            "    retry:\n" "      enabled: true\n" "      backoff_base: 'fast'\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)

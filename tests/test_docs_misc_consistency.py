@@ -341,21 +341,21 @@ class TestSourceTreeExamplesWording:
 
 
 class TestNoTcpPortInExamples:
-    """Example TOML configs must use ``port`` (not ``tcp_port``) to match
+    """Example YAML configs must use ``port`` (not ``tcp_port``) to match
     the current config schema and live-config helper."""
 
     def test_no_example_uses_tcp_port(self) -> None:
-        """No .toml file under examples/configs/ may contain ``tcp_port``."""
+        """No .yaml file under examples/configs/ may contain ``tcp_port``."""
         if not _EXAMPLES_CONFIGS_DIR.is_dir():
             pytest.skip("examples/configs/ directory not found")
-        toml_files = sorted(_EXAMPLES_CONFIGS_DIR.glob("*.toml"))
-        if not toml_files:
-            pytest.skip("No .toml files found in examples/configs/")
+        yaml_files = sorted(_EXAMPLES_CONFIGS_DIR.glob("*.yaml"))
+        if not yaml_files:
+            pytest.skip("No .yaml files found in examples/configs/")
         violations: list[str] = []
-        for toml_path in toml_files:
-            text = _read(toml_path)
+        for yaml_path in yaml_files:
+            text = _read(yaml_path)
             if "tcp_port" in text.lower():
-                violations.append(toml_path.name)
+                violations.append(yaml_path.name)
         assert not violations, (
             "The following example configs contain 'tcp_port' (should be "
             "'port'): " + ", ".join(violations)

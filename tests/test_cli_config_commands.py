@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
 
+from medre.config._yaml import parse_yaml_config
 from medre.config.loader import load_config
 from medre.config.sample import generate_sample_config
 from medre.runtime.builder import RuntimeBuilder
@@ -32,28 +32,28 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_WITH_ROUTES)
     return p
 
 
 @pytest.fixture()
 def config_no_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_NO_ROUTES)
     return p
 
 
 @pytest.fixture()
 def config_minimal(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_MINIMAL)
     return p
 
 
 @pytest.fixture()
 def config_bad_limits(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_BAD_LIMITS)
     return p
 
@@ -111,7 +111,7 @@ class TestSampleConfig:
 
     def test_sample_includes_routes_section(self) -> None:
         output = _run_cli("config", "sample")
-        assert "[routes." in output
+        assert "routes:" in output
         assert "source_adapters" in output
         assert "dest_adapters" in output
         assert "directionality" in output
@@ -125,7 +125,7 @@ class TestSampleConfig:
     def test_sample_includes_disabled_route_example(self) -> None:
         """Sample includes a commented-out disabled route example."""
         output = _run_cli("config", "sample")
-        assert "enabled = false" in output
+        assert "enabled: false" in output
 
     def test_sample_includes_fanout_example(self) -> None:
         """Sample includes a commented-out Matrix hub fan-out example."""
@@ -163,13 +163,13 @@ class TestConfigCheckErrors:
     def test_missing_config_file(self, tmp_path: Path) -> None:
         """Missing config file causes nonzero exit with clear error message."""
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("config", "check", "--config", str(tmp_path / "missing.toml"))
+            _run_cli("config", "check", "--config", str(tmp_path / "missing.yaml"))
         assert exc_info.value.code != 0
 
     def test_missing_config_file_clear_message(self, tmp_path: Path) -> None:
         """Error message is human-readable, not a traceback."""
         _, stderr = _run_cli_both(
-            "config", "check", "--config", str(tmp_path / "missing.toml")
+            "config", "check", "--config", str(tmp_path / "missing.yaml")
         )
         assert "Traceback" not in stderr
         assert "Config error:" in stderr
@@ -208,10 +208,10 @@ class TestSampleConfigFakeBuildable:
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
-    def test_sample_parses_as_toml(self) -> None:
-        """generate_sample_config() produces valid TOML."""
+    def test_sample_parses_as_yaml(self) -> None:
+        """generate_sample_config() produces valid YAML."""
         sample = generate_sample_config()
-        data = tomllib.loads(sample)
+        data = parse_yaml_config(sample)
         assert isinstance(data, dict)
         assert "runtime" in data
         assert "adapters" in data
@@ -219,7 +219,7 @@ class TestSampleConfigFakeBuildable:
     def test_sample_loads_via_config_loader(self, tmp_path: Path) -> None:
         """Sample config loads successfully via load_config()."""
         sample = generate_sample_config()
-        config_path = tmp_path / "sample.toml"
+        config_path = tmp_path / "sample.yaml"
         config_path.write_text(sample)
         config, _source, _paths = load_config(str(config_path))
         assert config.runtime.name == "medre"
@@ -228,7 +228,7 @@ class TestSampleConfigFakeBuildable:
     def test_sample_all_adapters_are_fake(self, tmp_path: Path) -> None:
         """All adapters in the sample must be fake (no SDKs required)."""
         sample = generate_sample_config()
-        config_path = tmp_path / "sample.toml"
+        config_path = tmp_path / "sample.yaml"
         config_path.write_text(sample)
         config, _, _ = load_config(str(config_path))
         for _transport, _aid, rtc in config.adapters.all_configs():
@@ -240,7 +240,7 @@ class TestSampleConfigFakeBuildable:
     def test_sample_builds_via_runtime_builder(self, tmp_path: Path) -> None:
         """Sample config builds a runtime with no build failures."""
         sample = generate_sample_config()
-        config_path = tmp_path / "sample.toml"
+        config_path = tmp_path / "sample.yaml"
         config_path.write_text(sample)
         config, _, paths = load_config(str(config_path))
         builder = RuntimeBuilder(config, paths)
@@ -258,7 +258,7 @@ class TestSampleConfigFakeBuildable:
     def test_sample_routes_parse_correctly(self, tmp_path: Path) -> None:
         """Routes in sample config parse into RouteConfigSet."""
         sample = generate_sample_config()
-        config_path = tmp_path / "sample.toml"
+        config_path = tmp_path / "sample.yaml"
         config_path.write_text(sample)
         config, _, _ = load_config(str(config_path))
         routes = config.routes
@@ -269,7 +269,7 @@ class TestSampleConfigFakeBuildable:
     def test_sample_config_check_passes(self, tmp_path: Path) -> None:
         """``medre config check`` on the sample config succeeds."""
         sample = generate_sample_config()
-        config_path = tmp_path / "sample.toml"
+        config_path = tmp_path / "sample.yaml"
         config_path.write_text(sample)
         output = _run_cli("config", "check", "--config", str(config_path))
         assert "Config valid" in output
@@ -279,7 +279,7 @@ class TestSampleConfigFakeBuildable:
         prevent loading."""
         sample = generate_sample_config()
         # access_token should not be empty string (would fail Matrix validation)
-        data = tomllib.loads(sample)
+        data = parse_yaml_config(sample)
         for _transport, instances in data.get("adapters", {}).items():
             for _name, conf in instances.items():
                 if isinstance(conf, dict) and "access_token" in conf:

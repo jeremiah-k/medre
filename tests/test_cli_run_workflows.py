@@ -104,28 +104,28 @@ class TestDegradedStateMessaging:
     def test_degraded_build_failure_in_snapshot(self, tmp_path: Path) -> None:
         """Build failures appear in diagnostics snapshot."""
         config_with_real = """\
-[runtime]
-name = "degraded-test"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fm]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.real_radio]
-enabled = true
-connection_type = "serial"
-serial_port = "/dev/ttyNONEXISTENT"
-origin_label = "TestMesh"
+runtime:
+  name: degraded-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    fm:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    real_radio:
+      enabled: true
+      connection_type: serial
+      serial_port: /dev/ttyNONEXISTENT
+      origin_label: TestMesh
 """
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(config_with_real)
 
         from medre.config.loader import load_config
@@ -150,28 +150,28 @@ origin_label = "TestMesh"
     def test_config_check_with_disabled_adapter(self, tmp_path: Path) -> None:
         """Config check shows disabled adapters clearly."""
         config_mixed = """\
-[runtime]
-name = "mixed-test"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.active]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.inactive]
-enabled = false
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "TestMesh"
+runtime:
+  name: mixed-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    active:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    inactive:
+      enabled: false
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: TestMesh
 """
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(config_mixed)
         output = _run_cli("config", "check", "--config", str(p))
         assert "active: enabled" in output
@@ -182,21 +182,21 @@ origin_label = "TestMesh"
     def test_config_check_no_enabled_adapters(self, tmp_path: Path) -> None:
         """Config with all adapters disabled shows 0 enabled."""
         config_all_disabled = """\
-[runtime]
-name = "all-disabled"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.offline]
-enabled = false
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+runtime:
+  name: all-disabled
+storage:
+  backend: memory
+adapters:
+  matrix:
+    offline:
+      enabled: false
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
 """
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(config_all_disabled)
         output = _run_cli("config", "check", "--config", str(p))
         assert "0/1 adapter(s) enabled" in output
@@ -223,7 +223,7 @@ class TestSignalSafety:
         from medre.config.loader import load_config
         from medre.runtime.builder import RuntimeBuilder
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         config, _source, paths = load_config(str(p))
         app = RuntimeBuilder(config, paths).build()
@@ -268,7 +268,7 @@ class TestSnapshotOnShutdown:
         from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.snapshot import build_runtime_snapshot
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         config, _source, paths = load_config(str(p))
         app = RuntimeBuilder(config, paths).build()
@@ -294,7 +294,7 @@ class TestSnapshotOnShutdown:
         from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.snapshot import build_runtime_snapshot
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         config, _source, paths = load_config(str(p))
         app = RuntimeBuilder(config, paths).build()
@@ -341,7 +341,7 @@ class TestRealSnapshotOnShutdown:
         """Full _run() lifecycle: startup -> shutdown -> snapshot file exists and is valid."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         snap_path = tmp_path / "snap.json"
 
@@ -370,7 +370,7 @@ class TestRealSnapshotOnShutdown:
         """Snapshot written by _run() is valid, parseable JSON."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         snap_path = tmp_path / "snap.json"
 
@@ -406,7 +406,7 @@ class TestRunOutput:
         """Startup output lists adapter IDs."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
 
         run_mod.shutdown_requested = False
@@ -427,7 +427,7 @@ class TestRunOutput:
         """Route eligibility text appears when routes are configured."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_FAKE_MULTI)
 
         run_mod.shutdown_requested = False
@@ -448,7 +448,7 @@ class TestRunOutput:
         """Accounting counters appear in stdout during shutdown."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
 
         run_mod.shutdown_requested = False
@@ -469,7 +469,7 @@ class TestRunOutput:
         """When snapshot_path is provided, 'Final snapshot written' appears."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
         snap_path = tmp_path / "snap.json"
 
@@ -497,29 +497,29 @@ class TestRunOutput:
 
         db_path = tmp_path / "run-output.db"
         config = f"""\
-[runtime]
-name = "run-output-storage"
-
-[storage]
-backend = "sqlite"
-path = "{db_path}"
-
-[adapters.matrix.solo]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_single"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.disabled]
-enabled = false
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "DisabledMesh"
+runtime:
+  name: run-output-storage
+storage:
+  backend: sqlite
+  path: "{db_path}"
+adapters:
+  matrix:
+    solo:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_single
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    disabled:
+      enabled: false
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: DisabledMesh
 """
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(config)
 
         run_mod.shutdown_requested = False
@@ -550,7 +550,7 @@ class TestStaleShutdownState:
         """shutdown_requested=True before first _run() is reset; second _run() starts clean."""
         import medre.cli.run_commands as run_mod
 
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
 
         # Pre-set stale shutdown state.

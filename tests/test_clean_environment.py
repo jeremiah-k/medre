@@ -668,12 +668,17 @@ class TestReproducibilityEvidence:
         self._project = self._data["project"]
 
     def test_single_base_dependency(self) -> None:
-        """Base install should have exactly one required dependency (msgspec)."""
+        """Base install should have exactly the known required dependencies.
+
+        PyYAML was added for strict YAML loading; msgspec is the core
+        serialisation library.  Asserting the exact set prevents accidental
+        dependency creep.
+        """
         deps = self._project.get("dependencies", [])
+        expected = {"msgspec==0.21.1", "pyyaml>=6.0"}
         assert (
-            len(deps) == 1
-        ), f"Expected exactly 1 base dependency, got {len(deps)}: {deps}"
-        assert "msgspec" in deps[0], f"Expected msgspec, got: {deps}"
+            set(deps) == expected
+        ), f"Base dependencies changed: expected {expected}, got {set(deps)}"
 
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""

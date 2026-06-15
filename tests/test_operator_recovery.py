@@ -87,135 +87,142 @@ from medre.runtime.route_engine import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-# TOML config snippets used across tests.
+# YAML config snippets used across tests.
 
 CONFIG_VALID_FAKE = """\
-[runtime]
-name = "recovery-test"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_recovery"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.fake_mesh]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "RecoveryMesh"
-
-[routes.matrix_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: recovery-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok_recovery
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_mesh:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: RecoveryMesh
+routes:
+  matrix_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_mesh
+    directionality: source_to_dest
+    enabled: true
 """
 
 CONFIG_VALID_SINGLE = """\
-[runtime]
-name = "recovery-single"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.solo]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_solo"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+runtime:
+  name: recovery-single
+storage:
+  backend: memory
+adapters:
+  matrix:
+    solo:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok_solo
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 """
 
-CONFIG_BAD_TOML = """\
-[runtime
-name = "bad brace
+CONFIG_BAD_YAML = """\
+runtime:
+  name: [unclosed sequence
 """
 
 CONFIG_MISSING_ADAPTER_REF = """\
-[runtime]
-name = "bad-route-refs"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.real_adapter]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[routes.broken_route]
-source_adapters = ["real_adapter"]
-dest_adapters = ["ghost_adapter"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: bad-route-refs
+storage:
+  backend: memory
+adapters:
+  matrix:
+    real_adapter:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+routes:
+  broken_route:
+    source_adapters:
+      - real_adapter
+    dest_adapters:
+      - ghost_adapter
+    directionality: source_to_dest
+    enabled: true
 """
 
 CONFIG_DISABLED_ADAPTER = """\
-[runtime]
-name = "disabled-test"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.enabled_one]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok1"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.matrix.disabled_one]
-enabled = false
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok2"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+runtime:
+  name: disabled-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    enabled_one:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok1
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+    disabled_one:
+      enabled: false
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok2
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 """
 
 CONFIG_INVALID_LIMITS = """\
-[runtime]
-name = "bad-limits"
-
-[runtime.limits]
-max_inflight_deliveries = -1
-
-[storage]
-backend = "memory"
+runtime:
+  name: bad-limits
+  limits:
+    max_inflight_deliveries: -1
+storage:
+  backend: memory
 """
 
 CONFIG_SQLITE_PATH = """\
-[runtime]
-name = "sqlite-recovery"
-
-[storage]
-backend = "sqlite"
-path = "{state}/recovery_test.db"
-
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_sqlite"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+runtime:
+  name: sqlite-recovery
+storage:
+  backend: sqlite
+  path: "{state}/recovery_test.db"
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok_sqlite
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 """
 
 
@@ -235,7 +242,7 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
 
 
 def _write_config(path: Path, content: str) -> Path:
-    """Write TOML content to *path* and return it."""
+    """Write YAML content to *path* and return it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path
@@ -399,24 +406,25 @@ def _make_minimal_event(event_id: str = "evt-001") -> CanonicalEvent:
 
 
 class TestMalformedConfigRecovery:
-    """Operator writes bad TOML → sees clean error → fixes → config loads.
+    """Operator writes bad YAML → sees clean error → fixes → config loads.
 
     Validates the repair loop: initial failure gives actionable message,
     operator fixes the config, and the second attempt succeeds.
     """
 
-    def test_bad_toml_then_fix_loads(
+    def test_bad_yaml_then_fix_loads(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Bad TOML syntax → ConfigFileError → fix → load_config succeeds."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_BAD_TOML)
+        """Bad YAML syntax → ConfigFileError → fix → load_config succeeds."""
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_BAD_YAML)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Step 1: bad config should fail with clear error.
         with pytest.raises(ConfigFileError) as exc_info:
             load_config(None)
         msg = str(exc_info.value)
-        assert "Invalid TOML" in msg
+        # YAML parse errors always reference the source file path.
+        assert "config.yaml" in msg
         # No raw traceback in the error message.
         assert "Traceback" not in msg
 
@@ -432,7 +440,7 @@ class TestMalformedConfigRecovery:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'config check' with bad config → exit 1 → fix → exit 0."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_BAD_TOML)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_BAD_YAML)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Step 1: bad config → CLI reports error.
@@ -454,8 +462,8 @@ class TestMalformedConfigRecovery:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Config with missing runtime section → error → add section → loads."""
-        minimal = '[storage]\nbackend = "memory"\n'
-        cfg_path = _write_config(tmp_path / "config.toml", minimal)
+        minimal = "storage:\n  backend: memory\n"
+        cfg_path = _write_config(tmp_path / "config.yaml", minimal)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Load should still succeed (runtime has defaults).
@@ -498,22 +506,23 @@ class TestStoragePathRecovery:
     ) -> None:
         """Unsupported storage backend → RuntimeConfigError at build time → fix → builds."""
         bad_cfg = """\
-[runtime]
-name = "bad-storage"
-
-[storage]
-backend = "cassandra"
-
-[adapters.matrix.m]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+runtime:
+  name: bad-storage
+storage:
+  backend: cassandra
+adapters:
+  matrix:
+    m:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 """
-        cfg_path = _write_config(tmp_path / "config.toml", bad_cfg)
+        cfg_path = _write_config(tmp_path / "config.yaml", bad_cfg)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Config loads OK — backend validation happens at build time.
@@ -540,7 +549,7 @@ encryption_mode = "plaintext"
     ) -> None:
         """SQLite storage with valid {state} placeholder works end-to-end."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_SQLITE_PATH)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_SQLITE_PATH)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         config, _, paths = load_config(None)
@@ -845,7 +854,7 @@ class TestRouteValidationFailureRecovery:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'routes validate' with bad refs → warnings → fix → valid."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_MISSING_ADAPTER_REF)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Step 1: bad config shows warnings about ghost adapter.
@@ -857,32 +866,35 @@ class TestRouteValidationFailureRecovery:
 
         # Step 2: fix the config by referencing a real adapter.
         fixed = """\
-[runtime]
-name = "fixed-routes"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.real_adapter]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.other_real]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "FixedMesh"
-
-[routes.fixed_route]
-source_adapters = ["real_adapter"]
-dest_adapters = ["other_real"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: fixed-routes
+storage:
+  backend: memory
+adapters:
+  matrix:
+    real_adapter:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    other_real:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: FixedMesh
+routes:
+  fixed_route:
+    source_adapters:
+      - real_adapter
+    dest_adapters:
+      - other_real
+    directionality: source_to_dest
+    enabled: true
 """
         cfg_path.write_text(fixed)
 
@@ -929,7 +941,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """'config check' shows disabled adapters with correct status."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout = _run_cli("config", "check")
@@ -941,7 +953,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Config loads with mix of enabled and disabled adapters."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         config, _, _ = load_config(None)
@@ -1004,7 +1016,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """'adapters' command shows enabled/disabled status correctly."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout = _run_cli("adapters")
@@ -1053,19 +1065,19 @@ class TestConfigRepairWorkflows:
         assert "Traceback" not in msg
 
     def test_config_sample_generates_valid_config(self) -> None:
-        """'medre config sample' output is parseable TOML with key sections."""
-        import tomllib
+        """'medre config sample' output is parseable YAML with key sections."""
+        import yaml
 
         stdout = _run_cli("config", "sample")
         assert "Traceback" not in stdout
-        parsed = tomllib.loads(stdout)
+        parsed = yaml.safe_load(stdout)
         assert isinstance(parsed, dict)
 
     def test_config_check_detects_invalid_limits(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'config check' catches invalid limits and reports them."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_INVALID_LIMITS)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_INVALID_LIMITS)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout, stderr, code = _run_cli_raw("config", "check")
@@ -1079,44 +1091,49 @@ class TestConfigRepairWorkflows:
     ) -> None:
         """Duplicate route IDs → error → rename → valid."""
         dup_cfg = """\
-[runtime]
-name = "dup-routes"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.a]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.b]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "Mesh"
-
-[routes.dup_id]
-source_adapters = ["a"]
-dest_adapters = ["b"]
-directionality = "source_to_dest"
-enabled = true
-
-[routes.dup_id]
-source_adapters = ["b"]
-dest_adapters = ["a"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: dup-routes
+storage:
+  backend: memory
+adapters:
+  matrix:
+    a:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    b:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: Mesh
+routes:
+  dup_id:
+    source_adapters:
+      - a
+    dest_adapters:
+      - b
+    directionality: source_to_dest
+    enabled: true
+  dup_id:
+    source_adapters:
+      - b
+    dest_adapters:
+      - a
+    directionality: source_to_dest
+    enabled: true
 """
-        cfg_path = _write_config(tmp_path / "config.toml", dup_cfg)
+        cfg_path = _write_config(tmp_path / "config.yaml", dup_cfg)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
-        # Duplicate TOML table headers are a parse error, so load_config
-        # should raise ConfigFileError rather than silently merging.
+        # Duplicate YAML mapping keys are a parse error (caught by the
+        # strict YAML loader), so load_config should raise ConfigFileError
+        # rather than silently merging.
         with pytest.raises(ConfigFileError, match="[Dd]uplicate"):
             load_config(None)
 
@@ -1148,24 +1165,25 @@ class TestDeterministicMessaging:
         assert "Traceback" not in msg
         assert "File " not in msg
 
-    def test_bad_toml_no_traceback(
+    def test_bad_yaml_no_traceback(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ConfigFileError for bad TOML contains no traceback."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_BAD_TOML)
+        """ConfigFileError for bad YAML contains no traceback."""
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_BAD_YAML)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         with pytest.raises(ConfigFileError) as exc_info:
             load_config(None)
         msg = str(exc_info.value)
         assert "Traceback" not in msg
-        assert "Invalid TOML" in msg
+        # YAML parse errors always reference the source file path.
+        assert "config.yaml" in msg
 
     def test_cli_config_check_no_traceback_on_any_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'config check' never shows tracebacks for any config error."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_BAD_TOML)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_BAD_YAML)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout, stderr, code = _run_cli_raw("config", "check")
@@ -1177,7 +1195,7 @@ class TestDeterministicMessaging:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'routes validate' never shows tracebacks."""
-        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF)
+        cfg_path = _write_config(tmp_path / "config.yaml", CONFIG_MISSING_ADAPTER_REF)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout, stderr, code = _run_cli_raw("routes", "validate")
