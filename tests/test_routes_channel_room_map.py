@@ -280,22 +280,24 @@ class TestChannelRoomMapConfig:
 
     # --- integration: TOML loader ---
 
-    def test_toml_integration(self, tmp_path: Path) -> None:
-        toml_content = """\
-[runtime]
-name = "crm_test"
+    def test_yaml_integration(self, tmp_path: Path) -> None:
+        yaml_content = """\
+runtime:
+  name: crm_test
 
-[routes.bridge]
-source_adapters = ["matrix_adapter"]
-dest_adapters = ["mesh_adapter"]
-directionality = "bidirectional"
-
-[routes.bridge.channel_room_map]
-0 = "!room0:example.com"
-1 = "!room1:example.com"
+routes:
+  bridge:
+    source_adapters:
+      - matrix_adapter
+    dest_adapters:
+      - mesh_adapter
+    directionality: bidirectional
+    channel_room_map:
+      "0": "!room0:example.com"
+      "1": "!room1:example.com"
 """
-        p = tmp_path / "config.toml"
-        p.write_text(toml_content)
+        p = tmp_path / "config.yaml"
+        p.write_text(yaml_content)
         config, _, _ = load_config(str(p))
         r = config.routes.routes[0]
         assert r.channel_room_map == {

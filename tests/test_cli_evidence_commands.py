@@ -195,7 +195,7 @@ def config_inspect_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "inspect.db")
     _seed_inspect_db(db_path)
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 
@@ -216,7 +216,7 @@ def config_inspect_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "inspect.db")
     _seed_inspect_failed_db(db_path)
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 
@@ -248,7 +248,7 @@ def config_inspect_replay_for_inspect(
         event_id="evt-inspect-replay-1",
         replay_run_id="run-inspect-99",
     )
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 

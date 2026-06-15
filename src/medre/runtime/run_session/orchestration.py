@@ -79,13 +79,13 @@ DEFAULT_INGRESS_MODE: str = "direct_pipeline"
 
 
 def _default_smoke_config_path() -> str | None:
-    """Return the shipped fake-bridge-smoke.toml path if it exists."""
+    """Return the shipped fake-bridge-smoke.yaml path if it exists."""
     this_dir = Path(__file__).resolve().parent
     candidate = (
         this_dir.parent.parent.parent.parent
         / "examples"
         / "configs"
-        / "fake-bridge-smoke.toml"
+        / "fake-bridge-smoke.yaml"
     )
     if candidate.is_file():
         return str(candidate)
@@ -108,7 +108,7 @@ def _resolve_paths(
 ) -> _ResolvedPaths:
     """Resolve config and storage paths for run-session.
 
-    Falls back to the shipped ``fake-bridge-smoke.toml`` when
+    Falls back to the shipped ``fake-bridge-smoke.yaml`` when
     *config_path* is ``None``.  Creates a temporary SQLite file when
     *storage_path* is ``None``.
     """
@@ -184,8 +184,8 @@ async def run_bridge_session(
     Parameters
     ----------
     config_path:
-        Path to TOML config file.  Defaults to
-        ``examples/configs/fake-bridge-smoke.toml`` when available.
+        Path to YAML config file.  Defaults to
+        ``examples/configs/fake-bridge-smoke.yaml`` when available.
     storage_path:
         Path for the SQLite database.  Required for persistent evidence.
         When ``None``, a temporary file is created and its path is

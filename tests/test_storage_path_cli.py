@@ -128,7 +128,7 @@ def _seed_db(
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
@@ -137,17 +137,17 @@ def _smoke_config_path() -> str:
 
 
 def _write_sqlite_smoke_config(tmp_path: Path, db_path: Path) -> str:
-    """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
+    """Write a YAML config with SQLite storage at *db_path* for smoke CLI tests."""
     from tests.helpers.walkthrough import EXAMPLES_SMOKE_CONFIG
 
     assert EXAMPLES_SMOKE_CONFIG.is_file()
     src = EXAMPLES_SMOKE_CONFIG.read_text()
-    assert 'backend = "memory"' in src
-    sqlite_block = f'backend = "sqlite"\npath = {str(db_path)!r}'
-    derived = src.replace('backend = "memory"', sqlite_block)
-    cfg = tmp_path / "smoke_sqlite.toml"
+    assert "backend: memory" in src
+    sqlite_block = f"backend: sqlite\n  path: {str(db_path)!r}"
+    derived = src.replace("backend: memory", sqlite_block)
+    cfg = tmp_path / "smoke_sqlite.yaml"
     cfg.write_text(derived)
-    assert 'backend = "sqlite"' in derived
+    assert "backend: sqlite" in derived
     return str(cfg)
 
 

@@ -8,7 +8,7 @@ troubleshooting MEDRE deployments.
 | Document                      | Purpose                                                          |
 | ----------------------------- | ---------------------------------------------------------------- |
 | `install.md`                  | Installing MEDRE and setting up a development environment        |
-| `configuration.md`            | TOML configuration reference, environment variables, XDG paths   |
+| `configuration.md`            | YAML configuration reference, environment variables, XDG paths   |
 | `running-medre.md`            | Starting, stopping, and monitoring the MEDRE runtime             |
 | `operator-workflows.md`       | Day-to-day operational workflows: smoke tests, evidence, tracing |
 | `diagnostics-and-evidence.md` | Collecting evidence bundles, interpreting diagnostic output      |

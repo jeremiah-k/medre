@@ -128,7 +128,7 @@ def config_inspect_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "inspect.db")
     _seed_inspect_db(db_path)
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 
@@ -137,7 +137,7 @@ def config_inspect_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
 def config_inspect_memory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Config with memory backend."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_MEMORY)
     return p
 
@@ -166,7 +166,7 @@ def config_inspect_with_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         event_id="evt-replay-1",
         replay_run_id="run-42",
     )
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 
@@ -202,7 +202,7 @@ def config_inspect_with_native_ref(
         native_channel_id="!room:test",
         native_message_id="$native-msg-1",
     )
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 
@@ -238,7 +238,7 @@ def config_inspect_native_null_channel(
         native_channel_id=None,
         native_message_id="radio-msg-42",
     )
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_INSPECT_SQLITE)
     return p
 

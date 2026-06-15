@@ -1,15 +1,15 @@
 """Meshtastic env-first runtime test: adapters built from env vars alone.
 
 Proves that adapters can be created entirely from environment variables
-(MEDRE_ADAPTER__<TOKEN>__TRANSPORT=meshtastic) with no TOML adapter stanzas,
-wired into routes defined in TOML, and built into a running application via
+(MEDRE_ADAPTER__<TOKEN>__TRANSPORT=meshtastic) with no YAML adapter stanzas,
+wired into routes defined in YAML, and built into a running application via
 RuntimeBuilder — all without live radio hardware.
 
 The env-first creation model:
   MEDRE_ADAPTER__<TOKEN>__TRANSPORT=meshtastic
 
-When TRANSPORT is set and the token matches no TOML adapter, a new adapter
-is created from env vars. Routes must still be TOML-defined.
+When TRANSPORT is set and the token matches no YAML adapter, a new adapter
+is created from env vars. Routes must still be YAML-defined.
 """
 
 from __future__ import annotations
@@ -25,35 +25,37 @@ from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
-# Minimal TOML config: no adapter stanzas, only runtime/storage/routes
+# Minimal YAML config: no adapter stanzas, only runtime/storage/routes
 # ---------------------------------------------------------------------------
 
-_ENV_FIRST_TOML = """\
-[runtime]
-name = "env-created-mesh-test"
+_ENV_FIRST_YAML = """\
+runtime:
+  name: env-created-mesh-test
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[routes.a_to_bridge]
-source_adapters = ["radio-a"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  a_to_bridge:
+    source_adapters: [radio-a]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
 
-_ENV_FIRST_TOML_SINGLE_ROUTE = """\
-[runtime]
-name = "env-created-mesh-test"
+_ENV_FIRST_YAML_SINGLE_ROUTE = """\
+runtime:
+  name: env-created-mesh-test
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[routes.a_to_bridge]
-source_adapters = ["radio-a"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  a_to_bridge:
+    source_adapters: [radio-a]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
 
 # ---------------------------------------------------------------------------
@@ -61,10 +63,10 @@ enabled = true
 # ---------------------------------------------------------------------------
 
 
-def _write_config(tmp_path: Path, toml: str = _ENV_FIRST_TOML) -> Path:
-    """Write TOML config to a temp file and return its path."""
-    config_path = tmp_path / "env_first.toml"
-    config_path.write_text(toml)
+def _write_config(tmp_path: Path, yaml_content: str = _ENV_FIRST_YAML) -> Path:
+    """Write YAML config to a temp file and return its path."""
+    config_path = tmp_path / "env_first.yaml"
+    config_path.write_text(yaml_content)
     return config_path
 
 
@@ -90,10 +92,10 @@ def _set_radio_a_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _load_with_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, toml: str = _ENV_FIRST_TOML
+    tmp_path: Path, yaml_content: str = _ENV_FIRST_YAML
 ) -> tuple[Any, Any, Any]:
-    """Write config, load TOML, apply env overrides, return (config, source, paths)."""
-    config_path = _write_config(tmp_path, toml)
+    """Write config, load YAML, apply env overrides, return (config, source, paths)."""
+    config_path = _write_config(tmp_path, yaml_content)
     config, source, paths = load_config(str(config_path))
     config = apply_env_overrides(config)
     return config, source, paths
@@ -112,7 +114,7 @@ class TestEnvCreatedMeshtasticAdaptersLoad:
     ) -> None:
         """Both radio-a and radio-b created from env vars with correct fields."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # Both adapters exist in meshtastic section
         assert "radio-a" in config.adapters.meshtastic
@@ -143,7 +145,7 @@ class TestEnvCreatedAdaptersBuildViaRuntimeBuilder:
     ) -> None:
         """Build and start a runtime with env-created Meshtastic adapters."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, paths = _load_with_env(tmp_path)
 
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -182,7 +184,7 @@ class TestEnvCreatedRoutesValidate:
     ) -> None:
         """Routes have correct source/dest adapter IDs after env overlay."""
         _set_both_radio_envs(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # At least one route exists
         assert len(config.routes.routes) >= 1
@@ -199,15 +201,15 @@ class TestEnvCreatedNoCrossContamination:
     def test_env_created_no_cross_contamination(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """radio-a is created; radio-b is NOT (no TRANSPORT, no TOML stanza)."""
+        """radio-a is created; radio-b is NOT (no TRANSPORT, no config stanza)."""
         _set_radio_a_env_only(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path)
+        config, _source, _paths = _load_with_env(tmp_path)
 
         # radio-a exists
         assert "radio-a" in config.adapters.meshtastic
         assert config.adapters.meshtastic["radio-a"].config.origin_label == "RadioA"
 
-        # radio-b does NOT exist — no TRANSPORT set, no TOML stanza
+        # radio-b does NOT exist — no TRANSPORT set, no config stanza
         assert "radio-b" not in config.adapters.meshtastic
 
 

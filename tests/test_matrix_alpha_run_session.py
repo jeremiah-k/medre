@@ -73,7 +73,7 @@ _RUN_SESSION_TIMEOUT: float = 60.0
 
 
 def _write_run_session_config(tmp_path: Path) -> str:
-    """Write a TOML config for ``run_bridge_session``.
+    """Write a YAML config for ``run_bridge_session``.
 
     The route goes from a fake Matrix source adapter (``fake_matrix``) to
     the real Matrix destination adapter (``matrix_alpha``).  Because
@@ -94,50 +94,52 @@ def _write_run_session_config(tmp_path: Path) -> str:
 
     db_path = (tmp_path / "alpha-session.db").as_posix()
     config_content = f"""\
-[runtime]
-name = "matrix-alpha-run-session"
-shutdown_timeout_seconds = 10
+runtime:
+  name: matrix-alpha-run-session
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{db_path}"
+storage:
+  backend: sqlite
+  path: '{db_path}'
 
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@fake:local"
-access_token = "fake_token"
-room_allowlist = ["!fake:local"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@fake:local'
+      access_token: fake_token
+      room_allowlist: ['!fake:local']
+      encryption_mode: plaintext
+    matrix_alpha:
+      enabled: true
+      adapter_kind: real
+      homeserver: {json.dumps(MATRIX_HOMESERVER)}
+      user_id: {json.dumps(MATRIX_USER_ID)}
+      access_token: {json.dumps("placeholder_token_for_validation_only")}
+      room_allowlist: [{json.dumps(MATRIX_ROOM_ID)}]
+      encryption_mode: plaintext
 
-[adapters.matrix.matrix_alpha]
-enabled = true
-adapter_kind = "real"
-homeserver = {json.dumps(MATRIX_HOMESERVER)}
-user_id = {json.dumps(MATRIX_USER_ID)}
-access_token = {json.dumps("placeholder_token_for_validation_only")}
-room_allowlist = [{json.dumps(MATRIX_ROOM_ID)}]
-encryption_mode = "plaintext"
-
-[routes.alpha_bridge]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["matrix_alpha"]
-directionality = "source_to_dest"
-dest_room = {json.dumps(MATRIX_ROOM_ID)}
-enabled = true
+routes:
+  alpha_bridge:
+    source_adapters: [fake_matrix]
+    dest_adapters: [matrix_alpha]
+    directionality: source_to_dest
+    dest_room: {json.dumps(MATRIX_ROOM_ID)}
+    enabled: true
 """
-    config_file = tmp_path / "alpha-run-session.toml"
+    config_file = tmp_path / "alpha-run-session.yaml"
     config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 
 
 def _write_direct_adapter_config(tmp_path: Path) -> str:
-    """Write a TOML config for direct adapter tests.
+    """Write a YAML config for direct adapter tests.
 
     Uses real Matrix + fake Meshtastic with a bridge route.
     A non-secret placeholder token is sufficient — the real token is
@@ -148,42 +150,45 @@ def _write_direct_adapter_config(tmp_path: Path) -> str:
 
     db_path = (tmp_path / "alpha-direct.db").as_posix()
     config_content = f"""\
-[runtime]
-name = "matrix-alpha-direct-adapter"
-shutdown_timeout_seconds = 10
+runtime:
+  name: matrix-alpha-direct-adapter
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{db_path}"
+storage:
+  backend: sqlite
+  path: '{db_path}'
 
-[adapters.matrix.matrix_alpha]
-enabled = true
-adapter_kind = "real"
-homeserver = {json.dumps(MATRIX_HOMESERVER)}
-user_id = {json.dumps(MATRIX_USER_ID)}
-access_token = {json.dumps("placeholder_token_for_validation_only")}
-room_allowlist = [{json.dumps(MATRIX_ROOM_ID)}]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    matrix_alpha:
+      enabled: true
+      adapter_kind: real
+      homeserver: {json.dumps(MATRIX_HOMESERVER)}
+      user_id: {json.dumps(MATRIX_USER_ID)}
+      access_token: {json.dumps("placeholder_token_for_validation_only")}
+      room_allowlist: [{json.dumps(MATRIX_ROOM_ID)}]
+      encryption_mode: plaintext
+  meshtastic:
+    fake_mesh:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: AlphaTest
 
-[adapters.meshtastic.fake_mesh]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "AlphaTest"
-
-[routes.alpha_bridge]
-source_adapters = ["matrix_alpha"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
-source_room = {json.dumps(MATRIX_ROOM_ID)}
-dest_channel = "1"
+routes:
+  alpha_bridge:
+    source_adapters: [matrix_alpha]
+    dest_adapters: [fake_mesh]
+    directionality: source_to_dest
+    enabled: true
+    source_room: {json.dumps(MATRIX_ROOM_ID)}
+    dest_channel: '1'
 """
-    config_file = tmp_path / "alpha-direct-config.toml"
+    config_file = tmp_path / "alpha-direct-config.yaml"
     config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 

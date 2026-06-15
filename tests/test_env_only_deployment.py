@@ -2,7 +2,7 @@
 
 Demonstrates that a complete MEDRE runtime — config loading, adapter creation,
 route wiring, event injection, and storage persistence — can be driven entirely
-from environment variables with a minimal TOML skeleton (no adapter or route
+from environment variables with a minimal YAML skeleton (no adapter or route
 stanzas).
 
 Covers:
@@ -54,21 +54,21 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Minimal TOML config — no adapters, no routes
+# Minimal YAML config — no adapters, no routes
 # ---------------------------------------------------------------------------
 
-_ENV_ONLY_TOML_TEMPLATE = """\
-[runtime]
-name = "env-only-deployment-test"
-shutdown_timeout_seconds = 5
+_ENV_ONLY_YAML_TEMPLATE = """\
+runtime:
+  name: env-only-deployment-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{db_path}"
+storage:
+  backend: sqlite
+  path: '{db_path}'
 """
 
 # ---------------------------------------------------------------------------
@@ -79,9 +79,9 @@ _SECRET_TOKEN = "fake-secret-token-here"
 
 
 def _write_config(tmp_path: Path, db_path: str) -> Path:
-    """Write the minimal TOML config and return its path."""
-    config_path = tmp_path / "env_only.toml"
-    config_path.write_text(_ENV_ONLY_TOML_TEMPLATE.format(db_path=db_path))
+    """Write the minimal YAML config and return its path."""
+    config_path = tmp_path / "env_only.yaml"
+    config_path.write_text(_ENV_ONLY_YAML_TEMPLATE.format(db_path=db_path))
     return config_path
 
 
@@ -116,7 +116,7 @@ def _load_with_env(
     tmp_path: Path,
     db_path: str,
 ) -> tuple[Any, Any, Any]:
-    """Write config, load TOML, apply env overrides, return (config, source, paths)."""
+    """Write config, load YAML, apply env overrides, return (config, source, paths)."""
     config_path = _write_config(tmp_path, db_path)
     config, source, paths = load_config(str(config_path))
     config = apply_env_overrides(config)

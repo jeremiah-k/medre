@@ -111,7 +111,7 @@ class Route:
 
 ### 2.6 Configuration Representation
 
-Routes are configured in YAML or TOML. Example in YAML:
+Routes are configured in YAML. Example in YAML:
 
 ```yaml
 routes:

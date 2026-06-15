@@ -559,7 +559,7 @@ class TestStatusVocabulary:
                     [
                         "smoke",
                         "--config",
-                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
+                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml"),
                         "--json",
                     ]
                 )
@@ -586,7 +586,7 @@ class TestStatusVocabulary:
                     [
                         "smoke",
                         "--config",
-                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
+                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml"),
                         "--storage-path",
                         str(db_path),
                         "--json",

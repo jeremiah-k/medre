@@ -31,20 +31,23 @@ from medre.runtime.boot_summary import build_boot_summary
 def _fake_runtime_config(*, storage_block: str) -> str:
     """Return minimal fake-adapter runtime config with caller-selected storage."""
     return f"""\
-[runtime]
-name = "storage-error-test"
-shutdown_timeout_seconds = 1
+runtime:
+  name: storage-error-test
+  shutdown_timeout_seconds: 1
 
 {storage_block}
 
-[adapters.matrix.solo]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    solo:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 """
 
 
@@ -303,7 +306,7 @@ class TestCLIDiagnostics:
         with tempfile.TemporaryDirectory() as tmp:
             # Ensure no config file exists.
             with pytest.raises(SystemExit):
-                main(["diagnostics", "--config", str(Path(tmp) / "nonexistent.toml")])
+                main(["diagnostics", "--config", str(Path(tmp) / "nonexistent.yaml")])
 
     def test_diagnostics_parser_registered(self) -> None:
         """Diagnostics subcommand is registered in the parser."""
@@ -380,10 +383,10 @@ class TestAppStartupStorageErrors:
         from medre.runtime.errors import RuntimeStartupError
 
         db_path = tmp_path / "storage-error.db"
-        config_path = tmp_path / "config.toml"
+        config_path = tmp_path / "config.yaml"
         config_path.write_text(
             _fake_runtime_config(
-                storage_block=f'[storage]\nbackend = "sqlite"\npath = "{db_path}"'
+                storage_block=f'storage:\n  backend: sqlite\n  path: "{db_path}"'
             )
         )
         config, _source, paths = load_config(str(config_path))
@@ -413,10 +416,10 @@ class TestAppStartupStorageErrors:
         from medre.runtime.errors import RuntimeStartupError
 
         db_path = tmp_path / "storage-error.db"
-        config_path = tmp_path / "config.toml"
+        config_path = tmp_path / "config.yaml"
         config_path.write_text(
             _fake_runtime_config(
-                storage_block=f'[storage]\nbackend = "sqlite"\npath = "{db_path}"'
+                storage_block=f'storage:\n  backend: sqlite\n  path: "{db_path}"'
             )
         )
         config, _source, paths = load_config(str(config_path))
@@ -449,9 +452,9 @@ class TestAppStartupStorageErrors:
         from medre.config.loader import load_config
         from medre.runtime.builder import RuntimeBuilder
 
-        config_path = tmp_path / "config.toml"
+        config_path = tmp_path / "config.yaml"
         config_path.write_text(
-            _fake_runtime_config(storage_block='[storage]\nbackend = "memory"')
+            _fake_runtime_config(storage_block="storage:\n  backend: memory")
         )
         config, _source, paths = load_config(str(config_path))
         app = RuntimeBuilder(config, paths).build()

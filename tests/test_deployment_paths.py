@@ -171,10 +171,10 @@ class TestContainerLayoutMatchesDockerEnv:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Config file is at MEDRE_HOME/config.toml (flat, no config_dir)."""
+        """Config file is at MEDRE_HOME/config.yaml (flat, no config_dir)."""
         monkeypatch.setenv("MEDRE_HOME", "/opt/medre")
         paths = resolve()
-        assert paths.config_file == Path("/opt/medre/config.toml")
+        assert paths.config_file == Path("/opt/medre/config.yaml")
         assert paths.config_dir is None
 
     def test_database_path_under_state(
@@ -250,7 +250,7 @@ class TestSimulatedBindMount:
         monkeypatch.setenv("MEDRE_HOME", str(deep))
         paths = resolve()
 
-        assert paths.config_file == deep / "config.toml"
+        assert paths.config_file == deep / "config.yaml"
         assert paths.state_dir == deep / "state"
 
 
@@ -552,19 +552,19 @@ class TestConfigFileLocationDiffersBetweenModes:
 
         assert paths.config_dir is not None
         assert paths.config_file.parent == paths.config_dir
-        assert paths.config_file.name == "config.toml"
+        assert paths.config_file.name == "config.yaml"
 
     def test_medre_home_config_flat(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """MEDRE_HOME: config_file is at MEDRE_HOME/config.toml (no config_dir)."""
+        """MEDRE_HOME: config_file is at MEDRE_HOME/config.yaml (no config_dir)."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()
 
         assert paths.config_dir is None
-        assert paths.config_file == tmp_path / "config.toml"
+        assert paths.config_file == tmp_path / "config.yaml"
         assert paths.config_file.parent == tmp_path
 
 

@@ -33,7 +33,7 @@ When the `MEDRE_HOME` environment variable is set to a non-empty value, all cate
 
 | Category | Path                      |
 | -------- | ------------------------- |
-| Config   | `$MEDRE_HOME/config.toml` |
+| Config   | `$MEDRE_HOME/config.yaml` |
 | State    | `$MEDRE_HOME/state/`      |
 | Data     | `$MEDRE_HOME/data/`       |
 | Cache    | `$MEDRE_HOME/cache/`      |

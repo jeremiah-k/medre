@@ -287,7 +287,7 @@ class TestAdapterStateRootsCorrect:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()
         assert paths.config_dir is None  # MEDRE_HOME has no config_dir
-        assert paths.config_file == tmp_path / "config.toml"
+        assert paths.config_file == tmp_path / "config.yaml"
         assert paths.state_dir == tmp_path / "state"
         assert paths.data_dir == tmp_path / "data"
         assert paths.cache_dir == tmp_path / "cache"

@@ -26,45 +26,44 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text("""\
-[runtime]
-name = "test-routes"
-
-[logging]
-level = "INFO"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.main]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "tok"
-room_allowlist = ["!room:test"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.radio]
-enabled = true
-adapter_kind = "fake"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "TestMesh"
-
-[routes.matrix_to_radio]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: test-routes
+logging:
+  level: INFO
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.test
+      user_id: '@bot:test'
+      access_token: tok
+      room_allowlist: ['!room:test']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: TestMesh
+routes:
+  matrix_to_radio:
+    source_adapters: [main]
+    dest_adapters: [radio]
+    directionality: source_to_dest
+    enabled: true
 """)
     return p
 
 
 @pytest.fixture()
 def config_no_adapters(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_NO_ADAPTERS)
     return p
 
@@ -100,7 +99,7 @@ class TestDiagnostics:
     def test_diagnostics_missing_config(self, tmp_path: Path) -> None:
         """Missing config file exits nonzero with clear error."""
         _, stderr = _run_cli_both(
-            "diagnostics", "--config", str(tmp_path / "missing.toml")
+            "diagnostics", "--config", str(tmp_path / "missing.yaml")
         )
         assert "Config error:" in stderr
         assert "Traceback" not in stderr
@@ -142,26 +141,26 @@ class TestDiagnosticsRefreshHealth:
     """Tests for 'medre diagnostics --refresh-health' command."""
 
     CONFIG_FAKE_SINGLE = """\
-[runtime]
-name = "diag-refresh-test"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fake_main]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.test"
-user_id = "@fake:fake.test"
-access_token = "fake_token_for_test"
-room_allowlist = ["!fake:fake.test"]
-encryption_mode = "plaintext"
+runtime:
+  name: diag-refresh-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    fake_main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.test
+      user_id: '@fake:fake.test'
+      access_token: fake_token_for_test
+      room_allowlist: ['!fake:fake.test']
+      encryption_mode: plaintext
 """
 
     @pytest.fixture()
     def fake_single_config(self, tmp_path: Path) -> Path:
         """Write CONFIG_FAKE_SINGLE to a temp file and return its path."""
-        p = tmp_path / "config.toml"
+        p = tmp_path / "config.yaml"
         p.write_text(self.CONFIG_FAKE_SINGLE)
         return p
 
@@ -371,7 +370,7 @@ encryption_mode = "plaintext"
                 "diagnostics",
                 "--refresh-health",
                 "--config",
-                str(tmp_path / "missing.toml"),
+                str(tmp_path / "missing.yaml"),
             )
         assert exc_info.value.code == EXIT_CONFIG
 

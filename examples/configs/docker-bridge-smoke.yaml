@@ -1,0 +1,133 @@
+# MEDRE Example: Docker SDK-Boundary Bridge Smoke
+#
+# Illustrative config for Docker-based SDK-boundary bridge testing.
+# Exercises real adapter SDK code paths against containerized services
+# (Synapse, meshtasticd) alongside fake adapters.
+#
+# THIS CONFIG CANNOT BE USED DIRECTLY — credentials and ports are
+# placeholders.  Docker integration tests build configs programmatically
+# from conftest.py fixtures that auto-register users and allocate ports.
+# See: tests/integration/test_synapse_connectivity.py
+#      tests/integration/test_meshtasticd_connectivity.py
+#
+# NOT for production.  NOT for direct `medre run` usage.
+#
+# Provenance level: Docker SDK-boundary (real SDK + loopback transport)
+# What it proves:  Dependency resolution, config loading, adapter lifecycle,
+#                  real SDK boundary (not mocked), pipeline routing.
+# What it does NOT prove:  Live network connectivity, sustained throughput,
+#                          cross-transport relay between two real endpoints.
+
+runtime:
+  name: docker-bridge-smoke
+  shutdown_timeout_seconds: 10
+
+logging:
+  level: DEBUG
+  format: text
+
+storage:
+  backend: memory
+
+adapters:
+  # ---------------------------------------------------------------------------
+  # Real Matrix adapter — points at Docker Synapse
+  # ---------------------------------------------------------------------------
+  # Credentials are PLACEHOLDERS.  The Docker integration conftest.py
+  # auto-registers a bot user and creates a test room; tests inject the
+  # real values programmatically via MatrixConfig().
+  matrix:
+    docker_matrix:
+      enabled: true
+      adapter_kind: real
+      homeserver: http://localhost:8008
+      user_id: "@PLACEHOLDER:localhost"
+      access_token: CHANGE_ME
+      room_allowlist:
+        - "!PLACEHOLDER:localhost"
+      encryption_mode: plaintext
+
+    # ---------------------------------------------------------------------------
+    # Fake Matrix adapter — no SDK, no network, no hardware
+    # ---------------------------------------------------------------------------
+    fake_mx:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@fake:fake.local"
+      access_token: fake_token_docker_bridge
+      room_allowlist:
+        - "!fake:fake.local"
+      encryption_mode: plaintext
+
+  # ---------------------------------------------------------------------------
+  # Real Meshtastic adapter — points at Docker meshtasticd
+  # ---------------------------------------------------------------------------
+  # Host/port are defaults matching conftest.py.  Tests may override.
+  meshtastic:
+    docker_meshtastic:
+      enabled: true
+      adapter_kind: real
+      connection_type: tcp
+      host: localhost
+      port: 4403
+      origin_label: docker-bridge-ci
+
+    # ---------------------------------------------------------------------------
+    # Fake Meshtastic adapter — no SDK, no network, no hardware
+    # ---------------------------------------------------------------------------
+    fake_mesh:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: fake-radio
+
+# ---------------------------------------------------------------------------
+# Routes — SDK-boundary bridge patterns
+# ---------------------------------------------------------------------------
+
+routes:
+  # 1. Real Matrix → Fake Meshtastic (tests real SDK inbound, fake outbound)
+  real_matrix_to_fake_mesh:
+    source_adapters:
+      - docker_matrix
+    dest_adapters:
+      - fake_mesh
+    directionality: source_to_dest
+    enabled: true
+
+  # 2. Real Meshtastic → Fake Matrix (tests real SDK inbound, fake outbound)
+  real_mesh_to_fake_mx:
+    source_adapters:
+      - docker_meshtastic
+    dest_adapters:
+      - fake_mx
+    directionality: source_to_dest
+    enabled: true
+
+  # 3. Real Matrix ↔ Real Meshtastic (requires both Docker services)
+  real_bidir:
+    source_adapters:
+      - docker_matrix
+    dest_adapters:
+      - docker_meshtastic
+    directionality: bidirectional
+    enabled: true
+
+  # 4. Fake Matrix → Fake Meshtastic (always works, no Docker needed)
+  fake_bridge:
+    source_adapters:
+      - fake_mx
+    dest_adapters:
+      - fake_mesh
+    directionality: source_to_dest
+    enabled: true
+
+  # 5. Disabled route example
+  disabled_example:
+    source_adapters:
+      - fake_mx
+    dest_adapters:
+      - docker_meshtastic
+    directionality: source_to_dest
+    enabled: false

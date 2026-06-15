@@ -1,6 +1,6 @@
 """Runtime-level multi-adapter integration test.
 
-Builds a runtime from TOML config with three fake adapters (two Meshtastic,
+Builds a runtime from YAML config with three fake adapters (two Meshtastic,
 one Matrix) and two unidirectional routes.  Verifies that:
 
 1. RuntimeBuilder builds successfully with all three adapters.
@@ -33,90 +33,94 @@ from medre.core.events.metadata import NativeMetadata
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
-# TOML config template
+# YAML config template
 # ---------------------------------------------------------------------------
 
-_MULTI_ADAPTER_CONFIG = """\
-[runtime]
-name = "multi-adapter-test"
-shutdown_timeout_seconds = 5
+_MULTI_ADAPTER_YAML = """\
+runtime:
+  name: multi-adapter-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.meshtastic.radio-a]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "RadioA"
-default_channel = 0
+adapters:
+  meshtastic:
+    radio-a:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: RadioA
+      default_channel: 0
+    radio-b:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: RadioB
+      default_channel: 1
+  matrix:
+    matrix-fake:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@fake:local'
+      access_token: fake_token
 
-[adapters.meshtastic.radio-b]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "RadioB"
-default_channel = 1
-
-[adapters.matrix.matrix-fake]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@fake:local"
-access_token = "fake_token"
-
-[routes.radio-a-to-matrix]
-source_adapters = ["radio-a"]
-dest_adapters = ["matrix-fake"]
-directionality = "source_to_dest"
-enabled = true
-
-[routes.matrix-to-radio-b]
-source_adapters = ["matrix-fake"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  radio-a-to-matrix:
+    source_adapters: [radio-a]
+    dest_adapters: [matrix-fake]
+    directionality: source_to_dest
+    enabled: true
+  matrix-to-radio-b:
+    source_adapters: [matrix-fake]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
 
-# TOML config with custom radio-b settings for render verification.
-_RENDER_VERIFY_CONFIG = """\
-[runtime]
-name = "render-verify-test"
-shutdown_timeout_seconds = 5
+# YAML config with custom radio-b settings for render verification.
+_RENDER_VERIFY_YAML = """\
+runtime:
+  name: render-verify-test
+  shutdown_timeout_seconds: 5
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.meshtastic.radio-b]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "RenderNet"
-default_channel = 3
-max_text_bytes = 50
-radio_relay_prefix = "[{origin_label}] "
+adapters:
+  meshtastic:
+    radio-b:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: RenderNet
+      default_channel: 3
+      max_text_bytes: 50
+      radio_relay_prefix: '[{origin_label}] '
+  matrix:
+    matrix-fake:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@fake:local'
+      access_token: fake_token
+      origin_label: MatrixBridge
 
-[adapters.matrix.matrix-fake]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@fake:local"
-access_token = "fake_token"
-origin_label = "MatrixBridge"
-
-[routes.matrix-to-radio-b]
-source_adapters = ["matrix-fake"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  matrix-to-radio-b:
+    source_adapters: [matrix-fake]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
 
 
@@ -125,8 +129,8 @@ enabled = true
 # ---------------------------------------------------------------------------
 
 
-def _write_config(tmp_path: Path, content: str = _MULTI_ADAPTER_CONFIG) -> Path:
-    config_path = tmp_path / "multi_adapter.toml"
+def _write_config(tmp_path: Path, content: str = _MULTI_ADAPTER_YAML) -> Path:
+    config_path = tmp_path / "multi_adapter.yaml"
     config_path.write_text(content)
     return config_path
 
@@ -295,7 +299,7 @@ class TestMeshtasticRuntimeMulti:
             "medre.config.loader._expand_paths_in_dict",
             lambda d, _p: d,
         )
-        config_path = _write_config(tmp_path, content=_RENDER_VERIFY_CONFIG)
+        config_path = _write_config(tmp_path, content=_RENDER_VERIFY_YAML)
         config, _source, paths = load_config(str(config_path))
 
         builder = RuntimeBuilder(config, paths)

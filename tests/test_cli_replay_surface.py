@@ -31,49 +31,55 @@ import pytest
 from medre.cli import main
 
 # ---------------------------------------------------------------------------
-# TOML config builder
+# YAML config builder
 # ---------------------------------------------------------------------------
 
-_SMOKELIKE_TOML = """\
-[runtime]
-name = "cli-replay-surface"
-shutdown_timeout_seconds = 10
+_SMOKELIKE_YAML = """\
+runtime:
+  name: cli-replay-surface
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = {storage_path!r}
+storage:
+  backend: sqlite
+  path: "{storage_path}"
 
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "fake"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: fake
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: replay-surface
 
-[adapters.meshtastic.fake_meshtastic]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "replay-surface"
-
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_meshtastic"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
 """
 
 
 def _write_config(tmp_path: Path, db_path: Path) -> Path:
-    """Write a TOML config that points storage at *db_path*."""
-    cfg = tmp_path / "replay_surface.toml"
-    cfg.write_text(_SMOKELIKE_TOML.format(storage_path=str(db_path)))
+    """Write a YAML config that points storage at *db_path*."""
+    cfg = tmp_path / "replay_surface.yaml"
+    cfg.write_text(_SMOKELIKE_YAML.format(storage_path=str(db_path)))
     return cfg
 
 
@@ -91,9 +97,9 @@ def _seed_db(tmp_path: Path) -> tuple[str, Path]:
     _write_config(tmp_path, db_path)
 
     # Config already specifies SQLite at db_path — smoke uses it directly.
-    seed_cfg = tmp_path / "seed.toml"
+    seed_cfg = tmp_path / "seed.yaml"
     seed_cfg.write_text(
-        _SMOKELIKE_TOML.format(storage_path=str(db_path)),
+        _SMOKELIKE_YAML.format(storage_path=str(db_path)),
     )
 
     stdout_buf = io.StringIO()
@@ -797,7 +803,7 @@ class TestCLIReplayStoragePathRejected:
                     [
                         "replay",
                         "--config",
-                        "/nonexistent/path.toml",
+                        "/nonexistent/path.yaml",
                         "--mode",
                         "dry_run",
                         "--storage-path",
@@ -1020,7 +1026,7 @@ class TestCLIReplayExitCodes:
                     [
                         "replay",
                         "--config",
-                        "/nonexistent/medre-config.toml",
+                        "/nonexistent/medre-config.yaml",
                         "--mode",
                         "dry_run",
                         "--json",

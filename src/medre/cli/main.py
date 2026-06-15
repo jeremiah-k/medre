@@ -102,7 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument(
         "--config",
         default=None,
-        help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)",
+        help="Path to config file (default: examples/configs/fake-bridge-smoke.yaml)",
     )
     smoke_p.add_argument(
         "--message", default="medre smoke test", help="Text for test message"

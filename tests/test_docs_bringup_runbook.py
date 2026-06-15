@@ -281,13 +281,13 @@ class TestOperatorAnswerability:
         if not _BRINGUP.exists():
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
-        assert "examples/configs/live-matrix-meshtastic.toml" in text, (
+        assert "examples/configs/live-matrix-meshtastic.yaml" in text, (
             "bringup runbook must mention "
-            "'examples/configs/live-matrix-meshtastic.toml' as the "
+            "'examples/configs/live-matrix-meshtastic.yaml' as the "
             "starting config template."
         )
-        assert "/tmp/medre-live.toml" in text, (
-            "bringup runbook must mention '/tmp/medre-live.toml' as the "
+        assert "/tmp/medre-live.yaml" in text, (
+            "bringup runbook must mention '/tmp/medre-live.yaml' as the "
             "runtime config path."
         )
 

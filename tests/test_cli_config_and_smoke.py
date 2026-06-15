@@ -12,13 +12,13 @@ import json
 import os
 import subprocess
 import sys
-import tomllib
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
 from medre.cli import main
+from medre.config._yaml import parse_yaml_config
 from tests.helpers.walkthrough import (
     EXAMPLES_SMOKE_CONFIG,
     SRC_DIR,
@@ -391,7 +391,7 @@ class TestConfigSampleToSmoke:
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
-        parsed = tomllib.loads(sample)
+        parsed = parse_yaml_config(sample)
         assert isinstance(parsed, dict)
         assert "runtime" in parsed
         assert "adapters" in parsed
@@ -403,7 +403,7 @@ class TestConfigSampleToSmoke:
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
 
-        cfg_path = tmp_path / "sample.toml"
+        cfg_path = tmp_path / "sample.yaml"
         cfg_path.write_text(sample)
 
         stdout_buf2 = io.StringIO()
@@ -433,7 +433,7 @@ class TestConfigSampleToSmoke:
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
-        cfg_path = tmp_path / "sample.toml"
+        cfg_path = tmp_path / "sample.yaml"
         cfg_path.write_text(sample)
 
         stdout_buf2 = io.StringIO()
@@ -463,16 +463,16 @@ class TestConfigSampleToSmoke:
         sample = stdout_buf.getvalue()
         # Derive a SQLite variant of the sample config with a concrete DB path.
         db_path = str(tmp_path / "sample-smoke.db")
-        path_target = 'path = "{state}/medre.sqlite"'
+        path_target = "path: '{state}/medre.sqlite'"
         assert (
             sample.count(path_target) >= 1
         ), f"Expected at least one '{path_target}' in sample config"
         sqlite_sample = sample.replace(
             path_target,
-            f"path = {db_path!r}",
+            f"path: '{db_path}'",
             1,
         )
-        cfg_path = tmp_path / "sample_sqlite.toml"
+        cfg_path = tmp_path / "sample_sqlite.yaml"
         cfg_path.write_text(sqlite_sample)
 
         stdout_buf2 = io.StringIO()
@@ -495,7 +495,7 @@ class TestConfigSampleToSmoke:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
-        cfg_path = tmp_path / "sample.toml"
+        cfg_path = tmp_path / "sample.yaml"
         cfg_path.write_text(stdout_buf.getvalue())
 
         before = optional_sdks_in_modules()
@@ -528,7 +528,7 @@ class TestFirstRunSourceCheckout:
 
     Mirrors the documented first-run walkthrough / installation runbook:
     version → paths → adapters → config sample → temp config → config check
-    → smoke with ``examples/configs/fake-bridge-smoke.toml`` → inspect
+    → smoke with ``examples/configs/fake-bridge-smoke.yaml`` → inspect
     receipts → inspect event timeline/evidence → replay dry_run.
 
     All commands via CLI ``main()`` — no internal runtime APIs.
@@ -575,11 +575,11 @@ class TestFirstRunSourceCheckout:
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
-        assert "[runtime]" in sample
-        parsed = tomllib.loads(sample)
+        assert "runtime:" in sample
+        parsed = parse_yaml_config(sample)
         assert "runtime" in parsed
 
-        cfg_path = tmp_path / "walkthrough.toml"
+        cfg_path = tmp_path / "walkthrough.yaml"
         cfg_path.write_text(sample)
 
         stdout_buf2 = io.StringIO()
@@ -767,7 +767,7 @@ class TestFirstRunSourceCheckout:
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
-        cfg_path = tmp_path / "full-walkthrough.toml"
+        cfg_path = tmp_path / "full-walkthrough.yaml"
         cfg_path.write_text(sample)
 
         # 2. Config check on sample.
@@ -878,7 +878,7 @@ class TestOptionalSDKBoundaries:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
-        cfg = tmp_path / "sdk-check.toml"
+        cfg = tmp_path / "sdk-check.yaml"
         cfg.write_text(stdout_buf.getvalue())
 
         before = optional_sdks_in_modules()
@@ -890,7 +890,7 @@ class TestOptionalSDKBoundaries:
         ), f"config check leaked SDKs: {sorted(after - before)}"
 
     def test_smoke_no_sdk_leak(self) -> None:
-        """``medre smoke`` with fake-bridge-smoke.toml does not import SDKs."""
+        """``medre smoke`` with fake-bridge-smoke.yaml does not import SDKs."""
         assert EXAMPLES_SMOKE_CONFIG.is_file()
 
         before = optional_sdks_in_modules()
@@ -1037,7 +1037,7 @@ class TestSmokeWithoutConfig:
         """``medre smoke`` (no --config) finds source-tree default config.
 
         In a source checkout, the default config finder locates
-        ``examples/configs/fake-bridge-smoke.toml`` automatically.
+        ``examples/configs/fake-bridge-smoke.yaml`` automatically.
         """
         if not EXAMPLES_SMOKE_CONFIG.is_file():
             pytest.skip("Source-tree example config not available")

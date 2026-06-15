@@ -38,20 +38,23 @@ commit the token to version control.
 Copy the example config to a working location and fill in your real values:
 
 ```bash
-cp examples/configs/live-matrix-meshtastic.toml /tmp/medre-live.toml
+cp examples/configs/live-matrix-meshtastic.yaml /tmp/medre-live.yaml
 ```
 
-Edit `/tmp/medre-live.toml` and populate the following fields.
+Edit `/tmp/medre-live.yaml` and populate the following fields.
 
 ### Matrix adapter
 
-```toml
-[adapters.matrix.matrix]
-homeserver = "https://matrix.example.com"  # your homeserver URL
-user_id = "@mesh-bot:example.com"           # bot user ID
-access_token = ""                           # token from medre adapter matrix auth login
-room_allowlist = ["!room:example.com"]      # Matrix rooms to bridge
-encryption_mode = "plaintext"
+```yaml
+adapters:
+  matrix:
+    matrix:
+      homeserver: "https://matrix.example.com" # your homeserver URL
+      user_id: "@mesh-bot:example.com" # bot user ID
+      access_token: "" # token from medre adapter matrix auth login
+      room_allowlist:
+        - "!room:example.com" # Matrix rooms to bridge
+      encryption_mode: plaintext
 ```
 
 Set `room_allowlist` to the room IDs the adapter should monitor. Room IDs use
@@ -60,11 +63,13 @@ the `!opaque:server` format — for example `!abc123:example.com`. Room aliases
 
 ### Meshtastic adapter
 
-```toml
-[adapters.meshtastic.radio]
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "medre-radio"
+```yaml
+adapters:
+  meshtastic:
+    radio:
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: medre-radio
 ```
 
 ### Route targeting fields
@@ -78,26 +83,32 @@ Routes use four targeting fields to select source and destination endpoints:
 
 Channel indexes are strings. The default Meshtastic channel is `"0"`.
 
-```toml
-[[routes]]
-from_adapter = "bridge"
-to_adapter = "radio"
-source_room = "!room:example.com"
-dest_room = "!room:example.com"
-source_channel = "0"
-dest_channel = "0"
+```yaml
+routes:
+  bridge:
+    source_adapters:
+      - matrix
+    dest_adapters:
+      - radio
+    source_room: "!room:example.com"
+    dest_room: "!room:example.com"
+    source_channel: "0"
+    dest_channel: "0"
 ```
 
 The example config uses a single bidirectional route that expands into two
 legs:
 
-```toml
-[routes.matrix_radio_bridge]
-source_adapters = ["matrix"]
-dest_adapters = ["radio"]
-directionality = "bidirectional"
-source_room = "!room:example.com"
-dest_channel = "0"
+```yaml
+routes:
+  matrix_radio_bridge:
+    source_adapters:
+      - matrix
+    dest_adapters:
+      - radio
+    directionality: bidirectional
+    source_room: "!room:example.com"
+    dest_channel: "0"
 ```
 
 ## Runtime
@@ -105,14 +116,14 @@ dest_channel = "0"
 Start the bridge with the populated config:
 
 ```bash
-medre run --config /tmp/medre-live.toml
+medre run --config /tmp/medre-live.yaml
 ```
 
 To capture a shutdown snapshot for later inspection, provide a path argument
 after `--snapshot-on-shutdown`:
 
 ```bash
-medre run --config /tmp/medre-live.toml --snapshot-on-shutdown /tmp/medre-live-snapshot.json
+medre run --config /tmp/medre-live.yaml --snapshot-on-shutdown /tmp/medre-live-snapshot.json
 ```
 
 ### Expected startup output
@@ -133,7 +144,7 @@ To check adapter health without keeping a long-running process, use the
 diagnostics subcommand with `--refresh-health`:
 
 ```bash
-medre diagnostics --refresh-health --config /tmp/medre-live.toml
+medre diagnostics --refresh-health --config /tmp/medre-live.yaml
 ```
 
 The `--refresh-health` flag starts a **short-lived** runtime, probes each adapter's health endpoint, prints a summary table, and exits. It **does not require** an already-running runtime — it brings up its own temporary instance.
@@ -188,7 +199,7 @@ A successful bring-up produces:
 
 1. **Auth** — `medre adapter matrix auth login` completes and the token is
    stored.
-2. **Startup** — `medre run --config /tmp/medre-live.toml` starts without
+2. **Startup** — `medre run --config /tmp/medre-live.yaml` starts without
    errors, both adapters report healthy.
 3. **Forward direction** — A Matrix message appears on the Meshtastic radio.
 4. **Reverse direction** — A Meshtastic textMessage appears in the Matrix room.
@@ -232,7 +243,7 @@ typically completes in a few seconds on commodity hardware.
 
 ## See Also
 
-- [examples/configs/live-matrix-meshtastic.toml](../../../examples/configs/live-matrix-meshtastic.toml) — canonical real-device bridge config
+- [examples/configs/live-matrix-meshtastic.yaml](../../../examples/configs/live-matrix-meshtastic.yaml) — canonical real-device bridge config
 - [transport-setup/matrix.md](../transport-setup/matrix.md) — Matrix transport setup guide
 - [transport-setup/meshtastic.md](../transport-setup/meshtastic.md) — Meshtastic transport setup guide
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection

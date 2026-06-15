@@ -8,23 +8,26 @@
 # configuration needed for either.
 # Copy and adjust for your homeserver and credentials.
 
-[runtime]
-name = "matrix-bot"
-shutdown_timeout_seconds = 10
+runtime:
+  name: matrix-bot
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "INFO"
-format = "text"
+logging:
+  level: INFO
+  format: text
 
-[storage]
-backend = "sqlite"
-path = "{state}/medre.sqlite"
+storage:
+  backend: sqlite
+  path: "{state}/medre.sqlite"
 
 # --- Matrix transport ---
-[adapters.matrix.main]
-enabled = true
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = ""
-room_allowlist = ["!room:example.com"]
-encryption_mode = "plaintext"             # plaintext | e2ee_required | e2ee_optional
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: https://matrix.example.com
+      user_id: "@bot:example.com"
+      access_token: ""
+      room_allowlist:
+        - "!room:example.com"
+      encryption_mode: plaintext # plaintext | e2ee_required | e2ee_optional

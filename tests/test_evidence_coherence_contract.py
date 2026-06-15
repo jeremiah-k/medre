@@ -181,14 +181,14 @@ class TestRuntimeDictValidatesAgainstSchema:
     ) -> None:
         """A bundle collected via ``config_path`` mode must validate
         against the schema.  This is the primary operator use case
-        (``medre evidence --config my-bridge.toml --json``)."""
+        (``medre evidence --config my-bridge.yaml --json``)."""
         from medre.runtime.evidence._bundle import collect_evidence_bundle
 
         # Use a minimal valid config that will load but produce a simple
-        # bundle.  The shipped fake-bridge-smoke.toml is a good candidate.
-        config_path = _ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"
+        # bundle.  The shipped fake-bridge-smoke.yaml is a good candidate.
+        config_path = _ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml"
         if not config_path.exists():
-            pytest.skip("fake-bridge-smoke.toml not available")
+            pytest.skip("fake-bridge-smoke.yaml not available")
 
         bundle = await collect_evidence_bundle(config_path=str(config_path))
         self._assert_validates(bundle, schema)
@@ -200,9 +200,9 @@ class TestRuntimeDictValidatesAgainstSchema:
         reference-identical to the values in ``sections.recovery.data``."""
         from medre.runtime.evidence._bundle import collect_evidence_bundle
 
-        config_path = _ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"
+        config_path = _ROOT / "examples" / "configs" / "fake-bridge-smoke.yaml"
         if not config_path.exists():
-            pytest.skip("fake-bridge-smoke.toml not available")
+            pytest.skip("fake-bridge-smoke.yaml not available")
 
         bundle = await collect_evidence_bundle(config_path=str(config_path))
 

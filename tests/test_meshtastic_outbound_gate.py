@@ -508,24 +508,27 @@ class TestOutboundModeEnvOverride:
         from medre.config.env import apply_env_overrides
         from medre.config.loader import load_config
 
-        toml = """\
-[runtime]
-name = "env-override-test"
+        yaml_content = """\
+runtime:
+  name: env-override-test
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.meshtastic.radio_a]
-connection_type = "fake"
+adapters:
+  meshtastic:
+    radio_a:
+      connection_type: fake
 
-[routes.a_to_b]
-source_adapters = ["radio-a"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  a_to_b:
+    source_adapters: [radio-a]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
-        config_path = tmp_path / "env_override.toml"
-        config_path.write_text(toml)
+        config_path = tmp_path / "env_override.yaml"
+        config_path.write_text(yaml_content)
         config, _source, _paths = load_config(str(config_path))
 
         # Override via env
@@ -543,25 +546,28 @@ enabled = true
         from medre.config.env import apply_env_overrides
         from medre.config.loader import load_config
 
-        toml = """\
-[runtime]
-name = "env-override-enabled"
+        yaml_content = """\
+runtime:
+  name: env-override-enabled
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.meshtastic.radio_a]
-connection_type = "fake"
-outbound_mode = "listen_only"
+adapters:
+  meshtastic:
+    radio_a:
+      connection_type: fake
+      outbound_mode: listen_only
 
-[routes.a_to_b]
-source_adapters = ["radio-a"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  a_to_b:
+    source_adapters: [radio-a]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
-        config_path = tmp_path / "env_override_enabled.toml"
-        config_path.write_text(toml)
+        config_path = tmp_path / "env_override_enabled.yaml"
+        config_path.write_text(yaml_content)
         config, _source, _paths = load_config(str(config_path))
 
         # Override back to enabled via env
@@ -579,24 +585,27 @@ enabled = true
         from medre.config.env import apply_env_overrides
         from medre.config.loader import load_config
 
-        toml = """\
-[runtime]
-name = "env-override-invalid"
+        yaml_content = """\
+runtime:
+  name: env-override-invalid
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[adapters.meshtastic.radio_a]
-connection_type = "fake"
+adapters:
+  meshtastic:
+    radio_a:
+      connection_type: fake
 
-[routes.a_to_b]
-source_adapters = ["radio-a"]
-dest_adapters = ["radio-b"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  a_to_b:
+    source_adapters: [radio-a]
+    dest_adapters: [radio-b]
+    directionality: source_to_dest
+    enabled: true
 """
-        config_path = tmp_path / "env_override_invalid.toml"
-        config_path.write_text(toml)
+        config_path = tmp_path / "env_override_invalid.yaml"
+        config_path.write_text(yaml_content)
         config, _source, _paths = load_config(str(config_path))
 
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__OUTBOUND_MODE", "invalid_value")

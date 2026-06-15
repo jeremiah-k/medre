@@ -32,49 +32,49 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_WITH_ROUTES)
     return p
 
 
 @pytest.fixture()
 def config_no_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_NO_ROUTES)
     return p
 
 
 @pytest.fixture()
 def config_with_targeting(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_WITH_ROUTE_TARGETING)
     return p
 
 
 @pytest.fixture()
 def config_unknown_adapters(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
     return p
 
 
 @pytest.fixture()
 def config_minimal(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_MINIMAL)
     return p
 
 
 @pytest.fixture()
 def config_disabled_adapter_in_route(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_DISABLED_ADAPTER_IN_ROUTE)
     return p
 
 
 @pytest.fixture()
 def config_disabled_route_unknown_refs(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_DISABLED_ROUTE_UNKNOWN_REFS)
     return p
 
@@ -174,7 +174,7 @@ class TestRoutesValidate:
     def test_validate_missing_config_file(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
             _run_cli(
-                "routes", "validate", "--config", str(tmp_path / "nonexistent.toml")
+                "routes", "validate", "--config", str(tmp_path / "nonexistent.yaml")
             )
 
     def test_validate_unknown_source_exits_config(

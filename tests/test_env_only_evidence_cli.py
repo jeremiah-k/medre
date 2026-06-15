@@ -12,7 +12,7 @@ scenarios:
 - test_route_creation_requires_source_and_dest (route missing dest)
 - test_route_override_source_dest_overlap_raises (source/dest overlap)
 - test_created_matrix_adapter_kind_fake (ADAPTER_KIND=fake works)
-- test_route_override_route_id_raises  (TOML route_id cannot be changed)
+- test_route_override_route_id_raises  (YAML route_id cannot be changed)
 """
 
 from __future__ import annotations
@@ -107,19 +107,17 @@ async def _seed_env_only(storage: SQLiteStorage) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sample TOML config for env-only fake deployment
+# Sample YAML config for env-only fake deployment
 # ---------------------------------------------------------------------------
 
-CONFIG_ENV_ONLY_TOML = """\
-[runtime]
-name = "test-env-only"
-
-[logging]
-level = "WARNING"
-
-[storage]
-backend = "sqlite"
-path = "{state}/env_only.db"
+CONFIG_ENV_ONLY_YAML = """\
+runtime:
+  name: test-env-only
+logging:
+  level: WARNING
+storage:
+  backend: sqlite
+  path: "{state}/env_only.db"
 """
 
 
@@ -147,11 +145,11 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_env_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Write minimal TOML (no adapters/routes) + set env vars for env-only creation."""
+    """Write minimal YAML (no adapters/routes) + set env vars for env-only creation."""
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_ENV_ONLY_TOML)
+    p = tmp_path / "config.yaml"
+    p.write_text(CONFIG_ENV_ONLY_YAML)
 
     # Matrix adapter (env-only).
     monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__TRANSPORT", "matrix")
@@ -269,12 +267,12 @@ class TestEnvOnlyEvidence:
         route_ids = {r["route_id"] for r in routes}
         assert "radio-to-matrix" in route_ids, f"radio-to-matrix not in {route_ids}"
 
-        # No TOML adapter sections — adapters come purely from env vars.
-        # The TOML file contains only runtime, logging, and storage sections.
-        toml_path = config_env_only
-        toml_text = toml_path.read_text()
-        assert "[adapters" not in toml_text, "TOML should not contain adapter sections"
-        assert "[routes" not in toml_text, "TOML should not contain route sections"
+        # No YAML adapter sections — adapters come purely from env vars.
+        # The YAML file contains only runtime, logging, and storage sections.
+        yaml_path = config_env_only
+        yaml_text = yaml_path.read_text()
+        assert "adapters:" not in yaml_text, "YAML should not contain adapter sections"
+        assert "routes:" not in yaml_text, "YAML should not contain route sections"
 
         # Env overrides should be recorded.
         env_applied = cs["data"].get("env_overrides_applied", [])
@@ -578,7 +576,7 @@ class TestEnvOnlyConfigFailures:
     - test_route_creation_requires_source_and_dest (missing dest_adapters)
     - test_route_override_source_dest_overlap_raises (source/dest overlap)
     - test_created_matrix_adapter_kind_fake (ADAPTER_KIND=fake works)
-    - test_route_override_route_id_raises (TOML route_id cannot change)
+    - test_route_override_route_id_raises (YAML route_id cannot change)
     """
 
     @pytest.mark.asyncio
@@ -592,16 +590,15 @@ class TestEnvOnlyConfigFailures:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         (tmp_path / "state").mkdir(parents=True, exist_ok=True)
 
-        # Minimal TOML — no adapters, no routes.
+        # Minimal YAML — no adapters, no routes.
         config_text = """\
-[runtime]
-name = "test-unknown-adapters"
-
-[storage]
-backend = "sqlite"
-path = "{state}/test.db"
+runtime:
+  name: test-unknown-adapters
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
 """
-        cfg = tmp_path / "config.toml"
+        cfg = tmp_path / "config.yaml"
         cfg.write_text(config_text)
 
         # Route via env referencing adapters that do not exist.
@@ -627,16 +624,15 @@ path = "{state}/test.db"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         (tmp_path / "state").mkdir(parents=True, exist_ok=True)
 
-        # Minimal TOML — no adapters, no routes.
+        # Minimal YAML — no adapters, no routes.
         config_text = """\
-[runtime]
-name = "test-token-route"
-
-[storage]
-backend = "sqlite"
-path = "{state}/test.db"
+runtime:
+  name: test-token-route
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
 """
-        cfg = tmp_path / "config.toml"
+        cfg = tmp_path / "config.yaml"
         cfg.write_text(config_text)
 
         # Create one real adapter via env.

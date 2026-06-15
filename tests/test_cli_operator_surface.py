@@ -156,15 +156,15 @@ def _seed_db_with_suppressed_receipt(
 
 
 def _write_inspect_config(tmp_path: Path, db_path: Path) -> Path:
-    """Write a minimal TOML config pointing storage at db_path."""
-    cfg = tmp_path / "config.toml"
+    """Write a minimal YAML config pointing storage at db_path."""
+    cfg = tmp_path / "config.yaml"
     cfg.write_text(f"""\
-[runtime]
-name = "test-operator-surface"
+runtime:
+  name: test-operator-surface
 
-[storage]
-backend = "sqlite"
-path = {str(db_path)!r}
+storage:
+  backend: sqlite
+  path: "{str(db_path)}"
 """)
     return cfg
 
@@ -376,46 +376,52 @@ class TestF6FailedTargetsDeliveryPlanId:
 # ---------------------------------------------------------------------------
 
 
-_REPLAY_TOML = """\
-[runtime]
-name = "cli-replay-run-id"
+_REPLAY_YAML = """\
+runtime:
+  name: cli-replay-run-id
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = {storage_path!r}
+storage:
+  backend: sqlite
+  path: "{storage_path}"
 
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "fake"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: fake
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: replay-run-id
 
-[adapters.meshtastic.fake_meshtastic]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "replay-run-id"
-
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_meshtastic"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
 """
 
 
 def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
     """Seed a DB via smoke and return (event_id, db_path)."""
     db_path = tmp_path / "replay_runid.db"
-    cfg = tmp_path / "replay.toml"
-    cfg.write_text(_REPLAY_TOML.format(storage_path=str(db_path)))
+    cfg = tmp_path / "replay.yaml"
+    cfg.write_text(_REPLAY_YAML.format(storage_path=str(db_path)))
 
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -435,8 +441,8 @@ def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
 
 
 def _write_replay_config(tmp_path: Path, db_path: Path) -> Path:
-    cfg = tmp_path / "replay.toml"
-    cfg.write_text(_REPLAY_TOML.format(storage_path=str(db_path)))
+    cfg = tmp_path / "replay.yaml"
+    cfg.write_text(_REPLAY_YAML.format(storage_path=str(db_path)))
     return cfg
 
 

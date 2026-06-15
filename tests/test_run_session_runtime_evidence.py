@@ -16,11 +16,11 @@ from pathlib import Path
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
-    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    assert path is not None, "examples/configs/fake-bridge-smoke.yaml not found"
     return path
 
 
@@ -138,7 +138,7 @@ async def test_adapter_lifecycle_empty_on_config_failure(tmp_path: Path) -> None
     from medre.runtime.run_session.orchestration import run_bridge_session
 
     report = await run_bridge_session(
-        config_path=str(tmp_path / "nonexistent.toml"),
+        config_path=str(tmp_path / "nonexistent.yaml"),
         storage_path=str(tmp_path / "noop.db"),
     )
     assert report["status"] == "failed"
@@ -151,7 +151,7 @@ async def test_shutdown_status_none_on_config_failure(tmp_path: Path) -> None:
     from medre.runtime.run_session.orchestration import run_bridge_session
 
     report = await run_bridge_session(
-        config_path=str(tmp_path / "nonexistent.toml"),
+        config_path=str(tmp_path / "nonexistent.yaml"),
         storage_path=str(tmp_path / "noop.db"),
     )
     assert report["status"] == "failed"
@@ -163,7 +163,7 @@ async def test_retry_worker_summary_none_on_config_failure(tmp_path: Path) -> No
     from medre.runtime.run_session.orchestration import run_bridge_session
 
     report = await run_bridge_session(
-        config_path=str(tmp_path / "nonexistent.toml"),
+        config_path=str(tmp_path / "nonexistent.yaml"),
         storage_path=str(tmp_path / "noop.db"),
     )
     assert report["status"] == "failed"

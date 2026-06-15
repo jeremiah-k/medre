@@ -88,7 +88,7 @@ A storage backend conforms when it:
 
 A configuration system conforms when it:
 
-1. Loads TOML configuration via the search order defined in
+1. Loads YAML configuration via the search order defined in
    [configuration.md](configuration.md).
 2. Applies environment variable overrides without mutating the original config.
 3. Validates all adapter configs and rejects duplicates.

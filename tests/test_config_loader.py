@@ -1,4 +1,4 @@
-"""Tests for medre.config.loader: TOML parsing, search order,
+"""Tests for medre.config.loader: YAML parsing, search order,
 config construction, error handling."""
 
 from __future__ import annotations
@@ -20,71 +20,75 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths
 
 # ---------------------------------------------------------------------------
-# Sample TOML content
+# Sample YAML content
 # ---------------------------------------------------------------------------
 
-SAMPLE_TOML = """\
-[runtime]
-name = "test"
-shutdown_timeout_seconds = 30
+SAMPLE_YAML = """\
+runtime:
+  name: test
+  shutdown_timeout_seconds: 30
 
-[logging]
-level = "DEBUG"
+logging:
+  level: DEBUG
 
-[storage]
-backend = "sqlite"
-path = "{state}/test.db"
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
 
-[adapters.matrix.main]
-enabled = true
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "tok"
-room_allowlist = ["!room:test"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: "https://matrix.test"
+      user_id: "@bot:test"
+      access_token: tok
+      room_allowlist:
+        - "!room:test"
+      encryption_mode: plaintext
 """
 
-SAMPLE_MULTI_ADAPTER_TOML = """\
-[runtime]
-name = "multi"
+SAMPLE_MULTI_ADAPTER_YAML = """\
+runtime:
+  name: multi
 
-[logging]
-level = "INFO"
+logging:
+  level: INFO
 
-[storage]
-backend = "sqlite"
-path = "{state}/medre.db"
+storage:
+  backend: sqlite
+  path: "{state}/medre.db"
 
-[adapters.matrix.main]
-enabled = true
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = "secret1"
-encryption_mode = "plaintext"
-
-[adapters.matrix.alt]
-enabled = false
-homeserver = "https://matrix.alt.com"
-user_id = "@alt:alt.com"
-access_token = "secret2"
-device_id = "ALT_DEVICE"
-store_path = "{state}/adapters/alt/matrix/store"
-encryption_mode = "e2ee_required"
-
-[adapters.meshtastic.radio]
-enabled = false
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "TestMesh"
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: "https://matrix.example.com"
+      user_id: "@bot:example.com"
+      access_token: secret1
+      encryption_mode: plaintext
+    alt:
+      enabled: false
+      homeserver: "https://matrix.alt.com"
+      user_id: "@alt:alt.com"
+      access_token: secret2
+      device_id: ALT_DEVICE
+      store_path: "{state}/adapters/alt/matrix/store"
+      encryption_mode: e2ee_required
+  meshtastic:
+    radio:
+      enabled: false
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: TestMesh
 """
 
-INVALID_TOML = """\
-[runtime
-name = "bad"
+INVALID_YAML = """\
+runtime:
+  name: "unterminated
 """
 
-MINIMAL_TOML = """\
-[runtime]
+MINIMAL_YAML = """\
+runtime: {}
 """
 
 
@@ -102,40 +106,40 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_file(tmp_path: Path) -> Path:
-    """Write SAMPLE_TOML to a temp file and return its path."""
-    p = tmp_path / "config.toml"
-    p.write_text(SAMPLE_TOML)
+    """Write SAMPLE_YAML to a temp file and return its path."""
+    p = tmp_path / "config.yaml"
+    p.write_text(SAMPLE_YAML)
     return p
 
 
 @pytest.fixture()
 def multi_config_file(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(SAMPLE_MULTI_ADAPTER_TOML)
+    p = tmp_path / "config.yaml"
+    p.write_text(SAMPLE_MULTI_ADAPTER_YAML)
     return p
 
 
 @pytest.fixture()
 def invalid_config_file(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(INVALID_TOML)
+    p = tmp_path / "config.yaml"
+    p.write_text(INVALID_YAML)
     return p
 
 
 @pytest.fixture()
 def minimal_config_file(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(MINIMAL_TOML)
+    p = tmp_path / "config.yaml"
+    p.write_text(MINIMAL_YAML)
     return p
 
 
 # ---------------------------------------------------------------------------
-# load_config — valid TOML
+# load_config — valid YAML
 # ---------------------------------------------------------------------------
 
 
 class TestLoadValidConfig:
-    """load_config parses valid TOML and returns RuntimeConfig."""
+    """load_config parses valid YAML and returns RuntimeConfig."""
 
     def test_returns_runtime_config(self, config_file: Path) -> None:
         config, source, paths = load_config(str(config_file))
@@ -188,12 +192,12 @@ class TestLoadValidConfig:
 
 
 # ---------------------------------------------------------------------------
-# load_config — minimal TOML (defaults)
+# load_config — minimal YAML (defaults)
 # ---------------------------------------------------------------------------
 
 
 class TestLoadMinimalConfig:
-    """Minimal TOML produces RuntimeConfig with defaults."""
+    """Minimal YAML produces RuntimeConfig with defaults."""
 
     def test_defaults(self, minimal_config_file: Path) -> None:
         config, _, _ = load_config(str(minimal_config_file))
@@ -251,14 +255,14 @@ class TestLoadErrors:
     def test_missing_explicit_path_raises_config_file_error(
         self, tmp_path: Path
     ) -> None:
-        missing = tmp_path / "nonexistent.toml"
+        missing = tmp_path / "nonexistent.yaml"
         with pytest.raises(ConfigFileError, match="not found"):
             load_config(str(missing))
 
-    def test_invalid_toml_raises_config_file_error(
+    def test_invalid_yaml_raises_config_file_error(
         self, invalid_config_file: Path
     ) -> None:
-        with pytest.raises(ConfigFileError, match="Invalid TOML"):
+        with pytest.raises(ConfigFileError, match="unexpected end of stream"):
             load_config(str(invalid_config_file))
 
     def test_missing_config_raises_not_found(
@@ -287,8 +291,8 @@ class TestFindConfig:
     ) -> None:
         """Explicit path takes priority over all other sources."""
         # Set MEDRE_CONFIG to a different file
-        other = tmp_path / "other.toml"
-        other.write_text("[runtime]\n")
+        other = tmp_path / "other.yaml"
+        other.write_text("runtime: {}\n")
         monkeypatch.setenv("MEDRE_CONFIG", str(other))
 
         path, source = find_config(str(config_file))
@@ -298,8 +302,8 @@ class TestFindConfig:
     def test_medre_config_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        cfg = tmp_path / "env_config.toml"
-        cfg.write_text("[runtime]\n")
+        cfg = tmp_path / "env_config.yaml"
+        cfg.write_text("runtime: {}\n")
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg))
 
         path, source = find_config(None)
@@ -311,8 +315,8 @@ class TestFindConfig:
     ) -> None:
         home = tmp_path / "medre_home"
         home.mkdir()
-        cfg = home / "config.toml"
-        cfg.write_text("[runtime]\n")
+        cfg = home / "config.yaml"
+        cfg.write_text("runtime: {}\n")
         monkeypatch.setenv("MEDRE_HOME", str(home))
         monkeypatch.delenv("MEDRE_CONFIG", raising=False)
 
@@ -323,8 +327,8 @@ class TestFindConfig:
     def test_xdg_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         xdg_config = tmp_path / "xdg-config" / "medre"
         xdg_config.mkdir(parents=True)
-        cfg = xdg_config / "config.toml"
-        cfg.write_text("[runtime]\n")
+        cfg = xdg_config / "config.yaml"
+        cfg.write_text("runtime: {}\n")
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
         monkeypatch.delenv("MEDRE_CONFIG", raising=False)
         monkeypatch.delenv("MEDRE_HOME", raising=False)
@@ -336,8 +340,8 @@ class TestFindConfig:
     def test_local_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        cfg = tmp_path / "medre.toml"
-        cfg.write_text("[runtime]\n")
+        cfg = tmp_path / "medre.yaml"
+        cfg.write_text("runtime: {}\n")
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("MEDRE_CONFIG", raising=False)
         monkeypatch.delenv("MEDRE_HOME", raising=False)
@@ -349,16 +353,16 @@ class TestFindConfig:
 
     def test_explicit_nonexistent_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigFileError, match="not found"):
-            find_config(str(tmp_path / "nope.toml"))
+            find_config(str(tmp_path / "nope.yaml"))
 
 
 # ---------------------------------------------------------------------------
-# Path placeholder expansion in TOML
+# Path placeholder expansion in YAML
 # ---------------------------------------------------------------------------
 
 
 class TestPathPlaceholderExpansion:
-    """{state}, {data}, etc. in TOML values are expanded."""
+    """{state}, {data}, etc. in YAML values are expanded."""
 
     def test_storage_path_expanded(self, config_file: Path) -> None:
         config, _, paths = load_config(str(config_file))
@@ -372,13 +376,13 @@ class TestPathPlaceholderExpansion:
         """Placeholders resolve correctly in MEDRE_HOME mode."""
         home = tmp_path / "mh"
         home.mkdir()
-        cfg = home / "config.toml"
-        cfg.write_text("""\
-[runtime]
-[storage]
-backend = "sqlite"
-path = "{state}/mydb.sqlite"
-""")
+        cfg = home / "config.yaml"
+        cfg.write_text(
+            "runtime: {}\n"
+            "storage:\n"
+            "  backend: sqlite\n"
+            '  path: "{state}/mydb.sqlite"\n'
+        )
         monkeypatch.setenv("MEDRE_HOME", str(home))
 
         config, _, paths = load_config(str(cfg))
@@ -411,34 +415,31 @@ class TestSampleConfig:
     """The sample config generated by generate_sample_config() must be
     well-formed and include all required sections."""
 
-    def test_sample_config_is_valid_toml(self) -> None:
-        import tomllib
-
+    def test_sample_config_is_valid_yaml(self) -> None:
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
         text = generate_sample_config()
-        data = tomllib.loads(text)
+        data = parse_yaml_config(text)
         assert isinstance(data, dict)
 
     def test_sample_config_includes_routes_section(self) -> None:
         """The sample config must demonstrate route configuration."""
-        import tomllib
-
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
         text = generate_sample_config()
-        data = tomllib.loads(text)
-        assert "routes" in data, "Sample config must include [routes] section"
+        data = parse_yaml_config(text)
+        assert "routes" in data, "Sample config must include routes section"
 
     def test_sample_config_route_refs_valid_adapter_ids(self) -> None:
         """Route source/dest adapters must reference adapter IDs declared
         in the sample config."""
-        import tomllib
-
+        from medre.config._yaml import parse_yaml_config
         from medre.config.sample import generate_sample_config
 
         text = generate_sample_config()
-        data = tomllib.loads(text)
+        data = parse_yaml_config(text)
 
         # Collect all adapter IDs from the config.
         adapter_ids: set[str] = set()
@@ -471,10 +472,10 @@ class TestSampleConfig:
 # ---------------------------------------------------------------------------
 
 
-def _write_config(tmp_path: Path, toml_content: str) -> Path:
-    """Write TOML content to a temp config file and return its path."""
-    p = tmp_path / "config.toml"
-    p.write_text(toml_content)
+def _write_config(tmp_path: Path, yaml_content: str) -> Path:
+    """Write YAML content to a temp config file and return its path."""
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml_content)
     return p
 
 
@@ -484,31 +485,31 @@ class TestLoggingValidation:
 
     def test_level_int_raises(self, tmp_path: Path) -> None:
         """logging.level = 123 → ConfigValidationError."""
-        p = _write_config(tmp_path, "[runtime]\n[logging]\nlevel = 123\n")
+        p = _write_config(tmp_path, "runtime: {}\nlogging:\n  level: 123\n")
         with pytest.raises(ConfigValidationError, match="level must be a string"):
             load_config(str(p))
 
     def test_level_invalid_string_raises(self, tmp_path: Path) -> None:
         """logging.level = 'NOPE' → ConfigValidationError."""
-        p = _write_config(tmp_path, '[runtime]\n[logging]\nlevel = "NOPE"\n')
+        p = _write_config(tmp_path, "runtime: {}\nlogging:\n  level: NOPE\n")
         with pytest.raises(ConfigValidationError, match="level must be one of"):
             load_config(str(p))
 
     def test_format_invalid_raises(self, tmp_path: Path) -> None:
         """logging.format = 'xml' → ConfigValidationError."""
-        p = _write_config(tmp_path, '[runtime]\n[logging]\nformat = "xml"\n')
+        p = _write_config(tmp_path, "runtime: {}\nlogging:\n  format: xml\n")
         with pytest.raises(ConfigValidationError, match="format must be one of"):
             load_config(str(p))
 
     def test_format_int_raises(self, tmp_path: Path) -> None:
         """logging.format = 42 → ConfigValidationError."""
-        p = _write_config(tmp_path, "[runtime]\n[logging]\nformat = 42\n")
+        p = _write_config(tmp_path, "runtime: {}\nlogging:\n  format: 42\n")
         with pytest.raises(ConfigValidationError, match="format must be a string"):
             load_config(str(p))
 
     def test_overrides_array_raises(self, tmp_path: Path) -> None:
         """logging.overrides = [] → ConfigValidationError (not a table)."""
-        p = _write_config(tmp_path, "[runtime]\n[logging]\noverrides = []\n")
+        p = _write_config(tmp_path, "runtime: {}\nlogging:\n  overrides: []\n")
         with pytest.raises(ConfigValidationError, match="overrides must be a table"):
             load_config(str(p))
 
@@ -516,7 +517,11 @@ class TestLoggingValidation:
         """overrides[''] = 'DEBUG' → ConfigValidationError (blank logger name)."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\n"" = "DEBUG"\n',
+            "runtime: {}\n"
+            "logging:\n"
+            "  level: INFO\n"
+            "  overrides:\n"
+            '    "": DEBUG\n',
         )
         with pytest.raises(ConfigValidationError, match="invalid logger name"):
             load_config(str(p))
@@ -525,7 +530,11 @@ class TestLoggingValidation:
         """overrides.nio = 123 → ConfigValidationError."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\nnio = 123\n',
+            "runtime: {}\n"
+            "logging:\n"
+            "  level: INFO\n"
+            "  overrides:\n"
+            "    nio: 123\n",
         )
         with pytest.raises(ConfigValidationError, match="invalid level"):
             load_config(str(p))
@@ -534,7 +543,11 @@ class TestLoggingValidation:
         """overrides.nio = 'NOPE' → ConfigValidationError."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\nnio = "NOPE"\n',
+            "runtime: {}\n"
+            "logging:\n"
+            "  level: INFO\n"
+            "  overrides:\n"
+            "    nio: NOPE\n",
         )
         with pytest.raises(ConfigValidationError, match="invalid level"):
             load_config(str(p))
@@ -543,21 +556,24 @@ class TestLoggingValidation:
         """'nio.crypto.log' = 'ERROR' loads correctly."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\n'
-            '[logging.overrides]\n"nio.crypto.log" = "ERROR"\n',
+            "runtime: {}\n"
+            "logging:\n"
+            "  level: INFO\n"
+            "  overrides:\n"
+            '    "nio.crypto.log": ERROR\n',
         )
         config, _, _ = load_config(str(p))
         assert config.logging.overrides["nio.crypto.log"] == "ERROR"
 
 
 class TestLoggingCanonicalisation:
-    """Logging level/format/overrides are normalised regardless of TOML casing."""
+    """Logging level/format/overrides are normalised regardless of YAML casing."""
 
     def test_lowercase_level_stored_uppercase(self, tmp_path: Path) -> None:
         """logging.level = 'debug' → stored as 'DEBUG'."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "debug"\n',
+            "runtime: {}\nlogging:\n  level: debug\n",
         )
         config, _, _ = load_config(str(p))
         assert config.logging.level == "DEBUG"
@@ -566,7 +582,7 @@ class TestLoggingCanonicalisation:
         """logging.format = 'JSON' → stored as 'json'."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\nformat = "JSON"\n',
+            "runtime: {}\nlogging:\n  level: INFO\n  format: JSON\n",
         )
         config, _, _ = load_config(str(p))
         assert config.logging.format == "json"
@@ -575,8 +591,40 @@ class TestLoggingCanonicalisation:
         """logging.overrides.nio = 'debug' → stored as 'DEBUG'."""
         p = _write_config(
             tmp_path,
-            '[runtime]\n[logging]\nlevel = "INFO"\n'
-            '[logging.overrides]\nnio = "debug"\n',
+            "runtime: {}\n"
+            "logging:\n"
+            "  level: INFO\n"
+            "  overrides:\n"
+            "    nio: debug\n",
         )
         config, _, _ = load_config(str(p))
         assert config.logging.overrides["nio"] == "DEBUG"
+
+
+class TestLoadConfigFileReadErrors:
+    """load_config wraps file-read failures as ConfigFileError."""
+
+    def test_load_config_wraps_oserror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError reading the resolved config file is wrapped as
+        ConfigFileError, not leaked raw."""
+        cfg = tmp_path / "unreadable.yaml"
+        cfg.write_text("runtime:\n  name: x\n")
+
+        def _boom(self: Path, *args: object, **kwargs: object) -> str:
+            raise OSError("permission denied (simulated)")
+
+        # find_config only checks is_file(); the first (and only) read_text
+        # call is the one in load_config we want to fail.
+        monkeypatch.setattr("pathlib.Path.read_text", _boom)
+        with pytest.raises(ConfigFileError, match="Cannot read config file"):
+            load_config(str(cfg))
+
+    def test_load_config_wraps_unicode_decode_error(self, tmp_path: Path) -> None:
+        """A config file that is not valid UTF-8 is wrapped as ConfigFileError."""
+        cfg = tmp_path / "bad-utf8.yaml"
+        # \xff / \xfe are invalid as a UTF-8 start sequence.
+        cfg.write_bytes(b"\xff\xfe\xfd\xfc not valid utf8")
+        with pytest.raises(ConfigFileError, match="not valid UTF-8"):
+            load_config(str(cfg))

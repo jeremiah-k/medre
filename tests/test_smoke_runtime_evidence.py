@@ -33,11 +33,11 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
-    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    assert path is not None, "examples/configs/fake-bridge-smoke.yaml not found"
     return path
 
 
@@ -70,7 +70,7 @@ async def test_adapter_lifecycle_contains_expected_adapters() -> None:
     report = await run_fake_bridge_smoke(_smoke_config_path())
     assert report["status"] == "passed"
     lifecycle = report["adapter_lifecycle"]
-    # The shipped fake-bridge-smoke.toml has at least fake_matrix.
+    # The shipped fake-bridge-smoke.yaml has at least fake_matrix.
     assert (
         "fake_matrix" in lifecycle
     ), f"Expected fake_matrix in {list(lifecycle.keys())}"

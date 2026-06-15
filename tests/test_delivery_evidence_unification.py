@@ -174,41 +174,43 @@ def _mock_send_response(event_id: str = "$sent-unif-001") -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Sample TOML config & fixture (moved from test_evidence_cli.py)
+# Sample YAML config & fixture (moved from test_evidence_cli.py)
 # ---------------------------------------------------------------------------
 
 CONFIG_FAKE_ADAPTERS = """\
-[runtime]
-name = "test-evidence"
-
-[logging]
-level = "INFO"
-
-[storage]
-backend = "sqlite"
-path = "{state}/test_evidence.db"
-
-[adapters.matrix.main]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "syt_super_secret_token_12345"
-room_allowlist = ["!room:test"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.radio]
-enabled = true
-adapter_kind = "fake"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "TestMesh"
-
-[routes.bridge]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: test-evidence
+logging:
+  level: INFO
+storage:
+  backend: sqlite
+  path: "{state}/test_evidence.db"
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.test
+      user_id: "@bot:test"
+      access_token: syt_super_secret_token_12345
+      room_allowlist:
+        - "!room:test"
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: TestMesh
+routes:
+  bridge:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: source_to_dest
+    enabled: true
 """
 
 
@@ -217,7 +219,7 @@ def config_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Write fake-adapter config to temp file with MEDRE_HOME isolation."""
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_FAKE_ADAPTERS)
     return p
 

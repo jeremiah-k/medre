@@ -1897,7 +1897,7 @@ async def run_drill(
     drill_name:
         The drill identifier.  Must be one of :data:`AVAILABLE_DRILLS`.
     config_path:
-        Path to TOML config file.
+        Path to YAML config file.
     storage_path:
         Optional SQLite path for persisting drill evidence.
 

@@ -34,53 +34,57 @@
 #      export MESHTASTIC_HOST=localhost
 #
 #   3. Run the config:
-#      PYTHONPATH=src medre run --config examples/configs/docker-meshtastic-bridge.toml
+#      PYTHONPATH=src medre run --config examples/configs/docker-meshtastic-bridge.yaml
 #
 # NOT for production. NOT a substitute for live radio validation.
 #
 # See also:
-#   docs/runbooks/fake-bridge-evidence-criteria.md (Meshtastic evidence breakdown)
+#   docs/ops/diagnostics-and-evidence.md (Meshtastic evidence breakdown)
 #   tests/integration/test_meshtasticd_sdk_bridge.py (Docker SDK-boundary tests)
 #   tests/integration/conftest.py (MeshtasticdEnvironment fixture)
 
-[runtime]
-name = "docker-meshtastic-bridge"
-shutdown_timeout_seconds = 10
+runtime:
+  name: docker-meshtastic-bridge
+  shutdown_timeout_seconds: 10
 
-[storage]
-backend = "memory"
+storage:
+  backend: memory
 
-[logging]
-level = "INFO"
-format = "text"
+logging:
+  level: INFO
+  format: text
 
-# ---------------------------------------------------------------------------
-# Real Meshtastic adapter — points at Docker meshtasticd
-# ---------------------------------------------------------------------------
-# Connection uses TCP to the containerized meshtasticd daemon.
-# MESHTASTIC_HOST defaults to "localhost"; override for remote Docker hosts.
-[adapters.meshtastic.daemon]
-enabled = true
-adapter_kind = "real"
-connection_type = "tcp"
-host = "${MESHTASTIC_HOST}"
-port = 4403
-origin_label = "TestMesh"
+adapters:
+  # ---------------------------------------------------------------------------
+  # Real Meshtastic adapter — points at Docker meshtasticd
+  # ---------------------------------------------------------------------------
+  # Connection uses TCP to the containerized meshtasticd daemon.
+  # MESHTASTIC_HOST defaults to "localhost"; override for remote Docker hosts.
+  meshtastic:
+    daemon:
+      enabled: true
+      adapter_kind: real
+      connection_type: tcp
+      host: "${MESHTASTIC_HOST}"
+      port: 4403
+      origin_label: TestMesh
 
-# ---------------------------------------------------------------------------
-# Fake Matrix adapter — no SDK, no homeserver, no network
-# ---------------------------------------------------------------------------
-# Accepts the same config shape as a real Matrix adapter but ignores all
-# network operations. Delivered payloads are captured in memory for
-# inspection via diagnostics().
-[adapters.matrix.fake_out]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_fake"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+  # ---------------------------------------------------------------------------
+  # Fake Matrix adapter — no SDK, no homeserver, no network
+  # ---------------------------------------------------------------------------
+  # Accepts the same config shape as a real Matrix adapter but ignores all
+  # network operations. Delivered payloads are captured in memory for
+  # inspection via diagnostics().
+  matrix:
+    fake_out:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: tok_fake
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
 
 # ---------------------------------------------------------------------------
 # Routes — meshtasticd inbound → fake Matrix outbound
@@ -89,9 +93,12 @@ encryption_mode = "plaintext"
 # Matrix adapter. In tests, inbound packets are injected via
 # simulate_inbound() because meshtasticd simulation mode may not relay
 # between TCP clients.
-[routes.daemon_to_matrix]
-source_adapters = ["daemon"]
-dest_adapters = ["fake_out"]
-directionality = "source_to_dest"
-enabled = true
-dest_channel = "0"
+routes:
+  daemon_to_matrix:
+    source_adapters:
+      - daemon
+    dest_adapters:
+      - fake_out
+    directionality: source_to_dest
+    enabled: true
+    dest_channel: "0"

@@ -27,87 +27,90 @@ from medre.cli import main
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
 # ---------------------------------------------------------------------------
-# Sample TOML configs
+# Sample YAML configs
 # ---------------------------------------------------------------------------
 
 CONFIG_FAKE_ADAPTERS = """\
-[runtime]
-name = "test-evidence"
-
-[logging]
-level = "INFO"
-
-[storage]
-backend = "sqlite"
-path = "{state}/test_evidence.db"
-
-[adapters.matrix.main]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "syt_super_secret_token_12345"
-room_allowlist = ["!room:test"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.radio]
-enabled = true
-adapter_kind = "fake"
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
-origin_label = "TestMesh"
-
-[routes.bridge]
-source_adapters = ["main"]
-dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: test-evidence
+logging:
+  level: INFO
+storage:
+  backend: sqlite
+  path: "{state}/test_evidence.db"
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.test
+      user_id: "@bot:test"
+      access_token: syt_super_secret_token_12345
+      room_allowlist:
+        - "!room:test"
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: TestMesh
+routes:
+  bridge:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: source_to_dest
+    enabled: true
 """
 
 CONFIG_MEMORY_STORAGE = """\
-[runtime]
-name = "test-evidence-memory"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.main]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "tok_secret_abc"
-encryption_mode = "plaintext"
+runtime:
+  name: test-evidence-memory
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.test
+      user_id: "@bot:test"
+      access_token: tok_secret_abc
+      encryption_mode: plaintext
 """
 
 CONFIG_ROUTE_ERRORS = """\
-[runtime]
-name = "test-evidence-route-errors"
-
-[storage]
-backend = "sqlite"
-path = "{state}/test.db"
-
-[adapters.matrix.main]
-enabled = true
-homeserver = "https://matrix.test"
-user_id = "@bot:test"
-access_token = "tok"
-encryption_mode = "plaintext"
-
-[routes.broken]
-source_adapters = ["nonexistent"]
-dest_adapters = ["also_missing"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: test-evidence-route-errors
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: https://matrix.test
+      user_id: "@bot:test"
+      access_token: tok
+      encryption_mode: plaintext
+routes:
+  broken:
+    source_adapters:
+      - nonexistent
+    dest_adapters:
+      - also_missing
+    directionality: source_to_dest
+    enabled: true
 """
 
 CONFIG_NO_ADAPTERS = """\
-[runtime]
-name = "test-evidence-no-adapters"
-
-[storage]
-backend = "memory"
+runtime:
+  name: test-evidence-no-adapters
+storage:
+  backend: memory
 """
 
 
@@ -139,7 +142,7 @@ def config_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Write fake-adapter config to temp file with MEDRE_HOME isolation."""
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_FAKE_ADAPTERS)
     return p
 
@@ -148,7 +151,7 @@ def config_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def config_memory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Write memory-storage config to temp file."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_MEMORY_STORAGE)
     return p
 
@@ -158,7 +161,7 @@ def config_route_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     """Write config with route errors to temp file."""
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_ROUTE_ERRORS)
     return p
 
@@ -167,7 +170,7 @@ def config_route_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 def config_no_adapters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Write config with no adapters to temp file."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_NO_ADAPTERS)
     return p
 
@@ -347,7 +350,7 @@ class TestEvidenceBundleCore:
     @pytest.mark.asyncio
     async def test_config_error_status(self) -> None:
         """Invalid config path produces error status."""
-        report = await collect_evidence_bundle("/nonexistent/config.toml")
+        report = await collect_evidence_bundle("/nonexistent/config.yaml")
         assert report["status"] == "error"
         assert len(report["errors"]) > 0
         assert report["sections"] == {}
@@ -578,7 +581,7 @@ class TestEvidenceOverallStatus:
     @pytest.mark.asyncio
     async def test_error_when_config_missing(self) -> None:
         """Error when config file does not exist."""
-        report = await collect_evidence_bundle("/nonexistent/path.toml")
+        report = await collect_evidence_bundle("/nonexistent/path.yaml")
         assert report["status"] == "error"
 
 

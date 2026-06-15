@@ -39,50 +39,52 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _smoke_config_path() -> str:
-    """Return path to the shipped fake-bridge-smoke.toml."""
+    """Return path to the shipped fake-bridge-smoke.yaml."""
     from medre.runtime.smoke import _default_smoke_config_path
 
     path = _default_smoke_config_path()
-    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    assert path is not None, "examples/configs/fake-bridge-smoke.yaml not found"
     return path
 
 
 def _write_sqlite_smoke_config(tmp_path: Path, db_path: str) -> str:
-    """Write a TOML config with SQLite storage at *db_path* for smoke CLI tests."""
-    cfg = tmp_path / "smoke_sqlite.toml"
+    """Write a YAML config with SQLite storage at *db_path* for smoke CLI tests."""
+    cfg = tmp_path / "smoke_sqlite.yaml"
     cfg.write_text(f"""\
-[runtime]
-name = "fake-bridge-smoke-persist"
-shutdown_timeout_seconds = 10
-
-[logging]
-level = "WARNING"
-format = "text"
-
-[storage]
-backend = "sqlite"
-path = {db_path!r}
-
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bridge-bot:fake.local"
-access_token = "fake_token_bridge_smoke"
-room_allowlist = ["!bridge-room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.fake_meshtastic]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "smoke-radio"
-
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_meshtastic"]
-directionality = "source_to_dest"
-enabled = true
+runtime:
+  name: fake-bridge-smoke-persist
+  shutdown_timeout_seconds: 10
+logging:
+  level: WARNING
+  format: text
+storage:
+  backend: sqlite
+  path: {db_path!r}
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bridge-bot:fake.local"
+      access_token: fake_token_bridge_smoke
+      room_allowlist:
+        - "!bridge-room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: smoke-radio
+routes:
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
 """)
     return str(cfg)
 
@@ -1081,19 +1083,19 @@ _REJECTION_DRILLS = (
 
 
 def _crosscheck_config_text(db_path: str) -> str:
-    """Return a minimal TOML config pointing at *db_path*."""
+    """Return a minimal YAML config pointing at *db_path*."""
     return (
-        "[runtime]\n"
-        'name = "drill-crosscheck"\n'
+        "runtime:\n"
+        "  name: drill-crosscheck\n"
         "\n"
-        "[storage]\n"
-        f'path = "{db_path}"\n'
+        "storage:\n"
+        f"  path: '{db_path}'\n"
     )
 
 
 def _write_crosscheck_config(tmp_path: Path, db_path: str) -> str:
     """Write a config file pointing at *db_path* and return its string path."""
-    cfg = tmp_path / "crosscheck.toml"
+    cfg = tmp_path / "crosscheck.yaml"
     cfg.write_text(_crosscheck_config_text(db_path))
     return str(cfg)
 

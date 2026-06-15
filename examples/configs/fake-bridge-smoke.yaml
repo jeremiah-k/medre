@@ -1,0 +1,115 @@
+# MEDRE Example: Fake Bridge Smoke Config
+#
+# Comprehensive fake-adapter bridge config for proving cross-adapter
+# event routing without live transports, SDKs, or hardware.
+#
+# Use this for:
+#   - Validating bridge behavior in CI
+#   - Local development of routing/rendering logic
+#   - Smoke-testing the runtime pipeline end-to-end
+#
+# All adapters use adapter_kind: fake — no network required.
+
+runtime:
+  name: fake-bridge-smoke
+  shutdown_timeout_seconds: 10
+
+logging:
+  level: DEBUG
+  format: text
+
+storage:
+  backend: memory
+
+# --- Matrix (fake) ---
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bridge-bot:fake.local"
+      access_token: fake_token_bridge_smoke
+      room_allowlist:
+        - "!bridge-room:fake.local"
+      encryption_mode: plaintext
+
+  # --- Meshtastic (fake) ---
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: smoke-radio
+
+  # --- MeshCore (fake) ---
+  meshcore:
+    fake_meshcore:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+routes:
+  # 1. Matrix -> Meshtastic (unidirectional)
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
+
+  # 2. Meshtastic -> Matrix (unidirectional)
+  mesh_to_mx:
+    source_adapters:
+      - fake_meshtastic
+    dest_adapters:
+      - fake_matrix
+    directionality: source_to_dest
+    enabled: true
+
+  # 3. Matrix <-> Meshtastic bidirectional
+  mx_mesh_bidir:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: bidirectional
+    enabled: true
+    # source_origin_label: Matrix Side   # route-level label for forward leg
+    # dest_origin_label: Mesh Side       # route-level label for reverse leg
+
+  # 4. Fanout: Matrix -> Meshtastic + MeshCore
+  mx_fanout:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+      - fake_meshcore
+    directionality: source_to_dest
+    enabled: true
+
+  # 5. Filtered bridge: only message.text events
+  mx_filtered:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
+    policy:
+      allowed_event_types:
+        - message.text
+
+  # 6. Disabled route (skipped during registration)
+  disabled_example:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshcore
+    directionality: source_to_dest
+    enabled: false

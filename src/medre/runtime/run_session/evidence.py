@@ -71,7 +71,7 @@ def _make_session_event(
 def _pick_source_adapter(app: MedreApp) -> tuple[str, Any]:
     """Select a deterministic source adapter for session injection.
 
-    Prefers a Matrix-platform adapter since fake-bridge-smoke.toml routes
+    Prefers a Matrix-platform adapter since     fake-bridge-smoke.yaml routes
     originate from ``fake_matrix``.
     """
     for aid in sorted(app.adapters.keys()):

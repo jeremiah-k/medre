@@ -1,0 +1,63 @@
+# MEDRE Example: Mixed Matrix + Meshtastic Bridge
+#
+# Production-style config bridging a Matrix room to a Meshtastic radio node.
+# Messages received on one transport are forwarded to the other.
+#
+# Adapter "main"  — Matrix (plaintext, real homeserver)
+# Adapter "radio" — Meshtastic (USB-serial radio)
+#
+# NOTE: For live Matrix ↔ Meshtastic bring-up, prefer live-matrix-meshtastic.yaml
+# which uses clearer adapter IDs ("matrix"/"radio") and separate unidirectional routes.
+# This config is a historical reference, superseded by live-matrix-meshtastic.yaml.
+
+runtime:
+  name: matrix-mesh-bridge
+  shutdown_timeout_seconds: 30
+
+logging:
+  level: INFO
+  format: json
+
+storage:
+  backend: sqlite
+  path: "{state}/medre.sqlite"
+
+adapters:
+  # --- Matrix transport ---
+  matrix:
+    main:
+      enabled: true
+      homeserver: https://matrix.example.com
+      user_id: "@mesh-bridge:example.com"
+      access_token: ""
+      room_allowlist:
+        - "!bridge-room:example.com"
+      encryption_mode: plaintext
+
+  # --- Meshtastic transport ---
+  meshtastic:
+    radio:
+      enabled: true
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: bridge-radio
+
+# ---------------------------------------------------------------------------
+# Routes — bridge Matrix room to Meshtastic radio channel
+# ---------------------------------------------------------------------------
+# Routes reference adapter_id values (defaulting to the instance name).
+# Here: "main" (Matrix) and "radio" (Meshtastic).
+
+routes:
+  matrix_radio_bridge:
+    source_adapters:
+      - main
+    dest_adapters:
+      - radio
+    directionality: bidirectional
+    enabled: true
+    source_room: "!bridge-room:example.com"
+    dest_channel: "1"
+    policy:
+      allowed_event_types:
+        - message

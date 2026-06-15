@@ -48,7 +48,7 @@ class TestXDGDefaults:
     def test_config_file_inside_config_dir(self) -> None:
         paths = resolve()
         assert paths.config_dir is not None
-        assert paths.config_file == paths.config_dir / "config.toml"
+        assert paths.config_file == paths.config_dir / "config.yaml"
 
     def test_state_dir_under_xdg_state(self) -> None:
         paths = resolve()
@@ -128,7 +128,7 @@ class TestMedreHomeMode:
         paths = resolve()
 
         assert paths.config_dir is None
-        assert paths.config_file == Path("/opt/medre/config.toml")
+        assert paths.config_file == Path("/opt/medre/config.yaml")
         assert paths.state_dir == Path("/opt/medre/state")
         assert paths.data_dir == Path("/opt/medre/data")
         assert paths.cache_dir == Path("/opt/medre/cache")
@@ -383,7 +383,7 @@ class TestToDiagnostics:
 
         # config_dir shows "(none)" in MEDRE_HOME mode
         assert diag["config_dir"] == "(none)"
-        assert "config.toml" in diag["config_file"]
+        assert "config.yaml" in diag["config_file"]
 
 
 # ---------------------------------------------------------------------------

@@ -542,12 +542,11 @@ class TestTimelineToJson:
 
 
 CONFIG_TRACE_SQLITE = """\
-[runtime]
-name = "test-trace"
-
-[storage]
-backend = "sqlite"
-path = "{state}/trace.db"
+runtime:
+  name: test-trace
+storage:
+  backend: sqlite
+  path: "{state}/trace.db"
 """
 
 
@@ -642,7 +641,7 @@ def config_trace_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "trace.db")
     _seed_trace_db(db_path)
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_TRACE_SQLITE)
     return p
 
@@ -654,7 +653,7 @@ def config_trace_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "trace.db")
     _seed_trace_db(db_path, event_id="evt-replay-trace", replay_run_id="run-trace-42")
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_TRACE_SQLITE)
     return p
 
@@ -671,7 +670,7 @@ def config_trace_channel_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         target_channel="!room:channel-a",
         route_id="route-42",
     )
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_TRACE_SQLITE)
     return p
 
@@ -695,7 +694,7 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         await storage.close()
 
     asyncio.run(_init())
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_TRACE_SQLITE)
     return p
 

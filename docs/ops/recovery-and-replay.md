@@ -17,7 +17,7 @@ Recovery operates within strict boundaries set by storage ownership:
 
 ```bash
 # 1. Verify pipeline health (use a config with storage.backend = "sqlite")
-medre smoke --config /tmp/medre-incident.toml --json
+medre smoke --config /tmp/medre-incident.yaml --json
 
 # 2. Inspect the suspect event
 medre inspect event <event_id> --storage-path /tmp/medre-incident.db
@@ -29,10 +29,10 @@ medre inspect receipts --event <event_id> --storage-path /tmp/medre-incident.db
 medre inspect event <event_id> --timeline --evidence --recovery --storage-path /tmp/medre-incident.db
 
 # 5. Preview replay (no side effects)
-medre replay --mode dry_run --config my-bridge.toml
+medre replay --mode dry_run --config my-bridge.yaml
 
 # 6. Re-deliver orphaned events (sends real messages)
-medre replay --mode best_effort --config my-bridge.toml
+medre replay --mode best_effort --config my-bridge.yaml
 ```
 
 ## Recovery Decision Tree
@@ -90,7 +90,7 @@ sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
 # Expected output: "ok"
 
 # 3. Restart the runtime
-medre run --config config.toml
+medre run --config config.yaml
 
 # 4. Verify startup — all adapters should report started
 grep "Assembly complete" {state}/logs/medre.log | tail -1
@@ -99,7 +99,7 @@ grep "Assembly complete" {state}/logs/medre.log | tail -1
 grep "adapter_failed" {state}/logs/medre.log | tail -5
 
 # 6. Verify live health
-medre diagnostics --refresh-health --config config.toml
+medre diagnostics --refresh-health --config config.yaml
 ```
 
 ### Assess Orphaned Events After Crash
@@ -129,7 +129,7 @@ If the runtime was shut down cleanly (SIGTERM, SIGINT):
 
 ```bash
 # Restart
-medre run --config config.toml
+medre run --config config.yaml
 
 # Verify startup
 grep "Assembly complete" {state}/logs/medre.log | tail -1
@@ -150,7 +150,7 @@ grep "Assembly complete" {state}/logs/medre.log | tail -1
 
 ```bash
 # Check adapter health
-medre diagnostics --refresh-health --config config.toml
+medre diagnostics --refresh-health --config config.yaml
 
 # Check logs for the specific adapter
 grep "ERROR.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -20
@@ -192,7 +192,7 @@ If `failure_kind='adapter_transient'` and `next_retry_at` is set, the RetryWorke
 # 2. Fix the underlying cause
 
 # 3. Restart the runtime (no per-adapter restart exists)
-medre run --config config.toml
+medre run --config config.yaml
 
 # 4. Verify the adapter started successfully
 grep "adapter_started.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -1
@@ -261,7 +261,7 @@ Not all events without receipts are truly orphaned:
 # 1. Count and review orphans (see SQL above)
 
 # 2. Preview replay with dry_run
-medre replay --mode dry_run --config my-bridge.toml
+medre replay --mode dry_run --config my-bridge.yaml
 
 # 3. Review route attributions in dry_run output
 
@@ -276,7 +276,7 @@ sqlite3 {state}/medre.sqlite "
 "
 
 # 5. Execute replay
-medre replay --mode best_effort --config my-bridge.toml
+medre replay --mode best_effort --config my-bridge.yaml
 
 # 6. Verify replay results
 medre inspect receipts --replay-run <replay_run_id> --storage-path /path/to/medre.sqlite
@@ -311,11 +311,11 @@ mv {state}/medre.sqlite {state}/medre.sqlite.corrupted
 mv {state}/medre-recovered.sqlite {state}/medre.sqlite
 
 # 6. Restart the runtime
-medre run --config config.toml
+medre run --config config.yaml
 
 # 7. If recovery failed, accept data loss
 rm {state}/medre.sqlite
-medre run --config config.toml
+medre run --config config.yaml
 # All event history is lost. Crypto stores and identity files are unaffected.
 ```
 
@@ -367,14 +367,14 @@ Replay re-evaluates capabilities against the current adapter registry, not the a
 ## Replay Command Shape
 
 ```bash
-medre replay --mode <mode> [--event <event_id>] --config my-bridge.toml
+medre replay --mode <mode> [--event <event_id>] --config my-bridge.yaml
 ```
 
 | Flag       | Required | Description                                                             |
 | ---------- | -------- | ----------------------------------------------------------------------- |
 | `--mode`   | Yes      | One of: `strict`, `re_render`, `re_route`, `dry_run`, `best_effort`     |
 | `--event`  | No       | Specific event ID to replay. If omitted, replays all events in storage. |
-| `--config` | Yes      | Path to TOML config (must use SQLite storage)                           |
+| `--config` | Yes      | Path to YAML config (must use SQLite storage)                           |
 
 Replay requires `--config` for route resolution and pipeline construction.
 `--storage-path` is not supported for replay — it is reserved for read-only
@@ -732,8 +732,8 @@ receipt rows:
 | Scenario                  | Command                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                                                                          |
-| Restart runtime           | `medre run --config config.toml`                                                                                                  |
-| Check adapter health      | `medre diagnostics --refresh-health --config config.toml`                                                                         |
+| Restart runtime           | `medre run --config config.yaml`                                                                                                  |
+| Check adapter health      | `medre diagnostics --refresh-health --config config.yaml`                                                                         |
 | Inspect an event          | `medre inspect event <event_id> --storage-path <db>`                                                                              |
 | Inspect with timeline     | `medre inspect event <event_id> --timeline --storage-path <db>`                                                                   |
 | Inspect with evidence     | `medre inspect event <event_id> --evidence --storage-path <db>`                                                                   |
@@ -741,8 +741,8 @@ receipt rows:
 | Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   |
 | Inspect replay receipts   | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                |
 | Count orphaned events     | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
-| Preview replay            | `medre replay --mode dry_run --config my-bridge.toml`                                                                             |
-| Execute replay            | `medre replay --mode best_effort --config my-bridge.toml`                                                                         |
+| Preview replay            | `medre replay --mode dry_run --config my-bridge.yaml`                                                                             |
+| Execute replay            | `medre replay --mode best_effort --config my-bridge.yaml`                                                                         |
 | Check recent errors       | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
 | Verify startup            | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
 

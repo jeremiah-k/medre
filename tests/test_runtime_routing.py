@@ -962,7 +962,7 @@ class TestBidirectionalTargetingExpansion:
     """A bidirectional route with source_room/dest_channel targeting fields
     expands into two runtime routes with correct source/target channels.
 
-    This mirrors the canonical live-matrix-meshtastic.toml pattern:
+    This mirrors the canonical live-matrix-meshtastic.yaml pattern:
     source_adapters=["matrix"], dest_adapters=["radio"],
     source_room="!room:example.com", dest_channel="0".
 

@@ -1197,13 +1197,20 @@ def _build_route_toml_data_from_env_fields(
         }
         # Preserve complex fields that cannot be set via single env vars.
         # These would be silently dropped if not carried through the TOML
-        # round-trip inside from_toml_dict.
+        # round-trip inside from_toml_dict.  This includes the direction-aware
+        # origin labels (source_origin_label / dest_origin_label), which are
+        # not in the env-settable field list and must survive the override
+        # round-trip so existing relay-prefix attribution is not dropped.
         if existing.channel_room_map is not None:
             toml_data["channel_room_map"] = existing.channel_room_map
         if existing.policy is not None:
             toml_data["policy"] = dataclasses.asdict(existing.policy)
         if existing.retry is not None:
             toml_data["retry"] = dataclasses.asdict(existing.retry)
+        if existing.source_origin_label is not None:
+            toml_data["source_origin_label"] = existing.source_origin_label
+        if existing.dest_origin_label is not None:
+            toml_data["dest_origin_label"] = existing.dest_origin_label
     else:
         toml_data = {}
 

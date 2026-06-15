@@ -147,20 +147,20 @@ medre adapters
 
 ## Generate and Validate a Config
 
-`medre config sample` generates a complete TOML config using fake adapters. It works out of the box without any optional SDKs or network access.
+`medre config sample` generates a complete YAML config using fake adapters. It works out of the box without any optional SDKs or network access.
 
 ```bash
 # Print the sample config
 medre config sample
 
 # Save and validate
-medre config sample > /tmp/medre-alpha.toml
-medre config check --config /tmp/medre-alpha.toml
+medre config sample > /tmp/medre-alpha.yaml
+medre config check --config /tmp/medre-alpha.yaml
 # Expected: "Config valid", 2 enabled fake adapters,
 # route inventory showing matrix_radio_bridge as active.
 ```
 
-The sample config uses `adapter_kind = "fake"` for all adapters. To switch to real adapters, change `adapter_kind` to `"real"` and fill in transport-specific credentials.
+The sample config uses `adapter_kind: fake` for all adapters. To switch to real adapters, change `adapter_kind` to `real` and fill in transport-specific credentials.
 
 For live Matrix setups, use the auth CLI:
 
@@ -174,9 +174,9 @@ This performs an interactive login and saves credentials to the Matrix sidecar J
 
 Config file locations:
 
-- Default: `~/.config/medre/config.toml` (XDG)
+- Default: `~/.config/medre/config.yaml` (XDG)
 - Override: set `MEDRE_HOME` environment variable
-- Explicit: pass `--config /path/to/config.toml` to any command
+- Explicit: pass `--config /path/to/config.yaml` to any command
 
 ## Run a Smoke Test
 
@@ -185,23 +185,23 @@ Config file locations:
 **Source checkout (has `examples/` directory):**
 
 ```bash
-medre smoke --config examples/configs/fake-bridge-smoke.toml --json
+medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
 # Expected: JSON with "status": "passed", event_id, delivery receipts.
-# For persistent evidence, edit the config to set storage.backend = "sqlite"
+# For persistent evidence, edit the config to set storage.backend: sqlite
 # with a storage.path, then re-run.
 ```
 
 **Installed package (use generated config):**
 
 ```bash
-medre config sample > /tmp/medre-alpha.toml
-medre smoke --config /tmp/medre-alpha.toml --json
+medre config sample > /tmp/medre-alpha.yaml
+medre smoke --config /tmp/medre-alpha.yaml --json
 # Expected: same as above.
 ```
 
-Storage backend is determined by the config file. The default shipped config uses `storage.backend = "memory"` (ephemeral). For persistent evidence, set `storage.backend = "sqlite"` with a `path` in the config.
+Storage backend is determined by the config file. The default shipped config uses `storage.backend: memory` (ephemeral). For persistent evidence, set `storage.backend: sqlite` with a `path` in the config.
 
-Without `--config`, `medre smoke` looks for `examples/configs/fake-bridge-smoke.toml` relative to the source tree — works in development checkouts only.
+Without `--config`, `medre smoke` looks for `examples/configs/fake-bridge-smoke.yaml` relative to the source tree — works in development checkouts only.
 
 ## Inspect Results
 
@@ -219,28 +219,28 @@ See [operator-workflows.md](operator-workflows.md) for the full investigation wo
 The `examples/configs/` directory exists only in the source repository. If you installed from a wheel, skip this — use `medre config sample` instead.
 
 ```bash
-medre config check --config examples/configs/fake-multi-adapter.toml
-medre config check --config examples/configs/fake-bridge-smoke.toml
-medre config check --config examples/configs/fake-retry-smoke.toml
+medre config check --config examples/configs/fake-multi-adapter.yaml
+medre config check --config examples/configs/fake-bridge-smoke.yaml
+medre config check --config examples/configs/fake-retry-smoke.yaml
 
 # Real adapter configs (will show credential errors without env vars)
-medre config check --config examples/configs/matrix.toml
-medre config check --config examples/configs/meshtastic-serial.toml
+medre config check --config examples/configs/matrix.yaml
+medre config check --config examples/configs/meshtastic-serial.yaml
 ```
 
 Available example configs:
 
 | Config                          | Purpose                            | Requires SDKs?   |
 | ------------------------------- | ---------------------------------- | ---------------- |
-| `fake-multi-adapter.toml`       | All four fake adapters with routes | No               |
-| `fake-bridge-smoke.toml`        | Cross-adapter bridge patterns      | No               |
-| `fake-retry-smoke.toml`         | Retry worker with fake adapters    | No               |
-| `matrix.toml`                   | Real Matrix adapter                | Yes (matrix)     |
-| `meshtastic-serial.toml`        | Real Meshtastic serial adapter     | Yes (meshtastic) |
-| `mixed-matrix-meshtastic.toml`  | Mixed real Matrix + Meshtastic     | Yes (both)       |
-| `docker-matrix-bridge.toml`     | Docker Synapse + Meshtastic        | Yes + Docker     |
-| `docker-meshtastic-bridge.toml` | Docker meshtasticd + Matrix        | Yes + Docker     |
-| `docker-bridge-smoke.toml`      | Docker integration smoke test      | Yes + Docker     |
+| `fake-multi-adapter.yaml`       | All four fake adapters with routes | No               |
+| `fake-bridge-smoke.yaml`        | Cross-adapter bridge patterns      | No               |
+| `fake-retry-smoke.yaml`         | Retry worker with fake adapters    | No               |
+| `matrix.yaml`                   | Real Matrix adapter                | Yes (matrix)     |
+| `meshtastic-serial.yaml`        | Real Meshtastic serial adapter     | Yes (meshtastic) |
+| `mixed-matrix-meshtastic.yaml`  | Mixed real Matrix + Meshtastic     | Yes (both)       |
+| `docker-matrix-bridge.yaml`     | Docker Synapse + Meshtastic        | Yes + Docker     |
+| `docker-meshtastic-bridge.yaml` | Docker meshtasticd + Matrix        | Yes + Docker     |
+| `docker-bridge-smoke.yaml`      | Docker integration smoke test      | Yes + Docker     |
 
 ## Docker Validation (Optional)
 
@@ -249,7 +249,7 @@ Some example configs reference Docker services (Synapse, meshtasticd). These req
 ```bash
 docker compose -f docker-compose.integration.yaml up -d
 source examples/env/docker.env.example  # edit with real values first
-medre config check --config examples/configs/docker-bridge-smoke.toml
+medre config check --config examples/configs/docker-bridge-smoke.yaml
 docker compose -f docker-compose.integration.yaml down
 ```
 
@@ -303,15 +303,15 @@ pip install medre-0.1.0-py3-none-any.whl   # wheel
 medre version && medre paths && medre adapters
 
 # Generate config
-medre config sample > /tmp/medre-alpha.toml
-medre config check --config /tmp/medre-alpha.toml
+medre config sample > /tmp/medre-alpha.yaml
+medre config check --config /tmp/medre-alpha.yaml
 
 # Smoke test (config controls storage backend)
-medre smoke --config /tmp/medre-alpha.toml --json
+medre smoke --config /tmp/medre-alpha.yaml --json
 
 # The smoke report includes event_id and storage_path (or use the
-# config's [storage] path setting).  Use --storage-path to persist:
-#   medre smoke --config /tmp/medre-alpha.toml --storage-path /tmp/medre-alpha.db --json
+# config's storage path setting).  Use --storage-path to persist:
+#   medre smoke --config /tmp/medre-alpha.yaml --storage-path /tmp/medre-alpha.db --json
 
 # Inspect (use the storage path from the smoke report or config)
 medre inspect event <event_id> --storage-path /tmp/medre-alpha.db

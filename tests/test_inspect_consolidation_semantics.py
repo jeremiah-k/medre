@@ -37,45 +37,51 @@ from medre.cli import main
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SMOKELIKE_TOML = """\
-[runtime]
-name = "inspect-consolidation"
-shutdown_timeout_seconds = 10
+_SMOKELIKE_YAML = """\
+runtime:
+  name: inspect-consolidation
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "WARNING"
-format = "text"
+logging:
+  level: WARNING
+  format: text
 
-[storage]
-backend = "sqlite"
-path = {storage_path!r}
+storage:
+  backend: sqlite
+  path: "{storage_path}"
 
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "fake"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: fake
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: inspect-consolidation
 
-[adapters.meshtastic.fake_meshtastic]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-origin_label = "inspect-consolidation"
-
-[routes.mx_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_meshtastic"]
-directionality = "source_to_dest"
-enabled = true
+routes:
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
 """
 
 
 def _write_config(tmp_path: Path, db_path: Path) -> str:
-    cfg = tmp_path / "inspect_consolidation.toml"
-    cfg.write_text(_SMOKELIKE_TOML.format(storage_path=str(db_path)))
+    cfg = tmp_path / "inspect_consolidation.yaml"
+    cfg.write_text(_SMOKELIKE_YAML.format(storage_path=str(db_path)))
     return str(cfg)
 
 

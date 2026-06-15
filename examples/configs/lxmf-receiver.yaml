@@ -1,0 +1,21 @@
+runtime:
+  name: lxmf-receiver
+
+storage:
+  backend: sqlite
+  path: /tmp/medre-lxmf-receiver.db
+
+adapters:
+  lxmf:
+    lxmf_receiver:
+      enabled: true
+      adapter_kind: lxmf
+      connection_type: reticulum
+      # Wire identity and display name via env:
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
+      # Or create entirely from env:
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT=lxmf
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE=reticulum
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
+      #   MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver

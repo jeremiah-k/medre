@@ -1,6 +1,6 @@
 # Configuration
 
-TOML configuration system, XDG paths, environment overrides, and the config
+YAML configuration system, XDG paths, environment overrides, and the config
 model.
 
 See also: [architecture.md](architecture.md), [adapter-runtime.md](adapter-runtime.md),
@@ -17,7 +17,7 @@ The configuration system lives under `medre.config`:
 | `paths.py`  | XDG-compatible path resolution with `MEDRE_HOME` single-directory override                                         |
 | `model.py`  | Typed frozen-dataclass configuration models                                                                        |
 | `errors.py` | Configuration error hierarchy (`ConfigError` -> `ConfigNotFoundError`, `ConfigValidationError`, `ConfigFileError`) |
-| `loader.py` | TOML file loader with priority search order                                                                        |
+| `loader.py` | YAML file loader with priority search order                                                                        |
 | `env.py`    | `MEDRE_*` environment variable override layer                                                                      |
 | `sample.py` | Sample config generator (`medre config sample`)                                                                    |
 | `routes.py` | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)                |
@@ -82,80 +82,90 @@ class RuntimeConfig:
 | `batch_size`       | `20`    | Max retry receipts processed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
-## 3. TOML Schema
+## 3. YAML Schema
 
-```toml
-[runtime]
-name = "medre"
-shutdown_timeout_seconds = 10
+```yaml
+runtime:
+  name: medre
+  shutdown_timeout_seconds: 10
 
-[logging]
-level = "INFO"          # DEBUG | INFO | WARNING | ERROR
-format = "text"         # text | json
-# [logging.overrides]
-# nio = "WARNING"
+logging:
+  level: INFO # DEBUG | INFO | WARNING | ERROR
+  format: text # text | json
+  # overrides:
+  #   nio: WARNING
 
-[storage]
-backend = "sqlite"
-path = "{state}/medre.sqlite"
+storage:
+  backend: sqlite
+  path: "{state}/medre.sqlite"
 
-[limits]
-max_inflight_deliveries = 100
-max_inflight_replay_events = 100
-shutdown_drain_timeout_seconds = 10
-delivery_acquire_timeout_seconds = 1.0
+limits:
+  max_inflight_deliveries: 100
+  max_inflight_replay_events: 100
+  shutdown_drain_timeout_seconds: 10
+  delivery_acquire_timeout_seconds: 1.0
 
-[retry]
-enabled = false
-interval_seconds = 10.0
-batch_size = 20
-max_attempts = 3
+retry:
+  enabled: false
+  interval_seconds: 10.0
+  batch_size: 20
+  max_attempts: 3
 
 # --- Adapter instances (multi-instance per type) ---
 
-[adapters.matrix.<name>]
-enabled = true
-adapter_kind = "real"    # real | fake
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = "<matrix-access-token>"
-room_allowlist = ["!room:example.com"]
-device_id = "MEDREBOT"
-encryption_mode = "plaintext"  # plaintext | e2ee_required | e2ee_optional
+adapters:
+  matrix:
+    <name>:
+      enabled: true
+      adapter_kind: real # real | fake
+      homeserver: "https://matrix.example.com"
+      user_id: "@bot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!room:example.com"
+      device_id: MEDREBOT
+      encryption_mode: plaintext # plaintext | e2ee_required | e2ee_optional
 
-[adapters.meshtastic.<name>]
-enabled = false
-connection_type = "serial"    # serial | tcp
-serial_port = "/dev/ttyACM0"
-host = "localhost"
-port = 4403
+  meshtastic:
+    <name>:
+      enabled: false
+      connection_type: serial # serial | tcp
+      serial_port: /dev/ttyACM0
+      host: localhost
+      port: 4403
 
-[adapters.meshcore.<name>]
-enabled = false
-connection_type = "serial"    # serial | tcp | ble
-serial_port = "/dev/ttyUSB0"
-host = "localhost"
-port = 4403
+  meshcore:
+    <name>:
+      enabled: false
+      connection_type: serial # serial | tcp | ble
+      serial_port: /dev/ttyUSB0
+      host: localhost
+      port: 4403
 
-[adapters.lxmf.<name>]
-enabled = false
-connection_type = "reticulum"
-identity_path = "{state}/lxmf/identity"
-display_name = "MEDRE"
+  lxmf:
+    <name>:
+      enabled: false
+      connection_type: reticulum
+      identity_path: "{state}/lxmf/identity"
+      display_name: MEDRE
 
 # --- Routes ---
+# Routes are keyed by route id. Each route references adapter ids and
+# declares directionality (source_to_dest | dest_to_source | bidirectional).
 
-[[routes]]
-# Note: the TOML key `from_adapter` maps to `source_adapters` as a
-# single-element array in the internal RouteConfig model.
-id = "mesh-to-matrix"
-from_adapter = "meshcore-radio-1"
-to_adapter = "matrix-home"
-from_channel = "general"
-to_channel = "general"
-enabled = true
-event_kinds = ["message.text"]
-direction = "bidirectional"
+routes:
+  mesh-to-matrix:
+    source_adapters:
+      - meshcore-radio-1
+    dest_adapters:
+      - matrix-home
+    directionality: bidirectional
+    enabled: true
+    source_channel: general
+    dest_channel: general
+    policy:
+      allowed_event_types:
+        - message.text
 ```
 
 ## 4. Configuration Search Order
@@ -164,16 +174,20 @@ The loader searches for configuration files in this priority order:
 
 1. `--config` CLI flag (explicit path, must exist)
 2. `MEDRE_CONFIG` environment variable
-3. `$MEDRE_HOME/config.toml` (when `MEDRE_HOME` is set)
-4. `$XDG_CONFIG_HOME/medre/config.toml` (defaults to `~/.config/medre/config.toml`)
-5. `./medre.toml` (local project fallback)
+3. `$MEDRE_HOME/config.yaml` (when `MEDRE_HOME` is set)
+4. `$XDG_CONFIG_HOME/medre/config.yaml` (defaults to `~/.config/medre/config.yaml`)
+5. `./medre.yaml` (local project fallback)
+
+The loader accepts `.yaml` and `.yml` extensions and rejects `.toml` with a
+clear error. Only the boring YAML subset is supported: explicit mappings and
+lists, no anchors/aliases/merge keys, no custom tags.
 
 The loader returns a `(RuntimeConfig, ConfigSource, MedrePaths)` triple.
 
 ## 5. Environment Overrides
 
 `MEDRE_*` environment variables are applied as overrides on top of the loaded
-TOML config. The original config is never mutated — overrides produce a new
+YAML config. The original config is never mutated — overrides produce a new
 frozen instance via `dataclasses.replace()`.
 
 ### 5.1 Core Overrides
@@ -187,11 +201,11 @@ frozen instance via `dataclasses.replace()`.
 
 Adapter overrides target configured adapter instances by normalized adapter
 token using the pattern `MEDRE_ADAPTER__<TOKEN>__<FIELD>`. The token is derived
-from the TOML `adapter_id` by uppercasing and replacing non-alphanumeric
+from the `adapter_id` by uppercasing and replacing non-alphanumeric
 characters with underscores.
 
 Env overrides do not create virtual adapter instances; the target adapter MUST
-already exist in TOML.
+already exist in the YAML config.
 
 Examples:
 
@@ -213,7 +227,7 @@ migration guidance.
 
 | Category     | XDG Default                                         | MEDRE_HOME Mode                                 |
 | ------------ | --------------------------------------------------- | ----------------------------------------------- |
-| Config       | `$XDG_CONFIG_HOME/medre/` or `~/.config/medre/`     | `$MEDRE_HOME/config.toml`                       |
+| Config       | `$XDG_CONFIG_HOME/medre/` or `~/.config/medre/`     | `$MEDRE_HOME/config.yaml`                       |
 | State        | `$XDG_STATE_HOME/medre/` or `~/.local/state/medre/` | `$MEDRE_HOME/state/`                            |
 | Data         | `$XDG_DATA_HOME/medre/` or `~/.local/share/medre/`  | `$MEDRE_HOME/data/`                             |
 | Cache        | `$XDG_CACHE_HOME/medre/` or `~/.cache/medre/`       | `$MEDRE_HOME/cache/`                            |
@@ -230,9 +244,9 @@ by pure path resolution — only during runtime startup.
 Each adapter type has a runtime wrapper (`MatrixRuntimeConfig`,
 `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`) that:
 
-1. Parses the TOML table via `from_toml_dict(instance_name, data)`
+1. Parses the YAML mapping for the instance
 2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields
-3. Coerces TOML types (list to set, string-keyed to int-keyed dicts)
+3. Coerces parsed types (list to set, string-keyed to int-keyed dicts)
 4. Constructs and validates the adapter's own config dataclass
 5. Stores the validated adapter config in a `.config` attribute
 
@@ -245,7 +259,7 @@ at validation time.
 ```bash
 medre run [--config PATH]           # Start the MEDRE runtime
 medre config check [--config PATH]  # Validate config file
-medre config sample                 # Print a sample TOML config
+medre config sample                 # Print a sample YAML config
 medre paths                         # Print resolved MEDRE paths
 medre version                       # Print MEDRE version
 ```

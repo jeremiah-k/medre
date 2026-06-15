@@ -27,14 +27,14 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_WITH_ROUTES)
     return p
 
 
 @pytest.fixture()
 def config_no_adapters(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
+    p = tmp_path / "config.yaml"
     p.write_text(CONFIG_NO_ADAPTERS)
     return p
 
@@ -49,7 +49,7 @@ class TestRunErrors:
 
     def test_run_missing_config_no_traceback(self, tmp_path: Path) -> None:
         """Missing config causes clear error, not raw traceback."""
-        _, stderr = _run_cli_both("run", "--config", str(tmp_path / "missing.toml"))
+        _, stderr = _run_cli_both("run", "--config", str(tmp_path / "missing.yaml"))
         assert "Traceback" not in stderr
         assert "Config error:" in stderr
 
@@ -78,7 +78,7 @@ class TestRunExitCodes:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("run", "--config", str(tmp_path / "missing.toml"))
+            _run_cli("run", "--config", str(tmp_path / "missing.yaml"))
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_no_adapters_exit_code(self, config_no_adapters: Path) -> None:
@@ -120,7 +120,7 @@ class TestRunExitCodes:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("config", "check", "--config", str(tmp_path / "missing.toml"))
+            _run_cli("config", "check", "--config", str(tmp_path / "missing.yaml"))
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_routes_validate_config_error_exit_code(self, tmp_path: Path) -> None:
@@ -128,7 +128,7 @@ class TestRunExitCodes:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("routes", "validate", "--config", str(tmp_path / "missing.toml"))
+            _run_cli("routes", "validate", "--config", str(tmp_path / "missing.yaml"))
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_diagnostics_config_error_exit_code(self, tmp_path: Path) -> None:
@@ -136,7 +136,7 @@ class TestRunExitCodes:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli("diagnostics", "--config", str(tmp_path / "missing.toml"))
+            _run_cli("diagnostics", "--config", str(tmp_path / "missing.yaml"))
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_diagnostics_build_error_exit_code(self, config_with_routes: Path) -> None:
@@ -333,46 +333,45 @@ class TestSampleConfigAndFakeRuntime:
     """Sample config parses correctly and a fake runtime can be assembled."""
 
     CONFIG_FAKE_MULTI = """\
-[runtime]
-name = "fake-runtime-test"
-
-[logging]
-level = "DEBUG"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fake_mx]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.test"
-user_id = "@fake:fake.test"
-access_token = "fake_token_for_test"
-room_allowlist = ["!fake:fake.test"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.fake_mesh]
-enabled = true
-adapter_kind = "fake"
-connection_type = "serial"
-serial_port = "/dev/ttyFAKE"
-origin_label = "FakeMesh"
+runtime:
+  name: fake-runtime-test
+logging:
+  level: DEBUG
+storage:
+  backend: memory
+adapters:
+  matrix:
+    fake_mx:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.test
+      user_id: '@fake:fake.test'
+      access_token: fake_token_for_test
+      room_allowlist: ['!fake:fake.test']
+      encryption_mode: plaintext
+  meshtastic:
+    fake_mesh:
+      enabled: true
+      adapter_kind: fake
+      connection_type: serial
+      serial_port: /dev/ttyFAKE
+      origin_label: FakeMesh
 """
 
     @pytest.fixture()
     def fake_config(self, tmp_path: Path) -> Path:
-        p = tmp_path / "fake_config.toml"
+        p = tmp_path / "fake_config.yaml"
         p.write_text(self.CONFIG_FAKE_MULTI)
         return p
 
     def test_sample_config_parses(self) -> None:
-        """generate_sample_config() produces valid TOML."""
-        import tomllib
+        """generate_sample_config() produces valid YAML."""
+        import yaml
 
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
-        parsed = tomllib.loads(sample)
+        parsed = yaml.safe_load(sample)
         assert "runtime" in parsed
         assert "adapters" in parsed
 

@@ -8,11 +8,11 @@ credentials / hardware.  No live SDKs are needed to run this suite.
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
 
+from medre.config._yaml import parse_yaml_config
 from medre.config.adapters.errors import MatrixConfigError
 from medre.config.errors import ConfigFileError
 from medre.config.loader import load_config
@@ -27,23 +27,23 @@ EXAMPLES_DIR = _ROOT / "examples"
 CONFIGS_DIR = EXAMPLES_DIR / "configs"
 ENV_DIR = EXAMPLES_DIR / "env"
 
-REQUIRED_TOML_CONFIGS = [
-    "matrix.toml",
-    "meshtastic-serial.toml",
-    "fake-multi-adapter.toml",
-    "fake-bridge-smoke.toml",
-    "fake-retry-smoke.toml",
-    "mixed-matrix-meshtastic.toml",
-    "docker-matrix-bridge.toml",
-    "docker-meshtastic-bridge.toml",
-    "live-matrix-meshtastic.toml",
-    "live-matrix-meshtastic-channel-map.toml",
+REQUIRED_YAML_CONFIGS = [
+    "matrix.yaml",
+    "meshtastic-serial.yaml",
+    "fake-multi-adapter.yaml",
+    "fake-bridge-smoke.yaml",
+    "fake-retry-smoke.yaml",
+    "mixed-matrix-meshtastic.yaml",
+    "docker-matrix-bridge.yaml",
+    "docker-meshtastic-bridge.yaml",
+    "live-matrix-meshtastic.yaml",
+    "live-matrix-meshtastic-channel-map.yaml",
 ]
 
 # Configs with placeholder credentials that cannot be fully loaded.
-# Validated for TOML structure and route shape only.
+# Validated for YAML structure and route shape only.
 PLACEHOLDER_CREDENTIAL_CONFIGS = [
-    "docker-bridge-smoke.toml",
+    "docker-bridge-smoke.yaml",
 ]
 
 DOCKER_ENV = ENV_DIR / "docker.env.example"
@@ -99,8 +99,8 @@ def _has_deprecated_language(text: str) -> list[str]:
 class TestExampleFilesExist:
     """All required example files must ship in the repository."""
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
-    def test_toml_config_exists(self, name: str) -> None:
+    @pytest.mark.parametrize("name", REQUIRED_YAML_CONFIGS)
+    def test_yaml_config_exists(self, name: str) -> None:
         p = CONFIGS_DIR / name
         assert p.is_file(), f"Missing required example config: {p}"
 
@@ -109,17 +109,17 @@ class TestExampleFilesExist:
 
 
 # ===========================================================================
-# 2. TOML parseability
+# 2. YAML parseability
 # ===========================================================================
 
 
-class TestTomlParseable:
-    """Every shipped TOML example must parse without error."""
+class TestYamlParseable:
+    """Every shipped YAML example must parse without error."""
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
-    def test_valid_toml(self, name: str) -> None:
+    @pytest.mark.parametrize("name", REQUIRED_YAML_CONFIGS)
+    def test_valid_yaml(self, name: str) -> None:
         raw = _read(CONFIGS_DIR / name)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
 
@@ -132,7 +132,7 @@ class TestFakeMultiAdapter:
     """The fake-multi-adapter example must load, validate, and build without
     any optional SDKs installed."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-multi-adapter.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-multi-adapter.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -224,7 +224,7 @@ class TestMeshtasticSerial:
     """The meshtastic-serial example loads and validates but requires
     real hardware to run (marked as hardware-required)."""
 
-    CONFIG_PATH = CONFIGS_DIR / "meshtastic-serial.toml"
+    CONFIG_PATH = CONFIGS_DIR / "meshtastic-serial.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -262,7 +262,7 @@ class TestMatrixConfig:
     Config loading must raise MatrixConfigError, confirming the example
     is properly structured but credential-incomplete."""
 
-    CONFIG_PATH = CONFIGS_DIR / "matrix.toml"
+    CONFIG_PATH = CONFIGS_DIR / "matrix.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -274,10 +274,10 @@ class TestMatrixConfig:
         with pytest.raises(MatrixConfigError, match="access_token"):
             load_config(str(self.CONFIG_PATH))
 
-    def test_toml_structure_is_correct(self) -> None:
-        """The TOML structure itself is valid — only the credential is missing."""
+    def test_yaml_structure_is_correct(self) -> None:
+        """The YAML structure itself is valid — only the credential is missing."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert "adapters" in data
         assert "matrix" in data["adapters"]
         matrix_section = data["adapters"]["matrix"]
@@ -306,7 +306,7 @@ class TestMixedMatrixMeshtastic:
     """The mixed bridge example has a Matrix adapter with empty access_token.
     Loading must fail on the Matrix credential."""
 
-    CONFIG_PATH = CONFIGS_DIR / "mixed-matrix-meshtastic.toml"
+    CONFIG_PATH = CONFIGS_DIR / "mixed-matrix-meshtastic.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -317,9 +317,9 @@ class TestMixedMatrixMeshtastic:
         with pytest.raises(MatrixConfigError, match="access_token"):
             load_config(str(self.CONFIG_PATH))
 
-    def test_toml_structure_is_correct(self) -> None:
+    def test_yaml_structure_is_correct(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert "matrix" in data["adapters"]
         assert "meshtastic" in data["adapters"]
         meshtastic = data["adapters"]["meshtastic"]["radio"]
@@ -330,7 +330,7 @@ class TestMixedMatrixMeshtastic:
         """The mixed bridge config must include a route section referencing
         the correct adapter IDs (main and radio)."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert "routes" in data, "Mixed bridge config must have a [routes] section"
         routes = data["routes"]
         assert "matrix_radio_bridge" in routes
@@ -372,7 +372,7 @@ class TestFakeBridgeSmoke:
     any optional SDKs.  All adapters are fake; all routes exercise
     cross-adapter bridge patterns."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -430,25 +430,25 @@ class TestFakeBridgeSmoke:
 class TestDockerBridgeSmoke:
     """The docker-bridge-smoke example has placeholder credentials for the
     Matrix adapter.  Full load_config() will fail on the credential —
-    validate TOML structure and route shape only."""
+    validate YAML structure and route shape only."""
 
-    CONFIG_PATH = CONFIGS_DIR / "docker-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "docker-bridge-smoke.yaml"
 
-    def test_toml_parseable(self) -> None:
+    def test_yaml_parseable(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
-    def test_toml_structure_adapters(self) -> None:
+    def test_yaml_structure_adapters(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapters = data["adapters"]
         assert "matrix" in adapters
         assert "meshtastic" in adapters
         # Real Matrix adapter
         mx = adapters["matrix"]["docker_matrix"]
         assert mx["adapter_kind"] == "real"
-        assert mx["access_token"] == "PLACEHOLDER"
+        assert mx["access_token"] == "CHANGE_ME"
         # Real Meshtastic adapter
         mesh = adapters["meshtastic"]["docker_meshtastic"]
         assert mesh["adapter_kind"] == "real"
@@ -461,7 +461,7 @@ class TestDockerBridgeSmoke:
 
     def test_routes_section_structure(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         routes = data["routes"]
         assert "real_matrix_to_fake_mesh" in routes
         assert "real_mesh_to_fake_mx" in routes
@@ -472,7 +472,7 @@ class TestDockerBridgeSmoke:
     def test_route_adapter_refs_valid(self) -> None:
         """All route source/dest references name adapters that exist."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapter_ids = set()
         for _transport, instances in data["adapters"].items():
             for inst_name in instances:
@@ -489,12 +489,12 @@ class TestDockerBridgeSmoke:
 
     def test_disabled_route_is_disabled(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert data["routes"]["disabled_example"]["enabled"] is False
 
     def test_bidirectional_route_direction(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert data["routes"]["real_bidir"]["directionality"] == "bidirectional"
 
     def test_no_real_secrets(self) -> None:
@@ -503,7 +503,7 @@ class TestDockerBridgeSmoke:
         assert hits == [], f"Possible real secrets found: {hits}"
 
     def test_loads_successfully_with_placeholder_credentials(self) -> None:
-        """Config loads because PLACEHOLDER is a non-empty string.
+        """Config loads because the access_token is a non-empty placeholder.
         The placeholder would fail at runtime when connecting to Synapse,
         but config validation only rejects empty access_token."""
         config, _source, _paths = load_config(str(self.CONFIG_PATH))
@@ -564,7 +564,7 @@ class TestDockerEnvExample:
 # ===========================================================================
 
 
-ALL_SHIPPED_CONFIGS = REQUIRED_TOML_CONFIGS + PLACEHOLDER_CREDENTIAL_CONFIGS
+ALL_SHIPPED_CONFIGS = REQUIRED_YAML_CONFIGS + PLACEHOLDER_CREDENTIAL_CONFIGS
 
 
 class TestExampleHygiene:
@@ -587,7 +587,7 @@ class TestExampleHygiene:
     def test_uses_supported_storage_backend(self, name: str) -> None:
         """Storage backend must be one supported by RuntimeBuilder."""
         raw = _read(CONFIGS_DIR / name)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         backend = data.get("storage", {}).get("backend", "sqlite")
         assert backend in (
             "sqlite",
@@ -598,7 +598,7 @@ class TestExampleHygiene:
     def test_adapter_kinds_valid(self, name: str) -> None:
         """adapter_kind values must be 'real' or 'fake'."""
         raw = _read(CONFIGS_DIR / name)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapters = data.get("adapters", {})
         for transport, instances in adapters.items():
             if not isinstance(instances, dict):
@@ -619,10 +619,10 @@ class TestExampleHygiene:
 
 
 class TestFakeBridgeSmokeDeep:
-    """Deep per-field assertions on fake-bridge-smoke.toml beyond the
+    """Deep per-field assertions on fake-bridge-smoke.yaml beyond the
     existing smoke tests in TestFakeBridgeSmoke."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -636,7 +636,7 @@ class TestFakeBridgeSmokeDeep:
         assert config.adapters is not None
         assert config.routes is not None
 
-    def test_config_adapter_ids_match_toml(self) -> None:
+    def test_config_adapter_ids_match_yaml(self) -> None:
         """Adapter IDs are exactly fake_matrix, fake_meshtastic, fake_meshcore."""
         config, _, _ = load_config(str(self.CONFIG_PATH))
         all_ids = [aid for _t, aid, _rtc in config.adapters.all_configs()]
@@ -676,7 +676,7 @@ class TestFakeRetrySmoke:
     """The fake-retry-smoke example loads, validates, and builds without
     any optional SDKs.  The retry worker is enabled via the [retry] section."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-retry-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-retry-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -738,10 +738,10 @@ class TestFakeRetrySmoke:
             f"{[r.id for r in app._registered_routes]}"
         )
 
-    def test_toml_retry_section_structure(self) -> None:
-        """Raw TOML [retry] section has expected keys."""
+    def test_yaml_retry_section_structure(self) -> None:
+        """Raw YAML [retry] section has expected keys."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert "retry" in data
         retry = data["retry"]
         assert retry["enabled"] is True
@@ -774,7 +774,7 @@ class TestFakeRetrySmoke:
 class TestFakeBridgeSmokeTwoWayRoutes:
     """Verify bidirectional route expansion in fake-bridge-smoke."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -809,25 +809,25 @@ class TestFakeBridgeSmokeTwoWayRoutes:
 
 
 class TestDockerMatrixBridgeConfig:
-    """docker-matrix-bridge.toml TOML structure validation.
+    """docker-matrix-bridge.yaml YAML structure validation.
 
     This config uses ``${ENV_VAR}`` syntax for credentials and room IDs.
     The loader's ``_expand_paths_in_dict`` treats ``{...}`` as path
     placeholders, so ``load_config()`` cannot be used (it would try to
     expand ``${MEDRE_HOMESERVER}`` as a path placeholder).  Tests validate
-    TOML structure and route shape only — same pattern as TestDockerBridgeSmoke.
+    YAML structure and route shape only — same pattern as TestDockerBridgeSmoke.
     """
 
-    CONFIG_PATH = CONFIGS_DIR / "docker-matrix-bridge.toml"
+    CONFIG_PATH = CONFIGS_DIR / "docker-matrix-bridge.yaml"
 
-    def test_toml_parseable(self) -> None:
+    def test_yaml_parseable(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
-    def test_toml_structure_adapters(self) -> None:
+    def test_yaml_structure_adapters(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapters = data["adapters"]
         assert "matrix" in adapters
         assert "meshtastic" in adapters
@@ -843,7 +843,7 @@ class TestDockerMatrixBridgeConfig:
 
     def test_expected_adapter_ids(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapter_ids: set[str] = set()
         for _transport, instances in data["adapters"].items():
             for inst_name in instances:
@@ -854,7 +854,7 @@ class TestDockerMatrixBridgeConfig:
 
     def test_routes_section_structure(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         routes = data["routes"]
         assert "synapse_to_fake" in routes
         route = routes["synapse_to_fake"]
@@ -866,7 +866,7 @@ class TestDockerMatrixBridgeConfig:
     def test_route_adapter_refs_valid(self) -> None:
         """All route source/dest references name adapters that exist."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapter_ids: set[str] = set()
         for _transport, instances in data["adapters"].items():
             for inst_name in instances:
@@ -888,22 +888,22 @@ class TestDockerMatrixBridgeConfig:
 
 
 class TestDockerMeshtasticBridgeConfig:
-    """docker-meshtastic-bridge.toml TOML structure validation.
+    """docker-meshtastic-bridge.yaml YAML structure validation.
 
     This config uses ``${MESHTASTIC_HOST}`` which the loader treats as a
-    path placeholder.  Tests validate TOML structure and route shape only.
+    path placeholder.  Tests validate YAML structure and route shape only.
     """
 
-    CONFIG_PATH = CONFIGS_DIR / "docker-meshtastic-bridge.toml"
+    CONFIG_PATH = CONFIGS_DIR / "docker-meshtastic-bridge.yaml"
 
-    def test_toml_parseable(self) -> None:
+    def test_yaml_parseable(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
-    def test_toml_structure_adapters(self) -> None:
+    def test_yaml_structure_adapters(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapters = data["adapters"]
         assert "meshtastic" in adapters
         assert "matrix" in adapters
@@ -919,7 +919,7 @@ class TestDockerMeshtasticBridgeConfig:
 
     def test_expected_adapter_ids(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapter_ids: set[str] = set()
         for _transport, instances in data["adapters"].items():
             for inst_name in instances:
@@ -930,7 +930,7 @@ class TestDockerMeshtasticBridgeConfig:
 
     def test_routes_section_structure(self) -> None:
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         routes = data["routes"]
         assert "daemon_to_matrix" in routes
         route = routes["daemon_to_matrix"]
@@ -942,7 +942,7 @@ class TestDockerMeshtasticBridgeConfig:
     def test_route_adapter_refs_valid(self) -> None:
         """All route source/dest references name adapters that exist."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         adapter_ids: set[str] = set()
         for _transport, instances in data["adapters"].items():
             for inst_name in instances:
@@ -969,9 +969,9 @@ class TestDockerMeshtasticBridgeConfig:
 
 
 # All configs in the examples/configs directory.
-_ALL_CONFIG_FILES = sorted(CONFIGS_DIR.glob("*.toml"))
+_ALL_CONFIG_FILES = sorted(CONFIGS_DIR.glob("*.yaml"))
 
-# Regex for ${ENV_VAR} references in TOML values.
+# Regex for ${ENV_VAR} references in YAML values.
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -985,7 +985,7 @@ class TestEnvVarDocumentation:
         return set(_ENV_VAR_RE.findall(text))
 
     def test_all_env_vars_listed_in_docker_env(self) -> None:
-        """Every ${VAR} in docker-bridge-smoke.toml must appear in
+        """Every ${VAR} in docker-bridge-smoke.yaml must appear in
         docker.env.example.  Other configs (docker-matrix-bridge,
         docker-meshtastic-bridge) are Docker integration test configs
         whose env vars are set programmatically by conftest.py fixtures,
@@ -1003,7 +1003,7 @@ class TestEnvVarDocumentation:
         # docker.env.example.  docker-matrix-bridge and docker-meshtastic-bridge
         # have their own env vars managed by Docker integration test fixtures.
         operator_configs = [
-            CONFIGS_DIR / "docker-bridge-smoke.toml",
+            CONFIGS_DIR / "docker-bridge-smoke.yaml",
         ]
 
         undocumented: dict[str, list[str]] = {}
@@ -1059,9 +1059,9 @@ class TestEnvVarDocumentation:
 
 
 class TestFakeConfigBuildsRuntime:
-    """Build a full runtime from fake-bridge-smoke.toml and assert structure."""
+    """Build a full runtime from fake-bridge-smoke.yaml and assert structure."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1108,7 +1108,7 @@ class TestFakeConfigBuildsRuntime:
 class TestFakeConfigRouteValidate:
     """Route validation on fake-bridge-smoke: deterministic output, correct counts."""
 
-    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1207,13 +1207,13 @@ class TestDockerConfigsEnvVarValidation:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
     def test_docker_matrix_bridge_fails_cleanly_without_env_vars(self) -> None:
-        """Loading docker-matrix-bridge.toml without env vars produces a
+        """Loading docker-matrix-bridge.yaml without env vars produces a
         ConfigFileError about the path placeholder, not a raw traceback."""
-        config_path = CONFIGS_DIR / "docker-matrix-bridge.toml"
+        config_path = CONFIGS_DIR / "docker-matrix-bridge.yaml"
 
-        # Step 1: TOML is valid (raw parse succeeds)
+        # Step 1: YAML is valid (raw parse succeeds)
         raw = _read(config_path)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
         # Step 2: load_config fails with ConfigFileError
@@ -1246,13 +1246,13 @@ class TestDockerConfigsEnvVarValidation:
         assert "File " not in error_msg
 
     def test_docker_meshtastic_bridge_fails_cleanly_without_env_vars(self) -> None:
-        """Loading docker-meshtastic-bridge.toml without env vars produces
+        """Loading docker-meshtastic-bridge.yaml without env vars produces
         a ConfigFileError about the host placeholder."""
-        config_path = CONFIGS_DIR / "docker-meshtastic-bridge.toml"
+        config_path = CONFIGS_DIR / "docker-meshtastic-bridge.yaml"
 
-        # TOML is valid
+        # YAML is valid
         raw = _read(config_path)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         assert isinstance(data, dict)
 
         # load_config fails with ConfigFileError
@@ -1281,7 +1281,7 @@ class TestLiveMatrixMeshtasticTargeting:
     fields (source_room, dest_channel) on its bidirectional route so that
     both expansion legs are fully specified without relying on implicit defaults."""
 
-    CONFIG_PATH = CONFIGS_DIR / "live-matrix-meshtastic.toml"
+    CONFIG_PATH = CONFIGS_DIR / "live-matrix-meshtastic.yaml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1299,7 +1299,7 @@ class TestLiveMatrixMeshtasticTargeting:
     def test_canonical_config_contains_explicit_targeting(self) -> None:
         """The bidirectional route has source_room + dest_channel targeting fields."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         routes = data["routes"]
 
         bridge = routes["matrix_radio_bridge"]
@@ -1310,7 +1310,7 @@ class TestLiveMatrixMeshtasticTargeting:
     def test_bidirectional_route_target_values_are_nonempty(self) -> None:
         """Bidirectional route targeting fields must be non-empty strings."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         bridge = data["routes"]["matrix_radio_bridge"]
 
         assert (
@@ -1324,7 +1324,7 @@ class TestLiveMatrixMeshtasticTargeting:
         """The bidirectional route has explicit targeting fields — no implicit
         channel defaults used."""
         raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
+        data = parse_yaml_config(raw)
         bridge = data["routes"]["matrix_radio_bridge"]
 
         targeting_fields = {
@@ -1337,8 +1337,8 @@ class TestLiveMatrixMeshtasticTargeting:
                 f"got {value!r}"
             )
 
-    def test_targeting_comments_present_in_toml(self) -> None:
-        """The TOML file includes comments explaining the targeting fields."""
+    def test_targeting_comments_present_in_yaml(self) -> None:
+        """The YAML file includes comments explaining the targeting fields."""
         raw = _read(self.CONFIG_PATH)
         # Check for comment explaining source_room/dest_room format
         assert (

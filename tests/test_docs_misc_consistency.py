@@ -341,21 +341,21 @@ class TestSourceTreeExamplesWording:
 
 
 class TestNoTcpPortInExamples:
-    """Example TOML configs must use ``port`` (not ``tcp_port``) to match
+    """Example YAML configs must use ``port`` (not ``tcp_port``) to match
     the current config schema and live-config helper."""
 
     def test_no_example_uses_tcp_port(self) -> None:
-        """No .toml file under examples/configs/ may contain ``tcp_port``."""
+        """No .yaml file under examples/configs/ may contain ``tcp_port``."""
         if not _EXAMPLES_CONFIGS_DIR.is_dir():
             pytest.skip("examples/configs/ directory not found")
-        toml_files = sorted(_EXAMPLES_CONFIGS_DIR.glob("*.toml"))
-        if not toml_files:
-            pytest.skip("No .toml files found in examples/configs/")
+        yaml_files = sorted(_EXAMPLES_CONFIGS_DIR.glob("*.yaml"))
+        if not yaml_files:
+            pytest.skip("No .yaml files found in examples/configs/")
         violations: list[str] = []
-        for toml_path in toml_files:
-            text = _read(toml_path)
+        for yaml_path in yaml_files:
+            text = _read(yaml_path)
             if "tcp_port" in text.lower():
-                violations.append(toml_path.name)
+                violations.append(yaml_path.name)
         assert not violations, (
             "The following example configs contain 'tcp_port' (should be "
             "'port'): " + ", ".join(violations)
@@ -368,19 +368,19 @@ class TestNoTcpPortInExamples:
 
 
 class TestLiveConfigHelperUsesPort:
-    """tests/helpers/live_config.py must write ``port = `` (not
-    ``tcp_port``) in the TOML it generates, keeping the helper consistent
+    """tests/helpers/live_config.py must write ``port:`` (not
+    ``tcp_port``) in the YAML it generates, keeping the helper consistent
     with the config schema and example configs."""
 
     def test_live_config_uses_port_not_tcp_port(self) -> None:
-        """write_live_bridge_toml must emit ``port = `` and never
+        """write_live_bridge_yaml must emit ``port:`` and never
         ``tcp_port``."""
         if not _LIVE_CONFIG_HELPER.exists():
             pytest.skip("tests/helpers/live_config.py not found")
         text = _read(_LIVE_CONFIG_HELPER)
-        assert "port = " in text, (
-            "tests/helpers/live_config.py must contain 'port = ' in the "
-            "write_live_bridge_toml function area."
+        assert "port: " in text, (
+            "tests/helpers/live_config.py must contain 'port: ' in the "
+            "write_live_bridge_yaml function area."
         )
         assert "tcp_port" not in text, (
             "tests/helpers/live_config.py must not contain 'tcp_port'. "
