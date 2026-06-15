@@ -75,9 +75,11 @@
           "oneOf": [
             {
               "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "pattern": "^[0-7]$" },
               "additionalProperties": {
                 "oneOf": [
-                  { "type": "string" },
+                  { "type": "string", "minLength": 1, "pattern": "^!" },
                   { "$ref": "#/$defs/ChannelRoomMapEntry" }
                 ]
               }
@@ -124,6 +126,8 @@
       "properties": {
         "room": {
           "type": "string",
+          "minLength": 1,
+          "pattern": "^!",
           "description": "Canonical Matrix room ID starting with '!'. Required."
         },
         "source_origin_label": {
@@ -198,9 +202,11 @@
           "oneOf": [
             {
               "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "pattern": "^[0-7]$" },
               "additionalProperties": {
                 "oneOf": [
-                  { "type": "string" },
+                  { "type": "string", "minLength": 1, "pattern": "^!" },
                   { "$ref": "#/$defs/ChannelRoomMapEntry" }
                 ]
               }
