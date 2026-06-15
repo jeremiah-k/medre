@@ -511,7 +511,7 @@ def _expand_channel_room_map_route(
     RouteValidationError
         If platform lookup fails for an adapter.
     """
-    from medre.config.routes import RouteDirectionality
+    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
 
     assert rc.channel_room_map is not None  # guarded by caller
 
@@ -579,7 +579,30 @@ def _expand_channel_room_map_route(
     direction = rc.directionality
     routes: list[Route] = []
 
-    for ch, room_id in sorted(rc.channel_room_map.items()):
+    for ch, entry in sorted(rc.channel_room_map.items()):
+        # Normalize the entry: ChannelRoomMapEntry (from from_toml_dict)
+        # or a bare str (from direct RouteConfig construction in tests).
+        if isinstance(entry, ChannelRoomMapEntry):
+            room_id = entry.room
+            entry_source_label = entry.source_origin_label
+            entry_dest_label = entry.dest_origin_label
+        else:
+            room_id = entry
+            entry_source_label = None
+            entry_dest_label = None
+
+        # Resolve effective per-entry labels: entry label takes precedence
+        # over route-level label.  Use 'is not None' so that an explicit
+        # empty string ("") is preserved (sentinel for suppress fallback).
+        effective_source_label = (
+            entry_source_label
+            if entry_source_label is not None
+            else rc.source_origin_label
+        )
+        effective_dest_label = (
+            entry_dest_label if entry_dest_label is not None else rc.dest_origin_label
+        )
+
         # Determine which legs to create based on directionality.
         create_fwd = direction in (
             RouteDirectionality.SOURCE_TO_DEST,
@@ -600,12 +623,12 @@ def _expand_channel_room_map_route(
         # Matrix→Meshtastic leg
         if create_matrix_to_mesh:
             fwd_id = f"{rc.route_id}__ch{ch}__matrix_to_meshtastic"
-            # Determine label: forward leg uses source_origin_label,
-            # reverse leg uses dest_origin_label.
+            # Forward leg uses effective source-side label;
+            # reverse leg uses effective dest-side label.
             if fwd_is_matrix_to_mesh:
-                fwd_label = rc.source_origin_label
+                fwd_label = effective_source_label
             else:
-                fwd_label = rc.dest_origin_label
+                fwd_label = effective_dest_label
             routes.append(
                 Route(
                     id=fwd_id,
@@ -625,9 +648,9 @@ def _expand_channel_room_map_route(
         if create_mesh_to_matrix:
             rev_id = f"{rc.route_id}__ch{ch}__meshtastic_to_matrix"
             if fwd_is_matrix_to_mesh:
-                rev_label = rc.dest_origin_label
+                rev_label = effective_dest_label
             else:
-                rev_label = rc.source_origin_label
+                rev_label = effective_source_label
             routes.append(
                 Route(
                     id=rev_id,

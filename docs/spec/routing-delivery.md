@@ -1363,12 +1363,49 @@ identity hashes are mapped to the generic fields. Adding a new transport
 requires implementing projection from that transport's native metadata to
 the generic fields. Core renderers and the shared formatter need no changes.
 
-**Channel-specific labels** (different `origin_label` values per channel
-within a single route) are not implemented. Operators who need per-channel
-labels SHOULD use separate routes per channel, each with its own
-direction-aware `source_origin_label`/`dest_origin_label`. This applies
-to routes expanded by `channel_room_map` as well: the shorthand expands
-routing targets, not labels.
+**Per-context labels for `channel_room_map`.** A `channel_room_map`
+entry MAY carry its own origin labels in addition to the route-level
+`source_origin_label` / `dest_origin_label`. Each entry accepts either a
+bare canonical room-ID string (the original shape, no per-entry labels)
+or a structured table with three fields:
+
+| Field                 | Type            | Default | Notes                                                              |
+| --------------------- | --------------- | ------- | ------------------------------------------------------------------ |
+| `room`                | `string`        | —       | Canonical Matrix room ID starting with `!`. Required.              |
+| `source_origin_label` | `string \| nil` | `nil`   | Per-entry forward-leg label. `nil` inherits the route-level label. |
+| `dest_origin_label`   | `string \| nil` | `nil`   | Per-entry reverse-leg label. `nil` inherits the route-level label. |
+
+Unknown keys in a structured entry MUST be rejected. A
+`source_origin_label` or `dest_origin_label` value that is a boolean or
+otherwise not a string MUST be rejected — the boolean check runs before
+the generic string check, matching the route-level label validation in
+§17.5.2. The bare-string shape remains valid and carries no per-entry
+labels; an entry's effective labels then resolve to the route-level
+labels. Bare-string and structured entries MAY be mixed freely within a
+single `channel_room_map`.
+
+The per-leg `origin_label` precedence for a `channel_room_map` route is:
+
+1. Per-entry label (`source_origin_label` or `dest_origin_label` on the
+   matched entry), when it is not `nil`.
+2. Route-level label (`source_origin_label` or `dest_origin_label` on
+   the `RouteConfig`), when it is not `nil`.
+3. Source-adapter `origin_label` from the source-attribution registry.
+4. Empty string.
+
+An explicit empty string (`""`) set at the per-entry or route level
+suppresses fallback for that leg: it is preserved verbatim onto
+`RouteSource.origin_label` and short-circuits the registry lookup, so
+the `{origin_label}` template variable resolves to empty. A `nil` or
+absent label falls through to the next level.
+
+Per-entry labels are scoped to `channel_room_map` entries only.
+Operators who need per-channel labels within a single general route (one
+not using `channel_room_map`) SHOULD still use separate routes per
+channel, each with its own direction-aware label. If the
+`channel_room_map` shape is not expressive enough for a given targeting
+pattern (for example, distinct fanout across multiple destinations),
+operators SHOULD decompose the bridge into separate routes.
 
 ### 17.5.9 Generic Sender Identity Semantics
 

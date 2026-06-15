@@ -75,12 +75,17 @@
           "oneOf": [
             {
               "type": "object",
-              "additionalProperties": { "type": "string" }
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "$ref": "#/$defs/ChannelRoomMapEntry" }
+                ]
+              }
             },
             { "type": "null" }
           ],
           "default": null,
-          "description": "Mapping of Meshtastic channel strings ('0'–'7') to Matrix room IDs."
+          "description": "Mapping of Meshtastic channel strings ('0'–'7') to Matrix room IDs. Each value is either a bare canonical room-ID string (carries no per-entry labels) or a structured table with 'room' plus optional 'source_origin_label' / 'dest_origin_label' that override the route-level labels for this entry's expanded legs only."
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -112,6 +117,29 @@
     }
   ],
   "$defs": {
+    "ChannelRoomMapEntry": {
+      "title": "ChannelRoomMapEntry",
+      "description": "A single channel_room_map entry mapping a Meshtastic channel index to a Matrix room ID, with optional per-entry origin labels that override the route-level labels for this entry's expanded legs only.",
+      "type": "object",
+      "properties": {
+        "room": {
+          "type": "string",
+          "description": "Canonical Matrix room ID starting with '!'. Required."
+        },
+        "source_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Per-entry forward-leg source label. Null inherits the route-level source_origin_label. An explicit empty string suppresses the adapter-level fallback for this entry's forward leg."
+        },
+        "dest_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Per-entry reverse-leg source label. Null inherits the route-level dest_origin_label. An explicit empty string suppresses the adapter-level fallback for this entry's reverse leg."
+        }
+      },
+      "required": ["room"],
+      "additionalProperties": false
+    },
     "RouteConfigRef": {
       "title": "RouteConfig",
       "type": "object",
@@ -170,7 +198,12 @@
           "oneOf": [
             {
               "type": "object",
-              "additionalProperties": { "type": "string" }
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "$ref": "#/$defs/ChannelRoomMapEntry" }
+                ]
+              }
             },
             { "type": "null" }
           ],

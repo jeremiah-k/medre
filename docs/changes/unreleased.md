@@ -489,3 +489,68 @@ escapes any mapping key that does not match the plain-scalar pattern
 
 Previously config values or keys containing control characters or
 YAML-special characters could produce an invalid artifact file.
+
+---
+
+## Per-Context Origin Labels for channel_room_map Entries
+
+Allow each `channel_room_map` entry to carry its own origin labels so
+two channels bridged by the same route can show different attribution
+text in the relay prefix (for example, the channel name).
+
+**New entry shape:**
+
+Each `channel_room_map` value is now polymorphic. The bare-string shape
+(room ID only) is unchanged and carries no per-entry labels. The new
+structured shape is a table with `room` plus optional
+`source_origin_label` / `dest_origin_label`:
+
+```yaml
+routes:
+  radio_matrix:
+    source_adapters: [main]
+    dest_adapters: [ops]
+    directionality: bidirectional
+    channel_room_map:
+      "0":
+        room: "!longfast:example.com"
+        source_origin_label: "LongFast"
+        dest_origin_label: "Matrix Ops"
+      "1":
+        room: "!shortfast:example.com"
+        source_origin_label: "ShortFast"
+```
+
+Both shapes can be mixed in the same map.
+
+**Precedence chain** (most to least specific, per expanded leg):
+
+1. Per-entry `source_origin_label` / `dest_origin_label` on the matched
+   entry.
+2. Route-level `source_origin_label` / `dest_origin_label`.
+3. Source adapter `origin_label`.
+4. Empty string.
+
+An explicit empty string (`""`) suppresses the fallback below it for
+that leg; an unset or absent label falls through to the next level.
+
+**Validation:**
+
+- Unknown keys in a structured entry are rejected.
+- Boolean and other non-string label values are rejected (booleans are
+  checked before the generic string check, matching route-level label
+  validation).
+- The bare-string shape, all existing channel-key / duplicate-channel /
+  duplicate-room / canonical-room-ID checks, and mutual-exclusion with
+  the targeting fields are unchanged.
+
+**Backward compatibility:** every existing `channel_room_map` config
+loads identically — bare-string entries still produce the same expansion
+with route-level labels applied uniformly.
+
+**Scope:** per-entry labels apply to `channel_room_map` entries only.
+General routes (those not using `channel_room_map`) still use one
+route-level label pair per route; decompose into separate routes when
+the map shape cannot express the targeting you need. `origin_label`
+remains human-readable attribution only — not a routing key, not a
+transport identity, and not delivery evidence.

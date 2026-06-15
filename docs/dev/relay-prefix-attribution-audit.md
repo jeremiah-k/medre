@@ -706,13 +706,25 @@ reads only in-memory SDK state:
 See [Transport-Native Identity Enrichment Audit](transport-native-identity-enrichment-audit.md)
 for the per-transport projection rules and the opacity policy.
 
-### 9. No per-channel origin labels
+### 9. Per-entry origin labels for channel_room_map
 
 Route-level `source_origin_label` and `dest_origin_label` apply to all
-deliveries on that route, regardless of channel. Per-channel origin labels
-(different labels for different channels in a `channel_room_map` route) are
-not implemented. The workaround is to use separate routes per channel, each
-with its own direction-aware label.
+deliveries on a general route, regardless of channel. For
+`channel_room_map` routes, each entry can now carry its own
+`source_origin_label` / `dest_origin_label` via the structured table
+shape (`room` plus optional labels), overriding the route-level labels
+for that entry's expanded legs only. The bare-string entry shape (room
+ID only) is unchanged and inherits the route-level labels. Per-entry
+labels take precedence over route-level labels; route-level labels take
+precedence over the source adapter's `origin_label`; an explicit empty
+string suppresses the adapter fallback. General routes (those not using
+`channel_room_map`) still have no per-channel label slot — use separate
+routes per channel, each with its own direction-aware label.
+
+See `src/medre/config/routes.py` (`ChannelRoomMapEntry`,
+`RouteConfig.from_toml_dict`) for the polymorphic parse and
+`src/medre/runtime/route_engine.py`
+(`_expand_channel_room_map_route`) for the per-entry label resolution.
 
 ---
 
