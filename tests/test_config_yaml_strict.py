@@ -57,9 +57,7 @@ def test_list_of_scalars() -> None:
 
 
 def test_list_of_mappings() -> None:
-    data = _parse(
-        "routes:\n" "  - source: a\n" "    dest: b\n" "  - source: c\n" "    dest: d\n"
-    )
+    data = _parse("routes:\n  - source: a\n    dest: b\n  - source: c\n    dest: d\n")
     assert data == {
         "routes": [
             {"source": "a", "dest": "b"},
@@ -159,7 +157,7 @@ def test_python_object_apply_tag_rejected() -> None:
 
 def test_python_object_tag_rejected() -> None:
     with pytest.raises(StrictYAMLError):
-        _parse("!!python/object:__main__.MyClass\n" "  x: 1\n")
+        _parse("!!python/object:__main__.MyClass\n  x: 1\n")
 
 
 def test_binary_tag_rejected() -> None:
@@ -240,7 +238,7 @@ def test_flow_merge_key_rejected() -> None:
 def test_merge_does_not_inherit_values() -> None:
     """The merge key must not silently inject values."""
     with pytest.raises(StrictYAMLError):
-        _parse("base: &ignored\n" "  x: 1\n" "child:\n" "  <<: base\n")
+        _parse("base: &ignored\n  x: 1\nchild:\n  <<: base\n")
 
 
 # ---------------------------------------------------------------------------

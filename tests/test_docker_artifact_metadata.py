@@ -15,13 +15,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from medre.runtime.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     _collect_log_artifacts,
+    _format_yaml_key,
     _format_yaml_value,
     _read_run_metadata,
     _write_redacted_config,
+    _yaml_escape_string,
     collect_docker_bridge_artifacts,
     get_artifact_plan,
 )
@@ -132,6 +135,15 @@ def test_returns_none_when_write_fails(tmp_path: Path) -> None:
     missing_dir = tmp_path / "does" / "not" / "exist"
     result = _write_redacted_config(missing_dir, {"k": "v"})
     assert result is None
+
+
+def test_redacted_config_round_trips_special_keys(tmp_path: Path) -> None:
+    """Keys that require quoting still round-trip through YAML parsing."""
+    config = {"normal": "v", "weird:key": "v", "-dash": "v"}
+    result = _write_redacted_config(tmp_path, config)
+    assert result is not None
+    parsed = yaml.safe_load(result.read_text())
+    assert parsed == config
 
 
 # ---------------------------------------------------------------------------
@@ -628,10 +640,49 @@ def test_string_escapes_quotes_and_backslashes() -> None:
     assert _format_yaml_value('a"b\\c') == '"a\\"b\\\\c"'
 
 
+def test_string_escapes_control_chars() -> None:
+    # Newline, carriage return, and tab become literal backslash sequences
+    # so the scalar survives a YAML double-quoted parse round-trip.
+    result = _yaml_escape_string("line1\nline2\ttab\rcr")
+    assert "\\n" in result
+    assert "\\t" in result
+    assert "\\r" in result
+    assert "\n" not in result
+    assert "\t" not in result
+    assert "\r" not in result
+
+
 def test_list_falls_back_to_json() -> None:
     # Collections that are not nested mappings hit the json.dumps fallback
     # so the file remains valid YAML (YAML is a JSON superset).
     assert _format_yaml_value([1, 2, 3]) == json.dumps([1, 2, 3])
+
+
+# --- _format_yaml_key ---
+
+
+def test_format_yaml_key_plain() -> None:
+    # Keys matching the plain-scalar pattern are emitted unquoted.
+    assert _format_yaml_key("runtime") == "runtime"
+    assert _format_yaml_key("a") == "a"
+    assert _format_yaml_key("matrix.main") == "matrix.main"
+    assert _format_yaml_key("radio-1") == "radio-1"
+    assert _format_yaml_key("_under") == "_under"
+    assert _format_yaml_key("v1.2") == "v1.2"
+
+
+def test_format_yaml_key_quotes_unsafe() -> None:
+    # Keys failing the plain-scalar regex are double-quoted.
+    for key in ("foo:bar", "a#b", "-leading", "trailing ", "with space"):
+        result = _format_yaml_key(key)
+        assert result.startswith('"')
+        assert result.endswith('"')
+        assert result == f'"{key}"'
+
+
+def test_format_yaml_key_escapes_quotes_in_key() -> None:
+    # A key containing a double quote is quoted and the inner quote escaped.
+    assert _format_yaml_key('he said "hi"') == '"he said \\"hi\\""'
 
 
 # ---------------------------------------------------------------------------

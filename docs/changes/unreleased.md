@@ -442,3 +442,50 @@ already-decoded `str` and could never raise it.
 call, so a non-UTF-8 config file raises
 `ConfigFileError("Config file <path> is not valid UTF-8: ...")` —
 consistent with the other file-read error paths.
+
+---
+
+## Reject Exotic Mapping Key Types in Strict YAML Loader
+
+The strict YAML loader now raises `StrictYAMLError` for mapping keys
+whose type is not one of the plain scalar types (`str`, `int`, `float`,
+`bool`, `None`). Previously, exotic hashable keys produced by tags like
+`!!omap` (tuples) or `!!set` (frozensets) were silently accepted. The
+check is enforced in both the loader constructor (`construct_mapping`)
+and the post-parse type walk (`_validate_plain_types`).
+
+Configs that relied on exotic mapping keys will now fail at load time
+with `"unsupported mapping key type <type>; only plain scalar keys are
+allowed"` instead of passing through and potentially causing downstream
+misconfiguration.
+
+---
+
+## Legacy TOML Config Raises Migration Error During Auto-Discovery
+
+Config auto-discovery (MEDRE_HOME, XDG, local cwd) now checks for
+legacy `config.toml` or `medre.toml` files after a YAML file is not
+found in the same directory. If a legacy TOML file is present, the
+loader raises `ConfigFileError` with the migration message
+`"TOML config files are no longer supported; use YAML (.yaml or .yml)."`
+
+Previously a leftover TOML file in a discovery directory was silently
+ignored, resulting in a generic `ConfigNotFoundError`. Operators
+upgrading from the historical TOML config format now get a clear
+migration pointer instead of a confusing "not found" error.
+
+---
+
+## Safe YAML Escaping in Docker Bridge Artifact Output
+
+The redacted `config.yaml` evidence artifact now escapes control
+characters and quotes unsafe mapping keys so the output is guaranteed
+to be valid round-trippable YAML. `_yaml_escape_string` escapes
+newline, carriage return, and tab in addition to backslash and
+double-quote. A new `_format_yaml_key` helper double-quotes and
+escapes any mapping key that does not match the plain-scalar pattern
+`[A-Za-z0-9_][A-Za-z0-9_.-]*` (keys containing `:`, `#`, leading
+`-`, trailing spaces, etc.).
+
+Previously config values or keys containing control characters or
+YAML-special characters could produce an invalid artifact file.

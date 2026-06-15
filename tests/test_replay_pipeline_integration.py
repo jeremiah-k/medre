@@ -57,7 +57,7 @@ def _make_paths(tmp: Path) -> MedrePaths:
     """Create MedrePaths pointing at *tmp* directories."""
     return MedrePaths(
         config_dir=tmp / "config",
-        config_file=tmp / "config" / "config.toml",
+        config_file=tmp / "config" / "config.yaml",
         state_dir=tmp / "state",
         data_dir=tmp / "data",
         cache_dir=tmp / "cache",
