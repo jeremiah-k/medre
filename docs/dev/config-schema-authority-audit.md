@@ -6,6 +6,11 @@ Auditor: deep agent (Wave 1)
 
 ## Summary
 
+> **Historical snapshot:** This audit captures repository state at the
+> audit date (2026-06-15). Some findings may already be resolved by
+> subsequent commits in the same PR stack. Treat each finding as
+> time-scoped unless explicitly confirmed open.
+
 The MEDRE config layer is in a mostly-healthy state after the YAML and
 route-context-label migrations. The typed model in
 `src/medre/config/model.py` + `routes.py` is internally coherent, the YAML

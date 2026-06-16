@@ -403,29 +403,16 @@ class TestExampleConfigsUseSameLoader:
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
-    def _load_any(self, config_name: str, tmp_path: Path):
-        """Load a config, resolving Docker placeholders if needed."""
-        raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
-        if "${" in raw:
-            config_path = _write_yaml(
-                tmp_path,
-                _resolve_docker_placeholders(raw),
-                config_name,
-            )
-        else:
-            config_path = CONFIGS_DIR / config_name
-        return load_config(str(config_path))
-
     @pytest.mark.parametrize("config_name", ALL_CONFIGS)
     def test_loads_via_load_config(self, config_name: str, tmp_path: Path) -> None:
-        config, _source, _paths = self._load_any(config_name, tmp_path)
+        config, _source, _paths = _load_any(config_name, tmp_path)
         assert config is not None
         assert hasattr(config, "runtime")
         assert hasattr(config, "adapters")
 
     @pytest.mark.parametrize("config_name", ALL_CONFIGS)
     def test_builds_via_runtime_builder(self, config_name: str, tmp_path: Path) -> None:
-        config, _source, paths = self._load_any(config_name, tmp_path)
+        config, _source, paths = _load_any(config_name, tmp_path)
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
 
@@ -437,7 +424,7 @@ class TestExampleConfigsUseSameLoader:
     @pytest.mark.parametrize("config_name", ALL_CONFIGS)
     def test_build_failures_are_clean(self, config_name: str, tmp_path: Path) -> None:
         """Any build failures must be RuntimeConfigError — not raw tracebacks."""
-        config, _source, paths = self._load_any(config_name, tmp_path)
+        config, _source, paths = _load_any(config_name, tmp_path)
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
 

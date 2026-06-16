@@ -1426,3 +1426,51 @@ class TestStructuredChannelRoomMapEntry:
                     f"channel_room_map[{key!r}].room must start with '!', "
                     f"got {val['room']!r}"
                 )
+
+
+# ===========================================================================
+# 8. filter_hooks schema validation
+# ===========================================================================
+
+
+def test_filter_hooks_absent_validates() -> None:
+    """A route without filter_hooks validates against the schema."""
+    example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route = example["routes"][0]
+    route.pop("filter_hooks", None)
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if _HAS_JSONSCHEMA:
+        import jsonschema
+
+        jsonschema.validate(route, schema)
+
+
+def test_filter_hooks_empty_array_validates() -> None:
+    """filter_hooks: [] validates against the schema."""
+    example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route = example["routes"][0]
+    route["filter_hooks"] = []
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if _HAS_JSONSCHEMA:
+        import jsonschema
+
+        jsonschema.validate(route, schema)
+
+
+def test_filter_hooks_nonempty_schema_allows_but_runtime_rejects() -> None:
+    """The schema allows non-empty filter_hooks (runtime enforces emptiness).
+
+    This documents the gap: the JSON Schema describes the *type* (array of
+    strings) but does not enforce the runtime constraint that the array must
+    be empty.  The runtime check is tested separately in
+    test_routes_strict_validation.py.
+    """
+    example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route = example["routes"][0]
+    route["filter_hooks"] = ["my_hook"]
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if _HAS_JSONSCHEMA:
+        import jsonschema
+
+        # Schema validation passes (array of strings is correct type).
+        jsonschema.validate(route, schema)

@@ -38,8 +38,9 @@
         "filter_hooks": {
           "type": "array",
           "items": { "type": "string" },
+          "maxItems": 0,
           "default": [],
-          "description": "Optional tuple of static filter hook names. Reserved — must be empty."
+          "description": "Reserved — must be empty. Non-empty filter_hooks are rejected at runtime."
         },
         "source_channel": {
           "type": ["string", "null"],
@@ -172,7 +173,9 @@
         "filter_hooks": {
           "type": "array",
           "items": { "type": "string" },
-          "default": []
+          "maxItems": 0,
+          "default": [],
+          "description": "Reserved — must be empty."
         },
         "source_channel": {
           "type": ["string", "null"],
