@@ -168,11 +168,13 @@
         "source_adapters": {
           "type": "array",
           "items": { "type": "string" },
+          "minItems": 1,
           "description": "Source adapter IDs for this route."
         },
         "dest_adapters": {
           "type": "array",
           "items": { "type": "string" },
+          "minItems": 1,
           "description": "Destination adapter IDs for this route."
         },
         "directionality": {

@@ -201,22 +201,6 @@ class TestConfigCheckErrors:
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "Config valid" in output
 
-    def test_route_unknown_adapter_ref_exits_nonzero(self, tmp_path: Path) -> None:
-        """A route referencing a nonexistent adapter fails config check (F-016).
-
-        Previously such a config passed ``medre config check`` with exit 0
-        and only failed at ``medre run`` startup. The pre-flight gate now
-        cross-checks route adapter refs against the configured adapter IDs.
-        """
-        cfg = tmp_path / "bad_route_ref.yaml"
-        cfg.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
-        stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
-        assert code == 2
-        assert "Traceback" not in stderr
-        combined = stdout + stderr
-        assert "nonexistent" in combined
-        assert "also_missing" in combined
-
 
 # ---------------------------------------------------------------------------
 # config sample — fake-buildable round-trip
@@ -530,3 +514,20 @@ class TestSampleConfigStructuredChannelRoomMap:
         output = _run_cli("config", "sample")
         assert "source_origin_label" in output
         assert "dest_origin_label" in output
+
+
+def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:
+    """A route referencing a nonexistent adapter fails config check (F-016).
+
+    Previously such a config passed ``medre config check`` with exit 0
+    and only failed at ``medre run`` startup. The pre-flight gate now
+    cross-checks route adapter refs against the configured adapter IDs.
+    """
+    cfg = tmp_path / "bad_route_ref.yaml"
+    cfg.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
+    stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+    assert code == 2
+    assert "Traceback" not in stderr
+    combined = stdout + stderr
+    assert "nonexistent" in combined
+    assert "also_missing" in combined
