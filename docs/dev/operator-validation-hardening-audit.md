@@ -385,7 +385,7 @@ config check`" subsection describing: (a) what the command does (load +
   `meshcore.py`, `lxmf.py` (no `__repr__` defined)
 - **Current state**: `MatrixConfig.__repr__` redacts `access_token` to
   `self.access_token[:3] + "…"` (line 226-228), matching the
-   3-character token preview documented at `docs/ops/configuration.md:803`. The
+  3-character token preview documented at `docs/ops/configuration.md:803`. The
   remaining MatrixConfig fields (`adapter_id`, `homeserver`, `user_id`,
   `room_allowlist`, `auto_join_rooms`) are echoed in full in the repr.
   `MeshtasticConfig`, `MeshCoreConfig`, and `LxmfConfig` inherit the
