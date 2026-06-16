@@ -537,22 +537,31 @@ receive.
 
 ### Origin-label provenance
 
-Each expanded leg in the plan shows the resolved `origin_label` and
-where it came from. The source is annotated so the four-step precedence
-chain is traceable end-to-end:
+Each expanded leg in the plan shows the _effective_ `origin_label` —
+the value the renderer would emit for that leg — and where it came
+from. The source is annotated so the four-step precedence chain is
+traceable end-to-end:
 
 1. Per-entry `source_origin_label` / `dest_origin_label` on the matched
    `channel_room_map` entry.
 2. Route-level `source_origin_label` / `dest_origin_label`.
-3. Source adapter's `origin_label`.
-4. Unset (renders empty).
+3. Source adapter's `origin_label`, applied as a fallback at plan time
+   (mirrors render-time attribution).
+4. Unset (renders empty) — no label resolved at any level and the
+   source adapter's `origin_label` is empty.
+
+The provenance annotation in the plan output is one of `per_entry`,
+`route`, `adapter`, or `unset`. An explicit empty string at the
+per-entry or route level is shown as `explicit_empty` at that level.
 
 If a relay prefix renders an unexpected label (or no label), check the
 per-leg provenance in the plan output. A common cause is an unset
-per-entry label falling through to an empty adapter `origin_label`, or
-an explicit `""` suppressing fallback for a leg where you did not intend
-it. An empty value shown as "explicit_empty" means an explicit `""` was set
-at that level; "unset" means the field was omitted and fell through.
+per-entry label falling through to the adapter `origin_label` (so the
+plan reports `adapter` rather than `unset`), or an explicit `""`
+suppressing fallback for a leg where you did not intend it. An empty
+value shown as `explicit_empty` means an explicit `""` was set at that
+level; `unset` means the field was omitted everywhere and the source
+adapter's `origin_label` is also empty.
 
 ### Fan-in warnings
 

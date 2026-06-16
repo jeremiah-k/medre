@@ -8,7 +8,10 @@ The plan reuses the pure expansion functions in
 :func:`_expand_channel_room_map_route`, :func:`check_route_loops`) and adds
 two things the engine does not surface on its own:
 
-* per-leg origin-label provenance (per-entry → route → adapter → unset), and
+* per-leg origin-label provenance including adapter fallback
+  (per-entry → route → adapter → unset), so the plan shows the
+  *effective* label the renderer would use rather than only what the
+  expansion engine copied onto the Route object; and
 * a config-level walk that includes disabled routes (the engine skips them).
 
 No adapter SDK is imported and no adapter is started.
@@ -83,12 +86,19 @@ class RoutePlanLeg:
     channel_room_map_room:
         The Matrix room ID for that key, else ``None``.
     source_origin_label:
-        The resolved origin label value carried on the expanded leg
-        (may be ``None`` or ``""``).
+        The effective origin label value for this leg, including
+        adapter-level ``origin_label`` fallback.  May be ``None`` (no
+        label resolved anywhere) or ``""`` (explicit suppression set at
+        the per-entry or route level).
     source_origin_label_source:
-        Where the resolved label came from: ``"per_entry"``, ``"route"``,
-        ``"adapter"``, or ``"unset"``.  When *source_origin_label* is
-        ``""`` the label is an explicit suppression regardless of source.
+        Live provenance category describing where *source_origin_label*
+        came from: ``"per_entry"`` (a ``channel_room_map`` entry's
+        label), ``"route"`` (route-level ``source_origin_label`` /
+        ``dest_origin_label``), ``"adapter"`` (source adapter's
+        ``origin_label`` fallback applied at plan time), or ``"unset"``
+        (no label resolved at any level).  When *source_origin_label*
+        is ``""`` the label is an explicit suppression regardless of
+        source.
     """
 
     expanded_route_id: str
@@ -379,12 +389,10 @@ def _build_leg(
         elif isinstance(entry, str):
             crm_room = entry
 
-    resolved_label = route.source.origin_label
-    label_source = _resolve_origin_label_source(
+    effective_label, label_source = _resolve_effective_origin_label(
         route=route,
         rc=rc,
         is_forward=is_forward,
-        resolved=resolved_label,
         adapter_platforms=adapter_platforms,
         adapter_origin_labels=adapter_origin_labels,
     )
@@ -402,25 +410,35 @@ def _build_leg(
         dest_channel=route.targets[0].channel if route.targets else None,
         channel_room_map_key=crm_key,
         channel_room_map_room=crm_room,
-        source_origin_label=resolved_label,
+        source_origin_label=effective_label,
         source_origin_label_source=label_source,
     )
 
 
-def _resolve_origin_label_source(
+def _resolve_effective_origin_label(
     *,
     route,
     rc,
     is_forward: bool,
-    resolved: str | None,
     adapter_platforms: dict[str, str],
     adapter_origin_labels: dict[str, str],
-) -> str:
-    """Determine where an expanded leg's origin label came from.
+) -> tuple[str | None, str]:
+    """Resolve the effective origin label and its provenance source.
 
-    Precedence mirrors the expansion code: per-entry → route-level →
-    (adapter fallback, only as a display attribution).  Returns one of
+    Returns ``(effective_label, source)`` where *source* is one of
     ``"per_entry"``, ``"route"``, ``"adapter"``, ``"unset"``.
+
+    Precedence mirrors render-time attribution:
+
+    1. Per-entry label (explicit ``""`` suppresses further fallback).
+    2. Route-level label (explicit ``""`` suppresses further fallback).
+    3. Source adapter ``origin_label`` fallback (when non-empty).
+    4. ``None`` (unset).
+
+    The expansion engine only carries per-entry and route-level labels
+    onto the expanded :class:`Route` object; the adapter fallback is
+    applied here so the plan reports the effective label the renderer
+    would use.
     """
     # Which config-level label side applies to this physical leg.
     # channel_room_map legs select source/dest side based on physical
@@ -449,21 +467,17 @@ def _resolve_origin_label_source(
     route_label = rc.source_origin_label if side_is_source else rc.dest_origin_label
 
     if entry_label is not None:
-        return "per_entry"
+        # Per-entry label wins (includes explicit "" suppression).
+        return (entry_label, "per_entry")
     if route_label is not None:
-        return "route"
-    if resolved is None:
-        return "unset"
-    # resolved is a non-None string with no entry/route attribution:
-    # attribute to the adapter fallback when it matches.
+        # Route-level label wins (includes explicit "" suppression).
+        return (route_label, "route")
+    # No per-entry or route-level label: apply adapter fallback.
     src_adapter = route.source.adapter
-    if (
-        src_adapter is not None
-        and resolved == adapter_origin_labels.get(src_adapter, "")
-        and resolved != ""
-    ):
-        return "adapter"
-    return "unset"
+    adapter_label = adapter_origin_labels.get(src_adapter, "") if src_adapter else ""
+    if adapter_label:
+        return (adapter_label, "adapter")
+    return (None, "unset")
 
 
 def _route_warnings(rc) -> list[str]:

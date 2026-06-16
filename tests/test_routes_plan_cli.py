@@ -157,6 +157,39 @@ routes:
       1: '!shared:fake.local'
 """
 
+# Route with no per-entry or route-level labels so the plan applies the
+# source adapter's origin_label as the effective label (adapter fallback).
+_CONFIG_ADAPTER_FALLBACK = """\
+runtime:
+  name: plan-cli-adapter-fallback
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+      origin_label: AdapterMatrix
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: AdapterMesh
+routes:
+  bridge:
+    source_adapters: [main]
+    dest_adapters: [radio]
+    directionality: source_to_dest
+    source_room: '!room:fake.local'
+    dest_channel: '1'
+"""
+
 # Config with a YAML parse error (malformed indentation).
 _CONFIG_PARSE_ERROR = """\
 runtime:
@@ -477,3 +510,44 @@ def test_json_mode_includes_provenance(tmp_path: Path) -> None:
     bridge = next(r for r in data["routes"] if r["route_id"] == "bridge")
     sources = {leg["source_origin_label_source"] for leg in bridge["legs"]}
     assert sources == {"route"}
+
+
+# ===========================================================================
+# 11. Adapter-level origin_label fallback in plan output
+# ===========================================================================
+
+
+def test_plan_text_shows_adapter_provenance(tmp_path: Path) -> None:
+    """Plan text output reports the adapter fallback provenance.
+
+    With no per-entry or route-level label, the plan applies the source
+    adapter's origin_label as the effective label and annotates the leg
+    with '(adapter)'.
+    """
+    cfg = _write_config(tmp_path, _CONFIG_ADAPTER_FALLBACK)
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code == 0
+    assert "AdapterMatrix" in stdout
+    assert "(adapter)" in stdout
+
+
+def test_plan_json_shows_adapter_provenance(tmp_path: Path) -> None:
+    """JSON output reports source_origin_label_source='adapter' per leg.
+
+    With no per-entry or route-level label, the source adapter's
+    origin_label becomes the effective label and the leg carries
+    source_origin_label_source='adapter'.
+    """
+    import json
+
+    cfg = _write_config(tmp_path, _CONFIG_ADAPTER_FALLBACK)
+    stdout, _stderr, code = _run_cli_raw(
+        "routes", "plan", "--config", str(cfg), "--json"
+    )
+    assert code == 0
+    data = json.loads(stdout)
+    bridge = next(r for r in data["routes"] if r["route_id"] == "bridge")
+    assert len(bridge["legs"]) == 1
+    leg = bridge["legs"][0]
+    assert leg["source_origin_label"] == "AdapterMatrix"
+    assert leg["source_origin_label_source"] == "adapter"

@@ -830,12 +830,12 @@ parsed config plus the configured adapter platforms.
   legs produced by `channel_room_map` expansion and the reverse legs
   produced by bidirectional expansion.
 - The direction and platform pair of each leg.
-- The resolved `origin_label` per leg with its provenance (per-entry,
-  route-level, or unset in practice), so the relay-prefix precedence
-  chain is visible end-to-end before runtime. Adapter-level
-  `origin_label` is applied at render time, not expansion time, so the
-  plan does not surface an "adapter" provenance category through normal
-  expansion.
+- The resolved `origin_label` per leg with its provenance — the
+  _effective_ label the renderer would emit, including the source
+  adapter's `origin_label` applied as a fallback at plan time. The
+  provenance categories are `per_entry`, `route`, `adapter`, and
+  `unset`, so the full relay-prefix precedence chain (per-entry →
+  route → adapter → unset) is visible end-to-end before runtime.
 - Fan-in decisions: when a `channel_room_map` maps multiple Meshtastic
   channels into one Matrix room and the route creates only
   Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
@@ -852,9 +852,11 @@ answers "is this config well-formed?"; `medre routes plan` answers
 **Docs updated:**
 
 - `docs/spec/routing-delivery.md`: new §17.4 _Offline Route Plan_ —
-  route expansion is deterministic and computable offline; per-entry
-  label provenance is shown; same-room fan-in is shown as allowed;
-  duplicate-room ambiguity fails before producing a plan.
+  route expansion is deterministic and computable offline; per-leg
+  effective `origin_label` (including adapter fallback) and its
+  provenance category (`per_entry`, `route`, `adapter`, `unset`) are
+  shown; same-room fan-in is shown as allowed; duplicate-room
+  ambiguity fails before producing a plan.
 - `docs/ops/configuration.md`: new _Route Topology Preview with
   `medre routes plan`_ subsection under pre-flight validation; CLI
   command block updated to list `plan`.

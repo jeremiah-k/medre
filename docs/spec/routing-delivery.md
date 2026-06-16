@@ -1214,11 +1214,18 @@ network or hardware I/O.
 The `medre routes plan` operator command is the offline rendering of this
 expansion. Its properties:
 
-- **Per-entry label provenance.** The plan shows the resolved
-  `origin_label` for every expanded leg and identifies its source within
-  the §17.5.2 precedence chain (per-entry, route-level, adapter fallback,
-  or unset), so the relay-prefix resolution is traceable end-to-end
-  before runtime.
+- **Per-leg effective origin label and provenance.** The plan shows the
+  _effective_ `origin_label` for every expanded leg — the value the
+  renderer would emit — and identifies its source within the §17.5.2
+  precedence chain. Provenance categories: `per_entry` (a structured
+  `channel_room_map` entry label), `route` (route-level
+  `source_origin_label` / `dest_origin_label`), `adapter` (the source
+  adapter's `origin_label` applied as fallback at plan time, mirroring
+  render-time attribution), or `unset` (no label resolved at any level
+  and the source adapter's `origin_label` is empty). An explicit empty
+  string at the per-entry or route level is preserved as an
+  `explicit_empty` suppression at that level. The relay-prefix
+  resolution is therefore traceable end-to-end before runtime.
 - **Same-room fan-in is shown as allowed.** When a `channel_room_map`
   maps two or more Meshtastic channel indices to one Matrix room and
   the route creates no Matrix→Meshtastic leg (§17.6), the plan renders
