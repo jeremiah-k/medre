@@ -1,0 +1,18 @@
+{
+  "adapter_id": "meshcore-node1",
+  "connection_type": "fake",
+  "host": null,
+  "port": null,
+  "serial_port": null,
+  "serial_baudrate": 115200,
+  "ble_address": null,
+  "ble_pin": null,
+  "origin_label": "MeshCore",
+  "default_channel": 0,
+  "message_delay_seconds": 0.5,
+  "identity": "meshcore-node1",
+  "pubkey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "node_config": {},
+  "max_text_bytes": 512,
+  "meshcore_relay_prefix": "[{origin_label}] "
+}

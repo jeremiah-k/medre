@@ -85,7 +85,7 @@ async def test_evidence_bundle_error_path_has_required_top_level_keys() -> None:
     """Error-path bundle still has adapter_status and shutdown_evidence keys."""
     from medre.runtime.evidence._bundle import collect_evidence_bundle
 
-    bundle = await collect_evidence_bundle(config_path="/nonexistent/config.toml")
+    bundle = await collect_evidence_bundle(config_path="/nonexistent/config.yaml")
     assert bundle["status"] == "error"
     assert "adapter_status" in bundle
     assert bundle["adapter_status"] is None

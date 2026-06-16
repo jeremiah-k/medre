@@ -143,10 +143,18 @@ adapters:
 #                         leg of this route (dest→source).  Same semantics
 #                         as source_origin_label but applied when direction
 #                         is swapped during expansion.
+#   channel_room_map    — optional mapping of Meshtastic channel strings
+#                         ("0"–"7") to Matrix room IDs.  Each value may be
+#                         a bare room-ID string or a structured table with
+#                         ``room`` plus optional per-entry
+#                         ``source_origin_label`` / ``dest_origin_label``.
+#                         When present, the route is expanded at runtime
+#                         into per-channel legs.  Mutually exclusive with
+#                         source_channel/dest_channel/source_room/dest_room.
+#                         Requires exactly one source and one dest adapter.
 #
-#   Per-channel origin labels (different labels per channel within a single
-#   route) are not supported.  Use separate routes per channel with their own
-#   source_origin_label/dest_origin_label as a workaround.
+#   Per-channel origin labels are supported via the structured
+#   channel_room_map entry shape (see the commented example below).
 #
 # Policy (routes.<id>.policy):
 #   allowed_event_types      — event kinds to permit (e.g. ["message.created",
@@ -228,4 +236,22 @@ routes:
   #   dest_channel: '2'
   #   policy:
   #     allowed_event_types: [message.created]
+
+  # --- Route with structured channel_room_map ---
+  # Maps Meshtastic channels to Matrix rooms.  Each value may be a bare
+  # room-ID string (channel → room) or a structured table carrying ``room``
+  # plus optional per-entry ``source_origin_label`` / ``dest_origin_label``
+  # for fine-grained relay-prefix attribution per channel.
+  # Uncomment and adjust to match your setup.
+  # channel_mapped_bridge:
+  #   source_adapters: [main]
+  #   dest_adapters: [radio]
+  #   directionality: source_to_dest
+  #   enabled: true
+  #   channel_room_map:
+  #     "0": '!general:example.com'
+  #     "1":
+  #       room: '!ops:example.com'
+  #       source_origin_label: Ops
+  #       dest_origin_label: Matrix-Ops
 """

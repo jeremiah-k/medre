@@ -71,6 +71,14 @@ _TOML_NOT_SUPPORTED_MSG = (
     "TOML config files are no longer supported; use YAML (.yaml or .yml)."
 )
 
+#: Top-level keys accepted at the root of a MEDRE config file.
+#: Matches :class:`medre.config.model.RuntimeConfig` sections. Any key not
+#: in this set is rejected at load time so typos (e.g. ``roues:``) surface
+#: as a :class:`ConfigValidationError` instead of silently being dropped.
+_KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
+    {"runtime", "logging", "storage", "retry", "adapters", "routes"}
+)
+
 
 def _validate_config_suffix(path: Path) -> None:
     """Ensure *path* has a supported YAML extension.
@@ -363,6 +371,18 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
 
     # [routes.*] sections
     routes = RouteConfigSet.from_dict(data)
+
+    # Reject unknown root-level keys so operator typos (e.g. ``roues:``)
+    # surface as a clear error rather than silently dropping the section.
+    # Matches ``additionalProperties: false`` on the JSON schemas.
+    unknown_root = set(data) - _KNOWN_ROOT_KEYS
+    if unknown_root:
+        raise ConfigValidationError(
+            f"Unknown root config key(s): "
+            f"{sorted(unknown_root, key=lambda k: (type(k).__name__, repr(k)))}. "
+            f"Valid keys are: {sorted(_KNOWN_ROOT_KEYS)}.",
+            section_path="<root>",
+        )
 
     return RuntimeConfig(
         runtime=runtime,

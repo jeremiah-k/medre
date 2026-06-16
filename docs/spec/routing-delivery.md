@@ -1219,24 +1219,37 @@ LXMF, `RenderingResult.metadata` on all transports).
 ### 17.5.2 origin_label
 
 `origin_label` is the platform-neutral, operator-defined source label for
-relay prefixes. It can be set at two levels:
+relay prefixes. It can be set at three levels:
 
-1. **Route level** — `source_origin_label` and `dest_origin_label` on
+1. **Per-entry (channel_room_map only)** — `source_origin_label` and
+   `dest_origin_label` on a structured `channel_room_map` entry. These
+   override the route-level and adapter-level labels for the expanded legs
+   of that one channel only. Both default to `nil` (unset, falls through).
+   See §17.5.8 for the entry shape and full per-entry semantics.
+2. **Route level** — `source_origin_label` and `dest_origin_label` on
    `RouteConfig`. These direction-aware labels override the adapter-level
    `origin_label` for deliveries on that route. `source_origin_label` applies
    to forward legs (source→dest); `dest_origin_label` applies to reverse legs
    (dest→source) after bidirectional expansion. Both default to `None`
    (unset).
-2. **Adapter level** — `origin_label` on each adapter config (string, default
+3. **Adapter level** — `origin_label` on each adapter config (string, default
    `""`), set by the operator to a short human-readable name for the
    adapter's origin (e.g. `"East Mesh"`, `"HQ Matrix"`).
 
 The precedence chain for `source_origin_label` on `RelayAttribution` is:
 
-1. Route-level label (`source_origin_label` or `dest_origin_label` after
-   expansion) from the matched route.
-2. Adapter config `origin_label` from the source-attribution registry.
-3. Empty string (no fallback to native metadata).
+1. Per-entry label (`source_origin_label` or `dest_origin_label` on the
+   matched `channel_room_map` entry), when it is not `nil`.
+2. Route-level label (`source_origin_label` or `dest_origin_label` after
+   expansion) from the matched route, when it is not `None`.
+3. Adapter config `origin_label` from the source-attribution registry.
+4. Empty string (no fallback to native metadata).
+
+An explicit empty string (`""`) set at the per-entry or route level
+suppresses fallback below that level for that leg; an absent or `nil`/`None`
+label falls through to the next level. See §17.5.8 for the full per-entry
+semantics, including the bool-before-string validation rule and the
+structured-entry shape.
 
 Properties:
 
@@ -1302,6 +1315,24 @@ Profile §Relay Attribution Prefix.
 Formatting rules: `None`/missing values format as empty strings. Unknown
 placeholders are left unchanged in the output and recorded in diagnostic
 metadata. The formatter never raises exceptions.
+
+The following legacy placeholders were removed when the attribution surface
+was canonicalized (see _Clean Attribution Surface — Canonical Variables
+Only_ in the changelog). They are no longer resolved and pass through as
+literals:
+
+| Removed placeholder | Current behavior                |
+| ------------------- | ------------------------------- |
+| `{meshnet_name}`    | Unknown — left as literal text. |
+| `{longname}`        | Unknown — left as literal text. |
+| `{shortname}`       | Unknown — left as literal text. |
+| `{shortname5}`      | Unknown — left as literal text. |
+| `{from_id}`         | Unknown — left as literal text. |
+
+Operators with prefix templates that still reference these names MUST
+migrate to the canonical variables listed in the Meshtastic Transport
+Profile §Relay Attribution Prefix (e.g. `{origin_label}`, `{sender}`,
+`{sender_short}`, `{sender_id}`).
 
 ### 17.5.6 Relay-Prefix Metadata Keys
 

@@ -1,0 +1,15 @@
+{
+  "adapter_id": "lxmf-node1",
+  "connection_type": "fake",
+  "display_name": "MEDRE LXMF Bot",
+  "stamp_cost": 8,
+  "default_delivery_method": "direct",
+  "origin_label": "LXMF",
+  "default_channel": 0,
+  "message_delay_seconds": 0.5,
+  "metadata_embedding": true,
+  "identity_path": null,
+  "storage_path": null,
+  "announce_interval_seconds": 600.0,
+  "lxmf_relay_prefix": "[{origin_label}] "
+}

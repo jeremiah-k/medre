@@ -9,13 +9,10 @@ adapters:
   lxmf:
     lxmf_receiver:
       enabled: true
-      adapter_kind: lxmf
-      connection_type: reticulum
+      adapter_kind: real
+      connection_type: reticulum # requires storage_path — set via MEDRE_ADAPTER__LXMF_RECEIVER__STORAGE_PATH
       # Wire identity and display name via env:
       #   MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
       #   MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
-      # Or create entirely from env:
-      #   MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT=lxmf
-      #   MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE=reticulum
-      #   MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
-      #   MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
+      # Env-only adapter creation (no YAML) — see
+      # docs/ops/configuration.md §"Env-First Adapter Creation".

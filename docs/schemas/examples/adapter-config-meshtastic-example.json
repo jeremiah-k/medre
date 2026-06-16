@@ -1,0 +1,26 @@
+{
+  "adapter_id": "longfast",
+  "connection_type": "fake",
+  "host": null,
+  "port": null,
+  "serial_port": null,
+  "ble_address": null,
+  "origin_label": "LongFast",
+  "default_channel": 0,
+  "channel_mapping": {
+    "0": "LongFast",
+    "1": "Ops"
+  },
+  "message_delay_seconds": 0.5,
+  "startup_backlog_suppress_seconds": 5.0,
+  "sync_timeout_ms": 30000,
+  "radio_relay_prefix": "{sender_short}: ",
+  "mmrelay_compatibility": false,
+  "max_text_bytes": 227,
+  "queue_send_max_attempts": 3,
+  "outbound_mode": "enabled",
+  "encrypted_action": "drop",
+  "chat_portnums": ["TEXT_MESSAGE_APP"],
+  "disabled_portnums": ["UNKNOWN_PORTNUM"],
+  "detection_sensor_relay": false
+}

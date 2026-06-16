@@ -1260,7 +1260,7 @@ def _collect_inspect_artifacts(run_dir: Path) -> list[str]:
     etc. that may have been placed by the test suite.
     """
     artifacts: list[str] = []
-    for pattern in ("*.json", "*.log", "*.yaml", "*.yml", "*.toml"):
+    for pattern in ("*.json", "*.log", "*.yaml", "*.yml"):
         for path in run_dir.glob(pattern):
             if path.name != "summary.json":
                 artifacts.append(str(path))

@@ -9,11 +9,9 @@ adapters:
   meshcore:
     meshcore_tbeam:
       enabled: true
-      adapter_kind: meshcore
-      connection_type: ble
+      adapter_kind: real
+      connection_type: ble # requires ble_address — set via MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS
       # Wire the BLE address via env:
       #   MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS="C4:4F:33:6A:B0:23"
-      # Or create entirely from env:
-      #   MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
-      #   MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
-      #   MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS="C4:4F:33:6A:B0:23"
+      # Env-only adapter creation (no YAML) — see
+      # docs/ops/configuration.md §"Env-First Adapter Creation".

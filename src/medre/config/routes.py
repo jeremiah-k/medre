@@ -234,6 +234,12 @@ def _validate_policy(
 # ---------------------------------------------------------------------------
 
 
+# Canonical field names accepted in a ``[routes.<id>.retry]`` section.
+_RETRY_KNOWN_FIELDS: frozenset[str] = frozenset(
+    {"enabled", "max_attempts", "backoff_base", "max_delay_seconds", "jitter"}
+)
+
+
 @dataclass(frozen=True)
 class RouteRetryConfig:
     """Per-route retry policy for transient delivery failures.
@@ -294,6 +300,19 @@ class RouteRetryConfig:
         backoff_base = data.get("backoff_base", 2.0)
         max_delay_seconds = data.get("max_delay_seconds", 60.0)
         jitter: bool = data.get("jitter", False)
+
+        # Reject unknown keys so operators don't silently misconfigure.
+        # Mirrors :meth:`BridgePolicy.from_dict` and the JSON schemas'
+        # ``additionalProperties: false``.
+        unknown = set(data) - _RETRY_KNOWN_FIELDS
+        if unknown:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: unknown retry key(s) "
+                f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
+                f"{section_path}.retry. Accepted keys: "
+                f"{sorted(_RETRY_KNOWN_FIELDS)}",
+                section_path=f"{section_path}.retry",
+            )
 
         if not isinstance(enabled, bool):
             raise ConfigValidationError(
@@ -692,6 +711,29 @@ def _validate_room_string(
 # ---------------------------------------------------------------------------
 
 
+# Canonical field names accepted in a ``[routes.<id>]`` section.  Every
+# field that :meth:`RouteConfig.from_dict` pops must be listed here so the
+# unknown-key rejection can flag typos rather than silently dropping them.
+_ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
+    {
+        "source_adapters",
+        "dest_adapters",
+        "directionality",
+        "enabled",
+        "filter_hooks",
+        "source_channel",
+        "dest_channel",
+        "source_room",
+        "dest_room",
+        "source_origin_label",
+        "dest_origin_label",
+        "channel_room_map",
+        "policy",
+        "retry",
+    }
+)
+
+
 @dataclass(frozen=True)
 class RouteConfig:
     """A single named route definition parsed from ``[routes.<id>]``.
@@ -1043,6 +1085,21 @@ class RouteConfig:
             retry = RouteRetryConfig.from_dict(
                 raw_retry,
                 route_id=route_id,
+                section_path=section_path,
+            )
+
+        # --- unknown key rejection ---
+        # After every known field has been popped, any remaining keys are
+        # typos or unsupported fields. Reject them so operators get
+        # actionable feedback instead of silently losing the configuration.
+        # Mirrors :meth:`BridgePolicy.from_dict` and the JSON schemas'
+        # ``additionalProperties: false``.
+        if data:
+            unknown = sorted(data.keys(), key=lambda k: (type(k).__name__, repr(k)))
+            raise ConfigValidationError(
+                f"Route {route_id!r}: unknown key(s) {unknown} in "
+                f"{section_path}. Accepted keys: "
+                f"{sorted(_ROUTE_KNOWN_FIELDS)}",
                 section_path=section_path,
             )
 

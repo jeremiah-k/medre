@@ -149,7 +149,7 @@ async def test_runtime_events_count_positive_after_pipeline_run() -> None:
 
 async def test_failure_report_has_derived_fields() -> None:
     """Even failed smoke reports include the derived fields (graceful)."""
-    report = await run_fake_bridge_smoke("/nonexistent/config.toml")
+    report = await run_fake_bridge_smoke("/nonexistent/config.yaml")
     assert report["status"] == "failed"
     # Failed early (config load error) — snap is empty, so fields are defaults.
     assert "adapter_lifecycle" in report

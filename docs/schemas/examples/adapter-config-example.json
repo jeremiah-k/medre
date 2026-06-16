@@ -13,5 +13,7 @@
   "sync_timeout_ms": 30000,
   "encryption_mode": "e2ee_optional",
   "require_encrypted_rooms": false,
-  "auto_join_rooms": ["!roomkey:matrix.example.org"]
+  "auto_join_rooms": ["!roomkey:matrix.example.org"],
+  "origin_label": "Matrix",
+  "relay_prefix": "[{origin_label}] "
 }

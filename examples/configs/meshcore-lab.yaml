@@ -9,13 +9,10 @@ adapters:
   meshcore:
     meshcore_lab:
       enabled: true
-      adapter_kind: meshcore
-      connection_type: tcp
+      adapter_kind: real
+      connection_type: tcp # requires host — set via MEDRE_ADAPTER__MESHCORE_LAB__HOST
       # Wire host/port via env:
       #   MEDRE_ADAPTER__MESHCORE_LAB__HOST=192.168.1.50
       #   MEDRE_ADAPTER__MESHCORE_LAB__PORT=4403
-      # Or create entirely from env:
-      #   MEDRE_ADAPTER__MESHCORE_LAB__TRANSPORT=meshcore
-      #   MEDRE_ADAPTER__MESHCORE_LAB__CONNECTION_TYPE=tcp
-      #   MEDRE_ADAPTER__MESHCORE_LAB__HOST=192.168.1.50
-      #   MEDRE_ADAPTER__MESHCORE_LAB__PORT=4403
+      # Env-only adapter creation (no YAML) — see
+      # docs/ops/configuration.md §"Env-First Adapter Creation".

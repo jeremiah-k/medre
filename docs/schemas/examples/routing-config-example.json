@@ -25,6 +25,13 @@
     "jitter": false
   },
   "channel_room_map": {
-    "0": "!roomkey:matrix.example.org"
-  }
+    "0": "!roomkey:matrix.example.org",
+    "1": {
+      "room": "!ops:matrix.example.org",
+      "source_origin_label": "Ops",
+      "dest_origin_label": "Matrix-Ops"
+    }
+  },
+  "source_origin_label": "Default",
+  "dest_origin_label": null
 }
