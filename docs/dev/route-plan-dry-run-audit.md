@@ -559,7 +559,7 @@ plus the adapter fallback (third step) by reading
 ### Duplicate-room fan-in rule (implemented)
 
 The route-level check at `_validate_duplicate_rooms_for_direction`
-(lines 481-556) is the single source of truth. It runs once per
+(lines 481-556) is the canonical implementation. It runs once per
 `channel_room_map` route, after platform assignment but before the
 per-channel loop. Rule:
 
