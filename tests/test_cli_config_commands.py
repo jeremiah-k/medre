@@ -460,7 +460,11 @@ class TestConfigCheckSectionStrictValidation:
         message; previously it was silently skipped."""
         cfg = tmp_path / "bad_instance.yaml"
         cfg.write_text(
-            "runtime:\n  name: typo\n" "adapters:\n" "  matrix:\n" "    main: bad\n"
+            "runtime:\n"
+            "  name: typo\n"
+            "adapters:\n"
+            "  matrix:\n"
+            "    main: bad\n"
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0
@@ -472,7 +476,10 @@ class TestConfigCheckSectionStrictValidation:
         naming the unknown key."""
         cfg = tmp_path / "unknown_retry.yaml"
         cfg.write_text(
-            "runtime:\n  name: typo\n" "retry:\n  bogus: 123\n",
+            "runtime:\n"
+            "  name: typo\n"
+            "retry:\n"
+            "  bogus: 123\n",
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0

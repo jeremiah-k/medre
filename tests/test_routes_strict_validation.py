@@ -126,7 +126,7 @@ def test_unknown_retry_key_error_names_route_and_path() -> None:
 
 def test_non_empty_filter_hooks_rejected() -> None:
     """filter_hooks with entries raises ConfigValidationError (reserved)."""
-    with pytest.raises(ConfigValidationError, match="filter_hooks.*reserved"):
+    with pytest.raises(ConfigValidationError, match=r"filter_hooks.*reserved"):
         RouteConfig.from_dict(
             "bad",
             {

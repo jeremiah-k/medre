@@ -465,61 +465,70 @@ def test_format_mark_none_returns_config_prefix() -> None:
 # dangerous because ``True == 1`` and ``False == 0`` collide with int keys.
 
 
-class TestStrictMappingKeyTypes:
-    """Reject every mapping key type except ``str`` and ``int``.
+# --- Strict mapping key types ---
+# Reject every mapping key type except ``str`` and ``int``.
+# ``bool`` must be rejected even though it subclasses ``int``; the
+# strict loader uses ``type(key) is int`` rather than ``isinstance``
+# to enforce this.
 
-    ``bool`` must be rejected even though it subclasses ``int``; the
-    strict loader uses ``type(key) is int`` rather than ``isinstance``
-    to enforce this.
-    """
 
-    def test_bool_true_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("true: value\n")
+def test_bool_true_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("true: value\n")
 
-    def test_bool_false_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("false: value\n")
 
-    def test_null_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("null: value\n")
+def test_bool_false_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("false: value\n")
 
-    def test_null_tilde_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("~: value\n")
 
-    def test_float_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("1.5: value\n")
+def test_null_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("null: value\n")
 
-    def test_timestamp_key_rejected(self) -> None:
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("2026-06-15: value\n")
 
-    def test_binary_key_rejected(self) -> None:
-        # ``!!binary`` as a complex mapping key constructs to ``bytes``.
-        with pytest.raises(StrictYAMLError, match="mapping key"):
-            _parse("? !!binary aGVsbG8=\n: value\n")
+def test_null_tilde_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("~: value\n")
 
-    def test_string_keys_accepted(self) -> None:
-        data = _parse("a: 1\nb: hello\n")
-        assert data == {"a": 1, "b": "hello"}
 
-    def test_integer_keys_accepted(self) -> None:
-        # Integer keys are required for channel-index style configs.
-        data = _parse("0: first\n1: second\n")
-        assert data == {0: "first", 1: "second"}
+def test_float_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("1.5: value\n")
 
-    def test_duplicate_string_keys_rejected(self) -> None:
-        # Regression guard: duplicate-key detection still fires for str.
-        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
-            _parse("a: 1\na: 2\n")
 
-    def test_duplicate_int_keys_rejected(self) -> None:
-        # Regression guard: duplicate-key detection still fires for int.
-        with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
-            _parse("1: a\n1: b\n")
+def test_timestamp_key_rejected() -> None:
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("2026-06-15: value\n")
+
+
+def test_binary_key_rejected() -> None:
+    # ``!!binary`` as a complex mapping key constructs to ``bytes``.
+    with pytest.raises(StrictYAMLError, match="mapping key"):
+        _parse("? !!binary aGVsbG8=\n: value\n")
+
+
+def test_string_keys_accepted() -> None:
+    data = _parse("a: 1\nb: hello\n")
+    assert data == {"a": 1, "b": "hello"}
+
+
+def test_integer_keys_accepted() -> None:
+    # Integer keys are required for channel-index style configs.
+    data = _parse("0: first\n1: second\n")
+    assert data == {0: "first", 1: "second"}
+
+
+def test_duplicate_string_keys_rejected() -> None:
+    # Regression guard: duplicate-key detection still fires for str.
+    with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+        _parse("a: 1\na: 2\n")
+
+
+def test_duplicate_int_keys_rejected() -> None:
+    # Regression guard: duplicate-key detection still fires for int.
+    with pytest.raises(StrictYAMLError, match="duplicate mapping key"):
+        _parse("1: a\n1: b\n")
 
 
 def test_complex_sequence_key_rejected() -> None:

@@ -283,44 +283,44 @@ class TestLoadErrors:
 # ---------------------------------------------------------------------------
 
 
-class TestUnknownRootKeyRejection:
-    """Unknown top-level keys (typos like ``roues:``) are rejected at load.
+# --- Unknown root-level key rejection (TC-010 / audit finding F-012) ---
+# Unknown top-level keys (typos like ``roues:``) are rejected at load.
+# Wave 2 added an explicit ``set(data) - _KNOWN_ROOT_KEYS`` check at the
+# end of ``_parse_runtime_config`` so a typo at the root surfaces as a
+# :class:`ConfigValidationError` instead of silently being dropped (which
+# would leave the operator with default values for the section they
+# thought they were configuring). Matches ``additionalProperties: false``
+# on the JSON schemas.
 
-    Wave 2 added an explicit ``set(data) - _KNOWN_ROOT_KEYS`` check at the
-    end of ``_parse_runtime_config`` so a typo at the root surfaces as a
-    :class:`ConfigValidationError` instead of silently being dropped (which
-    would leave the operator with default values for the section they
-    thought they were configuring). Matches ``additionalProperties: false``
-    on the JSON schemas.
-    """
 
-    def test_typo_root_key_rejected(self, tmp_path: Path) -> None:
-        """``roues:`` (typo of ``routes:``) raises ConfigValidationError."""
-        p = _write_config(tmp_path, "runtime: {}\nroues: {}\n")
-        with pytest.raises(
-            ConfigValidationError, match="Unknown root config key"
-        ) as exc_info:
-            load_config(str(p))
-        # section_path must identify the root, not a sub-section.
-        assert exc_info.value.section_path == "<root>"
-        # The offending key name must appear in the message so operators
-        # can find the typo without reading source code.
-        assert "roues" in str(exc_info.value)
+def test_typo_root_key_rejected(tmp_path: Path) -> None:
+    """``roues:`` (typo of ``routes:``) raises ConfigValidationError."""
+    p = _write_config(tmp_path, "runtime: {}\nroues: {}\n")
+    with pytest.raises(
+        ConfigValidationError, match="Unknown root config key"
+    ) as exc_info:
+        load_config(str(p))
+    # section_path must identify the root, not a sub-section.
+    assert exc_info.value.section_path == "<root>"
+    # The offending key name must appear in the message so operators
+    # can find the typo without reading source code.
+    assert "roues" in str(exc_info.value)
 
-    def test_valid_root_keys_accepted(self, tmp_path: Path) -> None:
-        """Sanity check: a config using only known root keys loads fine."""
-        p = _write_config(
-            tmp_path,
-            "runtime: {}\n"
-            "logging:\n  level: INFO\n"
-            "storage:\n  backend: sqlite\n"
-            "retry:\n  enabled: false\n"
-            "adapters: {}\n"
-            "routes: {}\n",
-        )
-        # Must not raise.
-        config, _, _ = load_config(str(p))
-        assert config.runtime.name == "medre"
+
+def test_valid_root_keys_accepted(tmp_path: Path) -> None:
+    """Sanity check: a config using only known root keys loads fine."""
+    p = _write_config(
+        tmp_path,
+        "runtime: {}\n"
+        "logging:\n  level: INFO\n"
+        "storage:\n  backend: sqlite\n"
+        "retry:\n  enabled: false\n"
+        "adapters: {}\n"
+        "routes: {}\n",
+    )
+    # Must not raise.
+    config, _, _ = load_config(str(p))
+    assert config.runtime.name == "medre"
 
 
 # ---------------------------------------------------------------------------
