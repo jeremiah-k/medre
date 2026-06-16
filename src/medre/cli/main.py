@@ -93,6 +93,18 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_topology_p.add_argument("--config", default=None, help="Path to config file")
     routes_list_p = routes_sub.add_parser("list", help="List configured routes")
     routes_list_p.add_argument("--config", default=None, help="Path to config file")
+    routes_plan_p = routes_sub.add_parser(
+        "plan",
+        help="Expand routes offline and show per-leg plan, origin-label "
+        "provenance, and loops (no adapter I/O)",
+    )
+    routes_plan_p.add_argument("--config", default=None, help="Path to config file")
+    routes_plan_p.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Emit the plan as a normalized JSON report",
+    )
 
     # smoke
     smoke_p = sub.add_parser(
@@ -465,7 +477,12 @@ def main(argv: list[str] | None = None) -> None:
         else:
             _diagnostics(args.config)
     elif args.command == "routes":
-        from .route_commands import _routes_list, _routes_topology, _routes_validate
+        from .route_commands import (
+            _routes_list,
+            _routes_plan,
+            _routes_topology,
+            _routes_validate,
+        )
 
         if args.routes_command == "validate":
             _routes_validate(args.config)
@@ -473,6 +490,8 @@ def main(argv: list[str] | None = None) -> None:
             _routes_topology(args.config)
         elif args.routes_command == "list":
             _routes_list(args.config)
+        elif args.routes_command == "plan":
+            _routes_plan(args.config, as_json=args.json)
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 

@@ -76,6 +76,35 @@ no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key 
 For interactive route debugging, `medre routes validate [--config PATH]`
 prints a topology preview alongside the same route validation.
 
+### Route Topology Preview with `medre routes plan`
+
+`medre routes plan --config <path>` renders the expanded route topology
+the runtime will build, **without performing any live network or hardware
+I/O**. No adapter is started, no SDK is imported, no transport is
+contacted — the plan is computed purely from the parsed config plus the
+configured adapter platforms.
+
+What the plan shows:
+
+- The configured adapters (id, transport, kind, `origin_label`).
+- Every expanded route leg, one row per leg, including the legs produced
+  by `channel_room_map` expansion and bidirectional reverse legs.
+- The direction of each leg (forward / reverse, and the platform pair).
+- The resolved `origin_label` per leg and its provenance — per-entry,
+  route-level, adapter fallback, or unset — so the relay-prefix
+  precedence chain is visible end-to-end.
+- Fan-in decisions: when a `channel_room_map` maps multiple Meshtastic
+  channels into one Matrix room and the route only creates
+  Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
+
+The plan is **observational, not delivery evidence**. It describes the
+shape the router will receive; it does not record, prove, or guarantee
+any delivery. Use `medre config check` for general validation (YAML,
+unknown keys, adapter shapes, route adapter references) and
+`medre routes plan` for the expanded-topology preview. The two commands
+are complementary: `config check` answers "is this config well-formed?",
+`routes plan` answers "what will MEDRE actually build from it?".
+
 ### Docker `${VAR}` configs cannot be loaded directly
 
 Docker bridge configs (`examples/configs/docker-matrix-bridge.yaml`,
@@ -937,8 +966,10 @@ medre diagnostics [--config PATH] [--refresh-health]
     build-time state only. With --refresh-health, starts adapters, polls
     health, then stops.
 
-medre routes (validate|topology|list) [--config PATH]
-    Route management: validate, print topology preview, or list routes.
+medre routes (validate|topology|list|plan) [--config PATH]
+    Route management: validate, print topology preview, list routes, or
+    show the expanded route plan (offline, no network I/O). See
+    "Route Topology Preview with `medre routes plan`" above.
 
 medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
     Run fake bridge smoke test. Storage backend determined by config.
