@@ -27,11 +27,11 @@ import zipfile
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 
-from medre.config._yaml import StrictYAMLError, parse_yaml_config
+from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigError, ConfigValidationError
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.core.observability.sanitization import sanitize_error
@@ -91,6 +91,101 @@ def _redact(obj: Any) -> Any:
     return obj
 
 
+# ---------------------------------------------------------------------------
+# Config env-override detection
+# ---------------------------------------------------------------------------
+#
+# The bundle surfaces ``env_overrides_applied`` as a boolean so operators can
+# tell whether the loaded config differs from the on-disk YAML without
+# exposing env-var *values*. Discovery vars (``MEDRE_CONFIG``, ``MEDRE_HOME``)
+# are excluded: they pick a file, they do not override field values. Unknown
+# ``MEDRE_*`` vars are excluded too — only the documented override surfaces
+# count. See the operator-support-bundle-audit (F-006) for rationale.
+_CONFIG_OVERRIDE_PREFIXES: tuple[str, ...] = (
+    "MEDRE_ADAPTER__",
+    "MEDRE_ROUTE__",
+    "MEDRE_RETRY__",
+)
+_CONFIG_OVERRIDE_EXACT: frozenset[str] = frozenset(
+    {
+        "MEDRE_DB_PATH",
+        "MEDRE_LOG_LEVEL",
+        "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES",
+        "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS",
+        "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
+        "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
+    }
+)
+
+
+def _has_config_env_overrides(environ: Mapping[str, str] = os.environ) -> bool:
+    """Return True if *environ* contains any config-field override var.
+
+    Prefix-based overrides (``MEDRE_ADAPTER__``, ``MEDRE_ROUTE__``,
+    ``MEDRE_RETRY__``) and the exact-name override vars are detected.
+    Discovery-only vars (``MEDRE_CONFIG``, ``MEDRE_HOME``) and unknown
+    ``MEDRE_*`` vars are not overrides and return False.
+    """
+    for key in environ:
+        if any(key.startswith(prefix) for prefix in _CONFIG_OVERRIDE_PREFIXES):
+            return True
+        if key in _CONFIG_OVERRIDE_EXACT:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Schema metadata (schemas.json member)
+# ---------------------------------------------------------------------------
+# Resolved from the package root so the bundle reports schema-file presence
+# without shipping the schema contents (keeps the bundle small and avoids
+# any chance of leaking example data embedded in schemas).
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_SCHEMAS_DIR = _PACKAGE_ROOT / "docs" / "schemas"
+_VALIDATE_EXAMPLE_CONFIGS_SCRIPT = (
+    _PACKAGE_ROOT / "scripts" / "ci" / "validate-example-configs.sh"
+)
+
+
+def _read_schema_meta(filename: str) -> dict[str, Any]:
+    """Return presence + ``$id``/``$schema`` for *filename* under docs/schemas.
+
+    Defensive by design: a missing or malformed schema never raises. Returns
+    ``{"present": False}`` on any failure so the bundle stays JSON-valid.
+    """
+    path = _SCHEMAS_DIR / filename
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — schema metadata is best-effort
+        return {"present": False}
+    if not isinstance(data, dict):
+        return {"present": False}
+    return {
+        "present": True,
+        "path": str(path),
+        "$id": data.get("$id"),
+        "$schema": data.get("$schema"),
+    }
+
+
+def _build_schemas_member() -> dict[str, Any]:
+    """Build the ``schemas.json`` bundle member: schema-file metadata.
+
+    Surfaces presence and ``$id``/``$schema`` for the runtime, adapter, and
+    routing config schemas, plus whether the example-config validator script
+    exists. Useful for diagnosing config/schema drift between a deployment
+    and the schemas the bundle was built against. Defensive — never raises.
+    """
+    return {
+        "runtime_config_schema": _read_schema_meta("runtime-config.schema.json"),
+        "adapter_config_schema": _read_schema_meta("adapter-config.schema.json"),
+        "routing_config_schema": _read_schema_meta("routing-config.schema.json"),
+        "validate_example_configs_script_present": (
+            _VALIDATE_EXAMPLE_CONFIGS_SCRIPT.is_file()
+        ),
+    }
+
+
 def _get_version() -> str:
     """Return the MEDRE version string (``"unknown"`` if not installed)."""
     try:
@@ -147,9 +242,7 @@ def _build_config_source(
     source: ConfigSource | None,
     path: Path | None,
 ) -> dict[str, Any]:
-    # ponytail: direct env scan instead of MedreEnvConfig.from_environ(),
-    # which raises on legacy prefixes and produced false negatives.
-    env_overrides_applied = any(k.startswith("MEDRE_ADAPTER__") for k in os.environ)
+    env_overrides_applied = _has_config_env_overrides()
     return {
         "source": source.value if source is not None else None,
         "path": str(path) if path is not None else None,
@@ -208,11 +301,13 @@ def _build_redacted_config_text(raw_text: str, source_label: str) -> str | None:
     """
     try:
         data = parse_yaml_config(raw_text, source_label)
-    except StrictYAMLError:
+        redacted = _redact(data)
+        return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
+    except (
+        Exception
+    ):  # noqa: BLE001 — any failure drops the member, never crashes the bundle
         # Config-check already records the load failure; no config member.
         return None
-    redacted = _redact(data)
-    return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
 
 
 def create_support_bundle(
@@ -260,6 +355,10 @@ def create_support_bundle(
     # -- Always-present members --------------------------------------------
     members["manifest.json"] = _json_bytes(_build_manifest(now))
     members["environment.json"] = _json_bytes(_build_environment())
+    # schemas.json depends only on the repo layout, never on config — it sits
+    # with the always-present members so schema drift is reported even when
+    # the config fails to load.
+    members["schemas.json"] = _json_bytes(_build_schemas_member())
 
     # -- Config discovery, load, and validation ----------------------------
     discovered_path: Path | None = None
@@ -290,7 +389,10 @@ def create_support_bundle(
 
     if discovered_path is not None:
         try:
-            config, _source, _paths = load_config(config_path)
+            # ponytail: pass the discovered path, not the original argument —
+            # when discovery expanded a directory to a file (or applied an
+            # XDG default), load_config must see the same path that was read.
+            config, _source, _paths = load_config(discovered_path)
             config_check["success"] = True
             config_check["error"] = None
             config_check["error_section_path"] = None

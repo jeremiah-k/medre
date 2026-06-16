@@ -157,13 +157,16 @@ evidence` under "Evidence Bundle"; adding a second bundle-producing
 - **Category**: reusable code
 - **Location**: `src/medre/cli/main.py:71-82`
 - **Current state**:
+
   ```python
   diag_p = sub.add_parser("diagnostics", help="...")
   diag_p.add_argument("--config", ...)
   diag_p.add_argument("--refresh-health", ...)
   ```
+
   No `add_subparsers(dest="diagnostics_command")`. Dispatch in
   `main.py:472-478` checks `getattr(args, "refresh_health", False)`.
+
 - **Expected state**: To add `medre support bundle`, the parser
   must be restructured into a subcommand group
   (`diagnostics snapshot` for the current behaviour, `diagnostics
@@ -246,7 +249,7 @@ zipfile.ZIP_DEFLATED)` and write each section as a separate JSON
   known leak — but a new bundle command that writes a redacted
   `config.yaml` artifact (recommended in F-009) would need to pick
   one surface and accept that the others disagree.
-- **Expected state**: A single source of truth for "what is a
+- **Expected state**: A canonical reference for "what is a
   secret key" that all five callers use. The most complete existing
   surface is `_SECRET_KEY_PATTERNS` in `sanitization.py` (12
   patterns, anchored, used by the public `sanitize_for_log` API).
@@ -259,6 +262,18 @@ zipfile.ZIP_DEFLATED)` and write each section as a separate JSON
   a key-name mismatch, the fix is to extend
   `_SECRET_KEY_PATTERNS` (the most-complete surface), not to add a
   sixth pattern.
+- **Implementation note (bundle-scoped redaction)**: The shipped
+  bundle uses its own `_redact()` walker
+  (`src/medre/runtime/support_bundle.py`), driven by the
+  `_SECRET_KEY_TOKENS` substring set, to produce
+  `redacted_config.yaml`. This is deliberately separate from
+  `sanitize_error()` (in-string token regex) and `sanitize_for_log()`
+  (key-drop pattern list): the bundle needs a key-preserving walk so
+  the redacted config stays readable, whereas `sanitize_for_log()`
+  drops keys entirely. Full cross-diagnostics redaction consolidation
+  is intentionally deferred — the bundle's `_redact()` is consistent
+  within bundle outputs, and error strings inside the bundle still
+  flow through `sanitize_error()`. See _Intentionally Deferred_ §1.
 
 ### [F-006] `EnvProvenance.redacted_items()` uses field-name heuristic only
 
@@ -366,6 +381,7 @@ list[RoutePlanEntry]`, `total_legs: int`, `loops: list[str]`.
 - **Location**: `src/medre/cli/main.py:15-20` and
   `src/medre/runtime/evidence/_helpers.py:51-56`
 - **Current state**: Two identical implementations:
+
   ```python
   def _get_version() -> str:
       try:
@@ -373,9 +389,11 @@ list[RoutePlanEntry]`, `total_legs: int`, `loops: list[str]`.
       except importlib.metadata.PackageNotFoundError:
           return "0.1.0"
   ```
+
   The evidence bundle already embeds the version as
   `medre_version` at the top level (`_bundle.py:243`). `medre
 diagnostics` (no bundle) does not emit a version field today.
+
 - **Expected state**: One shared helper.
 - **Recommendation**: Extract a single helper to
   `src/medre/cli/_version.py` (or reuse
@@ -552,16 +570,19 @@ fake_tok_value`, `password: hunter2`, `ble_address: AA:BB:CC...`,
 - **Category**: unsafe surface (documented, not currently exploited)
 - **Location**: `src/medre/config/env.py:821-827`
 - **Current state**:
+
   ```python
   def to_dict(self) -> dict[str, str]:
       """Return dict of all set env vars (raw values, for diagnostics).
       Secret values are included unredacted — this is intended for
       programmatic use, not for logging."""
   ```
+
   The evidence bundle does **not** call `to_dict()` — it calls
   `provenance.redacted_items()` and exposes only the names
   (`_config_sections.py:68-71`). So no leak reaches the bundle
   today.
+
 - **Expected state**: The bundle must never call `to_dict()` for
   any artifact that leaves the operator's machine.
 - **Recommendation**: Add a module-level comment in the new bundle
@@ -657,10 +678,16 @@ The following are intentionally out of scope for the
 work can pick it up without re-auditing.
 
 1. **Redaction-surface unification** (F-005). Consolidating the five
-   overlapping secret-detection implementations into a single source
-   of truth is a separate refactor with its own test surface. The
-   new bundle command should reuse `sanitize_for_log()` and
-   `sanitize_error()` as-is and not introduce a sixth pattern.
+   overlapping secret-detection implementations into one canonical
+   reference is a separate refactor with its own test surface. The
+   shipped bundle introduces a bundle-scoped `_redact()` walker
+   (`_SECRET_KEY_TOKENS`) that is consistent within bundle outputs but
+   separate from `sanitize_error()` and `sanitize_for_log()`. Error
+   strings inside the bundle still flow through `sanitize_error()`.
+   Unifying all surfaces is deferred to a dedicated redaction
+   refactor; until then, the fix for any bundle leak is to extend
+   `_SECRET_KEY_TOKENS` (bundle) or `_SECRET_KEY_PATTERNS`
+   (`sanitize_for_log`), not to add a parallel surface.
 2. **`MedreEnvConfig.to_dict()` deprecation** (F-018). Renaming to
    `to_unredacted_dict()` to make the unsafe shape obvious at call
    sites is worthwhile but touches every caller; defer to a

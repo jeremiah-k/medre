@@ -828,15 +828,16 @@ primary artifact when reporting problems.
 
 ### Bundle contents
 
-| Member                 | Content                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------ |
-| `manifest.json`        | `bundle_schema_version`, `created_at`, `command`, MEDRE version, platform info, redaction policy |
-| `environment.json`     | Python version, platform, machine, MEDRE version                                                 |
-| `config_source.json`   | Config discovery source, resolved path, `env_overrides_applied` boolean flag                     |
-| `config_check.json`    | Config load result (`success`, `error`, `error_section_path`)                                    |
-| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels)                                    |
-| `adapters.json`        | Adapter summary (`adapter_id`, `transport`, `enabled`, `origin_label`)                           |
-| `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)     |
+| Member                 | Content                                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `manifest.json`        | `bundle_schema_version`, `created_at`, `command`, MEDRE version, platform info, redaction policy                                      |
+| `environment.json`     | Python version, platform, machine, MEDRE version                                                                                      |
+| `schemas.json`         | Runtime/adapter/routing config schema file presence, `$id`/`$schema`, and validator-script presence — use to spot config/schema drift |
+| `config_source.json`   | Config discovery source, resolved path, `env_overrides_applied` boolean flag                                                          |
+| `config_check.json`    | Config load result (`success`, `error`, `error_section_path`)                                                                         |
+| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels)                                                                         |
+| `adapters.json`        | Adapter summary (`adapter_id`, `transport`, `enabled`, `origin_label`)                                                                |
+| `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)                                          |
 
 ### What is NOT in the bundle
 
@@ -871,11 +872,12 @@ record, prove, or guarantee any delivery. For delivery evidence, use
 ### Partial output on config errors
 
 If the config fails to load, the bundle still writes a partial archive
-containing `manifest.json`, `environment.json`, `config_source.json`,
-and `config_check.json` (with the validation error), and exits with
-code 0 as long as the ZIP itself was written. The only non-zero exit
-is code 3 (`EXIT_BUILD`), returned when the ZIP file cannot be written.
-This lets operators attach a bundle even when the runtime cannot start.
+containing `manifest.json`, `environment.json`, `schemas.json`,
+`config_source.json`, and `config_check.json` (with the validation
+error), and exits with code 0 as long as the ZIP itself was written.
+The only non-zero exit is code 3 (`EXIT_BUILD`), returned when the ZIP
+file cannot be written. This lets operators attach a bundle even when
+the runtime cannot start.
 
 ## See Also
 

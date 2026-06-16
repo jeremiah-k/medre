@@ -19,6 +19,7 @@ import pytest
 
 from medre.runtime.support_bundle import (
     BUNDLE_SCHEMA_VERSION,
+    _has_config_env_overrides,
     create_support_bundle,
 )
 
@@ -39,7 +40,7 @@ adapters:
       adapter_kind: fake
       homeserver: https://matrix.test
       user_id: '@bot:test'
-      access_token: tok
+      access_token: s3cret-bundle-test-token
       room_allowlist: ['!room:test']
       encryption_mode: plaintext
   meshtastic:
@@ -213,8 +214,10 @@ def test_zip_contains_redacted_config_yaml(tmp_path: Path) -> None:
     # Non-secret structural keys are preserved.
     assert "adapters" in text
     assert "matrix" in text
-    # The access_token value is redacted (token does not appear).
-    assert "tok" not in text
+    # The access_token value is redacted (the unique secret does not appear).
+    # The key name survives redaction by design; the assertion uses a value
+    # that is not a substring of any key name so it only fails on a real leak.
+    assert "s3cret-bundle-test-token" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -313,3 +316,137 @@ def test_config_source_member_records_explicit_path(tmp_path: Path) -> None:
     assert src["source"] == "explicit"
     assert src["path"] is not None
     assert str(cfg) in src["path"] or cfg.name in src["path"]
+
+
+# ---------------------------------------------------------------------------
+# Env-override detection (config_source.json::env_overrides_applied)
+# ---------------------------------------------------------------------------
+
+
+def test_env_override_adapter_prefix_detected() -> None:
+    """MEDRE_ADAPTER__* sets env_overrides_applied True."""
+    env = {"MEDRE_ADAPTER__MATRIX__HOMESERVER": "https://x.test"}
+    assert _has_config_env_overrides(env) is True
+
+
+def test_env_override_route_prefix_detected() -> None:
+    """MEDRE_ROUTE__* sets env_overrides_applied True."""
+    env = {"MEDRE_ROUTE__R1__ENABLED": "true"}
+    assert _has_config_env_overrides(env) is True
+
+
+def test_env_override_retry_prefix_detected() -> None:
+    """MEDRE_RETRY__* sets env_overrides_applied True."""
+    env = {"MEDRE_RETRY__MAX_ATTEMPTS": "5"}
+    assert _has_config_env_overrides(env) is True
+
+
+def test_env_override_db_path_exact_detected() -> None:
+    """MEDRE_DB_PATH sets env_overrides_applied True."""
+    assert _has_config_env_overrides({"MEDRE_DB_PATH": "/tmp/x.db"}) is True
+
+
+def test_env_override_log_level_exact_detected() -> None:
+    """MEDRE_LOG_LEVEL sets env_overrides_applied True."""
+    assert _has_config_env_overrides({"MEDRE_LOG_LEVEL": "DEBUG"}) is True
+
+
+def test_env_override_runtime_limit_exact_detected() -> None:
+    """MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES sets env_overrides_applied True."""
+    env = {"MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES": "10"}
+    assert _has_config_env_overrides(env) is True
+
+
+def test_env_override_config_discovery_not_an_override() -> None:
+    """MEDRE_CONFIG is discovery, not an override — returns False."""
+    assert _has_config_env_overrides({"MEDRE_CONFIG": "/tmp/c.yaml"}) is False
+
+
+def test_env_override_home_discovery_not_an_override() -> None:
+    """MEDRE_HOME is discovery, not an override — returns False."""
+    assert _has_config_env_overrides({"MEDRE_HOME": "/tmp/medre"}) is False
+
+
+def test_env_override_unknown_medre_var_not_an_override() -> None:
+    """Unknown MEDRE_* vars are not overrides — returns False."""
+    assert _has_config_env_overrides({"MEDRE_FUTURE_FEATURE": "1"}) is False
+
+
+def test_env_override_empty_environ() -> None:
+    """An empty environ yields False."""
+    assert _has_config_env_overrides({}) is False
+
+
+def test_config_source_no_raw_env_values_in_bundle(tmp_path: Path) -> None:
+    """config_source.json never carries env-var values, only the boolean flag."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    src_text = members["config_source.json"].decode("utf-8")
+    assert "env_overrides_applied" in src_text
+    # The flag is a JSON boolean, not a name/value list.
+    assert "MEDRE_ADAPTER__" not in src_text
+    assert "MEDRE_HOME" not in src_text
+
+
+# ---------------------------------------------------------------------------
+# schemas.json member
+# ---------------------------------------------------------------------------
+
+
+def test_schemas_json_present_in_bundle(tmp_path: Path) -> None:
+    """schemas.json is a bundle member."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    assert "schemas.json" in members
+
+
+def test_schemas_json_reports_runtime_schema_presence(tmp_path: Path) -> None:
+    """schemas.json records whether the runtime config schema is present."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+    rt = schemas["runtime_config_schema"]
+    assert rt["present"] is True
+    assert isinstance(rt["path"], str)
+    assert rt["path"] != ""
+
+
+def test_schemas_json_reports_runtime_schema_id(tmp_path: Path) -> None:
+    """schemas.json surfaces the runtime schema $id when the schema is present."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+    rt = schemas["runtime_config_schema"]
+    assert rt["$id"] is not None
+    assert isinstance(rt["$id"], str)
+    assert "runtime-config" in rt["$id"]
+
+
+def test_schemas_json_reports_validate_script_presence(tmp_path: Path) -> None:
+    """schemas.json records whether validate-example-configs.sh exists."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+    assert "validate_example_configs_script_present" in schemas
+    assert isinstance(schemas["validate_example_configs_script_present"], bool)
+
+
+def test_schemas_json_has_no_secret_values(tmp_path: Path) -> None:
+    """schemas.json contains schema metadata only — no secret substrings."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    text = members["schemas.json"].decode("utf-8")
+    assert "s3cret-bundle-test-token" not in text
+    assert "access_token" not in text
+
+
+def test_schemas_json_present_even_when_config_missing(tmp_path: Path) -> None:
+    """schemas.json is always present, even when config discovery fails."""
+    out = tmp_path / "b.zip"
+    create_support_bundle(config_path=tmp_path / "nonexistent.yaml", output_path=out)
+    members = _read_bundle(out)
+    assert "schemas.json" in members
+    schemas = _read_json_member(members, "schemas.json")
+    # Each schema entry has a `present` key regardless of repo layout.
+    assert "runtime_config_schema" in schemas
+    assert "present" in schemas["runtime_config_schema"]

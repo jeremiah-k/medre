@@ -137,7 +137,7 @@ def test_invalid_config_writes_zip_exit_zero(tmp_path: Path) -> None:
     """Invalid config still writes a ZIP with the error recorded; exit 0."""
     cfg = _write(tmp_path, CONFIG_INVALID)
     out = tmp_path / "bundle.zip"
-    stdout, stderr, code = _run_cli_raw(
+    _stdout, _stderr, code = _run_cli_raw(
         "support", "bundle", "--config", str(cfg), "--output", str(out)
     )
     assert code == 0, f"expected exit 0 for invalid config, got {code}"
@@ -215,7 +215,7 @@ def test_toml_config_rejected_safely(tmp_path: Path) -> None:
     """A .toml config is rejected gracefully — error in bundle, not a crash."""
     cfg = _write(tmp_path, TOML_CONTENT, name="config.toml")
     out = tmp_path / "bundle.zip"
-    stdout, stderr, code = _run_cli_raw(
+    _stdout, _stderr, code = _run_cli_raw(
         "support", "bundle", "--config", str(cfg), "--output", str(out)
     )
     # Exit 0: the ZIP is still written with the error recorded.

@@ -881,13 +881,17 @@ and a redacted config copy into a single ZIP archive.
   The bundle is computed purely from the parsed config plus static
   runtime metadata.
 - Secret-named field values are replaced with `***REDACTED***` (keys
-  are preserved). Error strings are routed through the existing
-  `sanitize_error` surface. Environment members carry platform
-  metadata only.
+  are preserved) by a bundle-scoped redactor (`_redact()` in
+  `support_bundle.py`). This is consistent within bundle outputs but
+  intentionally separate from `sanitize_for_log()` (which drops keys)
+  and `sanitize_error()` (an in-string token regex); consolidating
+  those surfaces is deferred. Error strings inside the bundle still
+  flow through the existing `sanitize_error`. Environment members
+  carry platform metadata only.
 - Partial output on config errors: if the config fails to load, the
   command still writes a partial archive containing `manifest.json`,
-  `environment.json`, `config_source.json`, and `config_check.json`
-  (with the validation error), and exits with code 0.
+  `environment.json`, `schemas.json`, `config_source.json`, and
+  `config_check.json` (with the validation error), and exits with code 0.
 - Exit codes: 0 whenever the ZIP was written successfully (including
   the partial-config-failure case), 3 (`EXIT_BUILD`) only when the
   ZIP write itself fails.
@@ -897,6 +901,11 @@ and a redacted config copy into a single ZIP archive.
 - `manifest.json` — `bundle_schema_version`, `created_at`, `command`,
   MEDRE version, platform info, redaction policy.
 - `environment.json` — Python version, platform, machine, MEDRE version.
+- `schemas.json` — runtime/adapter/routing config schema file presence,
+  `$id`/`$schema`, and whether `scripts/ci/validate-example-configs.sh`
+  exists. Useful for diagnosing config/schema drift between a deployment
+  and the schemas the bundle was built against. Never carries secret
+  values.
 - `config_source.json` — config discovery source, resolved path,
   `env_overrides_applied` boolean.
 - `config_check.json` — config load result (`success`, `error`,
