@@ -184,12 +184,13 @@ def _support_bundle(config_path: str | None, output_path: str | None) -> None:
     only if the ZIP itself could not be written or an unexpected error
     escaped the collector.
     """
+    from medre.core.observability.sanitization import sanitize_error
     from medre.runtime.support_bundle import create_support_bundle
 
     try:
         written = create_support_bundle(config_path, output_path)
     except Exception as exc:
-        print(f"Support bundle error: {exc}", file=sys.stderr)
+        print(f"Support bundle error: {sanitize_error(str(exc))}", file=sys.stderr)
         sys.exit(EXIT_BUILD)
 
     try:

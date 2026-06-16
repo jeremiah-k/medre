@@ -5,7 +5,7 @@ Branch: operator-support-bundle
 
 ## Summary
 
-MEDRE already ships most of the machinery a `medre diagnostics bundle`
+MEDRE already ships most of the machinery a `medre support bundle`
 command needs. The centre of gravity is
 `src/medre/runtime/evidence/_bundle.py::collect_evidence_bundle()`, a
 252-line orchestrator that assembles six JSON-safe sections
@@ -106,7 +106,7 @@ now_fn=None) -> dict[str, Any]`. Returns a JSON-safe dict with
   Already routes every error string through
   `sanitize_error()` (`_helpers.py:82-90`). Already hoists seven
   derived surfaces to the top level for operator visibility.
-- **Expected state**: Reused verbatim by `medre diagnostics bundle`.
+- **Expected state**: Reused verbatim by `medre support bundle`.
   The new command adds CLI plumbing (argparse, output writer) and
   possibly a manifest section; the collector itself does not need to
   change.
@@ -127,7 +127,7 @@ now_fn=None) -> dict[str, Any]`. Returns a JSON-safe dict with
   it never passes a config path, so the config-backed collection
   branch (live health, diagnostics snapshot, config summary) is
   unreachable from the CLI.
-- **Expected state**: `medre diagnostics bundle` covers the
+- **Expected state**: `medre support bundle` covers the
   config-backed branch the existing command omits, and explicitly
   documents the overlap. The operator surface audit
   (`docs/dev/operator-surface-audit.md` §1.3) already lists `medre
@@ -137,13 +137,13 @@ evidence` under "Evidence Bundle"; adding a second bundle-producing
   document it in `docs/dev/operator-surface-audit.md` §1.3 and
   `docs/ops/diagnostics-and-evidence.md`:
 
-  - **Option A (recommended)**: `medre diagnostics bundle` becomes the
+  - **Option A (recommended)**: `medre support bundle` becomes the
     single bundle command. It accepts either `--config` or
     `--storage-path` (mirroring `collect_evidence_bundle`'s two
     modes), adds an output-path flag (`--out PATH`), and produces a
     multi-file artifact. `medre evidence` is kept as a thin
     compatibility alias or deprecated.
-  - **Option B**: `medre diagnostics bundle` is config-path-only and
+  - **Option B**: `medre support bundle` is config-path-only and
     complements `medre evidence` (which stays storage-path-only).
     Document the split explicitly in both helps.
 
@@ -164,7 +164,7 @@ evidence` under "Evidence Bundle"; adding a second bundle-producing
   ```
   No `add_subparsers(dest="diagnostics_command")`. Dispatch in
   `main.py:472-478` checks `getattr(args, "refresh_health", False)`.
-- **Expected state**: To add `medre diagnostics bundle`, the parser
+- **Expected state**: To add `medre support bundle`, the parser
   must be restructured into a subcommand group
   (`diagnostics snapshot` for the current behaviour, `diagnostics
 bundle` for the new behaviour), **or** a sibling top-level command
@@ -425,7 +425,7 @@ diagnostics` (no bundle) does not emit a version field today.
   `docs/ops/support-bundle.md`) that lists exactly what to run and
   what to attach.
 - **Recommendation**: Add the section as part of this change. Point
-  operators at `medre diagnostics bundle --config <path> --out
+  operators at `medre support bundle --config <path> --out
 medre-bundle.zip` (or the equivalent final command shape) and
   explain what is inside, what is redacted, and what is not
   (filesystem paths, adapter IDs, route IDs, log levels — all
@@ -653,7 +653,7 @@ fake_tok_value`, `password: hunter2`, `ble_address: AA:BB:CC...`,
 ## Intentionally Deferred
 
 The following are intentionally out of scope for the
-`medre diagnostics bundle` change. Each is tracked here so future
+`medre support bundle` change. Each is tracked here so future
 work can pick it up without re-auditing.
 
 1. **Redaction-surface unification** (F-005). Consolidating the five

@@ -177,7 +177,7 @@ Counters and events are process-local — without this flag, they are lost on ex
 When filing an issue, collect a redacted diagnostic bundle with:
 
 ```bash
-medre diagnostics bundle --config config.yaml --output medre-support.zip
+medre support bundle --config config.yaml --output medre-support.zip
 ```
 
 This is the recommended way to collect diagnostics for a bug report. It

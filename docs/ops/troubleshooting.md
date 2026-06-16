@@ -819,7 +819,7 @@ Lifecycle convergence diagnostics are deterministic and read-only. They never ch
 When filing an issue, collect a redacted diagnostic bundle with:
 
 ```bash
-medre diagnostics bundle --config medre.yaml --output medre-support.zip
+medre support bundle --config medre.yaml --output medre-support.zip
 ```
 
 The bundle is offline by default — it performs no network or hardware
@@ -828,21 +828,23 @@ primary artifact when reporting problems.
 
 ### Bundle contents
 
-| Member                 | Content                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `manifest.json`        | Member list, byte sizes, SHA-256 digests, MEDRE version info  |
-| `config_source.json`   | Config discovery source, resolved paths, storage backend      |
-| `config_check.json`    | The `medre config check` result (validation errors/warnings)  |
-| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels) |
-| `adapters.json`        | Adapter wrapper summary (id, transport, kind, enabled)        |
-| `environment.json`     | Env-override names applied (values redacted)                  |
-| `redacted_config.yaml` | Parsed config with secret-named keys dropped                  |
+| Member                 | Content                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `manifest.json`        | `bundle_schema_version`, `created_at`, `command`, MEDRE version, platform info, redaction policy |
+| `environment.json`     | Python version, platform, machine, MEDRE version                                                 |
+| `config_source.json`   | Config discovery source, resolved path, `env_overrides_applied` boolean flag                     |
+| `config_check.json`    | Config load result (`success`, `error`, `error_section_path`)                                    |
+| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels)                                    |
+| `adapters.json`        | Adapter summary (`adapter_id`, `transport`, `enabled`, `origin_label`)                           |
+| `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)     |
 
 ### What is NOT in the bundle
 
-- **Raw secrets** — secret-named fields are dropped or replaced with
-  `***REDACTED***`. Env-override provenance exposes names only, never
-  values.
+- **Raw secrets** — secret-named field values are replaced with
+  `***REDACTED***` (keys are preserved so the redacted config stays
+  useful for debugging). Environment members carry platform metadata
+  only, never env-var values; the `env_overrides_applied` flag in
+  `config_source.json` is a boolean, not a name list.
 - **Live logs** — not attached by default. Attach the relevant log
   excerpt separately if needed.
 - **Live probe results** — the bundle starts no adapters, so no live
@@ -869,9 +871,11 @@ record, prove, or guarantee any delivery. For delivery evidence, use
 ### Partial output on config errors
 
 If the config fails to load, the bundle still writes a partial archive
-containing `manifest.json` and `config_check.json` with the validation
-error, and exits with code 2. This lets operators attach a bundle even
-when the runtime cannot start.
+containing `manifest.json`, `environment.json`, `config_source.json`,
+and `config_check.json` (with the validation error), and exits with
+code 0 as long as the ZIP itself was written. The only non-zero exit
+is code 3 (`EXIT_BUILD`), returned when the ZIP file cannot be written.
+This lets operators attach a bundle even when the runtime cannot start.
 
 ## See Also
 

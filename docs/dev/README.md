@@ -13,6 +13,7 @@ anyone extending the MEDRE runtime.
 | `source-audits.md`                              | Audit evidence and review notes                 |
 | `relay-prefix-attribution-audit.md`             | Relay prefix and sender-provenance audit        |
 | `transport-native-identity-enrichment-audit.md` | Per-transport sender-identity projection audit  |
+| `operator-support-bundle-audit.md`              | Operator support bundle design audit            |
 | `reference-repos.md`                            | External reference implementations              |
 | `documentation-style.md`                        | Conventions for writing MEDRE documentation     |
 | `change-process.md`                             | How to propose and track documentation changes  |

@@ -78,7 +78,7 @@ prints a topology preview alongside the same route validation.
 
 ### Collecting a diagnostic snapshot
 
-`medre diagnostics bundle --config <path> --output medre-support.zip`
+`medre support bundle --config <path> --output medre-support.zip`
 collects a full diagnostic snapshot for support — config check result,
 route plan, adapter summary, environment info, and a redacted config
 copy, packed into a single ZIP. It is offline by default: no adapters

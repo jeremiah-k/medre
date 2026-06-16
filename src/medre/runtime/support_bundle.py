@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import os
 import platform
 import sys
 import zipfile
@@ -31,7 +32,6 @@ from typing import Any
 import yaml
 
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
-from medre.config.env import MedreEnvConfig
 from medre.config.errors import ConfigError, ConfigValidationError
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.core.observability.sanitization import sanitize_error
@@ -147,17 +147,13 @@ def _build_config_source(
     source: ConfigSource | None,
     path: Path | None,
 ) -> dict[str, Any]:
-    env_set = False
-    try:
-        env_set = MedreEnvConfig.from_environ().has_any_set()
-    except Exception:
-        # Legacy-prefix or parse errors in env vars are not fatal to the
-        # bundle; report the env as "not applied" and move on.
-        env_set = False
+    # ponytail: direct env scan instead of MedreEnvConfig.from_environ(),
+    # which raises on legacy prefixes and produced false negatives.
+    env_overrides_applied = any(k.startswith("MEDRE_ADAPTER__") for k in os.environ)
     return {
         "source": source.value if source is not None else None,
         "path": str(path) if path is not None else None,
-        "env_overrides_applied": env_set,
+        "env_overrides_applied": env_overrides_applied,
     }
 
 
@@ -326,13 +322,9 @@ def create_support_bundle(
             members["redacted_config.yaml"] = redacted_yaml.encode("utf-8")
 
     # -- Write the ZIP -----------------------------------------------------
-    try:
-        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, payload in members.items():
-                zf.writestr(name, payload)
-    except OSError:
-        # ZIP write itself failed — this is the one hard failure path.
-        raise
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in members.items():
+            zf.writestr(name, payload)
 
     return out
 
