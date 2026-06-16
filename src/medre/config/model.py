@@ -81,10 +81,13 @@ def _coerce_adapter_kwargs(
     )
     unknown = set(raw) - valid_names
     if unknown:
-        raise ConfigValidationError(
+        msg = (
             f"{section_path}: unknown adapter config key(s) "
             f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
-            f"Accepted keys: {sorted(valid_names)}",
+            f"Accepted keys: {sorted(valid_names)}"
+        )
+        raise ConfigValidationError(
+            msg,
             transport=transport,
             section_path=section_path,
         )

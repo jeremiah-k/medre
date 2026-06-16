@@ -202,3 +202,31 @@ def test_unknown_adapter_key_rejected_via_load(tmp_path: Path) -> None:
     assert exc_info.value.section_path == "adapters.matrix.main"
     assert exc_info.value.transport == "matrix"
     assert "bogusextra" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Removed legacy adapter keys are rejected as unknown
+# ---------------------------------------------------------------------------
+
+
+def test_removed_adapter_key_meshnet_name_rejected_via_load(tmp_path: Path) -> None:
+    """``meshnet_name`` as an adapter key is rejected as unknown.
+
+    Exercises the rejection path in :func:`_coerce_adapter_kwargs`
+    end-to-end through ``load_config``.
+    """
+    config = (
+        "adapters:\n"
+        "  matrix:\n"
+        "    main:\n"
+        "      adapter_id: matrix\n"
+        "      meshnet_name: old-style\n"
+    )
+    p = tmp_path / "config.yaml"
+    p.write_text(config)
+    with pytest.raises(
+        ConfigValidationError, match="unknown adapter config key"
+    ) as exc_info:
+        load_config(str(p))
+    msg = str(exc_info.value)
+    assert "meshnet_name" in msg

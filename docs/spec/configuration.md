@@ -305,6 +305,63 @@ names MUST migrate. See
 [routing-delivery.md §17.5.5](routing-delivery.md#1755-shared-formatter-and-variable-schema)
 for the formatter rules.
 
+### 3.5 Editor Integration
+
+The JSON schemas in `docs/schemas/` carry stable `$id` URLs and can be
+wired into YAML language servers for real-time validation while editing.
+
+There are two kinds of schema, and operators MUST map them to the right
+files to avoid false editor errors:
+
+- **Full-config schema** — `docs/schemas/runtime-config.schema.json`.
+  Validates the structure of a complete runtime config file (the root
+  YAML document operators write and pass to `medre run --config`). Map
+  this to full config files like `examples/configs/*.yaml` and your own
+  `medre.yaml`.
+- **Component schemas** — `adapter-config.schema.json` and
+  `routing-config.schema.json`. These validate INDIVIDUAL adapter or
+  route objects, not full config files. Mapping them to a full config
+  produces false errors on valid configs because the root keys
+  (`runtime`, `logging`, `adapters`, `routes`, ...) are not recognized
+  at the component level. Use these only when editing a single adapter
+  table or route definition in isolation.
+
+For a full config file, point the YAML language server at
+`runtime-config.schema.json`. A `# yaml-language-server: $schema=`
+comment at the top of the file works for ad-hoc edits:
+
+```yaml
+# yaml-language-server: $schema=../../docs/schemas/runtime-config.schema.json
+runtime:
+  name: my-bridge
+# ...
+```
+
+Or register the mapping once in `.vscode/settings.json` so every config
+file under your project is covered:
+
+```json
+{
+  "yaml.schemas": {
+    "docs/schemas/runtime-config.schema.json": [
+      "examples/configs/*.yaml",
+      "medre.yaml",
+      "*.yaml"
+    ]
+  }
+}
+```
+
+Editor validation is advisory and catches structural typos early
+(unknown root keys, misspelled transport groups, wrong section shape).
+It does NOT enforce per-field constraints — adapter field validation,
+route policy shapes, and range checks are enforced by the typed config
+dataclasses at load time. `medre config check` remains the canonical
+pre-flight gate that blocks a misconfigured runtime from starting;
+treat editor validation as a hint and `medre config check` as the
+source of truth. Publishing to SchemaStore.io is deferred until the
+public schema surface stabilizes post-first-release.
+
 ## 4. Configuration Search Order
 
 The loader searches for configuration files in this priority order:

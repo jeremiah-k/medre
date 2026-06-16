@@ -161,12 +161,12 @@ class BridgePolicy:
         unknown = set(data.keys()) - cls._KNOWN_FIELDS
         if unknown:
             _ctx = f"Route {route_id!r}: " if route_id else ""
-            raise ConfigValidationError(
+            msg = (
                 f"{_ctx}Unknown policy key(s) {sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
                 f"{policy_path}. Accepted keys: "
-                f"{sorted(cls._KNOWN_FIELDS)}",
-                section_path=policy_path,
+                f"{sorted(cls._KNOWN_FIELDS)}"
             )
+            raise ConfigValidationError(msg, section_path=policy_path)
 
         # Validate each allowlist field is a list or tuple of strings.
         for field_name, _label in cls._ALLOWLIST_FIELDS:
@@ -306,13 +306,13 @@ class RouteRetryConfig:
         # ``additionalProperties: false``.
         unknown = set(data) - _RETRY_KNOWN_FIELDS
         if unknown:
-            raise ConfigValidationError(
+            msg = (
                 f"Route {route_id!r}: unknown retry key(s) "
                 f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
                 f"{section_path}.retry. Accepted keys: "
-                f"{sorted(_RETRY_KNOWN_FIELDS)}",
-                section_path=f"{section_path}.retry",
+                f"{sorted(_RETRY_KNOWN_FIELDS)}"
             )
+            raise ConfigValidationError(msg, section_path=f"{section_path}.retry")
 
         if not isinstance(enabled, bool):
             raise ConfigValidationError(
@@ -1096,12 +1096,12 @@ class RouteConfig:
         # ``additionalProperties: false``.
         if data:
             unknown = sorted(data.keys(), key=lambda k: (type(k).__name__, repr(k)))
-            raise ConfigValidationError(
+            msg = (
                 f"Route {route_id!r}: unknown key(s) {unknown} in "
                 f"{section_path}. Accepted keys: "
-                f"{sorted(_ROUTE_KNOWN_FIELDS)}",
-                section_path=section_path,
+                f"{sorted(_ROUTE_KNOWN_FIELDS)}"
             )
+            raise ConfigValidationError(msg, section_path=section_path)
 
         # --- self-route check ---
         sources_set = set(source_adapters)

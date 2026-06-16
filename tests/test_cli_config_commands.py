@@ -14,6 +14,7 @@ from tests.helpers.cli import (
     CONFIG_BAD_LIMITS,
     CONFIG_MINIMAL,
     CONFIG_NO_ROUTES,
+    CONFIG_ROUTE_UNKNOWN_ADAPTERS,
     CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
@@ -144,13 +145,19 @@ class TestSampleConfig:
         output = _run_cli("config", "sample")
         assert "Required fields" in output or "required" in output.lower()
 
-    def test_sample_no_yaml(self) -> None:
-        """Sample must not contain YAML syntax markers."""
-        output = _run_cli("config", "sample")
+    def test_sample_is_valid_yaml_not_toml(self) -> None:
+        """Sample config is valid YAML with no TOML artifacts or secrets."""
+        output = generate_sample_config()
+        parsed = parse_yaml_config(output)
+        assert isinstance(parsed, dict)
         for line in output.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- ") and "=" not in stripped:
-                pytest.fail(f"Sample appears to contain YAML-style list: {line!r}")
+            # no TOML table headers
+            assert not line.startswith("["), f"TOML table header: {line!r}"
+            # no tab indentation
+            assert "\t" not in line, f"Tab in sample: {line!r}"
+            # no real-looking secrets
+            assert "syt_" not in line, f"Secret token in sample: {line!r}"
+            assert "BEGIN PRIVATE KEY" not in line, f"Private key in sample: {line!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -460,11 +467,7 @@ class TestConfigCheckSectionStrictValidation:
         message; previously it was silently skipped."""
         cfg = tmp_path / "bad_instance.yaml"
         cfg.write_text(
-            "runtime:\n"
-            "  name: typo\n"
-            "adapters:\n"
-            "  matrix:\n"
-            "    main: bad\n"
+            "runtime:\n" "  name: typo\n" "adapters:\n" "  matrix:\n" "    main: bad\n"
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0
@@ -476,10 +479,7 @@ class TestConfigCheckSectionStrictValidation:
         naming the unknown key."""
         cfg = tmp_path / "unknown_retry.yaml"
         cfg.write_text(
-            "runtime:\n"
-            "  name: typo\n"
-            "retry:\n"
-            "  bogus: 123\n",
+            "runtime:\n" "  name: typo\n" "retry:\n" "  bogus: 123\n",
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0
@@ -514,3 +514,20 @@ class TestSampleConfigStructuredChannelRoomMap:
         output = _run_cli("config", "sample")
         assert "source_origin_label" in output
         assert "dest_origin_label" in output
+
+
+def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:
+    """A route referencing a nonexistent adapter fails config check (F-016).
+
+    Previously such a config passed ``medre config check`` with exit 0
+    and only failed at ``medre run`` startup. The pre-flight gate now
+    cross-checks route adapter refs against the configured adapter IDs.
+    """
+    cfg = tmp_path / "bad_route_ref.yaml"
+    cfg.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
+    stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+    assert code == 2
+    assert "Traceback" not in stderr
+    combined = stdout + stderr
+    assert "nonexistent" in combined
+    assert "also_missing" in combined

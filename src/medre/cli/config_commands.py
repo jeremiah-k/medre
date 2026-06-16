@@ -110,6 +110,27 @@ def _config_check(config_path: str | None) -> None:
     if total == 0:
         print("  (no adapters configured)")
 
+    # --- Route adapter-reference validation (F-016) ---
+    # Cross-check every route's source/dest refs against the configured
+    # adapter IDs so ``config check`` is a complete pre-flight gate.  Done
+    # inline (no runtime import) — the CLI already has both the adapter set
+    # and the route set.  Checks all routes so latent refs in disabled
+    # routes surface now, not when the operator enables them.
+    known_adapter_ids = {aid for _t, aid, _rtc in config.adapters.all_configs()}
+    for route in config.routes.routes:
+        for aid in route.source_adapters:
+            if aid not in known_adapter_ids:
+                validation_errors.append(
+                    f"  \u26a0 route {route.route_id}: references unknown "
+                    f"source adapter {aid!r}"
+                )
+        for aid in route.dest_adapters:
+            if aid not in known_adapter_ids:
+                validation_errors.append(
+                    f"  \u26a0 route {route.route_id}: references unknown "
+                    f"dest adapter {aid!r}"
+                )
+
     # --- Validation errors ---
     if validation_errors:
         print()

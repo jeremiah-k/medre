@@ -324,6 +324,39 @@ def test_valid_root_keys_accepted(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Removed legacy keys are rejected as unknown
+# ---------------------------------------------------------------------------
+
+
+def test_removed_root_key_meshnet_name_rejected(tmp_path: Path) -> None:
+    """``meshnet_name`` as a root key is rejected as unknown.
+
+    The offending key name must appear in the error message.
+    """
+    p = _write_config(tmp_path, "runtime: {}\nmeshnet_name: old-style\n")
+    with pytest.raises(
+        ConfigValidationError, match="Unknown root config key"
+    ) as exc_info:
+        load_config(str(p))
+    msg = str(exc_info.value)
+    # The offending key name must still appear.
+    assert "meshnet_name" in msg
+
+
+def test_removed_runtime_key_meshnet_name_rejected(tmp_path: Path) -> None:
+    """``meshnet_name`` inside ``[runtime]`` is rejected as unknown."""
+    p = _write_config(
+        tmp_path,
+        "runtime:\n  name: test\n  meshnet_name: old-style\n",
+    )
+    with pytest.raises(ConfigValidationError) as exc_info:
+        load_config(str(p))
+    msg = str(exc_info.value)
+    assert "meshnet_name" in msg
+    assert exc_info.value.section_path == "runtime"
+
+
+# ---------------------------------------------------------------------------
 # find_config — search order
 # ---------------------------------------------------------------------------
 

@@ -14,7 +14,6 @@ from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfig
 
-
 # ---------------------------------------------------------------------------
 # Unknown route-level key rejection
 # ---------------------------------------------------------------------------
@@ -139,9 +138,7 @@ def test_non_empty_filter_hooks_rejected() -> None:
 
 def test_non_list_filter_hooks_rejected() -> None:
     """filter_hooks that is not a list raises ConfigValidationError."""
-    with pytest.raises(
-        ConfigValidationError, match="'filter_hooks' must be a list"
-    ):
+    with pytest.raises(ConfigValidationError, match="'filter_hooks' must be a list"):
         RouteConfig.from_dict(
             "bad",
             {
@@ -150,3 +147,24 @@ def test_non_list_filter_hooks_rejected() -> None:
                 "filter_hooks": "not-a-list",
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Removed legacy route keys are rejected as unknown
+# ---------------------------------------------------------------------------
+
+
+def test_removed_route_key_meshnet_name_rejected() -> None:
+    """``meshnet_name`` as a route-level key is rejected as unknown."""
+    with pytest.raises(ConfigValidationError, match=r"unknown key\(s\)") as exc_info:
+        RouteConfig.from_dict(
+            "migrate",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "meshnet_name": "old-style",
+            },
+        )
+    msg = str(exc_info.value)
+    assert "meshnet_name" in msg
+    assert exc_info.value.section_path == "routes.migrate"

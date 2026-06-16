@@ -25,6 +25,69 @@ clear error. The first file found wins. If no file is found, the runtime exits w
 
 Use `medre config check` to verify which file is loaded and whether it parses correctly.
 
+## Pre-flight Validation with `medre config check`
+
+`medre config check --config <path>` loads and validates a config file
+without starting the runtime. Run it before `medre run` to surface config
+errors fast — a clean `Config valid` means the file parses, every section
+passes its validators, and every route adapter reference resolves.
+
+### What it validates
+
+- **Strict YAML parsing** — anchors, aliases, merge keys, duplicate keys,
+  exotic tags, and multi-document streams are all rejected. Errors include
+  `path:line:column:` locations and never echo raw file content.
+- **Unknown keys** — rejected at the root, adapter-instance, route,
+  section, and nested-section levels. Error messages name the offending key
+  and list the accepted keys.
+- **Section types and shapes** — `runtime`, `logging`, `storage`, `retry`,
+  `adapters`, `routes`, and `runtime.limits` must each be a mapping;
+  transport groups and adapter instances must be mappings. Unknown transport
+  groups (e.g. `adapters.matrixx`) are rejected.
+- **Adapter shapes** — every adapter config runs its transport-specific
+  `validate()` (e.g. `MatrixConfig.validate()` rejects a `homeserver` that
+  does not start with `http://` or `https://`).
+- **Route adapter references** — every `source_adapters` / `dest_adapters`
+  entry must resolve to a configured adapter ID. Dangling references surface
+  here as validation errors, rather than passing and failing later at
+  `medre run` startup.
+- **Runtime limits** — `runtime.limits` range checks run via
+  `RuntimeLimits.validate()`.
+
+### Exit codes
+
+| Code | Meaning                                                                                                       |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| `0`  | Valid — loaded, parsed, and all validators passed.                                                            |
+| `2`  | Config error — YAML parse, unknown key, type/shape, adapter `validate()`, route ref, or limits-range failure. |
+
+On error, MEDRE prints `Config error: <message>` to stderr — a single line,
+no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key names, type names, and `section_path` locations.
+
+### What it does not check
+
+- **SDK availability** — whether optional transport SDKs (`mindroom-nio`,
+  `mtjk`, etc.) are importable is checked at `medre run` startup, not here.
+  A fake-only config validates regardless of installed SDKs; a `real`
+  adapter config validates structurally even when the SDK is missing.
+- **Storage path writability** — the storage directory is created at
+  `medre run` startup, not at `medre config check`.
+
+For interactive route debugging, `medre routes validate [--config PATH]`
+prints a topology preview alongside the same route validation.
+
+### Docker `${VAR}` configs cannot be loaded directly
+
+Docker bridge configs (`examples/configs/docker-matrix-bridge.yaml`,
+`examples/configs/docker-meshtastic-bridge.yaml`) use `${MEDRE_HOMESERVER}`,
+`${MEDRE_ACCESS_TOKEN}`, and similar placeholders. These are resolved by
+Docker Compose from an `env_file`, not by the MEDRE config loader. The
+loader treats `{...}` as a [path placeholder](#path-placeholders) and
+rejects `${VAR}` as an invalid placeholder, so these configs cannot be
+loaded by `medre config check` or `medre run` directly. Use `medre smoke`,
+the Docker Compose workflow (see [running-medre.md](running-medre.md)), or
+pre-resolve the placeholders before validation.
+
 ## YAML Schema Reference
 
 ### `runtime`
