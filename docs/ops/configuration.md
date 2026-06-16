@@ -62,8 +62,7 @@ passes its validators, and every route adapter reference resolves.
 | `2`  | Config error — YAML parse, unknown key, type/shape, adapter `validate()`, route ref, or limits-range failure. |
 
 On error, MEDRE prints `Config error: <message>` to stderr — a single line,
-no traceback. Secrets are never echoed; only key names, type names, and
-`section_path` locations appear.
+no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key names, type names, and `section_path` locations.
 
 ### What it does not check
 

@@ -4,6 +4,8 @@ All configuration-related errors inherit from :class:`ConfigError` so
 callers can catch the base class or a specific subclass as needed.
 """
 
+from collections.abc import Iterable
+
 
 class ConfigError(Exception):
     """Base exception for all configuration errors."""
@@ -84,7 +86,7 @@ def suggest_removed_key(key: str) -> str | None:
     return _REMOVED_KEY_SUGGESTIONS.get(key)
 
 
-def format_removed_key_hints(keys) -> str:
+def format_removed_key_hints(keys: Iterable[str]) -> str:
     """Build a value-free hint block for removed keys among *keys*.
 
     Returns ``""`` when none of *keys* match a known removed key, so
@@ -102,7 +104,7 @@ def format_removed_key_hints(keys) -> str:
     """
     suggestions = [
         f"{k}: {hint}"
-        for k in sorted(keys)
+        for k in sorted(k for k in keys if isinstance(k, str))
         if (hint := suggest_removed_key(k)) is not None
     ]
     if not suggestions:
