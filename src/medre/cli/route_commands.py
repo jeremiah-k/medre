@@ -1,13 +1,15 @@
-"""Route-related CLI commands: validate, topology, list."""
+"""Route-related CLI commands: validate, topology, list, plan."""
 
 from __future__ import annotations
 
+import json
 import sys
+from dataclasses import asdict
 
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfigSet, RouteDirectionality
 
-from .exit_codes import EXIT_CONFIG
+from .exit_codes import EXIT_CONFIG, EXIT_OK
 
 
 def _routes_validate(config_path: str | None) -> None:
@@ -316,3 +318,148 @@ def _routes_list(config_path: str | None) -> None:
                 print(
                     f"      senders:      [{', '.join(route.policy.sender_allowlist)}]"
                 )
+
+
+def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
+    """Render the expanded route plan (offline — no adapter I/O).
+
+    Walks every config route, expands enabled ones into per-leg detail
+    (including ``channel_room_map`` fan-out, origin-label provenance, and
+    fan-in annotations), and reports detected loops.  Disabled routes
+    are listed separately.  Exits nonzero on config or expansion errors.
+    """
+    try:
+        config, _source, _paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    from medre.runtime.route_plan import build_route_plan
+
+    try:
+        plan = build_route_plan(config)
+    except Exception as exc:  # defensive: expansion should be self-contained
+        print(f"Route plan error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    if as_json:
+        print(json.dumps(asdict(plan), indent=2, sort_keys=True))
+        sys.exit(EXIT_CONFIG if _plan_has_errors(plan) else EXIT_OK)
+
+    _render_route_plan(plan)
+    sys.exit(EXIT_CONFIG if _plan_has_errors(plan) else EXIT_OK)
+
+
+def _plan_has_errors(plan) -> bool:
+    """True if any route entry carries a blocking error."""
+    return any(entry.error is not None for entry in plan.routes)
+
+
+def _format_adapter_ref(adapter_id: str, platform: str | None) -> str:
+    """Render ``platform:adapter_id`` (or just ``adapter_id``)."""
+    if platform:
+        return f"{platform}:{adapter_id}"
+    return adapter_id
+
+
+def _format_origin_label(value: str | None, source: str) -> str:
+    """Render an origin label with its provenance.
+
+    An empty resolved value is an explicit suppression regardless of
+    where it came from, so it is shown as ``explicit_empty`` alongside
+    the level.
+    """
+    shown = "unset" if value is None else repr(value)
+    if value == "":
+        return f"{shown} (explicit_empty, {source})"
+    return f"{shown} ({source})"
+
+
+def _render_route_plan(plan) -> None:
+    """Print the human-readable route plan."""
+    print("Route Plan (offline — no adapter I/O)")
+    print("=" * 38)
+    print()
+
+    # -- Adapters ----------------------------------------------------------
+    adapters = plan.adapters
+    print(f"Adapters ({len(adapters)}):")
+    if not adapters:
+        print("  (none configured)")
+    for a in adapters:
+        status = "[ON] " if a.enabled else "[OFF]"
+        print(
+            f"  {status} {_format_adapter_ref(a.adapter_id, a.transport)}"
+            f'   origin_label="{a.origin_label}"'
+        )
+    print()
+
+    # -- Routes ------------------------------------------------------------
+    enabled_entries = [e for e in plan.routes if e.enabled]
+    disabled_entries = [e for e in plan.routes if not e.enabled]
+    print(f"Routes ({len(plan.routes)} configured, {plan.total_legs} legs):")
+    print()
+
+    if not plan.routes:
+        print("  (none configured)")
+        print()
+
+    for entry in enabled_entries:
+        marker = "[ON]" if entry.enabled else "[OFF]"
+        leg_count = len(entry.legs)
+        print(
+            f"  {entry.route_id} [{entry.directionality}] {marker}"
+            f" — {leg_count} leg(s)"
+        )
+        if entry.error is not None:
+            print(f"    \u2717 error: {entry.error}")
+        for idx, leg in enumerate(entry.legs, start=1):
+            src = _format_adapter_ref(leg.source_adapter_id, leg.source_platform)
+            dst = _format_adapter_ref(leg.dest_adapter_id, leg.dest_platform)
+            print(f"    Leg {idx}: {src} \u2192 {dst}  [{leg.direction}]")
+            if leg.channel_room_map_key is not None:
+                room = leg.channel_room_map_room or "?"
+                print(
+                    f"           channel_room_map: ch={leg.channel_room_map_key} \u2192 {room}"
+                )
+            elif leg.source_channel is not None or leg.dest_channel is not None:
+                parts: list[str] = []
+                if leg.source_channel is not None:
+                    parts.append(f"source_channel={leg.source_channel}")
+                if leg.dest_channel is not None:
+                    parts.append(f"dest_channel={leg.dest_channel}")
+                if parts:
+                    print(f"           {', '.join(parts)}")
+            print(
+                "           origin_label: "
+                + _format_origin_label(
+                    leg.source_origin_label, leg.source_origin_label_source
+                )
+            )
+            print(f"           expanded_id: {leg.expanded_route_id}")
+        for w in entry.warnings:
+            print(f"    \u26a0 {w}")
+        print()
+
+    # -- Disabled routes ---------------------------------------------------
+    if disabled_entries:
+        print(f"Disabled routes ({len(disabled_entries)}):")
+        for entry in disabled_entries:
+            print(f"  {entry.route_id} [{entry.directionality}] [OFF]")
+        print()
+
+    # -- Errors summary ----------------------------------------------------
+    error_entries = [e for e in plan.routes if e.error is not None]
+    if error_entries:
+        print(f"Errors ({len(error_entries)}):")
+        for entry in error_entries:
+            print(f"  \u2717 {entry.route_id}: {entry.error}")
+        print()
+
+    # -- Loops -------------------------------------------------------------
+    if plan.loops:
+        print("Loops:")
+        for loop in plan.loops:
+            print(f"  \u26a0 {loop}")
+    else:
+        print("Loops: none detected")

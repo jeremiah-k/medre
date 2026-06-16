@@ -511,6 +511,83 @@ Every routed delivery carries attribution data:
 
 Route attribution is internal to MEDRE. It does not appear in radio packets, Matrix messages, LXMF messages, or any external output.
 
+## Route Plan Diagnostics
+
+`medre routes plan --config <path>` is the fastest way to debug
+`channel_room_map`, origin-label resolution, and duplicate-room fan-in
+without starting any transport. It performs no live network or hardware
+I/O — the entire expansion is computed from the parsed config plus the
+configured adapter platforms.
+
+### Debugging `channel_room_map` expansion
+
+`medre routes validate` and `medre routes topology` print one block per
+declared route and silently drop the per-channel targeting information
+when a route uses `channel_room_map`. `medre routes plan` instead shows
+one row per **expanded leg**, including the per-channel legs produced by
+the map:
+
+- The expanded route ID (e.g. `<route>__ch0__meshtastic_to_matrix`).
+- The source channel and target room for each leg.
+- The platform direction of each leg.
+
+If a `channel_room_map` route appears to bridge nothing in the older
+previews, run `medre routes plan` to see the actual legs the router will
+receive.
+
+### Origin-label provenance
+
+Each expanded leg in the plan shows the resolved `origin_label` and
+where it came from. The source is annotated so the four-step precedence
+chain is traceable end-to-end:
+
+1. Per-entry `source_origin_label` / `dest_origin_label` on the matched
+   `channel_room_map` entry.
+2. Route-level `source_origin_label` / `dest_origin_label`.
+3. Source adapter's `origin_label`.
+4. Unset (renders empty).
+
+If a relay prefix renders an unexpected label (or no label), check the
+per-leg provenance in the plan output. A common cause is an unset
+per-entry label falling through to an empty adapter `origin_label`, or
+an explicit `""` suppressing fallback for a leg where you did not intend
+it. An empty value shown as "suppressed" means an explicit `""` was set
+at that level; "unset" means the field was omitted and fell through.
+
+### Fan-in warnings
+
+When a `channel_room_map` maps two or more Meshtastic channels into one
+Matrix room and the route only creates Meshtastic→Matrix legs, the plan
+annotates the route as fan-in allowed. This is not an error — multiple
+radio channels relaying into one shared Matrix room is a supported
+topology. Each fanned-in leg carries its own per-entry
+`source_origin_label` so the relay prefix can distinguish the channels
+in the shared room. If the fan-in annotation is unexpected, verify the
+route's `directionality` and which platform sits on the source side.
+
+### Duplicate-room ambiguity errors
+
+If the plan fails with a `RouteValidationError` listing duplicate Matrix
+rooms, the route's expansion creates a Matrix→Meshtastic leg while two
+or more `channel_room_map` entries share the same Matrix room. A Matrix
+event arriving from the shared room is ambiguous across Meshtastic
+channels — there is no signal in the Matrix event to pick one — so the
+configuration is rejected before a plan is produced.
+
+How to fix:
+
+- For pure Meshtastic→Matrix aggregation, change `directionality` so
+  the route does not create a Matrix→Meshtastic leg (typically
+  `source_to_dest` with a Meshtastic source and a Matrix destination).
+- For topologies that need both fan-in and Matrix→Meshtastic
+  bridging for the same channels, split the channels into separate
+  routes, each with its own dedicated Matrix room.
+- A map with no duplicate room values is always accepted regardless of
+  directionality.
+
+See the Routing and Delivery Specification §17.6 for the full
+directionality decision matrix.
+
 ## Common Troubleshooting
 
 ### "Unknown adapter" Startup Failure

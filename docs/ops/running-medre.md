@@ -16,6 +16,20 @@ To verify config without starting:
 medre config check
 ```
 
+To preview the expanded route topology (route legs, `channel_room_map`
+expansion, origin-label provenance, fan-in decisions) without starting
+any transport:
+
+```bash
+medre routes plan --config config.yaml
+```
+
+`medre routes plan` is an offline dry-run — no adapter is started, no
+SDK is imported, no network or hardware I/O is performed. Run it before
+`medre run` to confirm the router will build the shape you expect,
+especially for `channel_room_map` routes whose per-channel legs are
+otherwise invisible in `routes validate` / `routes topology`.
+
 ### Expected Startup Output
 
 ```console

@@ -812,3 +812,50 @@ Docker `${VAR}` loading limitation.
 - `.github/workflows/test-and-coverage.yml`: "Validate example configs" CI
   step runs the focused script before the full suite so example drift fails
   fast. Closes audit finding F-004.
+
+---
+
+## Offline Route Plan Command (`medre routes plan`)
+
+Document the new `medre routes plan` operator command, which renders the
+expanded route topology the runtime will build without performing any
+live network or hardware I/O. No adapter is started, no SDK is imported,
+and no transport is contacted — the plan is computed purely from the
+parsed config plus the configured adapter platforms.
+
+**What the plan shows:**
+
+- Configured adapters (id, transport, kind, `origin_label`).
+- Every expanded route leg, one row per leg, including the per-channel
+  legs produced by `channel_room_map` expansion and the reverse legs
+  produced by bidirectional expansion.
+- The direction and platform pair of each leg.
+- The resolved `origin_label` per leg with its provenance (per-entry,
+  route-level, adapter fallback, or unset), so the relay-prefix
+  precedence chain is visible end-to-end before runtime.
+- Fan-in decisions: when a `channel_room_map` maps multiple Meshtastic
+  channels into one Matrix room and the route creates only
+  Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
+- Duplicate-room ambiguity errors: when the route's expansion would
+  create a Matrix→Meshtastic leg while two or more `channel_room_map`
+  entries share a Matrix room, expansion raises `RouteValidationError`
+  and no plan is produced.
+
+The plan is observational, not delivery evidence. `medre config check`
+answers "is this config well-formed?"; `medre routes plan` answers
+"what will MEDRE actually build from it?".
+
+**Docs updated:**
+
+- `docs/spec/routing-delivery.md`: new §17.4 _Offline Route Plan_ —
+  route expansion is deterministic and computable offline; per-entry
+  label provenance is shown; same-room fan-in is shown as allowed;
+  duplicate-room ambiguity fails before producing a plan.
+- `docs/ops/configuration.md`: new _Route Topology Preview with
+  `medre routes plan`_ subsection under pre-flight validation; CLI
+  command block updated to list `plan`.
+- `docs/ops/running-medre.md`: brief mention of `medre routes plan` as
+  an offline dry-run to run before `medre run`.
+- `docs/ops/troubleshooting.md`: new _Route Plan Diagnostics_ section
+  covering `channel_room_map` debugging, origin-label provenance
+  interpretation, fan-in warnings, and duplicate-room ambiguity errors.

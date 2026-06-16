@@ -1200,6 +1200,18 @@ When route configuration is reloaded at runtime:
 
 Routes register in the same order they appear in configuration. Registration is deterministic. `validate_route_adapter_refs` runs before any route is registered. If any enabled route references an adapter ID not present in the assembled runtime, startup fails.
 
+### 17.4 Offline Route Plan
+
+Route expansion is deterministic and computable offline. Given a parsed route configuration and the `adapter_id → platform` mapping (itself derivable from configuration alone via the adapter inventory), the full expanded route set — including the per-channel legs produced by `channel_room_map`, the reverse legs produced by bidirectional expansion, and the per-leg `origin_label` resolution — MUST be reproducible without starting any adapter, importing any transport SDK, or performing any network or hardware I/O.
+
+The `medre routes plan` operator command is the offline rendering of this expansion. Its properties:
+
+- **Per-entry label provenance.** The plan shows the resolved `origin_label` for every expanded leg and identifies its source within the §17.5.2 precedence chain (per-entry, route-level, adapter fallback, or unset), so the relay-prefix resolution is traceable end-to-end before runtime.
+- **Same-room fan-in is shown as allowed.** When a `channel_room_map` maps two or more Meshtastic channel indices to one Matrix room and the route creates no Matrix→Meshtastic leg (§17.6), the plan renders the fan-in legs without error and annotates the decision.
+- **Duplicate-room ambiguity fails before producing a plan.** When the route's expansion would create a Matrix→Meshtastic leg while two or more `channel_room_map` entries share a Matrix room (§17.6), expansion raises `RouteValidationError` and no plan is produced. The rejection occurs at expansion time, before any operator-facing topology is rendered.
+
+The plan is observational: it describes the shape the router will receive. It is not delivery evidence and does not influence runtime matching, capability decisions, or receipt semantics.
+
 ## 17.5 Relay Attribution Prefix
 
 ### 17.5.1 Purpose and Scope
