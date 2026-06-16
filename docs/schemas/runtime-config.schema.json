@@ -68,7 +68,7 @@
         },
         "overrides": {
           "type": "object",
-          "additionalProperties": {"type": "string"},
+          "additionalProperties": { "type": "string" },
           "description": "Per-logger namespace level overrides keyed by logger name (e.g. nio: WARNING)."
         }
       }
@@ -125,22 +125,22 @@
         "matrix": {
           "type": "object",
           "description": "Matrix adapter instances: mapping of instance name to MatrixConfig table.",
-          "additionalProperties": {"type": "object"}
+          "additionalProperties": { "type": "object" }
         },
         "meshtastic": {
           "type": "object",
           "description": "Meshtastic adapter instances: mapping of instance name to MeshtasticConfig table.",
-          "additionalProperties": {"type": "object"}
+          "additionalProperties": { "type": "object" }
         },
         "meshcore": {
           "type": "object",
           "description": "MeshCore adapter instances: mapping of instance name to MeshCoreConfig table.",
-          "additionalProperties": {"type": "object"}
+          "additionalProperties": { "type": "object" }
         },
         "lxmf": {
           "type": "object",
           "description": "LXMF adapter instances: mapping of instance name to LxmfConfig table.",
-          "additionalProperties": {"type": "object"}
+          "additionalProperties": { "type": "object" }
         }
       }
     },
@@ -148,7 +148,7 @@
       "type": "object",
       "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / channel_room_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
       "patternProperties": {
-        "^[A-Za-z0-9_-]+$": {"$ref": "#/$defs/RouteEntry"}
+        "^[A-Za-z0-9_-]+$": { "$ref": "#/$defs/RouteEntry" }
       },
       "additionalProperties": false
     }
@@ -167,12 +167,12 @@
         },
         "source_adapters": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": { "type": "string" },
           "description": "Source adapter IDs for this route."
         },
         "dest_adapters": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": { "type": "string" },
           "description": "Destination adapter IDs for this route."
         },
         "directionality": {
@@ -188,7 +188,7 @@
         },
         "filter_hooks": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": { "type": "string" },
           "maxItems": 0,
           "default": [],
           "description": "Reserved — must be empty. Non-empty filter_hooks are rejected at runtime."

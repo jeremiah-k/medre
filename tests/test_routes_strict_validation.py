@@ -150,17 +150,12 @@ def test_non_list_filter_hooks_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Migration diagnostics for removed route keys (F-018 / Task 4)
+# Removed legacy route keys are rejected as unknown
 # ---------------------------------------------------------------------------
 
 
 def test_removed_route_key_hint_appended() -> None:
-    """``meshnet_name`` as a route-level key surfaces a migration hint.
-
-    The rejection itself is unchanged (still raises ``unknown key(s)``);
-    the suggestion is *appended* and points at the replacement
-    origin-label fields.
-    """
+    """``meshnet_name`` as a route-level key is rejected as unknown."""
     with pytest.raises(ConfigValidationError, match=r"unknown key\(s\)") as exc_info:
         RouteConfig.from_dict(
             "migrate",
@@ -172,7 +167,4 @@ def test_removed_route_key_hint_appended() -> None:
         )
     msg = str(exc_info.value)
     assert "meshnet_name" in msg
-    # Migration hint block must be present and name the replacement.
-    assert "Hints:" in msg
-    assert "origin_label" in msg
     assert exc_info.value.section_path == "routes.migrate"

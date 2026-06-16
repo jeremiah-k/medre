@@ -324,22 +324,14 @@ def test_valid_root_keys_accepted(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Migration diagnostics for removed keys (F-018 / Task 4)
+# Removed legacy keys are rejected as unknown
 # ---------------------------------------------------------------------------
-# When operators migrate from an older MEDRE config, they may still use keys
-# that were removed or renamed by prior changes (``meshnet_name``,
-# ``matrix_relay_prefix``, ...). The unknown-key rejection now appends a
-# value-free hint pointing at the replacement field(s). Hints reference only
-# key NAMES and replacement field names — never operator-supplied values — so
-# they cannot leak secrets (audit F-010..F-013).
 
 
 def test_removed_root_key_hint_appended(tmp_path: Path) -> None:
-    """``meshnet_name`` as a root key surfaces a migration hint.
+    """``meshnet_name`` as a root key is rejected as unknown.
 
-    The rejection itself is unchanged (still raises ``Unknown root config
-    key``); the suggestion is *appended* and points the operator at
-    ``origin_label`` / ``source_origin_label`` / ``dest_origin_label``.
+    The offending key name must appear in the error message.
     """
     p = _write_config(tmp_path, "runtime: {}\nmeshnet_name: old-style\n")
     with pytest.raises(
@@ -349,13 +341,10 @@ def test_removed_root_key_hint_appended(tmp_path: Path) -> None:
     msg = str(exc_info.value)
     # The offending key name must still appear.
     assert "meshnet_name" in msg
-    # The migration hint block must be present and name the replacement.
-    assert "Hints:" in msg
-    assert "origin_label" in msg
 
 
 def test_removed_runtime_key_hint_appended(tmp_path: Path) -> None:
-    """``meshnet_name`` inside ``[runtime]`` surfaces the same hint."""
+    """``meshnet_name`` inside ``[runtime]`` is rejected as unknown."""
     p = _write_config(
         tmp_path,
         "runtime:\n  name: test\n  meshnet_name: old-style\n",
@@ -364,28 +353,7 @@ def test_removed_runtime_key_hint_appended(tmp_path: Path) -> None:
         load_config(str(p))
     msg = str(exc_info.value)
     assert "meshnet_name" in msg
-    assert "Hints:" in msg
-    assert "origin_label" in msg
     assert exc_info.value.section_path == "runtime"
-
-
-def test_no_hint_for_unknown_key_without_replacement(tmp_path: Path) -> None:
-    """An unknown key with no known replacement must not emit a Hints block.
-
-    Guards against the hint machinery spuriously firing on every typo.
-    """
-    p = _write_config(
-        tmp_path,
-        "runtime: {}\ntotally_bogus_key: true\n",
-    )
-    with pytest.raises(
-        ConfigValidationError, match="Unknown root config key"
-    ) as exc_info:
-        load_config(str(p))
-    msg = str(exc_info.value)
-    assert "totally_bogus_key" in msg
-    # No removed-key match → no Hints section at all.
-    assert "Hints:" not in msg
 
 
 # ---------------------------------------------------------------------------

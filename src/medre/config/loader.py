@@ -23,7 +23,6 @@ from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
     ConfigValidationError,
-    format_removed_key_hints,
 )
 from medre.config.model import (
     AdapterConfigSet,
@@ -149,15 +148,11 @@ def _reject_unknown_keys(
     """
     unknown = set(section) - known
     if unknown:
-        # Migration hints (F-018): when an unknown key matches a removed
-        # key, point the operator at its replacement. Value-free — only
-        # key names and replacement field names appear in the hint block.
         msg = (
             f"{section_path}: unknown key(s) "
             f"{sorted(unknown, key=lambda k: repr(k))}. "
             f"Accepted keys: {sorted(known)}"
         )
-        msg += format_removed_key_hints(unknown)
         raise ConfigValidationError(msg, section_path=section_path)
 
 
@@ -446,15 +441,11 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     adapters_data = _get_section_dict(data, "adapters")
     unknown_transports = set(adapters_data) - _KNOWN_TRANSPORTS
     if unknown_transports:
-        # Migration hints (F-018): see _reject_unknown_keys. Unlikely to
-        # match (removed keys are field names, not transport names), but
-        # value-free and a no-op when nothing matches.
         msg = (
             f"adapters: unknown transport group(s): "
             f"{sorted(unknown_transports, key=lambda k: repr(k))}. "
             f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}"
         )
-        msg += format_removed_key_hints(unknown_transports)
         raise ConfigValidationError(msg, section_path="adapters")
     adapters = AdapterConfigSet(
         matrix=_parse_adapter_section(
@@ -483,13 +474,11 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     # Matches ``additionalProperties: false`` on the JSON schemas.
     unknown_root = set(data) - _KNOWN_ROOT_KEYS
     if unknown_root:
-        # Migration hints (F-018): see _reject_unknown_keys.
         msg = (
             f"Unknown root config key(s): "
             f"{sorted(unknown_root, key=lambda k: (type(k).__name__, repr(k)))}. "
             f"Valid keys are: {sorted(_KNOWN_ROOT_KEYS)}."
         )
-        msg += format_removed_key_hints(unknown_root)
         raise ConfigValidationError(msg, section_path="<root>")
 
     return RuntimeConfig(

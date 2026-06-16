@@ -205,17 +205,15 @@ def test_unknown_adapter_key_rejected_via_load(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Migration diagnostics for removed adapter keys (F-018 / Task 4)
+# Removed legacy adapter keys are rejected as unknown
 # ---------------------------------------------------------------------------
 
 
 def test_removed_adapter_key_hint_appended_via_load(tmp_path: Path) -> None:
-    """``meshnet_name`` as an adapter key surfaces a migration hint.
+    """``meshnet_name`` as an adapter key is rejected as unknown.
 
-    Exercises the hint path in :func:`_coerce_adapter_kwargs` end-to-end
-    through ``load_config``. The rejection itself is unchanged (still
-    raises ``unknown adapter config key``); the suggestion is *appended*
-    and points at the replacement origin-label fields.
+    Exercises the rejection path in :func:`_coerce_adapter_kwargs`
+    end-to-end through ``load_config``.
     """
     config = (
         "adapters:\n"
@@ -232,6 +230,3 @@ def test_removed_adapter_key_hint_appended_via_load(tmp_path: Path) -> None:
         load_config(str(p))
     msg = str(exc_info.value)
     assert "meshnet_name" in msg
-    # Migration hint block must be present and name the replacement.
-    assert "Hints:" in msg
-    assert "origin_label" in msg

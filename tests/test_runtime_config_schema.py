@@ -75,8 +75,7 @@ class TestRuntimeConfigSchemaIdentifiers:
         """``$schema`` must pin JSON Schema draft 2020-12."""
         schema = _load_schema()
         assert (
-            schema.get("$schema")
-            == "https://json-schema.org/draft/2020-12/schema"
+            schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema"
         ), "runtime-config.schema.json: $schema must pin draft 2020-12"
 
     def test_schema_has_stable_id(self) -> None:
@@ -84,20 +83,20 @@ class TestRuntimeConfigSchemaIdentifiers:
         schema = _load_schema()
         id_ = schema.get("$id")
         assert isinstance(id_, str), f"$id must be a string, got {id_!r}"
-        assert id_.startswith("https://medre.dev/schemas/"), (
-            f"$id must be under medre.dev/schemas/, got {id_!r}"
-        )
-        assert id_.rsplit("/", 1)[-1] == _SCHEMA_PATH.name, (
-            f"$id basename {id_!r} does not match filename {_SCHEMA_PATH.name!r}"
-        )
+        assert id_.startswith(
+            "https://medre.dev/schemas/"
+        ), f"$id must be under medre.dev/schemas/, got {id_!r}"
+        assert (
+            id_.rsplit("/", 1)[-1] == _SCHEMA_PATH.name
+        ), f"$id basename {id_!r} does not match filename {_SCHEMA_PATH.name!r}"
 
     def test_schema_root_is_object_with_no_additional_properties(self) -> None:
         """Root schema must be an object with additionalProperties: false."""
         schema = _load_schema()
         assert schema.get("type") == "object"
-        assert schema.get("additionalProperties") is False, (
-            "root additionalProperties must be false (matches loader._KNOWN_ROOT_KEYS)"
-        )
+        assert (
+            schema.get("additionalProperties") is False
+        ), "root additionalProperties must be false (matches loader._KNOWN_ROOT_KEYS)"
 
 
 # ---------------------------------------------------------------------------
@@ -150,9 +149,9 @@ def test_unknown_root_key_fails_validation() -> None:
     with pytest.raises(jsonschema.ValidationError) as exc_info:
         jsonschema.validate(instance=bad_config, schema=schema)
     # The error should mention the offending key so operators get a hint.
-    assert "roues" in exc_info.value.message, (
-        f"validation error should mention 'roues', got: {exc_info.value.message!r}"
-    )
+    assert (
+        "roues" in exc_info.value.message
+    ), f"validation error should mention 'roues', got: {exc_info.value.message!r}"
 
 
 def test_unknown_transport_group_fails_validation() -> None:

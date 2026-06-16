@@ -42,9 +42,9 @@ def test_every_schema_has_draft_2020_12_schema_field() -> None:
             continue
         schema = json.loads(path.read_text(encoding="utf-8"))
         declared = schema.get("$schema")
-        assert declared == _DRAFT_2020_12, (
-            f"{path.name}: $schema must be {_DRAFT_2020_12!r}, got {declared!r}"
-        )
+        assert (
+            declared == _DRAFT_2020_12
+        ), f"{path.name}: $schema must be {_DRAFT_2020_12!r}, got {declared!r}"
 
 
 def test_every_schema_has_stable_id() -> None:
@@ -54,8 +54,12 @@ def test_every_schema_has_stable_id() -> None:
             continue
         schema = json.loads(path.read_text(encoding="utf-8"))
         id_: Any = schema.get("$id")
-        assert isinstance(id_, str), f"{path.name}: $id must be a string URL, got {id_!r}"
-        assert id_.startswith(_ID_PREFIX), f"{path.name}: $id must start with {_ID_PREFIX!r}, got {id_!r}"
+        assert isinstance(
+            id_, str
+        ), f"{path.name}: $id must be a string URL, got {id_!r}"
+        assert id_.startswith(
+            _ID_PREFIX
+        ), f"{path.name}: $id must start with {_ID_PREFIX!r}, got {id_!r}"
         # The $id basename must match the schema filename so resolution by
         # URL lands on the file with that name.
         assert (
