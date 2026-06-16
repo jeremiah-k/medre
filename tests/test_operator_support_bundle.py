@@ -95,6 +95,32 @@ adapters:
       encryption_mode: plaintext
 """
 
+# Matrix + MeshCore BLE (with ble_pin) for verifying secret-presence and
+# raw-value redaction across transports. No SDK is imported: only the
+# frozen config dataclasses are constructed by the loader.
+CONFIG_WITH_MESHCORE = """\
+runtime:
+  name: meshcore-secret-test
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.test
+      user_id: '@bot:test'
+      access_token: s3cret-bundle-test-token
+      encryption_mode: plaintext
+  meshcore:
+    node:
+      enabled: true
+      adapter_kind: fake
+      connection_type: ble
+      ble_address: 'AA:BB:CC:DD:EE:FF'
+      ble_pin: 'pin-raw-value-4321'
+"""
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -450,3 +476,128 @@ def test_schemas_json_present_even_when_config_missing(tmp_path: Path) -> None:
     # Each schema entry has a `present` key regardless of repo layout.
     assert "runtime_config_schema" in schemas
     assert "present" in schemas["runtime_config_schema"]
+
+
+# ---------------------------------------------------------------------------
+# schemas.json::evidence_bundle_schema (added alongside runtime/adapter/
+# routing schemas so support can spot evidence-schema drift too)
+# ---------------------------------------------------------------------------
+
+
+def test_schemas_json_reports_evidence_bundle_schema_presence(tmp_path: Path) -> None:
+    """schemas.json records evidence-bundle schema presence."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+    eb = schemas["evidence_bundle_schema"]
+    assert eb["present"] is True
+    assert isinstance(eb["path"], str)
+    assert eb["path"].endswith("evidence-bundle.schema.json")
+
+
+def test_schemas_json_reports_evidence_bundle_schema_id(tmp_path: Path) -> None:
+    """schemas.json surfaces the evidence-bundle schema $id when present."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+    eb = schemas["evidence_bundle_schema"]
+    assert isinstance(eb["$id"], str)
+    assert "evidence-bundle" in eb["$id"]
+
+
+# ---------------------------------------------------------------------------
+# adapters.json enrichment: adapter_kind, connection_type,
+# endpoint_fields_present, secret_fields_present (and raw-value absence)
+# ---------------------------------------------------------------------------
+
+
+def test_adapters_json_includes_adapter_kind(tmp_path: Path) -> None:
+    """adapters.json reports adapter_kind ('fake' for the test configs)."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    by_id = {
+        a["adapter_id"]: a
+        for a in _read_json_member(members, "adapters.json")["adapters"]
+    }
+    assert by_id["main"]["adapter_kind"] == "fake"
+    assert by_id["radio"]["adapter_kind"] == "fake"
+
+
+def test_adapters_json_includes_connection_type_for_meshtastic(tmp_path: Path) -> None:
+    """adapters.json reports connection_type for transports that have one."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    by_id = {
+        a["adapter_id"]: a
+        for a in _read_json_member(members, "adapters.json")["adapters"]
+    }
+    # Meshtastic radio exposes connection_type=fake.
+    assert by_id["radio"]["connection_type"] == "fake"
+    # Matrix has no connection_type attribute — the field is omitted, not null.
+    assert "connection_type" not in by_id["main"]
+
+
+def test_adapters_json_includes_endpoint_fields_present_for_matrix(
+    tmp_path: Path,
+) -> None:
+    """adapters.json endpoint_fields_present reports homeserver/user_id/room_allowlist for Matrix."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    by_id = {
+        a["adapter_id"]: a
+        for a in _read_json_member(members, "adapters.json")["adapters"]
+    }
+    efp = by_id["main"]["endpoint_fields_present"]
+    assert efp["homeserver"] is True
+    assert efp["user_id"] is True
+    assert efp["room_allowlist"] is True
+    # No host field on matrix — must not appear.
+    assert "host" not in efp
+
+
+def test_adapters_json_includes_secret_fields_present_for_matrix(
+    tmp_path: Path,
+) -> None:
+    """adapters.json secret_fields_present reports access_token=true for Matrix."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    by_id = {
+        a["adapter_id"]: a
+        for a in _read_json_member(members, "adapters.json")["adapters"]
+    }
+    sfp = by_id["main"]["secret_fields_present"]
+    assert sfp == {"access_token": True}
+
+
+def test_adapters_json_does_not_include_raw_access_token(tmp_path: Path) -> None:
+    """adapters.json never carries the raw access_token value — only boolean presence."""
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    text = members["adapters.json"].decode("utf-8")
+    # The unique token value is not a substring of any key name, so this
+    # assertion only fails on a real leak.
+    assert "s3cret-bundle-test-token" not in text
+    # The secret field name is allowed (it is the key in the presence dict);
+    # only its value must be absent. The presence dict serialises as
+    # {"access_token": true} — assert that exact shape.
+    adapters = _read_json_member(members, "adapters.json")["adapters"]
+    matrix = next(a for a in adapters if a["transport"] == "matrix")
+    assert matrix["secret_fields_present"]["access_token"] is True
+
+
+def test_adapters_json_does_not_include_raw_ble_pin(tmp_path: Path) -> None:
+    """adapters.json never carries the raw MeshCore ble_pin value."""
+    cfg = _write_config(tmp_path, CONFIG_WITH_MESHCORE)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    text = members["adapters.json"].decode("utf-8")
+    assert "pin-raw-value-4321" not in text
+    # And the presence flag is reported true without the value.
+    meshcore = next(
+        a
+        for a in _read_json_member(members, "adapters.json")["adapters"]
+        if a["transport"] == "meshcore"
+    )
+    assert meshcore["secret_fields_present"] == {"ble_pin": True}
+    # Endpoint-ish fields for the BLE-configured MeshCore node are reported.
+    assert meshcore["endpoint_fields_present"]["ble_address"] is True
+    assert meshcore["connection_type"] == "ble"

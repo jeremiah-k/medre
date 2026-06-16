@@ -901,19 +901,29 @@ and a redacted config copy into a single ZIP archive.
 - `manifest.json` — `bundle_schema_version`, `created_at`, `command`,
   MEDRE version, platform info, redaction policy.
 - `environment.json` — Python version, platform, machine, MEDRE version.
-- `schemas.json` — runtime/adapter/routing config schema file presence,
-  `$id`/`$schema`, and whether `scripts/ci/validate-example-configs.sh`
-  exists. Useful for diagnosing config/schema drift between a deployment
-  and the schemas the bundle was built against. Never carries secret
-  values.
+- `schemas.json` — runtime/adapter/routing/evidence-bundle config schema
+  file presence, `$id`/`$schema`, and whether
+  `scripts/ci/validate-example-configs.sh` exists. Useful for diagnosing
+  config/schema drift between a deployment and the schemas the bundle
+  was built against. Never carries secret values.
 - `config_source.json` — config discovery source, resolved path,
   `env_overrides_applied` boolean.
 - `config_check.json` — config load result (`success`, `error`,
   `error_section_path`).
 - `route_plan.json` — `medre routes plan` output (expanded legs,
   origin-label provenance).
-- `adapters.json` — adapter summary (`adapter_id`, `transport`,
-  `enabled`, `origin_label`).
+- `adapters.json` — adapter summary. Per adapter: `adapter_id`,
+  `transport`, `enabled`, `origin_label`, `adapter_kind` (`"real"` or
+  `"fake"`), and (when the typed adapter config exposes them)
+  `connection_type` (the transport mode string, e.g. `"fake"`,
+  `"tcp"`, `"serial"`, `"ble"`, `"reticulum"`),
+  `endpoint_fields_present` (`{field_name: true}` for populated safe
+  endpoint-ish fields such as `homeserver`, `user_id`, `host`, `port`,
+  `serial_port`, `ble_address`, `channel_mapping`, `room_allowlist`,
+  `storage_path`, `display_name` — presence only, never values), and
+  `secret_fields_present` (`{field_name: true}` for populated
+  secret-like fields such as `access_token`, `ble_pin`,
+  `identity_path` — **boolean presence only, never values**).
 - `redacted_config.yaml` — parsed config with secret-named field
   values replaced with `***REDACTED***` (keys preserved).
 

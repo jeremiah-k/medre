@@ -171,15 +171,17 @@ def _read_schema_meta(filename: str) -> dict[str, Any]:
 def _build_schemas_member() -> dict[str, Any]:
     """Build the ``schemas.json`` bundle member: schema-file metadata.
 
-    Surfaces presence and ``$id``/``$schema`` for the runtime, adapter, and
-    routing config schemas, plus whether the example-config validator script
-    exists. Useful for diagnosing config/schema drift between a deployment
-    and the schemas the bundle was built against. Defensive — never raises.
+    Surfaces presence and ``$id``/``$schema`` for the runtime, adapter,
+    routing, and evidence-bundle schemas, plus whether the example-config
+    validator script exists. Useful for diagnosing config/schema drift
+    between a deployment and the schemas the bundle was built against.
+    Defensive — never raises.
     """
     return {
         "runtime_config_schema": _read_schema_meta("runtime-config.schema.json"),
         "adapter_config_schema": _read_schema_meta("adapter-config.schema.json"),
         "routing_config_schema": _read_schema_meta("routing-config.schema.json"),
+        "evidence_bundle_schema": _read_schema_meta("evidence-bundle.schema.json"),
         "validate_example_configs_script_present": (
             _VALIDATE_EXAMPLE_CONFIGS_SCRIPT.is_file()
         ),
@@ -251,30 +253,134 @@ def _build_config_source(
 
 
 def _build_adapters(config: Any) -> dict[str, Any]:
-    """Adapter inventory with only safe wrapper fields.
+    """Adapter inventory with safe wrapper fields and value-free introspection.
 
-    Never introspects ``rtc.config`` internals — origin_label comes from
-    the route-plan walk which already filters it to the safe fallback
-    string.
+    Base fields (``adapter_id``, ``transport``, ``enabled``,
+    ``origin_label``, ``adapter_kind``) are always emitted. When the typed
+    adapter config can be introspected, three additional value-free
+    summaries are added per adapter:
+
+    - ``connection_type`` — the transport mode string (e.g. ``"fake"``,
+      ``"tcp"``, ``"serial"``, ``"ble"``, ``"reticulum"``) if the config
+      exposes one.
+    - ``endpoint_fields_present`` — ``{field_name: true}`` for safe,
+      non-secret endpoint-ish fields that are set. Helps triage without
+      leaking values.
+    - ``secret_fields_present`` — ``{field_name: true}`` for secret-like
+      fields that are populated. **Values are never included** — only the
+      boolean presence, so support can see which credentials an operator
+      has configured without exposing them.
+
+    Introspection uses only ``hasattr`` / ``getattr`` on the frozen
+    dataclass — never ``validate()`` and never any method that could
+    trigger an adapter SDK import. If introspection fails for one
+    adapter, that adapter keeps its base fields and enrichment is
+    skipped; the bundle stays JSON-valid.
     """
     adapters: list[dict[str, Any]] = []
     try:
         for transport, adapter_id, rtc in config.adapters.all_configs():
-            adapters.append(
-                {
-                    "adapter_id": adapter_id,
-                    "transport": transport,
-                    "enabled": bool(getattr(rtc, "enabled", False)),
-                    "origin_label": getattr(
-                        getattr(rtc, "config", None), "origin_label", ""
-                    )
-                    or "",
-                }
-            )
+            entry: dict[str, Any] = {
+                "adapter_id": adapter_id,
+                "transport": transport,
+                "enabled": bool(getattr(rtc, "enabled", False)),
+                "origin_label": getattr(
+                    getattr(rtc, "config", None), "origin_label", ""
+                )
+                or "",
+                "adapter_kind": getattr(rtc, "adapter_kind", "real"),
+            }
+            cfg = getattr(rtc, "config", None)
+            # ponytail: enrichment is best-effort per adapter — a single
+            # malformed wrapper must not strip enrichment from the others,
+            # and must never sink the bundle.
+            try:
+                ct = getattr(cfg, "connection_type", None)
+                if ct is not None:
+                    entry["connection_type"] = ct
+                entry["endpoint_fields_present"] = _endpoint_fields_present(
+                    transport, cfg
+                )
+                entry["secret_fields_present"] = _secret_fields_present(transport, cfg)
+            except Exception:  # noqa: BLE001 — enrichment is best-effort
+                pass
+            adapters.append(entry)
     except Exception:
         # Defensive: a malformed adapter set should not sink the bundle.
         adapters = []
     return {"adapters": adapters}
+
+
+# Safe endpoint-ish fields reported per transport (presence only, never
+# values). Chosen to aid support triage: enough to see connection shape
+# without leaking endpoints that could be sensitive in some deployments.
+_ENDPOINT_FIELDS: dict[str, tuple[str, ...]] = {
+    "matrix": ("homeserver", "user_id", "room_allowlist"),
+    "meshtastic": ("host", "port", "serial_port", "ble_address", "channel_mapping"),
+    "meshcore": ("host", "port", "serial_port", "ble_address", "serial_baudrate"),
+    "lxmf": ("storage_path", "display_name"),
+}
+
+# Secret-like fields reported per transport as boolean presence only.
+# Values are NEVER included — this dict only names which fields count.
+_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
+    "matrix": ("access_token",),
+    "meshcore": ("ble_pin",),
+    "lxmf": ("identity_path",),
+}
+
+
+def _field_is_present(cfg: Any, name: str) -> bool:
+    """Return True if *name* on *cfg* counts as a populated field.
+
+    Uses only ``hasattr`` / ``getattr``. Semantics:
+
+    - ``room_allowlist`` — present when non-``None`` (``None`` means
+      "accept all rooms", a real configuration choice rather than a
+      missing field, so it is reported distinctly from a populated set).
+    - Strings — present when non-empty after strip.
+    - Collections (list/tuple/set/dict) — present when non-empty.
+    - Everything else (bool/int/float) — present when truthy.
+    """
+    if not hasattr(cfg, name):
+        return False
+    value = getattr(cfg, name)
+    if name == "room_allowlist":
+        return value is not None
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) > 0
+    return bool(value)
+
+
+def _endpoint_fields_present(transport: str, cfg: Any) -> dict[str, bool]:
+    """Return ``{field: True}`` for populated endpoint fields on *cfg*.
+
+    Never includes values — only boolean presence. Returns ``{}`` for
+    unknown transports so an unrecognised transport never raises.
+    """
+    return {
+        name: True
+        for name in _ENDPOINT_FIELDS.get(transport, ())
+        if _field_is_present(cfg, name)
+    }
+
+
+def _secret_fields_present(transport: str, cfg: Any) -> dict[str, bool]:
+    """Return ``{field: True}`` for populated secret-like fields on *cfg*.
+
+    **Never includes values** — only boolean presence. This lets support
+    see which credentials an operator has configured without leaking
+    them. Returns ``{}`` for unknown transports.
+    """
+    return {
+        name: True
+        for name in _SECRET_FIELDS.get(transport, ())
+        if _field_is_present(cfg, name)
+    }
 
 
 def _build_route_plan_member(config: Any) -> dict[str, Any]:

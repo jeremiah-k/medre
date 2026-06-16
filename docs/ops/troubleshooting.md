@@ -828,16 +828,16 @@ primary artifact when reporting problems.
 
 ### Bundle contents
 
-| Member                 | Content                                                                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `manifest.json`        | `bundle_schema_version`, `created_at`, `command`, MEDRE version, platform info, redaction policy                                      |
-| `environment.json`     | Python version, platform, machine, MEDRE version                                                                                      |
-| `schemas.json`         | Runtime/adapter/routing config schema file presence, `$id`/`$schema`, and validator-script presence — use to spot config/schema drift |
-| `config_source.json`   | Config discovery source, resolved path, `env_overrides_applied` boolean flag                                                          |
-| `config_check.json`    | Config load result (`success`, `error`, `error_section_path`)                                                                         |
-| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels)                                                                         |
-| `adapters.json`        | Adapter summary (`adapter_id`, `transport`, `enabled`, `origin_label`)                                                                |
-| `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)                                          |
+| Member                 | Content                                                                                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `manifest.json`        | `bundle_schema_version`, `created_at`, `command`, MEDRE version, platform info, redaction policy                                                                                                 |
+| `environment.json`     | Python version, platform, machine, MEDRE version                                                                                                                                                 |
+| `schemas.json`         | Runtime/adapter/routing/evidence-bundle config schema file presence, `$id`/`$schema`, and validator-script presence — use to spot config/schema drift                                            |
+| `config_source.json`   | Config discovery source, resolved path, `env_overrides_applied` boolean flag                                                                                                                     |
+| `config_check.json`    | Config load result (`success`, `error`, `error_section_path`)                                                                                                                                    |
+| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels)                                                                                                                                    |
+| `adapters.json`        | Adapter summary: `adapter_id`, `transport`, `enabled`, `origin_label`, `adapter_kind`, plus value-free `connection_type`, `endpoint_fields_present`, and `secret_fields_present` (booleans only) |
+| `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)                                                                                                     |
 
 ### What is NOT in the bundle
 
@@ -845,7 +845,10 @@ primary artifact when reporting problems.
   `***REDACTED***` (keys are preserved so the redacted config stays
   useful for debugging). Environment members carry platform metadata
   only, never env-var values; the `env_overrides_applied` flag in
-  `config_source.json` is a boolean, not a name list.
+  `config_source.json` is a boolean, not a name list. The
+  `secret_fields_present` map in `adapters.json` reports **boolean
+  presence only** (e.g. `{"access_token": true}`) — it never carries
+  the underlying token, PIN, or identity-file contents.
 - **Live logs** — not attached by default. Attach the relevant log
   excerpt separately if needed.
 - **Live probe results** — the bundle starts no adapters, so no live
