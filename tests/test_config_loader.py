@@ -673,3 +673,323 @@ class TestLoadConfigFileReadErrors:
         cfg.write_bytes(b"\xff\xfe\xfd\xfc not valid utf8")
         with pytest.raises(ConfigFileError, match="not valid UTF-8"):
             load_config(str(cfg))
+
+
+# ---------------------------------------------------------------------------
+# Section type validation — non-mapping section values are rejected
+# (Task 2: runtime/storage/retry/adapters/routes [] or "bad" → ConfigValidationError)
+# ---------------------------------------------------------------------------
+
+
+class TestSectionTypeValidation:
+    """A section that should be a mapping but is a list/scalar is rejected
+    with a clear ConfigValidationError instead of crashing with a raw
+    AttributeError when downstream code calls ``.get()`` / ``.items()``.
+    """
+
+    def test_runtime_list_rejected(self, tmp_path: Path) -> None:
+        """runtime: [] → ConfigValidationError, section_path='runtime'."""
+        p = _write_config(tmp_path, "runtime: []\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "runtime"
+        assert "runtime" in str(exc_info.value)
+        assert "mapping" in str(exc_info.value)
+
+    def test_storage_list_rejected(self, tmp_path: Path) -> None:
+        """storage: [] → ConfigValidationError, section_path='storage'."""
+        p = _write_config(tmp_path, "storage: []\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "storage"
+
+    def test_retry_list_rejected(self, tmp_path: Path) -> None:
+        """retry: [] → ConfigValidationError, section_path='retry'."""
+        p = _write_config(tmp_path, "retry: []\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "retry"
+
+    def test_adapters_list_rejected(self, tmp_path: Path) -> None:
+        """adapters: [] → ConfigValidationError, section_path='adapters'."""
+        p = _write_config(tmp_path, "adapters: []\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters"
+
+    def test_routes_list_rejected(self, tmp_path: Path) -> None:
+        """routes: [] → ConfigValidationError, section_path='routes'.
+
+        Without the type check, RouteConfigSet.from_dict would call
+        ``.items()`` on a list and raise a raw AttributeError.
+        """
+        p = _write_config(tmp_path, "routes: []\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "routes"
+
+    def test_runtime_null_accepted(self, tmp_path: Path) -> None:
+        """runtime: null loads with defaults (treated as unset/empty)."""
+        p = _write_config(tmp_path, "runtime: null\n")
+        config, _, _ = load_config(str(p))
+        assert config.runtime.name == "medre"
+
+    def test_logging_null_accepted(self, tmp_path: Path) -> None:
+        """logging: null loads with defaults (treated as unset/empty)."""
+        p = _write_config(tmp_path, "logging: null\n")
+        config, _, _ = load_config(str(p))
+        assert config.logging.level == "INFO"
+
+    def test_existing_valid_configs_still_load(self, config_file: Path) -> None:
+        """Sanity check: a fully valid config still loads without error."""
+        config, _, _ = load_config(str(config_file))
+        assert config.runtime.name == "test"
+
+
+# ---------------------------------------------------------------------------
+# Unknown adapter transport group rejection (Task 3)
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownTransportRejection:
+    """A typo'd transport group (e.g. ``adapters.matrixx``) is rejected
+    instead of silently loading with no adapters configured."""
+
+    def test_unknown_transport_matrixx_rejected(self, tmp_path: Path) -> None:
+        """adapters.matrixx → ConfigValidationError mentioning the typo
+        and listing valid transports."""
+        p = _write_config(
+            tmp_path,
+            "adapters:\n  matrixx:\n    main:\n      enabled: true\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters"
+        msg = str(exc_info.value)
+        assert "matrixx" in msg
+        # At least one valid transport name appears in the message.
+        assert "matrix" in msg
+
+    def test_unknown_transport_rejected_with_error_detail(self, tmp_path: Path) -> None:
+        """section_path is 'adapters' and the accepted transport list
+        appears verbatim in the message."""
+        p = _write_config(
+            tmp_path,
+            "adapters:\n  bogustype:\n    foo:\n      enabled: true\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters"
+        msg = str(exc_info.value)
+        assert "bogustype" in msg
+        # All four canonical transports appear in the accepted list.
+        for t in ("matrix", "meshtastic", "meshcore", "lxmf"):
+            assert t in msg
+
+    def test_known_transports_load(self, multi_config_file: Path) -> None:
+        """Sanity check: known transport groups still load normally."""
+        config, _, _ = load_config(str(multi_config_file))
+        assert "main" in config.adapters.matrix
+        assert "radio" in config.adapters.meshtastic
+
+
+# ---------------------------------------------------------------------------
+# Malformed adapter group / instance shape rejection (Task 4)
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterShapeValidation:
+    """Non-mapping adapter group values and non-mapping instance values
+    are rejected with a clear ConfigValidationError instead of crashing
+    with AttributeError (group) or silently skipping (instance)."""
+
+    def test_non_mapping_transport_group_rejected(self, tmp_path: Path) -> None:
+        """adapters.matrix: 'bad' → ConfigValidationError at
+        section_path='adapters.matrix'."""
+        p = _write_config(tmp_path, "adapters:\n  matrix: bad\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters.matrix"
+        msg = str(exc_info.value)
+        assert "matrix" in msg
+        assert "mapping" in msg
+
+    def test_non_mapping_transport_group_int_rejected(self, tmp_path: Path) -> None:
+        """adapters.matrix: 123 → ConfigValidationError."""
+        p = _write_config(tmp_path, "adapters:\n  matrix: 123\n")
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters.matrix"
+
+    def test_non_mapping_instance_rejected(self, tmp_path: Path) -> None:
+        """adapters.matrix.main: 'bad' → ConfigValidationError at
+        section_path='adapters.matrix.main'.
+
+        Previously this was silently skipped via ``continue``; the typo
+        never surfaced.
+        """
+        p = _write_config(
+            tmp_path,
+            "adapters:\n  matrix:\n    main: bad\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters.matrix.main"
+        msg = str(exc_info.value)
+        assert "main" in msg
+        assert "mapping" in msg
+
+    def test_non_mapping_instance_meshtastic_rejected(self, tmp_path: Path) -> None:
+        """adapters.meshtastic.radio: 42 → ConfigValidationError.
+
+        Confirms the rejection applies to every transport, not just matrix.
+        """
+        p = _write_config(
+            tmp_path,
+            "adapters:\n  meshtastic:\n    radio: 42\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "adapters.meshtastic.radio"
+
+    def test_valid_adapter_configs_still_load(self, multi_config_file: Path) -> None:
+        """Sanity check: valid adapter tables still load."""
+        config, _, _ = load_config(str(multi_config_file))
+        # Two matrix instances + one meshtastic instance parsed.
+        assert {"main", "alt"} == set(config.adapters.matrix)
+        assert {"radio"} == set(config.adapters.meshtastic)
+
+
+# ---------------------------------------------------------------------------
+# Unknown global [retry] key rejection (Task 5)
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalRetryUnknownKeys:
+    """The top-level ``[retry]`` section rejects unknown keys, mirroring
+    the per-route ``[routes.<id>.retry]`` unknown-key rejection."""
+
+    def test_unknown_global_retry_key_rejected(self, tmp_path: Path) -> None:
+        """retry: {bogus: 123} → ConfigValidationError at
+        section_path='retry' mentioning 'bogus' and accepted keys."""
+        p = _write_config(
+            tmp_path,
+            "retry:\n  enabled: true\n  bogus: 123\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "retry"
+        msg = str(exc_info.value)
+        assert "bogus" in msg
+        assert "Accepted keys" in msg
+        # All accepted keys appear in the message.
+        for k in ("enabled", "interval_seconds", "batch_size", "max_attempts"):
+            assert k in msg
+
+    def test_unknown_global_retry_key_before_value_validation(
+        self, tmp_path: Path
+    ) -> None:
+        """The unknown-key check fires before any value-type validation,
+        so an operator with both a typo AND a bad value sees the typo."""
+        p = _write_config(
+            tmp_path,
+            "retry:\n  typo_key: 1\n  batch_size: -5\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        # Must be the unknown-key error, not the range check on batch_size.
+        assert "typo_key" in str(exc_info.value)
+        assert "unknown key" in str(exc_info.value)
+
+    def test_known_global_retry_keys_accepted(self, tmp_path: Path) -> None:
+        """All accepted retry keys load without an 'unknown key' error."""
+        p = _write_config(
+            tmp_path,
+            "retry:\n"
+            "  enabled: true\n"
+            "  interval_seconds: 5.0\n"
+            "  batch_size: 10\n"
+            "  max_attempts: 3\n",
+        )
+        config, _, _ = load_config(str(p))
+        assert config.retry.enabled is True
+        assert config.retry.batch_size == 10
+
+
+# ---------------------------------------------------------------------------
+# Unknown keys in runtime / runtime.limits / logging / storage (Task 6)
+# ---------------------------------------------------------------------------
+
+
+class TestSectionUnknownKeys:
+    """Unknown keys in the runtime, runtime.limits, logging, and storage
+    sections are rejected so typos surface at load time."""
+
+    def test_unknown_runtime_key_rejected(self, tmp_path: Path) -> None:
+        """runtime: {bogus: 1} → ConfigValidationError at 'runtime'."""
+        p = _write_config(
+            tmp_path,
+            "runtime:\n  name: test\n  bogus: 1\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "runtime"
+        msg = str(exc_info.value)
+        assert "bogus" in msg
+        assert "Accepted keys" in msg
+
+    def test_unknown_runtime_limits_key_rejected(self, tmp_path: Path) -> None:
+        """runtime: {limits: {bogus: 1}} → ConfigValidationError at
+        'runtime.limits'."""
+        p = _write_config(
+            tmp_path,
+            "runtime:\n  limits:\n    bogus: 1\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "runtime.limits"
+        msg = str(exc_info.value)
+        assert "bogus" in msg
+
+    def test_unknown_logging_key_rejected(self, tmp_path: Path) -> None:
+        """logging: {bogus: 1} → ConfigValidationError at 'logging'."""
+        p = _write_config(
+            tmp_path,
+            "logging:\n  level: INFO\n  bogus: 1\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "logging"
+        assert "bogus" in str(exc_info.value)
+
+    def test_unknown_storage_key_rejected(self, tmp_path: Path) -> None:
+        """storage: {bogus: 1} → ConfigValidationError at 'storage'."""
+        p = _write_config(
+            tmp_path,
+            "storage:\n  backend: memory\n  bogus: 1\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        assert exc_info.value.section_path == "storage"
+        assert "bogus" in str(exc_info.value)
+
+    def test_unknown_runtime_key_before_value_validation(self, tmp_path: Path) -> None:
+        """Unknown-key fires before any other validation, matching
+        RouteConfig.from_dict / BridgePolicy.from_dict ordering."""
+        p = _write_config(
+            tmp_path,
+            "runtime:\n  typo_field: 1\n  shutdown_timeout_seconds: -1\n",
+        )
+        with pytest.raises(ConfigValidationError) as exc_info:
+            load_config(str(p))
+        # Must be the unknown-key error, not anything about the timeout.
+        assert "typo_field" in str(exc_info.value)
+        assert "unknown key" in str(exc_info.value)
+
+    def test_valid_sections_still_load(self, config_file: Path) -> None:
+        """Sanity check: a fully valid config still loads with all
+        sections populated."""
+        config, _, _ = load_config(str(config_file))
+        assert config.runtime.name == "test"
+        assert config.runtime.shutdown_timeout_seconds == 30
+        assert config.storage.backend == "sqlite"

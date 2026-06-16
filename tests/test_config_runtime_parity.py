@@ -70,6 +70,20 @@ def _load_docker_config(
     return load_config(str(config_path))
 
 
+def _load_any(config_name: str, tmp_path: Path):
+    """Load a config, resolving Docker placeholders if needed."""
+    raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
+    if "${" in raw:
+        config_path = _write_yaml(
+            tmp_path,
+            _resolve_docker_placeholders(raw),
+            config_name,
+        )
+    else:
+        config_path = CONFIGS_DIR / config_name
+    return load_config(str(config_path))
+
+
 # ===========================================================================
 # Test 1: fake-bridge-smoke goes through the full path
 # ===========================================================================
@@ -375,36 +389,15 @@ class TestExampleConfigsUseSameLoader:
     """Every shipped example config is loaded through the same
     ``load_config`` → ``RuntimeBuilder.build()`` path."""
 
-    DIRECT_CONFIGS = [
+    DIRECT_CONFIGS = (
         "fake-bridge-smoke.yaml",
         "fake-multi-adapter.yaml",
-    ]
-    RESOLVED_CONFIGS = [
+    )
+    RESOLVED_CONFIGS = (
         "docker-matrix-bridge.yaml",
         "docker-meshtastic-bridge.yaml",
-    ]
+    )
     ALL_CONFIGS = DIRECT_CONFIGS + RESOLVED_CONFIGS
-
-    # Minimal single-adapter configs with adapter_kind: real.  These fail at
-    # load_config on missing hardware fields (host, ble_address, storage_path),
-    # NOT on ConfigValidationError for adapter_kind — proving the F-002 fix.
-    MINIMAL_CONFIGS = [
-        "lxmf-receiver.yaml",
-        "lxmf-sender.yaml",
-        "meshcore-lab.yaml",
-        "meshcore-tbeam.yaml",
-    ]
-
-    # Configs that require real credentials or hardware to fully load/build.
-    # (config_name, expected_error_or_None) — None means load_config succeeds
-    # (hardware check happens only at build time).
-    CREDENTIAL_REQUIRED_CONFIGS: list[tuple[str, type[Exception] | None]] = [
-        ("matrix.yaml", MatrixConfigError),
-        ("meshtastic-serial.yaml", None),
-        ("mixed-matrix-meshtastic.yaml", MatrixConfigError),
-        ("live-matrix-meshtastic.yaml", MatrixConfigError),
-        ("live-matrix-meshtastic-channel-map.yaml", MatrixConfigError),
-    ]
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -455,50 +448,86 @@ class TestExampleConfigsUseSameLoader:
                 f"{type(failure.error).__name__}: {failure.error}"
             )
 
-    # -- TC-003/TC-004: minimal configs fail on hardware, not adapter_kind ----
 
-    @pytest.mark.parametrize("config_name", MINIMAL_CONFIGS)
-    def test_minimal_config_fails_on_hardware_not_adapter_kind(
-        self, config_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The 4 minimal configs use adapter_kind: real but are missing
-        required hardware fields (host, ble_address, storage_path).
+# ===========================================================================
+# TC-003..TC-005: minimal and credential-required configs
+# ===========================================================================
 
-        They must fail with the transport-specific config error — NOT with
-        ConfigValidationError for an invalid adapter_kind.  This verifies
-        the F-002 fix: adapter_kind is now 'real' (valid) and the configs
-        progress past the wrapper into adapter-specific validation.
-        """
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-        with pytest.raises((LxmfConfigError, MeshCoreConfigError)) as exc_info:
-            self._load_any(config_name, tmp_path)
+# Minimal single-adapter configs with adapter_kind: real.  These fail at
+# load_config on missing hardware fields (host, ble_address, storage_path),
+# NOT on ConfigValidationError for adapter_kind — proving the F-002 fix.
+MINIMAL_CONFIGS = (
+    "lxmf-receiver.yaml",
+    "lxmf-sender.yaml",
+    "meshcore-lab.yaml",
+    "meshcore-tbeam.yaml",
+)
+
+# Configs that require real credentials or hardware to fully load/build.
+# (config_name, expected_error_or_None) — None means load_config succeeds
+# (hardware check happens only at build time).
+CREDENTIAL_REQUIRED_CONFIGS: tuple[tuple[str, type[Exception] | None], ...] = (
+    ("matrix.yaml", MatrixConfigError),
+    ("meshtastic-serial.yaml", None),
+    ("mixed-matrix-meshtastic.yaml", MatrixConfigError),
+    ("live-matrix-meshtastic.yaml", MatrixConfigError),
+    ("live-matrix-meshtastic-channel-map.yaml", MatrixConfigError),
+)
+
+
+@pytest.fixture()
+def _medre_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+
+# -- TC-003/TC-004: minimal configs fail on hardware, not adapter_kind ----
+
+
+@pytest.mark.parametrize("config_name", MINIMAL_CONFIGS)
+def test_minimal_config_fails_on_hardware_not_adapter_kind(
+    config_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 4 minimal configs use adapter_kind: real but are missing
+    required hardware fields (host, ble_address, storage_path).
+
+    They must fail with the transport-specific config error — NOT with
+    ConfigValidationError for an invalid adapter_kind.  This verifies
+    the F-002 fix: adapter_kind is now 'real' (valid) and the configs
+    progress past the wrapper into adapter-specific validation.
+    """
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    with pytest.raises((LxmfConfigError, MeshCoreConfigError)) as exc_info:
+        _load_any(config_name, tmp_path)
+    assert not isinstance(exc_info.value, ConfigValidationError)
+
+
+# -- TC-005: credential-required configs fail on credentials, not structure -
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_error"),
+    CREDENTIAL_REQUIRED_CONFIGS,
+    ids=[c[0] for c in CREDENTIAL_REQUIRED_CONFIGS],
+)
+def test_credential_required_config_fails_on_credentials(
+    config_name: str,
+    expected_error: type[Exception] | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Credential-required configs must either load successfully
+    (hardware check deferred to build) or fail on credentials — never
+    on ConfigValidationError for adapter_kind structure.
+    """
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    if expected_error is None:
+        # meshtastic-serial loads OK — hardware check is at build time.
+        config, _source, _paths = _load_any(config_name, tmp_path)
+        assert config is not None
+        assert hasattr(config, "runtime")
+    else:
+        with pytest.raises(expected_error) as exc_info:
+            _load_any(config_name, tmp_path)
         assert not isinstance(exc_info.value, ConfigValidationError)
-
-    # -- TC-005: credential-required configs fail on credentials, not structure -
-
-    @pytest.mark.parametrize(
-        "config_name, expected_error",
-        CREDENTIAL_REQUIRED_CONFIGS,
-        ids=[c[0] for c in CREDENTIAL_REQUIRED_CONFIGS],
-    )
-    def test_credential_required_config_fails_on_credentials(
-        self,
-        config_name: str,
-        expected_error: type[Exception] | None,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Credential-required configs must either load successfully
-        (hardware check deferred to build) or fail on credentials — never
-        on ConfigValidationError for adapter_kind structure.
-        """
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-        if expected_error is None:
-            # meshtastic-serial loads OK — hardware check is at build time.
-            config, _source, _paths = self._load_any(config_name, tmp_path)
-            assert config is not None
-            assert hasattr(config, "runtime")
-        else:
-            with pytest.raises(expected_error) as exc_info:
-                self._load_any(config_name, tmp_path)
-            assert not isinstance(exc_info.value, ConfigValidationError)

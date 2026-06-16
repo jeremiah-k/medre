@@ -70,6 +70,10 @@ def _example_schema_pairs() -> list[tuple[Path, Path]]:
             schema_stem = name[: -len("-example")]
         else:
             schema_stem = name
+        # Per-transport adapter examples validate against the shared
+        # adapter-config.schema.json oneOf, not per-transport schemas.
+        if schema_stem.startswith("adapter-config-"):
+            schema_stem = "adapter-config"
         schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
         if schema.exists():
             pairs.append((example, schema))
@@ -184,6 +188,10 @@ class TestExamplesValidateAgainstSchemas:
             schema_stem = (
                 name[: -len("-example")] if name.endswith("-example") else name
             )
+            # Per-transport adapter examples validate against the shared
+            # adapter-config.schema.json oneOf, not per-transport schemas.
+            if schema_stem.startswith("adapter-config-"):
+                schema_stem = "adapter-config"
             schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
             assert schema.exists(), (
                 f"No schema found for example {example.name}. "
@@ -331,8 +339,13 @@ class TestSourceDriftDetection:
         from medre.config.routes import RouteConfig
 
         schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
-        # The RouteConfig arm is the first entry in the top-level oneOf.
-        route_arm = schema["oneOf"][0]
+        route_arm = next(
+            (arm for arm in schema["oneOf"] if arm.get("title") == "RouteConfig"),
+            None,
+        )
+        assert (
+            route_arm is not None
+        ), "routing-config.schema.json missing RouteConfig arm"
         schema_props = set(route_arm.get("properties", {}).keys())
         source_fields = {f.name for f in dc_fields(RouteConfig)}
         missing = source_fields - schema_props
@@ -1314,7 +1327,10 @@ class TestAdapterConfigExampleCoverage:
         examples = {p.name: _load_json(p) for p in _ADAPTER_CONFIG_EXAMPLES}
 
         for title in arm_titles:
-            distinctive = _ADAPTER_ARM_DISTINCTIVE_FIELDS.get(title, frozenset())
+            assert (
+                title in _ADAPTER_ARM_DISTINCTIVE_FIELDS
+            ), f"Add distinctive field mapping for new adapter arm {title!r}"
+            distinctive = _ADAPTER_ARM_DISTINCTIVE_FIELDS[title]
             has_example = any(distinctive <= set(ex.keys()) for ex in examples.values())
             assert has_example, (
                 f"No example payload found for adapter-config oneOf arm "

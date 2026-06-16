@@ -21,7 +21,7 @@ def generate_sample_config() -> str:
     """Return a complete YAML sample config with all sections documented."""
 
     return """\
-# MEDRE Configuration — YAML format
+# MEDRE Configuration - YAML format
 # Copy this file to ~/.config/medre/config.yaml or $MEDRE_HOME/config.yaml
 # and adjust values for your deployment.
 #
@@ -114,37 +114,37 @@ adapters:
       # storage_path: '{state}/lxmf/router'  # required for reticulum mode
 
 # ---------------------------------------------------------------------------
-# Routes — named bridge routes between adapters
+# Routes - named bridge routes between adapters
 # ---------------------------------------------------------------------------
 # Each routes.<id> mapping defines a static route from one or more source
 # adapters to one or more destination adapters.  Routes are evaluated in the
 # order they appear in this file.
 #
 # Required fields:
-#   source_adapters  — list of adapter IDs that originate messages
-#   dest_adapters    — list of adapter IDs that receive messages
+#   source_adapters  - list of adapter IDs that originate messages
+#   dest_adapters    - list of adapter IDs that receive messages
 #
 # Optional fields:
-#   directionality   — "source_to_dest" (default), "dest_to_source", or
+#   directionality   - "source_to_dest" (default), "dest_to_source", or
 #                       "bidirectional"
-#   enabled          — true (default) or false
-#   source_room      — Matrix room ID on the source side (alias for
+#   enabled          - true (default) or false
+#   source_room      - Matrix room ID on the source side (alias for
 #                       source_channel)
-#   source_channel   — channel/conversation ID on the source side
-#   dest_room        — Matrix room ID on the dest side (alias for
+#   source_channel   - channel/conversation ID on the source side
+#   dest_room        - Matrix room ID on the dest side (alias for
 #                       dest_channel)
-#   dest_channel     — channel/conversation ID on the dest side
-#   source_origin_label — source-side human-readable label for the forward
+#   dest_channel     - channel/conversation ID on the dest side
+#   source_origin_label - source-side human-readable label for the forward
 #                         leg of this route (source→dest).  When set,
 #                         overrides the source adapter's origin_label in
 #                         relay-prefix attribution.  This is source-context
 #                         metadata, not a routing key or delivery evidence.
-#   dest_origin_label   — source-side human-readable label for the reverse
+#   dest_origin_label   - source-side human-readable label for the reverse
 #                         leg of this route (dest→source).  Same semantics
 #                         as source_origin_label but applied when direction
 #                         is swapped during expansion.
-#   channel_room_map    — optional mapping of Meshtastic channel strings
-#                         ("0"–"7") to Matrix room IDs.  Each value may be
+#   channel_room_map    - optional mapping of Meshtastic channel strings
+#                         ("0"-"7") to Matrix room IDs.  Each value may be
 #                         a bare room-ID string or a structured table with
 #                         ``room`` plus optional per-entry
 #                         ``source_origin_label`` / ``dest_origin_label``.
@@ -157,18 +157,18 @@ adapters:
 #   channel_room_map entry shape (see the commented example below).
 #
 # Policy (routes.<id>.policy):
-#   allowed_event_types      — event kinds to permit (e.g. ["message.created",
+#   allowed_event_types      - event kinds to permit (e.g. ["message.created",
 #                              "message.text"]). Enforced as structural
 #                              route-source matching.
-#   allowed_source_adapters  — source adapter names to permit. Empty = any.
-#   allowed_dest_adapters    — destination adapter names to permit. Empty = any.
-#   sender_allowlist         — permitted sender identities (source_transport_id).
+#   allowed_source_adapters  - source adapter names to permit. Empty = any.
+#   allowed_dest_adapters    - destination adapter names to permit. Empty = any.
+#   sender_allowlist         - permitted sender identities (source_transport_id).
 #                              Empty = any sender.
-#   room_allowlist           — permitted room identifiers (e.g. Matrix room IDs).
+#   room_allowlist           - permitted room identifiers (e.g. Matrix room IDs).
 #                              Checked against source_channel_id when present.
 #                              Applies only when room-like identifiers are
 #                              available. Empty = any room.
-#   channel_allowlist        — permitted channel identifiers. Checked against
+#   channel_allowlist        - permitted channel identifiers. Checked against
 #                              target.channel first, falling back to
 #                              source_channel_id. Empty = any channel.
 #

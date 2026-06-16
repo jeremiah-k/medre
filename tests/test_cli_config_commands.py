@@ -342,8 +342,8 @@ class TestConfigCheckStrictValidation:
     def test_check_unknown_root_key_reports_root_section_path(
         self, tmp_path: Path
     ) -> None:
-        """Unknown root-level key (typo of ``routes``) is rejected via the
-        CLI with the ``<root>`` section path and the offending key name."""
+        """Unknown root-level key (typo of ``routes``) is rejected via the CLI
+        with the offending key name and a root-config error message."""
         cfg = tmp_path / "unknown_root.yaml"
         cfg.write_text(
             "runtime:\n  name: typo-test\n"
@@ -355,7 +355,7 @@ class TestConfigCheckStrictValidation:
         # The offending key name must appear so the operator can fix the typo.
         assert "roues" in stderr
         # The root section path marker is included for attribution.
-        assert "<root>" in stderr
+        assert "root config key" in stderr
 
     def test_check_unknown_adapter_key_reports_section_path(
         self, tmp_path: Path
@@ -386,7 +386,7 @@ class TestConfigCheckStrictValidation:
         # The offending key name must appear.
         assert "bogusextra" in stderr
 
-    def test_check_error_does_not_leak_secret_value(self, tmp_path: Path) -> None:
+    def test_check_error_does_not_leak_redaction_probe(self, tmp_path: Path) -> None:
         """Validation errors must reference key NAMES, never secret VALUES.
 
         Constructs a config that contains a fake access token AND a
@@ -395,7 +395,7 @@ class TestConfigCheckStrictValidation:
         token value, even though the adapter section parses successfully
         before the root-key check fires.
         """
-        secret_value = "fake_token_12345_do_not_leak"
+        redaction_probe = "redaction_probe_12345"
         cfg = tmp_path / "secret_leak.yaml"
         cfg.write_text(
             "runtime:\n  name: leak-test\n"
@@ -407,7 +407,7 @@ class TestConfigCheckStrictValidation:
             "      adapter_kind: fake\n"
             "      homeserver: https://fake.local\n"
             "      user_id: '@bot:fake.local'\n"
-            f"      access_token: {secret_value}\n"
+            f"      access_token: {redaction_probe}\n"
             "      room_allowlist: ['!room:fake.local']\n"
             "      encryption_mode: plaintext\n"
         )
@@ -418,8 +418,66 @@ class TestConfigCheckStrictValidation:
         assert "roues" in stderr
         # The secret value must NOT appear anywhere in the error output.
         assert (
-            secret_value not in stderr
+            redaction_probe not in stderr
         ), f"Secret value leaked into CLI error output: {stderr!r}"
+
+
+# ---------------------------------------------------------------------------
+# config check — section-level strict validation surfaced via the CLI
+# (Tasks 3, 4, 5: unknown transport / malformed instance / unknown retry key)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCheckSectionStrictValidation:
+    """CLI-level coverage for the section-level strict validation added by
+    the config-schema-authority-hardening tranche (Tasks 3, 4, 5).
+
+    Each test verifies that ``medre config check``:
+
+    * exits nonzero,
+    * emits a clean error message (no Python traceback),
+    * names the offending key so the operator can act on it.
+    """
+
+    def test_check_rejects_unknown_transport_group(self, tmp_path: Path) -> None:
+        """``adapters.matrixx`` exits nonzero with a clean message naming
+        the typo'd transport and the valid transport list."""
+        cfg = tmp_path / "unknown_transport.yaml"
+        cfg.write_text(
+            "runtime:\n  name: typo\n"
+            "adapters:\n"
+            "  matrixx:\n"
+            "    main:\n"
+            "      enabled: true\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "matrixx" in stderr
+
+    def test_check_rejects_malformed_adapter_instance(self, tmp_path: Path) -> None:
+        """``adapters.matrix.main: 'bad'`` exits nonzero with a clean
+        message; previously it was silently skipped."""
+        cfg = tmp_path / "bad_instance.yaml"
+        cfg.write_text(
+            "runtime:\n  name: typo\n" "adapters:\n" "  matrix:\n" "    main: bad\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "adapters.matrix.main" in stderr
+
+    def test_check_rejects_unknown_global_retry_key(self, tmp_path: Path) -> None:
+        """``retry: {bogus: 123}`` exits nonzero with a clean message
+        naming the unknown key."""
+        cfg = tmp_path / "unknown_retry.yaml"
+        cfg.write_text(
+            "runtime:\n  name: typo\n" "retry:\n  bogus: 123\n",
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "bogus" in stderr
 
 
 # ---------------------------------------------------------------------------

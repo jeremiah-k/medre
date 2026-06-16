@@ -711,3 +711,55 @@ the accepted keys.
 now fail with a `ConfigValidationError` naming the unknown key and listing
 the accepted keys. Remove the unknown key, or rename it to the intended
 field. Run `medre config check` to surface every rejection before startup.
+
+---
+
+## Config Schema Authority Hardening — Section-Level Rejection
+
+Extend the unknown-key / shape rejection principle from the root,
+adapter-instance, and route levels to the remaining sections and section
+types, so every typo surfaces at load time with a clear
+`ConfigValidationError` instead of a silent drop or a raw `AttributeError`.
+
+**Changed (all in `src/medre/config/loader.py`):**
+
+- Section **type** validation: a new `_get_section_dict` helper is used for
+  every top-level section (`runtime`, `logging`, `storage`, `retry`,
+  `adapters`, `routes`) and for the nested `runtime.limits`. A non-mapping
+  value (e.g. `runtime: []`, `storage: "bad"`) is rejected with
+  `ConfigValidationError(section_path=<section>)` instead of producing a raw
+  `AttributeError` when downstream code calls `.get()` / `.items()`. Missing
+  keys and explicit `null` both continue to be treated as an empty section.
+- **Unknown transport group** rejection under `adapters:`: a new
+  `_KNOWN_TRANSPORTS` check rejects typo'd transport names (e.g.
+  `adapters.matrixx`) so the typo surfaces rather than silently loading
+  with no adapters configured. Accepted transports:
+  `matrix`, `meshtastic`, `meshcore`, `lxmf`.
+- **Malformed adapter shapes**: `_parse_adapter_section` now rejects a
+  non-mapping transport group value (e.g. `adapters.matrix: "bad"`) and a
+  non-mapping instance value (e.g. `adapters.matrix.main: "bad"`).
+  Previously the first case crashed with a raw `AttributeError` and the
+  second was silently skipped via `continue`, so a typo'd instance never
+  surfaced.
+- **Unknown keys in the global `[retry]` section**: a new
+  `_GLOBAL_RETRY_KNOWN_KEYS` check rejects typos (e.g. `retry: {bogus: 123}`)
+  in the top-level retry section, mirroring the per-route
+  `[routes.<id>.retry]` unknown-key rejection. Accepted keys:
+  `enabled`, `interval_seconds`, `batch_size`, `max_attempts`.
+- **Unknown keys in `[runtime]` / `[runtime.limits]` / `[logging]` /
+  `[storage]`**: new `_RUNTIME_KNOWN_KEYS`, `_RUNTIME_LIMITS_KNOWN_KEYS`,
+  `_LOGGING_KNOWN_KEYS`, and `_STORAGE_KNOWN_KEYS` checks reject typos in
+  each section. The unknown-key check for each section runs **before** any
+  type/range validation so operators see the typo before being confused by
+  errors on fields they never intended to set (matches the ordering already
+  used in `RouteConfig.from_dict` and `BridgePolicy.from_dict`).
+
+**Error messages** include `section_path`, the offending key name, and the
+accepted-key list. Secret values never appear in error messages — only key
+names and type names.
+
+**Migration:** configs that relied on the previous silent-drop behavior
+(section-level typos), or that used a non-mapping value for a section that
+should be a table, will now fail with a `ConfigValidationError` at load.
+Fix the typo or the section shape. Run `medre config check` to surface
+every rejection before startup.

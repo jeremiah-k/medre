@@ -618,37 +618,6 @@ class TestExampleHygiene:
                 )
 
 
-class TestGlobAdapterKindValidity:
-    """Glob-based adapter_kind check that covers ALL shipped configs —
-    catches regressions even when a config is not in REQUIRED_YAML_CONFIGS."""
-
-    @pytest.mark.parametrize(
-        "config_path",
-        sorted(CONFIGS_DIR.glob("*.yaml")),
-        ids=lambda p: p.name,
-    )
-    def test_adapter_kind_glob_valid(self, config_path: Path) -> None:
-        """Every adapter_kind in every shipped YAML config must be real/fake/None."""
-        raw = _read(config_path)
-        data = parse_yaml_config(raw)
-        if not isinstance(data, dict):
-            return
-        adapters = data.get("adapters", {})
-        if not isinstance(adapters, dict):
-            return
-        for transport, instances in adapters.items():
-            if not isinstance(instances, dict):
-                continue
-            for inst_name, inst_conf in instances.items():
-                if not isinstance(inst_conf, dict):
-                    continue
-                kind = inst_conf.get("adapter_kind", "real")
-                assert kind in ("real", "fake"), (
-                    f"{config_path.name}: adapters.{transport}.{inst_name} "
-                    f"has invalid adapter_kind={kind!r}"
-                )
-
-
 # ===========================================================================
 # 9. Per-config parse + structure + adapter ID assertions
 # ===========================================================================

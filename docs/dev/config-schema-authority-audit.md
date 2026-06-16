@@ -17,7 +17,7 @@ and the strict-YAML test suite (`tests/test_config_yaml_strict.py`) covers
 duplicate keys, anchors, aliases, merge keys, custom tags, secret redaction,
 and non-mapping top-level thoroughly.
 
-There are **three blocking mismatches** that must be fixed before this tranche
+There are **three blocking mismatches** that must be fixed before this change
 ships. The most serious is **F-002**: four shipped example configs
 (`lxmf-receiver.yaml`, `lxmf-sender.yaml`, `meshcore-lab.yaml`,
 `meshcore-tbeam.yaml`) use `adapter_kind: lxmf` / `adapter_kind: meshcore`,
@@ -566,16 +566,16 @@ longer produce .toml artifacts` comment, or just drop it outright.
   no schema change is needed. If the loader stays lenient, change the
   four `additionalProperties: false` to `true` and document.
 
-### [F-022] No changelog fragment for this audit tranche
+### [F-022] No changelog fragment for this audit change
 
 - **Category**: missing test coverage (process).
 - **Location**: `docs/changes/unreleased.md`.
 - **Current state**: The unreleased changelog has entries for the
-  prior tranches ("Per-Context Origin Labels for channel_room_map
+  prior changes ("Per-Context Origin Labels for channel_room_map
   Entries", "Duplicate-Room Fan-In for channel_room_map and
   Config-Constructor Rename", "Example Configs and Documentation Moved
   from TOML to YAML", etc.) but no entry for the
-  config-schema-authority-hardening tranche itself. When the
+  config-schema-authority-hardening change itself. When the
   implementation waves land (fixing F-001, F-002, F-005, etc.), a
   fragment describing the schema/example/spec reconciliation should be
   appended.
@@ -618,7 +618,7 @@ longer produce .toml artifacts` comment, or just drop it outright.
 | Secret redaction (errors/logs)                                                        | ✅                                                  | `_yaml.py:_SECRET_KEY_NAMES` + `_redact_key` (`_yaml.py:178-202`). `env.py:_SECRET_FIELD_RE` regex covers `TOKEN                                                                                                                                                                                                                                                                                     | SECRET | PASSWORD | KEY | AUTH | CREDENTIAL | BLE | IDENTITY`. `MatrixConfig.**repr**` redacts token to 3-char preview (`adapters/matrix.py:224-237`). `tests/test_config_yaml_strict.py:305-360` tests parse errors don't leak nearby secrets. |
 | Example configs — TOML references                                                     | ✅                                                  | No `*.toml` files in `examples/configs/`. README lists YAML files only.                                                                                                                                                                                                                                                                                                                              |
 | Example configs — quoting (room IDs, MXIDs)                                           | ✅                                                  | `examples/configs/README.md:40-44` documents the quoting rule. Spot-checked configs all quote `"!room:server"` and `"@user:server"`.                                                                                                                                                                                                                                                                 |
-| Example configs — no real tokens/keys/PINs                                            | ✅                                                  | `tests/test_example_configs.py::TestExampleHygiene::test_no_real_secrets` parametrizes over `ALL_SHIPPED_CONFIGS` and scans for `syt_*` and `BEGIN PRIVATE KEY` patterns.                                                                                                                                                                                                                            |
+| Example configs — no real tokens/keys/PINs                                            | ✅                                                  | `tests/test_example_configs.py::TestExampleHygiene::test_no_real_secrets` parametrizes over `ALL_SHIPPED_CONFIGS` and scans for Matrix access tokens and `BEGIN PRIVATE KEY` patterns.                                                                                                                                                                                                               |
 | Example demonstrating structured channel_room_map                                     | ✅                                                  | `examples/configs/live-matrix-meshtastic-channel-map.yaml:96-108` shows the structured shape (commented) plus bare-string shape (active).                                                                                                                                                                                                                                                            |
 | Example demonstrating per-entry origin labels                                         | ✅                                                  | Same file, same block.                                                                                                                                                                                                                                                                                                                                                                               |
 | Example demonstrating same-room fan-in                                                | ✅                                                  | Same file, lines 110-125 (commented "Fan-in alternative").                                                                                                                                                                                                                                                                                                                                           |
@@ -660,12 +660,12 @@ longer produce .toml artifacts` comment, or just drop it outright.
 | docs/ops/configuration.md — boring subset guidance                                    | ✅                                                  | `configuration.md:7-11`.                                                                                                                                                                                                                                                                                                                                                                             |
 | docs/ops/running-medre.md — config defaults correct                                   | ✅                                                  | No TOML references. Adapter blocks all use `adapter_kind: real`.                                                                                                                                                                                                                                                                                                                                     |
 | docs/ops/troubleshooting.md — config error guidance current                           | ✅                                                  | No TOML references. Uses `adapter_kind: fake` and `adapter_kind: real` in examples.                                                                                                                                                                                                                                                                                                                  |
-| docs/changes/unreleased.md — changelog fragment for this tranche                      | ❌                                                  | No entry for config-schema-authority-hardening. See F-022.                                                                                                                                                                                                                                                                                                                                           |
+| docs/changes/unreleased.md — changelog fragment for this change                       | ❌                                                  | No entry for config-schema-authority-hardening. See F-022.                                                                                                                                                                                                                                                                                                                                           |
 | tests/test_example_configs.py — what it validates                                     | ✅                                                  | Validates YAML parseability, real-secret scan, deprecated-language scan, storage backend, adapter*kind validity, runtime build for fake-bridge-smoke and fake-multi-adapter, structure assertions for docker-* and matrix.yaml and mixed-\_.yaml. Gap: 4 minimal configs not in the list (F-015).                                                                                                    |
 | tests/test_config_runtime_parity.py — what parity it checks                           | ✅                                                  | Load → build parity for fake-bridge-smoke, fake-multi-adapter, and the two docker configs (with placeholder resolution). Disabled-adapter skip behavior, unknown-transport hard error, minimal config build. Gap: only 4 configs covered (F-016).                                                                                                                                                    |
 | tests/test_docs_schema_examples.py — schema/example validation                        | ✅                                                  | Tests that every example validates against its schema, every required field is present in the example, and source drift detection for `CanonicalEvent`, `DeliveryReceipt`, `AdapterDeliveryResult`. Gap: does NOT do source drift detection for `RouteConfig` or the four adapter config dataclasses.                                                                                                |
 | tests/test_docs_misc_consistency.py — what consistency checks                         | ✅                                                  | Covers: no private CLI imports, replay distinguishability, retry opt-in wording, stale trace `--config` references, config check exit code 2, docker-compose filename accuracy, source-tree examples wording, no `tcp_port` in examples, live config helper uses `port`, failure taxonomy naming. No config-schema-authority-specific checks.                                                        |
-| tests/test_docs_single_authority.py — single authority checks                         | ✅                                                  | Guards "single source of truth" and "this contract defines" language to `docs/spec/` only. Not config-specific.                                                                                                                                                                                                                                                                                      |
+| tests/test_docs_single_authority.py — single authority checks                         | ✅                                                  | Guards canonical-reference and authority-defining language to `docs/spec/` only. Not config-specific.                                                                                                                                                                                                                                                                                                |
 
 ## TOML Reference Inventory
 
@@ -801,7 +801,7 @@ belong in.
 
 ## Intentionally Deferred
 
-Items that are out of scope for this tranche, with reasoning.
+Items that are out of scope for this change, with reasoning.
 
 - **`docs/dev/yaml-config-migration-audit.md` extensive TOML
   references.** Explicitly allowed by the task brief. This doc is the
@@ -815,7 +815,7 @@ Items that are out of scope for this tranche, with reasoning.
   default-runnable config surface.
 - **`docs/dev/source-context-origin-label-audit.md` and
   `docs/dev/relay-prefix-attribution-audit.md`.** These are the prior
-  tranche's audit docs and intentionally discuss the
+  change's audit docs and intentionally discuss the
   `matrix_relay_prefix` / `meshnet_name` removal history.
 - **`docs/dev/release-readiness-audit.md` `pyproject.toml` table.**
   Audit of packaging metadata, not runtime config.
