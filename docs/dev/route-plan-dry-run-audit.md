@@ -79,7 +79,7 @@ constraints.
   registers only `validate`, `topology`, `list`)
 - **Current state**: Three route subcommands are registered:
   `routes validate`, `routes topology`, `routes list`. None is named `plan`
-  and none renders the post-expansion view that the tranche spec asks for
+  and none renders the post-expansion view that the change spec asks for
   (expanded legs, origin-label provenance, channel_room_map fan-out,
   fan-in decisions). The string `plan` does not appear in any CLI source
   file in a route context.
@@ -289,7 +289,7 @@ kind=…  origin_label=…  relay_prefix=…`. All fields are read-only on
 - **Expected state**: Plan should emit a normalized JSON report for CI
   consumption.
 - **Recommendation**: Add `--json` to the `plan` subparser from day one
-  (do not retrofit the older three commands in this tranche). The JSON
+  (do not retrofit the older three commands in this change). The JSON
   shape should mirror `RouteRegistrationResult`: `{routes: […],
 provenance: {…}, eligibility_summary: {…}, loops: […]}`. The
   `tests/helpers/assertions.py::assert_report_shape` helper can be
@@ -358,7 +358,7 @@ provenance: {…}, eligibility_summary: {…}, loops: […]}`. The
   start.
 - **Recommendation**: The plan command can inline the same derivation
   (it is pure over the expanded routes). If a smaller scope is wanted,
-  defer this to a follow-on tranche and document it under
+  defer this to a follow-on change and document it under
   [Intentionally Deferred](#intentionally-deferred).
 
 ### [F-014] No "fan-in" annotation in any preview surface
@@ -388,7 +388,7 @@ provenance: {…}, eligibility_summary: {…}, loops: […]}`. The
   `def _adapter_id_to_transport(config) -> dict[str, str]` (one liner
   over `all_configs()`) into `route_commands.py` and let plan, validate,
   and the F-016 check in `config_commands.py` all call it. Optional
-  cleanup; not required for the tranche.
+  cleanup; not required for the change.
 
 ### [F-016] Disabled-route handling differs across the three commands
 
@@ -689,7 +689,7 @@ No engine changes are required.
 
 ## Intentionally Deferred
 
-The following are out of scope for the `routes plan` tranche and should
+The following are out of scope for the `routes plan` change and should
 not be added in the same change. They are listed here so the plan
 command does not accidentally absorb them.
 

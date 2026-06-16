@@ -211,6 +211,26 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
             )
             continue
 
+        # Validate adapter references before expansion: a route that points
+        # at adapters not in config would otherwise expand with
+        # source_platform=None and a misleadingly clean plan. Captured as a
+        # per-route error (like other expansion failures), not raised.
+        missing = [aid for aid in rc.source_adapters if aid not in adapter_platforms]
+        missing += [aid for aid in rc.dest_adapters if aid not in adapter_platforms]
+        if missing:
+            route_entries.append(
+                RoutePlanEntry(
+                    route_id=rc.route_id,
+                    enabled=True,
+                    directionality=rc.directionality.value,
+                    legs=[],
+                    warnings=[],
+                    error=f"references unknown adapter(s): {sorted(set(missing))}. "
+                    f"Configured adapters: {sorted(adapter_platforms.keys())}",
+                )
+            )
+            continue
+
         # Expand just this route so a failure is attributable to it.
         try:
             expanded = _expand_single_route(rc, adapter_platforms)

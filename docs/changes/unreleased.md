@@ -831,8 +831,11 @@ parsed config plus the configured adapter platforms.
   produced by bidirectional expansion.
 - The direction and platform pair of each leg.
 - The resolved `origin_label` per leg with its provenance (per-entry,
-  route-level, adapter fallback, or unset), so the relay-prefix
-  precedence chain is visible end-to-end before runtime.
+  route-level, or unset in practice), so the relay-prefix precedence
+  chain is visible end-to-end before runtime. Adapter-level
+  `origin_label` is applied at render time, not expansion time, so the
+  plan does not surface an "adapter" provenance category through normal
+  expansion.
 - Fan-in decisions: when a `channel_room_map` maps multiple Meshtastic
   channels into one Matrix room and the route creates only
   Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
