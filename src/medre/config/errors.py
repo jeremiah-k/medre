@@ -50,7 +50,7 @@ class ConfigFileError(ConfigError):
 # Migration diagnostics for removed keys (F-018)
 # ---------------------------------------------------------------------------
 # When operators migrate from an older MEDRE config, they may still use keys
-# that were removed or renamed by prior tranches (e.g. ``meshnet_name`` →
+# that were removed or renamed by prior changes (e.g. ``meshnet_name`` →
 # ``source_origin_label`` / ``dest_origin_label``). The unknown-key rejection
 # surfaces the offending key name; this mapping lets the rejection also point
 # at the current replacement so the operator can fix the config without

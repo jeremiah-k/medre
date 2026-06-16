@@ -781,9 +781,10 @@ Docker `${VAR}` loading limitation.
   configured adapter IDs. A config with `routes.foo.dest_adapters:
 [nonexistent]` fails at `config check` time instead of passing with exit
   0 and failing at `medre run` startup. Closes audit finding F-016.
-- `generate_sample_config()` output points operators to `docs/changes/` for
-  migration context on removed/renamed keys; the unknown-key error messages
-  remain self-describing. Closes audit finding F-018.
+- Unknown-key errors now append actionable migration hints for recognized
+  removed keys (`meshnet_name`, `matrix_relay_prefix`, old formatter
+  variables) via `format_removed_key_hints()` in `errors.py`. Hints are
+  value-free and secret-safe. Closes audit finding F-018.
 - `examples/configs/README.md` inventory now lists all 15 shipped configs.
   The four minimal templates (`lxmf-receiver.yaml`, `lxmf-sender.yaml`,
   `meshcore-lab.yaml`, `meshcore-tbeam.yaml`) are documented as

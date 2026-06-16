@@ -205,7 +205,7 @@ class TestConfigCheckErrors:
         cfg = tmp_path / "bad_route_ref.yaml"
         cfg.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
-        assert code != 0
+        assert code == 2
         assert "Traceback" not in stderr
         combined = stdout + stderr
         assert "nonexistent" in combined

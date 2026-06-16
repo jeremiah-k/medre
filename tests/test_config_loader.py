@@ -327,7 +327,7 @@ def test_valid_root_keys_accepted(tmp_path: Path) -> None:
 # Migration diagnostics for removed keys (F-018 / Task 4)
 # ---------------------------------------------------------------------------
 # When operators migrate from an older MEDRE config, they may still use keys
-# that were removed or renamed by prior tranches (``meshnet_name``,
+# that were removed or renamed by prior changes (``meshnet_name``,
 # ``matrix_relay_prefix``, ...). The unknown-key rejection now appends a
 # value-free hint pointing at the replacement field(s). Hints reference only
 # key NAMES and replacement field names — never operator-supplied values — so

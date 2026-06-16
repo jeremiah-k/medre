@@ -19,9 +19,9 @@ Covers three scenarios per transport:
     :class:`ConfigValidationError` matching the loader's message,
     carrying ``transport`` and ``section_path`` context.
   * **removed legacy key** — ``meshnet_name`` (a removed template
-    placeholder) is rejected as an unknown adapter key. There is no
-    "did you mean" suggestion mechanism yet, so only the rejection is
-    asserted; when one lands it can be strengthened to check the hint.
+    placeholder) is rejected as an unknown adapter key. Migration
+    hints are appended for recognized removed keys via
+    ``format_removed_key_hints()`` in ``errors.py``.
 """
 
 from __future__ import annotations
@@ -191,11 +191,8 @@ def test_unknown_adapter_key_rejected(
 
 def test_removed_meshnet_name_rejected(tmp_path: Path) -> None:
     """``meshnet_name`` was a removed template placeholder. As an adapter
-    config key it is rejected as unknown.
-
-    There is no "did you mean" suggestion mechanism in place yet, so only
-    the rejection is asserted. When one is added this test can be
-    strengthened to check the suggestion content.
+    config key it is rejected as unknown, with a migration hint pointing
+    at the replacement field(s).
     """
     bad = dict(_MINIMAL_MESHTASTIC)
     bad["meshnet_name"] = "old-net"
@@ -205,3 +202,5 @@ def test_removed_meshnet_name_rejected(tmp_path: Path) -> None:
         _load_single_adapter("meshtastic", "radio_a", bad, tmp_path)
     assert exc_info.value.transport == "meshtastic"
     assert "meshnet_name" in str(exc_info.value)
+    assert "Hints:" in str(exc_info.value)
+    assert "origin_label" in str(exc_info.value)
