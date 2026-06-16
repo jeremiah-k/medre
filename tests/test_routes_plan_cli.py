@@ -281,7 +281,8 @@ def test_disabled_routes_listed_separately(tmp_path: Path) -> None:
 def test_disabled_routes_have_no_legs_section(tmp_path: Path) -> None:
     """Disabled routes do not contribute legs to the enabled-routes section."""
     cfg = _write_config(tmp_path, _CONFIG_VALID)
-    stdout, _stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code == 0
     # The 'bridge' route is bidirectional → 2 legs total, and 'paused' adds 0.
     assert "2 leg(s)" in stdout
     # The disabled route's ID appears under 'Disabled routes', not as an
@@ -308,7 +309,8 @@ def test_unknown_adapter_fails_nonzero(tmp_path: Path) -> None:
 def test_unknown_adapter_no_traceback(tmp_path: Path) -> None:
     """Unknown-adapter failures produce a clean message, not a traceback."""
     cfg = _write_config(tmp_path, _CONFIG_UNKNOWN_ADAPTER)
-    _stdout, stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    _stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code != 0
     assert "Traceback" not in stderr
     assert "Traceback" not in _stdout
 
@@ -332,7 +334,7 @@ def test_duplicate_room_ambiguity_fails(tmp_path: Path) -> None:
 def test_duplicate_room_ambiguity_explains_problem(tmp_path: Path) -> None:
     """The error message explains the Matrix→Meshtastic ambiguity."""
     cfg = _write_config(tmp_path, _CONFIG_DUPLICATE_ROOM_AMBIGUOUS)
-    stdout, stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
     combined = stdout + stderr
     # The ambiguity error references the route and the duplicate room.
     assert "fanout" in combined
@@ -356,7 +358,8 @@ def test_same_room_fanin_allowed(tmp_path: Path) -> None:
 def test_same_room_fanin_emits_warning(tmp_path: Path) -> None:
     """The fan-in case emits a fan-in annotation under the route."""
     cfg = _write_config(tmp_path, _CONFIG_SAME_ROOM_FANIN)
-    stdout, _stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code == 0
     assert "fan-in" in stdout
     assert "!shared:fake.local" in stdout
 
@@ -377,7 +380,8 @@ def test_parse_error_exits_nonzero(tmp_path: Path) -> None:
 def test_parse_error_no_traceback(tmp_path: Path) -> None:
     """A parse error produces a clean message, not a traceback."""
     cfg = _write_config(tmp_path, _CONFIG_PARSE_ERROR)
-    _stdout, stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    _stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code != 0
     assert "Traceback" not in stderr
 
 
@@ -418,7 +422,8 @@ def test_toml_config_no_traceback(tmp_path: Path) -> None:
 def test_access_token_not_in_output(tmp_path: Path) -> None:
     """The Matrix access_token never appears in plan output."""
     cfg = _write_config(tmp_path, _CONFIG_VALID)
-    stdout, stderr, _code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code == 0
     secret = "s3cret-token-do-not-leak"
     assert secret not in stdout
     assert secret not in stderr
@@ -427,11 +432,14 @@ def test_access_token_not_in_output(tmp_path: Path) -> None:
 def test_access_token_not_in_json_output(tmp_path: Path) -> None:
     """The Matrix access_token is absent from --json output too."""
     cfg = _write_config(tmp_path, _CONFIG_VALID)
-    stdout, _stderr, _code = _run_cli_raw(
+    stdout, stderr, code = _run_cli_raw(
         "routes", "plan", "--config", str(cfg), "--json"
     )
+    assert code == 0
     secret = "s3cret-token-do-not-leak"
     assert secret not in stdout
+    assert secret not in stderr
+    assert secret not in stderr
 
 
 # ===========================================================================
@@ -461,9 +469,10 @@ def test_json_mode_includes_provenance(tmp_path: Path) -> None:
     import json
 
     cfg = _write_config(tmp_path, _CONFIG_VALID)
-    stdout, _stderr, _code = _run_cli_raw(
+    stdout, _stderr, code = _run_cli_raw(
         "routes", "plan", "--config", str(cfg), "--json"
     )
+    assert code == 0
     data = json.loads(stdout)
     bridge = next(r for r in data["routes"] if r["route_id"] == "bridge")
     sources = {leg["source_origin_label_source"] for leg in bridge["legs"]}

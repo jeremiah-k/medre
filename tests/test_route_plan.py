@@ -11,7 +11,10 @@ All configs use ``adapter_kind: fake`` so no SDK or hardware is required.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
+
+import pytest
 
 from medre.config.loader import load_config
 from medre.runtime.route_plan import (
@@ -394,13 +397,8 @@ def test_adapter_summary_is_frozen_dataclass(tmp_path: Path) -> None:
     plan = build_route_plan(config)
     summary = plan.adapters[0]
     assert isinstance(summary, AdapterSummary)
-    # Frozen dataclass: attribute assignment raises FrozenInstanceError.
-    try:
+    with pytest.raises(FrozenInstanceError):
         summary.adapter_id = "x"  # type: ignore[misc]
-    except Exception:
-        pass
-    else:  # pragma: no cover - defensive
-        raise AssertionError("AdapterSummary should be frozen")
 
 
 # ===========================================================================
@@ -469,9 +467,5 @@ def test_route_plan_leg_is_frozen_dataclass(tmp_path: Path) -> None:
     plan = build_route_plan(config)
     leg = plan.routes[0].legs[0]
     assert isinstance(leg, RoutePlanLeg)
-    try:
+    with pytest.raises(FrozenInstanceError):
         leg.direction = "reversed"  # type: ignore[misc]
-    except Exception:
-        pass
-    else:  # pragma: no cover - defensive
-        raise AssertionError("RoutePlanLeg should be frozen")

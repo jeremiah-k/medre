@@ -841,8 +841,9 @@ parsed config plus the configured adapter platforms.
   Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
 - Duplicate-room ambiguity errors: when the route's expansion would
   create a Matrix→Meshtastic leg while two or more `channel_room_map`
-  entries share a Matrix room, expansion raises `RouteValidationError`
-  and no plan is produced.
+  entries share a Matrix room, expansion raises `RouteValidationError`;
+  the offending route's legs are withheld and the error is surfaced in
+  the plan output, and the command exits non-zero.
 
 The plan is observational, not delivery evidence. `medre config check`
 answers "is this config well-formed?"; `medre routes plan` answers

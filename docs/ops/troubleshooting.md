@@ -551,7 +551,7 @@ If a relay prefix renders an unexpected label (or no label), check the
 per-leg provenance in the plan output. A common cause is an unset
 per-entry label falling through to an empty adapter `origin_label`, or
 an explicit `""` suppressing fallback for a leg where you did not intend
-it. An empty value shown as "suppressed" means an explicit `""` was set
+it. An empty value shown as "explicit_empty" means an explicit `""` was set
 at that level; "unset" means the field was omitted and fell through.
 
 ### Fan-in warnings
@@ -567,12 +567,13 @@ route's `directionality` and which platform sits on the source side.
 
 ### Duplicate-room ambiguity errors
 
-If the plan fails with a `RouteValidationError` listing duplicate Matrix
-rooms, the route's expansion creates a Matrix→Meshtastic leg while two
-or more `channel_room_map` entries share the same Matrix room. A Matrix
-event arriving from the shared room is ambiguous across Meshtastic
-channels — there is no signal in the Matrix event to pick one — so the
-configuration is rejected before a plan is produced.
+If the plan exits non-zero with a `RouteValidationError` listing
+duplicate Matrix rooms, the route's expansion creates a
+Matrix→Meshtastic leg while two or more `channel_room_map` entries share
+the same Matrix room. A Matrix event arriving from the shared room is
+ambiguous across Meshtastic channels — there is no signal in the Matrix
+event to pick one — so the offending route's legs are withheld and the
+error is surfaced in the rendered plan output.
 
 How to fix:
 

@@ -105,12 +105,10 @@ def test_build_route_plan_does_not_import_sdk_at_runtime(tmp_path: Path) -> None
     p = tmp_path / "config.yaml"
     p.write_text(_CONFIG_FAKE)
     config, _source, _paths = load_config(str(p))
+    before = set(sys.modules)
     build_route_plan(config)
-    leaked = [m for m in _FORBIDDEN_SDK_MODULES if m in sys.modules]
-    # Some of these names may coincidentally appear as substrings of other
-    # module paths (e.g. ``meshtastic`` inside ``medre.adapters.meshtastic``).
-    # We only fail on a direct top-level SDK package, not a medre submodule.
-    real_leaks = [m for m in leaked if not sys.modules[m].__name__.startswith("medre.")]
+    new_modules = set(sys.modules) - before
+    real_leaks = [m for m in _FORBIDDEN_SDK_MODULES if m in new_modules]
     assert (
         real_leaks == []
     ), f"route_plan build pulled in transport SDK modules: {real_leaks}"
