@@ -20,7 +20,7 @@ from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.config.errors import ConfigValidationError
+from medre.config.errors import ConfigValidationError, format_removed_key_hints
 from medre.config.routes import RouteConfigSet
 
 _logger = logging.getLogger(__name__)
@@ -81,10 +81,15 @@ def _coerce_adapter_kwargs(
     )
     unknown = set(raw) - valid_names
     if unknown:
-        raise ConfigValidationError(
+        # Migration hints (F-018): see loader._reject_unknown_keys.
+        msg = (
             f"{section_path}: unknown adapter config key(s) "
             f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
-            f"Accepted keys: {sorted(valid_names)}",
+            f"Accepted keys: {sorted(valid_names)}"
+        )
+        msg += format_removed_key_hints(unknown)
+        raise ConfigValidationError(
+            msg,
             transport=transport,
             section_path=section_path,
         )

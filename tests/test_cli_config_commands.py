@@ -14,6 +14,7 @@ from tests.helpers.cli import (
     CONFIG_BAD_LIMITS,
     CONFIG_MINIMAL,
     CONFIG_NO_ROUTES,
+    CONFIG_ROUTE_UNKNOWN_ADAPTERS,
     CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
@@ -193,6 +194,22 @@ class TestConfigCheckErrors:
         """Valid config exits zero (does NOT raise SystemExit)."""
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "Config valid" in output
+
+    def test_route_unknown_adapter_ref_exits_nonzero(self, tmp_path: Path) -> None:
+        """A route referencing a nonexistent adapter fails config check (F-016).
+
+        Previously such a config passed ``medre config check`` with exit 0
+        and only failed at ``medre run`` startup. The pre-flight gate now
+        cross-checks route adapter refs against the configured adapter IDs.
+        """
+        cfg = tmp_path / "bad_route_ref.yaml"
+        cfg.write_text(CONFIG_ROUTE_UNKNOWN_ADAPTERS)
+        stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        combined = stdout + stderr
+        assert "nonexistent" in combined
+        assert "also_missing" in combined
 
 
 # ---------------------------------------------------------------------------
@@ -460,11 +477,7 @@ class TestConfigCheckSectionStrictValidation:
         message; previously it was silently skipped."""
         cfg = tmp_path / "bad_instance.yaml"
         cfg.write_text(
-            "runtime:\n"
-            "  name: typo\n"
-            "adapters:\n"
-            "  matrix:\n"
-            "    main: bad\n"
+            "runtime:\n" "  name: typo\n" "adapters:\n" "  matrix:\n" "    main: bad\n"
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0
@@ -476,10 +489,7 @@ class TestConfigCheckSectionStrictValidation:
         naming the unknown key."""
         cfg = tmp_path / "unknown_retry.yaml"
         cfg.write_text(
-            "runtime:\n"
-            "  name: typo\n"
-            "retry:\n"
-            "  bogus: 123\n",
+            "runtime:\n" "  name: typo\n" "retry:\n" "  bogus: 123\n",
         )
         _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
         assert code != 0

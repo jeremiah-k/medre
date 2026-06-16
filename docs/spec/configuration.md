@@ -305,6 +305,34 @@ names MUST migrate. See
 [routing-delivery.md §17.5.5](routing-delivery.md#1755-shared-formatter-and-variable-schema)
 for the formatter rules.
 
+### 3.5 Editor Integration
+
+The JSON schemas in `docs/schemas/` carry stable `$id` URLs and can be
+wired into YAML language servers for real-time validation while editing.
+Add a `# yaml-language-server: $schema=` comment at the top of a config
+file pointing at the relevant schema:
+
+```yaml
+# yaml-language-server: $schema=../../docs/schemas/adapter-config.schema.json
+```
+
+Or register the mappings once in `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {
+    "docs/schemas/adapter-config.schema.json": ["examples/configs/*.yaml"],
+    "docs/schemas/routing-config.schema.json": ["examples/configs/*.yaml"]
+  }
+}
+```
+
+Editor validation is advisory and catches typos early, but the schemas are
+a derived view of the typed dataclasses, not the source of truth.
+`medre config check` remains the canonical pre-flight gate that blocks a
+misconfigured runtime from starting. Publishing to SchemaStore.io is
+deferred until the public schema surface stabilizes post-first-release.
+
 ## 4. Configuration Search Order
 
 The loader searches for configuration files in this priority order:

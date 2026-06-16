@@ -202,3 +202,36 @@ def test_unknown_adapter_key_rejected_via_load(tmp_path: Path) -> None:
     assert exc_info.value.section_path == "adapters.matrix.main"
     assert exc_info.value.transport == "matrix"
     assert "bogusextra" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Migration diagnostics for removed adapter keys (F-018 / Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_removed_adapter_key_hint_appended_via_load(tmp_path: Path) -> None:
+    """``meshnet_name`` as an adapter key surfaces a migration hint.
+
+    Exercises the hint path in :func:`_coerce_adapter_kwargs` end-to-end
+    through ``load_config``. The rejection itself is unchanged (still
+    raises ``unknown adapter config key``); the suggestion is *appended*
+    and points at the replacement origin-label fields.
+    """
+    config = (
+        "adapters:\n"
+        "  matrix:\n"
+        "    main:\n"
+        "      adapter_id: matrix\n"
+        "      meshnet_name: old-style\n"
+    )
+    p = tmp_path / "config.yaml"
+    p.write_text(config)
+    with pytest.raises(
+        ConfigValidationError, match="unknown adapter config key"
+    ) as exc_info:
+        load_config(str(p))
+    msg = str(exc_info.value)
+    assert "meshnet_name" in msg
+    # Migration hint block must be present and name the replacement.
+    assert "Hints:" in msg
+    assert "origin_label" in msg

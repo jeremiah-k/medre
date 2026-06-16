@@ -763,3 +763,51 @@ names and type names.
 should be a table, will now fail with a `ConfigValidationError` at load.
 Fix the typo or the section shape. Run `medre config check` to surface
 every rejection before startup.
+
+---
+
+## Operator Validation Hardening — Pre-flight Gate, Docs, and CI
+
+Close the operator pre-flight gaps identified in
+`docs/dev/operator-validation-hardening-audit.md`. `medre config check` is
+now a complete pre-flight gate (route adapter references are now validated,
+not deferred to `medre run`), example configs are validated by a dedicated
+fast CI step, and operator docs describe the validation workflow and the
+Docker `${VAR}` loading limitation.
+
+**Changed:**
+
+- `medre config check` now validates route adapter references against the
+  configured adapter IDs. A config with `routes.foo.dest_adapters:
+[nonexistent]` fails at `config check` time instead of passing with exit
+  0 and failing at `medre run` startup. Closes audit finding F-016.
+- `generate_sample_config()` output points operators to `docs/changes/` for
+  migration context on removed/renamed keys; the unknown-key error messages
+  remain self-describing. Closes audit finding F-018.
+- `examples/configs/README.md` inventory now lists all 15 shipped configs.
+  The four minimal templates (`lxmf-receiver.yaml`, `lxmf-sender.yaml`,
+  `meshcore-lab.yaml`, `meshcore-tbeam.yaml`) are documented as
+  env-var-completion templates, and `mixed-matrix-meshtastic.yaml` is
+  clarified as "retained for backward compatibility" rather than
+  "superseded". Closes audit findings F-001 and F-002.
+- `docs/ops/configuration.md` gained a "Pre-flight Validation with
+  `medre config check`" section describing what the command validates
+  (strict YAML, unknown keys, section types, adapter shapes, route adapter
+  references, runtime limits), its exit codes (0 valid, 2 config error),
+  the single-line `Config error:` output shape, and the Docker `${VAR}`
+  loading limitation. Closes audit findings F-006 and F-007.
+- `docs/ops/running-medre.md` Docker section warns that Docker `${VAR}`
+  example configs cannot be loaded by `medre config check` or `medre run`
+  directly, and points to the pre-flight section. Closes audit finding
+  F-005.
+
+**Added:**
+
+- `scripts/ci/validate-example-configs.sh`: focused pre-flight script that
+  runs `tests/test_example_configs.py`,
+  `tests/test_config_runtime_parity.py`, and
+  `tests/test_adapter_kind_validity.py`. No network, Docker, or hardware
+  required. Closes audit finding F-003.
+- `.github/workflows/test-and-coverage.yml`: "Validate example configs" CI
+  step runs the focused script before the full suite so example drift fails
+  fast. Closes audit finding F-004.

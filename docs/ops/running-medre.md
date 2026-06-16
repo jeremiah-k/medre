@@ -497,6 +497,15 @@ MEDRE persists to local SQLite and local filesystem. No replication, no remote b
 
 ## Docker / Podman Deployment
 
+> **Note:** The Docker example configs
+> `examples/configs/docker-matrix-bridge.yaml` and
+> `examples/configs/docker-meshtastic-bridge.yaml` use `${VAR}` placeholders
+> (e.g. `${MEDRE_HOMESERVER}`) that are resolved by Docker Compose from an
+> `env_file`, not by the MEDRE config loader. These configs cannot be loaded
+> by `medre config check` or `medre run` directly — use the Docker Compose
+> workflow below, or `medre smoke`. See [configuration.md](configuration.md)
+> § "Pre-flight Validation with `medre config check`" for details.
+
 ### Container Image
 
 ```dockerfile

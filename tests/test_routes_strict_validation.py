@@ -14,7 +14,6 @@ from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfig
 
-
 # ---------------------------------------------------------------------------
 # Unknown route-level key rejection
 # ---------------------------------------------------------------------------
@@ -139,9 +138,7 @@ def test_non_empty_filter_hooks_rejected() -> None:
 
 def test_non_list_filter_hooks_rejected() -> None:
     """filter_hooks that is not a list raises ConfigValidationError."""
-    with pytest.raises(
-        ConfigValidationError, match="'filter_hooks' must be a list"
-    ):
+    with pytest.raises(ConfigValidationError, match="'filter_hooks' must be a list"):
         RouteConfig.from_dict(
             "bad",
             {
@@ -150,3 +147,32 @@ def test_non_list_filter_hooks_rejected() -> None:
                 "filter_hooks": "not-a-list",
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Migration diagnostics for removed route keys (F-018 / Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_removed_route_key_hint_appended() -> None:
+    """``meshnet_name`` as a route-level key surfaces a migration hint.
+
+    The rejection itself is unchanged (still raises ``unknown key(s)``);
+    the suggestion is *appended* and points at the replacement
+    origin-label fields.
+    """
+    with pytest.raises(ConfigValidationError, match=r"unknown key\(s\)") as exc_info:
+        RouteConfig.from_dict(
+            "migrate",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "meshnet_name": "old-style",
+            },
+        )
+    msg = str(exc_info.value)
+    assert "meshnet_name" in msg
+    # Migration hint block must be present and name the replacement.
+    assert "Hints:" in msg
+    assert "origin_label" in msg
+    assert exc_info.value.section_path == "routes.migrate"
