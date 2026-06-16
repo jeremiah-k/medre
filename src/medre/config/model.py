@@ -44,21 +44,53 @@ _WRAPPER_FIELD_NAMES: frozenset[str] = frozenset(
 def _coerce_adapter_kwargs(
     config_cls: type,
     raw: dict[str, Any],
+    *,
+    transport: str,
+    section_path: str,
 ) -> dict[str, Any]:
     """Filter *raw* to fields accepted by *config_cls* and coerce types.
 
     YAML produces ``list`` (not ``set``) and string-keyed dicts (not int-keyed).
     This helper inspects field annotations and converts values so the frozen
     dataclass constructor receives what it expects.
+
+    Parameters
+    ----------
+    config_cls:
+        The adapter config dataclass (e.g. :class:`MatrixConfig`).
+    raw:
+        Remaining adapter table after wrapper-level fields
+        (``enabled``, ``adapter_id``, ``adapter_kind``) have been popped.
+    transport:
+        Transport name (``"matrix"``, ``"meshtastic"``, ...) for error
+        messages.
+    section_path:
+        Dot-separated config path (e.g. ``"adapters.matrix.main"``) for
+        error messages.
+
+    Raises
+    ------
+    ConfigValidationError
+        If *raw* contains any key that is not a field of *config_cls*.
+        This matches ``additionalProperties: false`` on the adapter JSON
+        schemas so a typo (e.g. ``conection_type``) surfaces at load time
+        instead of silently falling back to the field default.
     """
     valid_names: frozenset[str] = frozenset(
         f.name for f in dataclasses.fields(config_cls)
     )
+    unknown = set(raw) - valid_names
+    if unknown:
+        raise ConfigValidationError(
+            f"{section_path}: unknown adapter config key(s) "
+            f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
+            f"Accepted keys: {sorted(valid_names)}",
+            transport=transport,
+            section_path=section_path,
+        )
     hints = get_type_hints(config_cls)
     kwargs: dict[str, Any] = {}
     for key, value in raw.items():
-        if key not in valid_names:
-            continue
         hint = hints.get(key)
         # list → set coercion for set-typed fields (e.g. room_allowlist)
         if isinstance(value, list) and _is_set_annotation(hint):
@@ -301,7 +333,12 @@ class MatrixRuntimeConfig:
                 adapter_id=adapter_id,
                 section_path=f"adapters.matrix.{instance_name}",
             )
-        adapter_kwargs = _coerce_adapter_kwargs(MatrixConfig, data)
+        adapter_kwargs = _coerce_adapter_kwargs(
+            MatrixConfig,
+            data,
+            transport="matrix",
+            section_path=f"adapters.matrix.{instance_name}",
+        )
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MatrixConfig(**adapter_kwargs).validate()
         return cls(
@@ -336,7 +373,12 @@ class MeshtasticRuntimeConfig:
                 adapter_id=adapter_id,
                 section_path=f"adapters.meshtastic.{instance_name}",
             )
-        adapter_kwargs = _coerce_adapter_kwargs(MeshtasticConfig, data)
+        adapter_kwargs = _coerce_adapter_kwargs(
+            MeshtasticConfig,
+            data,
+            transport="meshtastic",
+            section_path=f"adapters.meshtastic.{instance_name}",
+        )
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshtasticConfig(**adapter_kwargs).validate()
         return cls(
@@ -371,7 +413,12 @@ class MeshCoreRuntimeConfig:
                 adapter_id=adapter_id,
                 section_path=f"adapters.meshcore.{instance_name}",
             )
-        adapter_kwargs = _coerce_adapter_kwargs(MeshCoreConfig, data)
+        adapter_kwargs = _coerce_adapter_kwargs(
+            MeshCoreConfig,
+            data,
+            transport="meshcore",
+            section_path=f"adapters.meshcore.{instance_name}",
+        )
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshCoreConfig(**adapter_kwargs).validate()
         return cls(
@@ -406,7 +453,12 @@ class LxmfRuntimeConfig:
                 adapter_id=adapter_id,
                 section_path=f"adapters.lxmf.{instance_name}",
             )
-        adapter_kwargs = _coerce_adapter_kwargs(LxmfConfig, data)
+        adapter_kwargs = _coerce_adapter_kwargs(
+            LxmfConfig,
+            data,
+            transport="lxmf",
+            section_path=f"adapters.lxmf.{instance_name}",
+        )
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = LxmfConfig(**adapter_kwargs).validate()
         return cls(

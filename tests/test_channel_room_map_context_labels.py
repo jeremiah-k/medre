@@ -293,6 +293,110 @@ def test_entry_label_none_falls_back_to_route_label() -> None:
 
 
 # ===========================================================================
+# 9. Explicit null vs empty string: fallback vs suppression (TC-013 / TC-014)
+#
+# Spec §17.5.8: an explicit YAML ``null`` (Python ``None``) means "fall
+# back through the precedence chain"; an explicit empty string ``""``
+# means "suppress the fallback for this entry".  These two tests make
+# the contrast explicit at both the parse and route-expansion levels.
+# ===========================================================================
+
+
+def test_explicit_null_entry_source_label_falls_back_to_route() -> None:
+    """Explicit None (YAML null) per-entry label falls back (TC-013).
+
+    Counterpart to the absent-key test above: an explicit ``null`` must
+    behave identically to an absent key — both produce ``None`` on the
+    parsed entry, and both fall through to the route-level label during
+    expansion.
+    """
+    rc = RouteConfig.from_dict(
+        "t",
+        {
+            **_BASE_DATA,
+            "source_origin_label": "Route Level",
+            "channel_room_map": {
+                "0": {
+                    "room": "!room0:example.com",
+                    "source_origin_label": None,  # explicit YAML null
+                },
+            },
+        },
+    )
+    # Parse level: explicit None is stored as None (not stripped, not "").
+    assert rc.channel_room_map is not None
+    assert rc.channel_room_map["0"].source_origin_label is None
+    # Expansion level: None falls through to the route-level label.
+    fwd = _leg(_expand(rc), "matrix_to_meshtastic")
+    assert fwd.source.origin_label == "Route Level"
+
+
+def test_explicit_empty_string_entry_label_suppresses_fallback() -> None:
+    """Explicit '' per-entry label suppresses the fallback chain (TC-014).
+
+    The counterpart to TC-013: ``null`` falls back, ``""`` does NOT.
+    The route-level label is ignored when the entry carries an explicit
+    empty string; the expanded leg's ``origin_label`` stays ``""`` so
+    renderers suppress the adapter-level fallback for this entry's leg.
+    """
+    rc = RouteConfig.from_dict(
+        "t",
+        {
+            **_BASE_DATA,
+            "source_origin_label": "Route Level",
+            "channel_room_map": {
+                "0": {
+                    "room": "!room0:example.com",
+                    "source_origin_label": "",  # explicit empty string
+                },
+            },
+        },
+    )
+    # Parse level: explicit "" is stored as "" (distinct from None).
+    assert rc.channel_room_map is not None
+    entry = rc.channel_room_map["0"]
+    assert entry.source_origin_label == ""
+    assert entry.source_origin_label is not None
+    # Expansion level: "" is preserved — route-level label is NOT used.
+    fwd = _leg(_expand(rc), "matrix_to_meshtastic")
+    assert fwd.source.origin_label == ""
+
+
+def test_explicit_null_and_empty_string_contrast_in_same_route() -> None:
+    """Null and empty string behave differently in the same route.
+
+    Two entries on different channels — one with explicit ``None``,
+    one with explicit ``""`` — must expand to different origin_labels.
+    This guards against a regression where ``None`` and ``""`` are
+    conflated.
+    """
+    rc = RouteConfig.from_dict(
+        "t",
+        {
+            **_BASE_DATA,
+            "source_origin_label": "Route Level",
+            "channel_room_map": {
+                "0": {
+                    "room": "!room0:example.com",
+                    "source_origin_label": None,  # falls back
+                },
+                "1": {
+                    "room": "!room1:example.com",
+                    "source_origin_label": "",  # suppresses
+                },
+            },
+        },
+    )
+    routes = _expand(rc)
+    fwd_ch0 = _leg(routes, "matrix_to_meshtastic", "0")
+    fwd_ch1 = _leg(routes, "matrix_to_meshtastic", "1")
+    # Channel 0: None → route-level label.
+    assert fwd_ch0.source.origin_label == "Route Level"
+    # Channel 1: "" → stays empty (suppressed).
+    assert fwd_ch1.source.origin_label == ""
+
+
+# ===========================================================================
 # 6. Unknown map-entry key is rejected
 # ===========================================================================
 

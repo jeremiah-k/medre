@@ -180,6 +180,31 @@
           "enum": ["enabled", "listen_only"],
           "default": "enabled",
           "description": "Controls whether outbound radio sends are enabled."
+        },
+        "encrypted_action": {
+          "type": "string",
+          "enum": ["drop", "deferred"],
+          "default": "drop",
+          "description": "Classification policy for encrypted packets whose payload cannot be inspected. 'drop' discards them; 'deferred' queues them for deferred processing."
+        },
+        "chat_portnums": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Frozenset of Meshtastic port-num names treated as chat traffic for classification. Empty means no portnums are explicitly classified as chat at the config level."
+        },
+        "disabled_portnums": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Frozenset of Meshtastic port-num names whose packets are dropped before classification. Empty means no portnums are disabled."
+        },
+        "detection_sensor_relay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether DETECTION_SENSOR app packets are relayed across the bridge."
         }
       },
       "required": ["adapter_id"],
@@ -236,23 +261,11 @@
           "minimum": 0,
           "description": "Default radio channel index for outbound messages."
         },
-        "channel_mapping": {
-          "type": "object",
-          "additionalProperties": { "type": "string" },
-          "default": {},
-          "description": "Mapping of channel index to human-readable channel name."
-        },
         "message_delay_seconds": {
           "type": "number",
           "default": 0.5,
           "minimum": 0,
           "description": "Minimum delay between outbound messages (pacing)."
-        },
-        "sync_timeout_ms": {
-          "type": "integer",
-          "default": 30000,
-          "minimum": 1,
-          "description": "Timeout in milliseconds for sync operations."
         },
         "identity": {
           "type": ["string", "null"],

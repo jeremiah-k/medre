@@ -70,6 +70,10 @@ def _example_schema_pairs() -> list[tuple[Path, Path]]:
             schema_stem = name[: -len("-example")]
         else:
             schema_stem = name
+        # Per-transport adapter examples validate against the shared
+        # adapter-config.schema.json oneOf, not per-transport schemas.
+        if schema_stem.startswith("adapter-config-"):
+            schema_stem = "adapter-config"
         schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
         if schema.exists():
             pairs.append((example, schema))
@@ -184,6 +188,10 @@ class TestExamplesValidateAgainstSchemas:
             schema_stem = (
                 name[: -len("-example")] if name.endswith("-example") else name
             )
+            # Per-transport adapter examples validate against the shared
+            # adapter-config.schema.json oneOf, not per-transport schemas.
+            if schema_stem.startswith("adapter-config-"):
+                schema_stem = "adapter-config"
             schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
             assert schema.exists(), (
                 f"No schema found for example {example.name}. "
@@ -318,6 +326,79 @@ class TestSourceDriftDetection:
         assert (
             not extra
         ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"
+
+    def test_route_config_schema_matches_source(self) -> None:
+        """routing-config.schema.json RouteConfig arm must cover all
+        RouteConfig dataclass fields (source → schema drift detection).
+
+        This would have caught missing source_origin_label / dest_origin_label
+        documentation in the schema.
+        """
+        from dataclasses import fields as dc_fields
+
+        from medre.config.routes import RouteConfig
+
+        schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+        route_arm = next(
+            (arm for arm in schema["oneOf"] if arm.get("title") == "RouteConfig"),
+            None,
+        )
+        assert (
+            route_arm is not None
+        ), "routing-config.schema.json missing RouteConfig arm"
+        schema_props = set(route_arm.get("properties", {}).keys())
+        source_fields = {f.name for f in dc_fields(RouteConfig)}
+        missing = source_fields - schema_props
+        assert not missing, (
+            f"RouteConfig fields missing from routing-config.schema.json: "
+            f"{sorted(missing)}"
+        )
+        # Reverse drift: schema → source. Catches phantom properties whose
+        # dataclass field was removed (e.g. MeshCore channel_mapping).
+        extra = schema_props - source_fields
+        assert not extra, (
+            f"routing-config.schema.json properties not in RouteConfig: "
+            f"{sorted(extra)}"
+        )
+
+    def test_adapter_config_schema_matches_source(self) -> None:
+        """adapter-config.schema.json each oneOf arm must cover all fields
+        from the corresponding source dataclass (source → schema drift).
+
+        This would have caught F-001 (missing Meshtastic packet-routing
+        fields) at the moment they were added to the dataclass.
+        """
+        from dataclasses import fields as dc_fields
+
+        from medre.config.adapters.lxmf import LxmfConfig
+        from medre.config.adapters.matrix import MatrixConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+        arms = {arm["title"]: arm for arm in schema["oneOf"]}
+
+        checks = [
+            ("MatrixConfig", MatrixConfig),
+            ("MeshtasticConfig", MeshtasticConfig),
+            ("MeshCoreConfig", MeshCoreConfig),
+            ("LxmfConfig", LxmfConfig),
+        ]
+        for title, datacls in checks:
+            assert title in arms, f"Schema missing oneOf arm {title!r}"
+            schema_props = set(arms[title].get("properties", {}).keys())
+            source_fields = {f.name for f in dc_fields(datacls)}
+            missing = source_fields - schema_props
+            assert (
+                not missing
+            ), f"{title}: source fields missing from schema: {sorted(missing)}"
+            # Reverse drift: schema → source. Catches phantom properties
+            # whose dataclass field was removed (e.g. MeshCore
+            # channel_mapping / sync_timeout_ms).
+            extra = schema_props - source_fields
+            assert (
+                not extra
+            ), f"{title}: schema properties not in source dataclass: {sorted(extra)}"
 
 
 # ===========================================================================
@@ -1214,3 +1295,176 @@ class TestEvidenceBundleSchemaNewFields:
         }
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=bundle, schema=_schema)
+
+
+# ===========================================================================
+# 6. Per-transport adapter-config example coverage and oneOf validation
+# ===========================================================================
+
+
+#: Distinctive required/property fields per adapter-config oneOf arm title.
+_ADAPTER_ARM_DISTINCTIVE_FIELDS: dict[str, frozenset[str]] = {
+    "MatrixConfig": frozenset({"homeserver", "user_id"}),
+    "MeshtasticConfig": frozenset({"radio_relay_prefix", "encrypted_action"}),
+    "MeshCoreConfig": frozenset({"meshcore_relay_prefix", "serial_baudrate"}),
+    "LxmfConfig": frozenset({"lxmf_relay_prefix", "default_delivery_method"}),
+}
+
+_ADAPTER_CONFIG_EXAMPLES = sorted(_EXAMPLES_DIR.glob("adapter-config*-example.json"))
+
+
+class TestAdapterConfigExampleCoverage:
+    """Verify per-transport example coverage (TC-008) and that each example
+    validates against exactly one arm of the adapter-config oneOf.
+    """
+
+    def test_each_oneof_arm_has_example(self) -> None:
+        """Each arm of adapter-config.schema.json oneOf must have at least
+        one example payload in docs/schemas/examples/."""
+        schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+        arm_titles = [arm["title"] for arm in schema["oneOf"]]
+
+        examples = {p.name: _load_json(p) for p in _ADAPTER_CONFIG_EXAMPLES}
+
+        for title in arm_titles:
+            assert (
+                title in _ADAPTER_ARM_DISTINCTIVE_FIELDS
+            ), f"Add distinctive field mapping for new adapter arm {title!r}"
+            distinctive = _ADAPTER_ARM_DISTINCTIVE_FIELDS[title]
+            has_example = any(distinctive <= set(ex.keys()) for ex in examples.values())
+            assert has_example, (
+                f"No example payload found for adapter-config oneOf arm "
+                f"{title!r}. Expected an example with fields: {sorted(distinctive)}"
+            )
+
+    @pytest.mark.parametrize(
+        "example_path",
+        _ADAPTER_CONFIG_EXAMPLES,
+        ids=lambda p: p.name,
+    )
+    def test_each_example_validates_against_exactly_one_arm(
+        self, example_path: Path
+    ) -> None:
+        """Each adapter-config-*-example.json must validate against exactly
+        one arm of the adapter-config.schema.json oneOf."""
+        schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+        example = _load_json(example_path)
+
+        if _HAS_JSONSCHEMA:
+            import jsonschema
+
+            matches = 0
+            for arm in schema["oneOf"]:
+                try:
+                    jsonschema.validate(instance=example, schema=arm)
+                    matches += 1
+                except jsonschema.ValidationError:
+                    pass
+            assert matches == 1, (
+                f"{example_path.name}: expected to validate against exactly "
+                f"1 arm, got {matches}"
+            )
+        else:
+            # Manual: check required fields + additionalProperties: false.
+            matches = 0
+            for arm in schema["oneOf"]:
+                required = arm.get("required", [])
+                if not all(r in example for r in required):
+                    continue
+                props = set(arm.get("properties", {}).keys())
+                if set(example.keys()) <= props:
+                    matches += 1
+            assert matches == 1, (
+                f"{example_path.name}: expected to match exactly 1 arm "
+                f"manually, got {matches}"
+            )
+
+
+# ===========================================================================
+# 7. Structured ChannelRoomMapEntry in routing example (TC-009)
+# ===========================================================================
+
+
+class TestStructuredChannelRoomMapEntry:
+    """Verify the structured ChannelRoomMapEntry shape (dict with 'room'
+    key) appears in at least one example payload."""
+
+    def test_routing_example_has_structured_entry(self) -> None:
+        """routing-config-example.json must contain at least one structured
+        channel_room_map entry (a dict with a 'room' key, not a bare string).
+        """
+        example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+        crm = example.get("channel_room_map")
+        assert crm is not None, "routing-config-example.json missing channel_room_map"
+        assert isinstance(
+            crm, dict
+        ), f"channel_room_map must be a dict, got {type(crm)}"
+
+        structured_entries = [
+            key for key, val in crm.items() if isinstance(val, dict) and "room" in val
+        ]
+        assert structured_entries, (
+            "No structured ChannelRoomMapEntry found in "
+            "routing-config-example.json channel_room_map. "
+            "Expected at least one entry shaped like "
+            '{"room": "!...", "source_origin_label": ...}'
+        )
+
+    def test_structured_entry_has_required_room_field(self) -> None:
+        """The structured entry must have a 'room' field starting with '!'."""
+        example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+        crm = example["channel_room_map"]
+        for key, val in crm.items():
+            if isinstance(val, dict):
+                assert (
+                    "room" in val
+                ), f"channel_room_map[{key!r}] is a dict but missing 'room'"
+                assert isinstance(
+                    val["room"], str
+                ), f"channel_room_map[{key!r}].room must be a string"
+                assert val["room"].startswith("!"), (
+                    f"channel_room_map[{key!r}].room must start with '!', "
+                    f"got {val['room']!r}"
+                )
+
+
+# ===========================================================================
+# 8. filter_hooks schema validation
+# ===========================================================================
+
+
+def test_filter_hooks_absent_validates() -> None:
+    """A route without filter_hooks validates against the schema."""
+    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route.pop("filter_hooks", None)
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if not _HAS_JSONSCHEMA:
+        pytest.skip("jsonschema not installed")
+    import jsonschema
+
+    jsonschema.validate(route, schema)
+
+
+def test_filter_hooks_empty_array_validates() -> None:
+    """filter_hooks: [] validates against the schema."""
+    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route["filter_hooks"] = []
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if not _HAS_JSONSCHEMA:
+        pytest.skip("jsonschema not installed")
+    import jsonschema
+
+    jsonschema.validate(route, schema)
+
+
+def test_filter_hooks_nonempty_rejected_by_schema() -> None:
+    """The schema rejects non-empty filter_hooks via maxItems: 0."""
+    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+    route["filter_hooks"] = ["my_hook"]
+    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
+    if not _HAS_JSONSCHEMA:
+        pytest.skip("jsonschema not installed")
+    import jsonschema
+
+    with pytest.raises(jsonschema.ValidationError, match="maxItems"):
+        jsonschema.validate(route, schema)

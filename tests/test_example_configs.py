@@ -38,6 +38,11 @@ REQUIRED_YAML_CONFIGS = [
     "docker-meshtastic-bridge.yaml",
     "live-matrix-meshtastic.yaml",
     "live-matrix-meshtastic-channel-map.yaml",
+    # Minimal single-adapter configs (adapter_kind: real, hardware via env).
+    "lxmf-receiver.yaml",
+    "lxmf-sender.yaml",
+    "meshcore-lab.yaml",
+    "meshcore-tbeam.yaml",
 ]
 
 # Configs with placeholder credentials that cannot be fully loaded.

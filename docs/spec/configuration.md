@@ -84,89 +84,226 @@ class RuntimeConfig:
 
 ## 3. YAML Schema
 
-```yaml
-runtime:
-  name: medre
-  shutdown_timeout_seconds: 10
+The typed config model in `src/medre/config/model.py` and
+`src/medre/config/routes.py` is authoritative. The operator-facing
+[Configuration Reference](../ops/configuration.md) renders that model as
+per-section YAML examples and field tables; this section normatively asserts
+the structural requirements that the spec relies on.
 
-logging:
-  level: INFO # DEBUG | INFO | WARNING | ERROR
-  format: text # text | json
-  # overrides:
-  #   nio: WARNING
+### 3.1 File Format and Boring YAML Subset
 
-storage:
-  backend: sqlite
-  path: "{state}/medre.sqlite"
+- The file suffix MUST be `.yaml` or `.yml`. The loader rejects `.toml` (and
+  any other unsupported suffix) with the migration message _"TOML config
+  files are no longer supported; use YAML (.yaml or .yml)."_; see §4 for
+  discovery and rejection semantics.
+- `pyproject.toml` is unrelated project metadata (build, pytest config,
+  tooling). The MEDRE runtime never reads it as a runtime config.
+- The YAML parser accepts only a deliberately boring subset of YAML:
+  - Explicit mappings and sequences of plain scalars (`str`, `int`,
+    `float`, `bool`, `null`).
+  - **No** anchors (`&`), aliases (`*`), or merge keys (`<<`).
+  - **No** custom or exotic tags (`!!binary`, `!!set`, `!!omap`, etc.).
+  - **No** duplicate mapping keys — the last-wins behaviour of plain YAML
+    loaders is treated as a misconfiguration and rejected at parse time.
+  - **No** multi-document streams. The root node MUST be a mapping.
+- Values YAML could misread MUST be quoted: Matrix room IDs
+  (`"!room:server"`), MXIDs (`"@user:server"`), string-valued channel keys
+  (`"0"`), and path placeholders like `"{state}/medre.sqlite"`.
 
-limits:
-  max_inflight_deliveries: 100
-  max_inflight_replay_events: 100
-  shutdown_drain_timeout_seconds: 10
-  delivery_acquire_timeout_seconds: 1.0
+### 3.2 Top-Level Sections
 
-retry:
-  enabled: false
-  interval_seconds: 10.0
-  batch_size: 20
-  max_attempts: 3
+The root mapping MAY contain the following keys. The typed leaf tables in
+§2.1–§2.5 are the field-level normative reference for each non-adapter
+section.
 
-# --- Adapter instances (multi-instance per type) ---
+| Key        | Typed model        | Field table | Notes                                         |
+| ---------- | ------------------ | ----------- | --------------------------------------------- |
+| `runtime`  | `RuntimeOptions`   | §2.1        | Carries the nested `limits` table — see §2.4. |
+| `logging`  | `LoggingConfig`    | §2.2        |                                               |
+| `storage`  | `StorageConfig`    | §2.3        |                                               |
+| `retry`    | `RetryConfig`      | §2.5        |                                               |
+| `adapters` | `AdapterConfigSet` | §3.3        | Per-transport grouping.                       |
+| `routes`   | `RouteConfigSet`   | §3.4        | Per-route targeting and channel mapping.      |
 
-adapters:
-  matrix:
-    <name>:
-      enabled: true
-      adapter_kind: real # real | fake
-      homeserver: "https://matrix.example.com"
-      user_id: "@bot:example.com"
-      access_token: "<matrix-access-token>"
-      room_allowlist:
-        - "!room:example.com"
-      device_id: MEDREBOT
-      encryption_mode: plaintext # plaintext | e2ee_required | e2ee_optional
+`runtime.limits` is the YAML path for the `RuntimeLimits` table (§2.4). A
+top-level `limits:` key is rejected by the loader as an unknown root key —
+the typed model only reads `runtime.limits`. `medre config check` surfaces
+this as a `ConfigValidationError` with `section_path="<root>"` naming the
+unknown key and the accepted root keys.
 
-  meshtastic:
-    <name>:
-      enabled: false
-      connection_type: serial # serial | tcp
-      serial_port: /dev/ttyACM0
-      host: localhost
-      port: 4403
+### 3.3 Adapter Instances
 
-  meshcore:
-    <name>:
-      enabled: false
-      connection_type: serial # serial | tcp | ble
-      serial_port: /dev/ttyUSB0
-      host: localhost
-      port: 4403
+Each transport has its own sub-table under
+`adapters.<transport>.<instance_name>`:
 
-  lxmf:
-    <name>:
-      enabled: false
-      connection_type: reticulum
-      identity_path: "{state}/lxmf/identity"
-      display_name: MEDRE
+- `adapters.matrix.<name>` → `MatrixConfig`
+- `adapters.meshtastic.<name>` → `MeshtasticConfig`
+- `adapters.meshcore.<name>` → `MeshCoreConfig`
+- `adapters.lxmf.<name>` → `LxmfConfig`
 
-# --- Routes ---
-# Routes are keyed by route id. Each route references adapter ids and
-# declares directionality (source_to_dest | dest_to_source | bidirectional).
+Each instance goes through a runtime wrapper (`MatrixRuntimeConfig`,
+`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`)
+that consumes three wrapper-level fields before constructing the adapter
+dataclass:
 
-routes:
-  mesh-to-matrix:
-    source_adapters:
-      - meshcore-radio-1
-    dest_adapters:
-      - matrix-home
-    directionality: bidirectional
-    enabled: true
-    source_channel: general
-    dest_channel: general
-    policy:
-      allowed_event_types:
-        - message.text
-```
+| Wrapper field  | Type   | Default       | Description                                                                                                                                                                       |
+| -------------- | ------ | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`      | bool   | `true`        | Whether this adapter instance is active at startup.                                                                                                                               |
+| `adapter_id`   | string | instance name | Unique identifier across all transports. Duplicate IDs are rejected at validation time.                                                                                           |
+| `adapter_kind` | string | `"real"`      | Selects the live (`"real"`) or simulated (`"fake"`) adapter implementation. Any other value raises `ConfigValidationError` with `section_path="adapters.<transport>.<instance>"`. |
+
+All remaining keys in the instance table are forwarded to the transport's
+adapter dataclass after list→set, list→tuple, and string-key→int-key
+coercion. The per-transport field tables and canonical YAML examples live
+in the operator-facing
+[Configuration Reference](../ops/configuration.md); the typed dataclasses
+in `src/medre/config/adapters/*.py` are authoritative.
+
+Notes on fields whose YAML surface is non-obvious:
+
+- `MatrixConfig.device_id` and `MatrixConfig.store_path` are
+  **internal/test-only**. The runtime derives the device ID from `whoami()`
+  on login and the crypto store path from the resolved state directory
+  (`{state}/adapters/{adapter_id}/matrix/store`). Operators SHOULD NOT set
+  these fields in production YAML.
+- `MeshtasticConfig` carries four packet-routing fields that control
+  inbound packet classification: `encrypted_action` (literal `"drop"` or
+  `"deferred"`, default `"drop"`), `chat_portnums` and `disabled_portnums`
+  (frozensets of portnum names, default empty), and `detection_sensor_relay`
+  (bool, default `false`). These were added by the _Meshtastic Configurable
+  Packet Routing_ change fragment.
+- `MeshCoreConfig.ble_pin` is a sensitive BLE pairing PIN. It MUST NOT
+  appear in diagnostics, logs, or JSON output. `MeshCoreConfig.node_config`
+  rejects keys named `private_key`, `secret`, or `password`.
+- `LxmfConfig.storage_path` is **required** when
+  `connection_type="reticulum"` (the validated LXMF LXMRouter behavior
+  raises if it is absent). `storage_path` is ignored in `fake` mode.
+- All four adapter configs declare `origin_label: str = ""`. It is
+  human-readable attribution only — see §3.4 and
+  [routing-delivery.md §17.5.2](routing-delivery.md#1752-origin_label) for
+  the precedence chain and the full list of properties.
+
+### 3.4 Routes and Channel Mapping
+
+Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
+
+- The source and dest adapter ID tuples (`source_adapters`, `dest_adapters`)
+  and the `directionality` (`source_to_dest` | `dest_to_source` |
+  `bidirectional`).
+- An `enabled` flag (validated even when `false`; disabled routes are not
+  registered).
+- Optional targeting fields `source_channel` / `dest_channel` and their
+  `*_room` aliases. `source_room` is an alias for `source_channel`,
+  `dest_room` for `dest_channel`; setting both to different values is
+  rejected.
+- An optional static `policy` block (see
+  [routing-delivery.md §2.8 Bridge Policy](routing-delivery.md#28-bridge-policy))
+  and an optional per-route `retry` block.
+- Route-level `source_origin_label` / `dest_origin_label` (default `None` /
+  unset) and the optional `channel_room_map` described below.
+
+The full normative semantics for route matching, policy evaluation, and
+delivery fanout live in [routing-delivery.md](routing-delivery.md). The
+operator-facing YAML examples, including policy and retry tables, live in
+[Configuration Reference §routes](../ops/configuration.md#routesroute_id).
+
+#### 3.4.1 channel_room_map
+
+For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route
+into one leg per channel→room pair. Each entry is polymorphic:
+
+- **Bare-string shape** — the value is a canonical Matrix room ID string
+  (`"!room:server"`). No per-entry labels.
+- **Structured shape** — the value is a table with three keys:
+
+  | Key                   | Type           | Default | Notes                                                               |
+  | --------------------- | -------------- | ------- | ------------------------------------------------------------------- |
+  | `room`                | string         | —       | Canonical Matrix room ID starting with `!`. **Required.**           |
+  | `source_origin_label` | string or null | `null`  | Per-entry forward-leg label. `null` inherits the route-level label. |
+  | `dest_origin_label`   | string or null | `null`  | Per-entry reverse-leg label. `null` inherits the route-level label. |
+
+  Unknown keys are rejected. Boolean label values are rejected before the
+  generic string check, matching route-level label validation.
+
+The two shapes MAY be mixed within a single `channel_room_map`. The
+bare-string shape is the legacy form and remains fully supported.
+
+`channel_room_map` is mutually exclusive with `source_channel`,
+`dest_channel`, `source_room`, and `dest_room`. When present, the route
+MUST have exactly one source and one dest adapter. Channel keys are
+integers `0`–`7` (Meshtastic supports up to 8 channels). Duplicate channel
+keys are rejected. Room values MUST be canonical Matrix room IDs (starting
+with `!`); aliases (`#…`) are not supported.
+
+#### 3.4.2 Origin Label Precedence
+
+`origin_label` is human-readable attribution rendered into relay prefixes.
+The formatter variable is `{origin_label}`. Per expanded leg, the resolved
+value comes from the most-specific level that is not `null`/`None`:
+
+1. **Per-entry** `source_origin_label` (forward leg) or `dest_origin_label`
+   (reverse leg) on the matched `channel_room_map` entry, when set.
+2. **Route-level** `source_origin_label` / `dest_origin_label` on
+   `RouteConfig`, when set.
+3. **Adapter** `origin_label` from the source adapter config (default `""`).
+4. **Empty string** — `{origin_label}` renders empty.
+
+An explicit empty string (`""`) at the per-entry or route level suppresses
+fallback below that level for that leg: the `{origin_label}` template
+variable resolves to empty. An absent, `null`, or `None` label falls
+through to the next level. See
+[routing-delivery.md §17.5.2](routing-delivery.md#1752-origin_label) and
+[§17.5.8](routing-delivery.md#1758-projection-architecture-and-core-boundary)
+for the full normative semantics.
+
+`origin_label` is **observational attribution only**. It is not a routing
+key, not a transport identity, not a sender identity, and not delivery
+evidence. It never affects which route matches an event. The authoritative
+machine-readable provenance source is the MEDRE metadata namespace
+(`medre.envelope` on Matrix, `fields[0xFD]` on LXMF,
+`RenderingResult.metadata` on all transports).
+
+#### 3.4.3 Same-Room Fan-In and Duplicate Matrix Rooms
+
+A `channel_room_map` MAY map two or more channel indices to the same
+Matrix room for Meshtastic→Matrix fan-in (e.g. multiple radio channels
+relaying into one shared room, each with its own `source_origin_label`).
+Whether duplicate rooms are accepted depends on whether the route's
+expansion creates a Matrix→Meshtastic leg:
+
+- **Allowed** — no Matrix→Meshtastic leg is created (one-way
+  Meshtastic→Matrix routing). The inbound radio channel disambiguates the
+  source.
+- **Rejected** — a Matrix→Meshtastic leg is created. A Matrix event
+  arriving from the shared room would be ambiguous across channels.
+
+The check runs at runtime route-expansion time (in
+`medre.runtime.route_engine._validate_duplicate_rooms_for_direction`),
+where adapter platform assignments are known. See
+[routing-delivery.md §17.6](routing-delivery.md#176-duplicate-room-fan-in-for-channel_room_map)
+for the full directionality decision matrix.
+
+#### 3.4.4 Removed Template Placeholders
+
+The attribution surface was canonicalized to a single set of template
+variables (see the _Clean Attribution Surface — Canonical Variables Only_
+changelog fragment). The following legacy placeholders are no longer
+resolved and pass through as literal text in prefix templates:
+
+| Removed placeholder | Current behavior                |
+| ------------------- | ------------------------------- |
+| `{meshnet_name}`    | Unknown — left as literal text. |
+| `{longname}`        | Unknown — left as literal text. |
+| `{shortname}`       | Unknown — left as literal text. |
+| `{shortname5}`      | Unknown — left as literal text. |
+| `{from_id}`         | Unknown — left as literal text. |
+
+The canonical variables are `{origin_label}`, `{sender}`, `{sender_short}`,
+`{sender_id}`, `{sender_handle}`, `{platform}`, `{route_id}`, and
+`{channel}`. Operators with prefix templates still referencing the removed
+names MUST migrate. See
+[routing-delivery.md §17.5.5](routing-delivery.md#1755-shared-formatter-and-variable-schema)
+for the formatter rules.
 
 ## 4. Configuration Search Order
 

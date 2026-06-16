@@ -124,24 +124,19 @@ class _StrictSafeLoader(yaml.SafeLoader):
                 )
 
             key = self.construct_object(key_node, deep=deep)
-            if not isinstance(key, _ALLOWED_LEAF_TYPES):
-                # Only plain scalar types (str, int, float, bool, None)
-                # are permitted as mapping keys for compatibility. Exotic
-                # hashable types (tuple, frozenset, etc.) produced by tags
-                # like ``!!omap`` or ``!!set`` are rejected to keep config
-                # boring and reviewable.
+            if not _is_allowed_mapping_key(key):
+                # Only ``str`` and ``int`` keys are permitted. ``bool`` is
+                # explicitly rejected even though it subclasses ``int`` so
+                # that ``true:``/``false:`` keys cannot collide with
+                # integer keys (``True == 1``). Exotic hashable types
+                # (tuple, frozenset, datetime, bytes, etc.) produced by
+                # tags like ``!!omap``, ``!!set``, ``!!binary``, or
+                # ``!!timestamp`` are also rejected here.
                 raise StrictYAMLError(
                     _format_mark(
                         key_node.start_mark,
                         f"unsupported mapping key type {type(key).__name__}; "
-                        f"only plain scalar keys are allowed",
-                    )
-                )
-            if not _is_hashable(key):
-                raise StrictYAMLError(
-                    _format_mark(
-                        key_node.start_mark,
-                        "mapping key is not hashable",
+                        f"only string and integer keys are allowed",
                     )
                 )
 
@@ -166,6 +161,19 @@ def _is_hashable(obj: Any) -> bool:
     except TypeError:
         return False
     return True
+
+
+def _is_allowed_mapping_key(key: Any) -> bool:
+    """Return True if *key* is an allowed YAML mapping key type.
+
+    Only ``str`` and ``int`` keys are permitted. ``bool`` is explicitly
+    rejected even though it is a subclass of ``int`` because boolean
+    keys (``true:``, ``false:``) are confusing in config files and can
+    collide with integer keys (``True == 1``).
+    """
+    # ``type(key) is int`` rather than ``isinstance(key, int)`` so that
+    # ``bool`` (a subclass of ``int``) does not slip through.
+    return type(key) is str or type(key) is int
 
 
 # ---------------------------------------------------------------------------
@@ -266,10 +274,10 @@ def _validate_plain_types(data: Any, path: str) -> None:
     """
     if isinstance(data, dict):
         for key, value in data.items():
-            if not isinstance(key, _ALLOWED_LEAF_TYPES):
+            if not _is_allowed_mapping_key(key):
                 raise StrictYAMLError(
                     f"{path or '<root>'}: unsupported mapping key type "
-                    f"{type(key).__name__}; only plain scalar keys are allowed"
+                    f"{type(key).__name__}; only string and integer keys are allowed"
                 )
             child_path = f"{path}.{key}" if path else str(key)
             _validate_plain_types(value, child_path)

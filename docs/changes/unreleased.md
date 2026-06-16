@@ -614,3 +614,152 @@ destination). A map with no duplicate rooms is always accepted.
   `docs/dev/relay-prefix-attribution-audit.md`: updated `from_toml_dict`
   references to `from_dict`, duplicate-room enforcement sites, and stale TOML
   prose.
+
+---
+
+## Config Schema Authority Hardening — Docs Reconciliation
+
+Reconciled the normative docs in `docs/spec/` with the typed config model
+after the config-schema-authority audit (`docs/dev/config-schema-authority-audit.md`).
+The typed model in `src/medre/config/model.py` + `routes.py` is
+authoritative; docs now match it. No runtime behavior changed.
+
+**Spec modernized (`docs/spec/configuration.md`):**
+
+- §3 YAML Schema rewritten. The divergent inline YAML sample that showed
+  `limits:` at the top level (it lives under `runtime.limits`), exposed
+  `device_id: MEDREBOT` as operator-facing (it is internal/test-only),
+  omitted `adapter_kind` from every adapter block, omitted the Meshtastic
+  packet-routing fields, omitted MeshCore `ble_pin` / `meshcore_relay_prefix`
+  / `max_text_bytes`, and showed LXMF `connection_type: reticulum` without
+  the required `storage_path`, has been removed. The new §3 documents the
+  boring YAML subset, the top-level structure with cross-references to §2
+  field tables, the three adapter wrapper fields (`enabled`, `adapter_id`,
+  `adapter_kind: real | fake`, default `"real"`), and the non-obvious
+  field semantics (`device_id` internal, LXMF `storage_path` required for
+  `reticulum`, Meshtastic packet-routing fields, MeshCore `ble_pin`
+  sensitivity).
+- New §3.4 _Routes and Channel Mapping_: documents `channel_room_map`
+  (bare-string and structured entry shapes), route-level and per-entry
+  `source_origin_label` / `dest_origin_label`, the four-step precedence
+  chain (per-entry > route > adapter > empty string), the explicit-empty-
+  string-suppresses-fallback rule, the observational-attribution scope of
+  `origin_label`, same-room fan-in / duplicate-Matrix-room semantics with a
+  cross-reference to routing-delivery.md §17.6, and the removed template
+  placeholder table.
+
+**Spec consistency fix (`docs/spec/routing-delivery.md`):**
+
+- §17.5.2 now lists all three `origin_label` levels (per-entry, route,
+  adapter) and a four-step precedence chain, instead of only two levels.
+  Cross-references §17.5.8 for the per-entry semantics and the explicit
+  empty-string rule.
+- §17.5.5 gained a _Removed placeholders_ table enumerating
+  `{meshnet_name}`, `{longname}`, `{shortname}`, `{shortname5}`, and
+  `{from_id}` as unknown — left as literal text by the formatter.
+
+**Cross-references, not duplication:** the operator-facing
+`docs/ops/configuration.md` is already correct (per the audit); the spec
+points at it for the canonical per-adapter YAML examples instead of
+maintaining a second copy.
+
+**Notes:**
+
+- The audit's schema and example-config findings (F-001 missing Meshtastic
+  packet-routing fields in `adapter-config.schema.json`; F-002 four
+  example configs with invalid `adapter_kind` values; F-010/F-011 schema
+  example coverage) are tracked by the schema/example tracks of this
+  tranche and were outside the docs-only scope of this fragment.
+- The audit's loader-tightening recommendations (F-012/F-013/F-014 reject
+  unknown keys at root / adapter / route level) are tracked by the
+  loader-tightening track; if that track lands in the same release, the
+  changelog entry for it should be cross-referenced here.
+
+---
+
+## Config Schema Authority Hardening — Unknown-Key Rejection
+
+The config loader now rejects unknown keys at the root, adapter-instance,
+and route levels so operator typos surface as a clear `ConfigValidationError`
+at load time instead of being silently dropped. The JSON schemas'
+`additionalProperties: false` now matches the loader's behavior end-to-end.
+This is a runtime behavior change — configs that previously loaded with
+silently-dropped keys now fail fast with an error naming the unknown key and
+the accepted keys.
+
+**Changed:**
+
+- Root level (`src/medre/config/loader.py`): a new `_KNOWN_ROOT_KEYS`
+  check rejects any root key not in
+  `{"runtime", "logging", "storage", "retry", "adapters", "routes"}` with
+  `ConfigValidationError(section_path="<root>")`. A top-level `limits:` key
+  (which belongs under `runtime.limits`) is now rejected rather than
+  silently ignored.
+- Adapter instances (`src/medre/config/model.py::_coerce_adapter_kwargs`):
+  unknown keys in an adapter table are rejected with
+  `ConfigValidationError(transport=..., section_path="adapters.<transport>.<instance>")`.
+  Previously unknown adapter keys were silently dropped and the field fell
+  back to its default.
+- Routes (`src/medre/config/routes.py::RouteConfig.from_dict`): unknown
+  route-level keys are rejected with
+  `ConfigValidationError(section_path="routes.<id>")`. Previously unknown
+  route keys were silently dropped by `RouteConfig.from_dict`.
+- The adapter and routing JSON schemas already declare
+  `additionalProperties: false`; the loader now matches that contract.
+
+**Migration:** configs that relied on the previous silent-drop behavior will
+now fail with a `ConfigValidationError` naming the unknown key and listing
+the accepted keys. Remove the unknown key, or rename it to the intended
+field. Run `medre config check` to surface every rejection before startup.
+
+---
+
+## Config Schema Authority Hardening — Section-Level Rejection
+
+Extend the unknown-key / shape rejection principle from the root,
+adapter-instance, and route levels to the remaining sections and section
+types, so every typo surfaces at load time with a clear
+`ConfigValidationError` instead of a silent drop or a raw `AttributeError`.
+
+**Changed (all in `src/medre/config/loader.py`):**
+
+- Section **type** validation: a new `_get_section_dict` helper is used for
+  every top-level section (`runtime`, `logging`, `storage`, `retry`,
+  `adapters`, `routes`) and for the nested `runtime.limits`. A non-mapping
+  value (e.g. `runtime: []`, `storage: "bad"`) is rejected with
+  `ConfigValidationError(section_path=<section>)` instead of producing a raw
+  `AttributeError` when downstream code calls `.get()` / `.items()`. Missing
+  keys and explicit `null` both continue to be treated as an empty section.
+- **Unknown transport group** rejection under `adapters:`: a new
+  `_KNOWN_TRANSPORTS` check rejects typo'd transport names (e.g.
+  `adapters.matrixx`) so the typo surfaces rather than silently loading
+  with no adapters configured. Accepted transports:
+  `matrix`, `meshtastic`, `meshcore`, `lxmf`.
+- **Malformed adapter shapes**: `_parse_adapter_section` now rejects a
+  non-mapping transport group value (e.g. `adapters.matrix: "bad"`) and a
+  non-mapping instance value (e.g. `adapters.matrix.main: "bad"`).
+  Previously the first case crashed with a raw `AttributeError` and the
+  second was silently skipped via `continue`, so a typo'd instance never
+  surfaced.
+- **Unknown keys in the global `[retry]` section**: a new
+  `_GLOBAL_RETRY_KNOWN_KEYS` check rejects typos (e.g. `retry: {bogus: 123}`)
+  in the top-level retry section, mirroring the per-route
+  `[routes.<id>.retry]` unknown-key rejection. Accepted keys:
+  `enabled`, `interval_seconds`, `batch_size`, `max_attempts`.
+- **Unknown keys in `[runtime]` / `[runtime.limits]` / `[logging]` /
+  `[storage]`**: new `_RUNTIME_KNOWN_KEYS`, `_RUNTIME_LIMITS_KNOWN_KEYS`,
+  `_LOGGING_KNOWN_KEYS`, and `_STORAGE_KNOWN_KEYS` checks reject typos in
+  each section. The unknown-key check for each section runs **before** any
+  type/range validation so operators see the typo before being confused by
+  errors on fields they never intended to set (matches the ordering already
+  used in `RouteConfig.from_dict` and `BridgePolicy.from_dict`).
+
+**Error messages** include `section_path`, the offending key name, and the
+accepted-key list. Secret values never appear in error messages — only key
+names and type names.
+
+**Migration:** configs that relied on the previous silent-drop behavior
+(section-level typos), or that used a non-mapping value for a section that
+should be a table, will now fail with a `ConfigValidationError` at load.
+Fix the typo or the section shape. Run `medre config check` to surface
+every rejection before startup.

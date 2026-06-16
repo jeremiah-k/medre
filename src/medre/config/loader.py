@@ -71,6 +71,92 @@ _TOML_NOT_SUPPORTED_MSG = (
     "TOML config files are no longer supported; use YAML (.yaml or .yml)."
 )
 
+#: Top-level keys accepted at the root of a MEDRE config file.
+#: Matches :class:`medre.config.model.RuntimeConfig` sections. Any key not
+#: in this set is rejected at load time so typos (e.g. ``roues:``) surface
+#: as a :class:`ConfigValidationError` instead of silently being dropped.
+_KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
+    {"runtime", "logging", "storage", "retry", "adapters", "routes"}
+)
+
+#: Adapter transport group names accepted under ``adapters:``. Any key not
+#: in this set (e.g. ``matrixx``) is rejected so a typo doesn't silently
+#: load with no adapters configured.
+_KNOWN_TRANSPORTS: frozenset[str] = frozenset(
+    {"matrix", "meshtastic", "meshcore", "lxmf"}
+)
+
+#: Keys accepted in the top-level ``[retry]`` section (global retry policy).
+#: Per-route retry sections have their own accepted-keys set in
+#: :mod:`medre.config.routes`.
+_GLOBAL_RETRY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"enabled", "interval_seconds", "batch_size", "max_attempts"}
+)
+
+#: Keys accepted in the top-level ``[runtime]`` section.
+_RUNTIME_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"name", "shutdown_timeout_seconds", "limits"}
+)
+
+#: Keys accepted in the ``[runtime.limits]`` subsection.
+_RUNTIME_LIMITS_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "max_inflight_deliveries",
+        "max_inflight_replay_events",
+        "shutdown_drain_timeout_seconds",
+        "delivery_acquire_timeout_seconds",
+    }
+)
+
+#: Keys accepted in the ``[logging]`` section.
+_LOGGING_KNOWN_KEYS: frozenset[str] = frozenset({"level", "format", "overrides"})
+
+#: Keys accepted in the ``[storage]`` section.
+_STORAGE_KNOWN_KEYS: frozenset[str] = frozenset({"backend", "path"})
+
+
+def _get_section_dict(
+    data: dict, key: str, *, section_path: str | None = None
+) -> dict:
+    """Return a config section as a dict, validating its type.
+
+    A missing key or an explicit ``null`` both return ``{}`` (treated as
+    an unset/empty section). Any non-mapping value (list, string, scalar)
+    raises :class:`ConfigValidationError` so ``runtime: []`` surfaces as
+    a clear error rather than a raw ``AttributeError`` downstream.
+    """
+    section = data.get(key)
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        _path = section_path or key
+        raise ConfigValidationError(
+            f"{_path} must be a mapping (table), got {type(section).__name__}",
+            section_path=_path,
+        )
+    return section
+
+
+def _reject_unknown_keys(
+    section: dict,
+    known: frozenset[str],
+    *,
+    section_path: str,
+) -> None:
+    """Raise :class:`ConfigValidationError` if *section* has unknown keys.
+
+    Sorts the unknown key names by ``repr`` so the error message is
+    deterministic. Only key names appear in the message — never values.
+    """
+    unknown = set(section) - known
+    if unknown:
+        raise ConfigValidationError(
+            f"{section_path}: unknown key(s) "
+            f"{sorted(unknown, key=lambda k: repr(k))}. "
+            f"Accepted keys: {sorted(known)}",
+            section_path=section_path,
+        )
+
 
 def _validate_config_suffix(path: Path) -> None:
     """Ensure *path* has a supported YAML extension.
@@ -282,15 +368,22 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     parser; the runtime config construction is format-agnostic and feeds
     plain dict/list/scalar values into the typed config dataclasses.
     """
-    # [runtime] section
-    runtime_data = data.get("runtime", {})
+    # [runtime] section — validate type, then reject unknown keys before
+    # reading individual fields so operators see typos first.
+    runtime_data = _get_section_dict(data, "runtime")
+    _reject_unknown_keys(runtime_data, _RUNTIME_KNOWN_KEYS, section_path="runtime")
     runtime = RuntimeOptions(
         name=runtime_data.get("name", "medre"),
         shutdown_timeout_seconds=runtime_data.get("shutdown_timeout_seconds", 10),
     )
 
-    # [runtime.limits] section (nested under [runtime])
-    limits_data = runtime_data.get("limits", {})
+    # [runtime.limits] section (nested under [runtime]) — same pattern.
+    limits_data = _get_section_dict(
+        runtime_data, "limits", section_path="runtime.limits"
+    )
+    _reject_unknown_keys(
+        limits_data, _RUNTIME_LIMITS_KNOWN_KEYS, section_path="runtime.limits"
+    )
     limits = RuntimeLimits(
         max_inflight_deliveries=limits_data.get("max_inflight_deliveries", 100),
         max_inflight_replay_events=limits_data.get("max_inflight_replay_events", 100),
@@ -303,7 +396,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     ).validate()
 
     # [logging] section — validate raw data before constructing LoggingConfig
-    log_data = data.get("logging", {})
+    log_data = _get_section_dict(data, "logging")
     _validate_logging_section(log_data)
 
     # Canonicalise level/format/overrides so downstream consumers always
@@ -324,7 +417,8 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     )
 
     # [storage] section — expand path placeholders
-    storage_data = data.get("storage", {})
+    storage_data = _get_section_dict(data, "storage")
+    _reject_unknown_keys(storage_data, _STORAGE_KNOWN_KEYS, section_path="storage")
     storage_path = storage_data.get("path")
     if storage_path:
         storage_path = str(paths.expand_placeholder(storage_path))
@@ -334,7 +428,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     )
 
     # [retry] section — validated for operator-friendly errors
-    retry_data = data.get("retry", {})
+    retry_data = _get_section_dict(data, "retry")
     _validate_retry_section(retry_data)
     retry = RetryConfig(
         enabled=retry_data.get("enabled", False),
@@ -343,8 +437,18 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         max_attempts=retry_data.get("max_attempts", 3),
     )
 
-    # [adapters.*] sections
-    adapters_data = data.get("adapters", {})
+    # [adapters.*] sections — validate the type of the adapters section,
+    # reject unknown transport group names (e.g. ``matrixx``), then parse
+    # each known transport.
+    adapters_data = _get_section_dict(data, "adapters")
+    unknown_transports = set(adapters_data) - _KNOWN_TRANSPORTS
+    if unknown_transports:
+        raise ConfigValidationError(
+            f"adapters: unknown transport group(s): "
+            f"{sorted(unknown_transports, key=lambda k: repr(k))}. "
+            f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}",
+            section_path="adapters",
+        )
     adapters = AdapterConfigSet(
         matrix=_parse_adapter_section(
             adapters_data, "matrix", MatrixRuntimeConfig, paths
@@ -361,8 +465,23 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     # Validate adapter config consistency (duplicate IDs, etc.)
     adapters.validate()
 
-    # [routes.*] sections
+    # [routes.*] sections — validate the type of the routes section before
+    # RouteConfigSet.from_dict reads it, so ``routes: []`` surfaces as a
+    # ConfigValidationError instead of a raw AttributeError on ``.items()``.
+    _get_section_dict(data, "routes")
     routes = RouteConfigSet.from_dict(data)
+
+    # Reject unknown root-level keys so operator typos (e.g. ``roues:``)
+    # surface as a clear error rather than silently dropping the section.
+    # Matches ``additionalProperties: false`` on the JSON schemas.
+    unknown_root = set(data) - _KNOWN_ROOT_KEYS
+    if unknown_root:
+        raise ConfigValidationError(
+            f"Unknown root config key(s): "
+            f"{sorted(unknown_root, key=lambda k: (type(k).__name__, repr(k)))}. "
+            f"Valid keys are: {sorted(_KNOWN_ROOT_KEYS)}.",
+            section_path="<root>",
+        )
 
     return RuntimeConfig(
         runtime=runtime,
@@ -380,7 +499,13 @@ def _validate_retry_section(retry_data: dict) -> None:
 
     Produces clean ``ConfigValidationError`` messages so operators get
     actionable feedback without reading source code.
+
+    Unknown keys are rejected first (before any type/range validation)
+    so operators see the typo before being confused by type errors on
+    individual fields they never intended to set.
     """
+    _reject_unknown_keys(retry_data, _GLOBAL_RETRY_KNOWN_KEYS, section_path="retry")
+
     _RETRY_INT_FIELDS = {
         "batch_size": ("batch size", 1),
         "max_attempts": ("max attempts", 1),
@@ -442,6 +567,10 @@ def _validate_logging_section(log_data: dict) -> None:
     so that misconfiguration is caught at config-load time with clear
     :class:`ConfigValidationError` messages rather than deferred to
     :func:`setup_logging` or producing ``AttributeError``.
+
+    Unknown keys are rejected first (before any type/value validation)
+    so operators see the typo before being confused by errors on fields
+    they never intended to set.
     """
     _VALID_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -450,6 +579,8 @@ def _validate_logging_section(log_data: dict) -> None:
             f"[logging] must be a table, got {type(log_data).__name__}",
             section_path="logging",
         )
+
+    _reject_unknown_keys(log_data, _LOGGING_KNOWN_KEYS, section_path="logging")
 
     # --- level ---
     raw_level = log_data.get("level", "INFO")
@@ -535,12 +666,31 @@ def _parse_adapter_section(
     """Parse an ``[adapters.<transport>]`` section.
 
     Returns a mapping of *instance_name* → runtime config wrapper instance.
+
+    Raises
+    ------
+    ConfigValidationError
+        If the transport group value is not a mapping (e.g. a bare string
+        like ``adapters.matrix: "bad"``), or if any instance value is not
+        a mapping (e.g. ``adapters.matrix.main: "bad"``).
     """
-    section = data.get(transport, {})
+    section = data.get(transport)
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        raise ConfigValidationError(
+            f"adapters.{transport} must be a mapping (table of instances), "
+            f"got {type(section).__name__}",
+            section_path=f"adapters.{transport}",
+        )
     result: dict[str, _RTC] = {}
     for instance_name, config_table in section.items():
         if not isinstance(config_table, dict):
-            continue
+            raise ConfigValidationError(
+                f"adapters.{transport}.{instance_name} must be a mapping "
+                f"(table of adapter fields), got {type(config_table).__name__}",
+                section_path=f"adapters.{transport}.{instance_name}",
+            )
         expanded = _expand_paths_in_dict(config_table, paths)
         wrapper = wrapper_cls.from_dict(instance_name, expanded)
         result[instance_name] = wrapper

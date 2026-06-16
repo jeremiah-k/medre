@@ -913,12 +913,12 @@ class TestMedreEnvConfig:
     def test_core_vars_still_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Core vars (MEDRE_HOME, MEDRE_CONFIG, MEDRE_DB_PATH, etc.) captured."""
         monkeypatch.setenv("MEDRE_HOME", "/opt/medre")
-        monkeypatch.setenv("MEDRE_CONFIG", "/etc/medre/medre.toml")
+        monkeypatch.setenv("MEDRE_CONFIG", "/etc/medre/medre.yaml")
         monkeypatch.setenv("MEDRE_DB_PATH", "/data/medre.db")
         monkeypatch.setenv("MEDRE_LOG_LEVEL", "TRACE")
         env = MedreEnvConfig.from_environ()
         assert env.home == "/opt/medre"
-        assert env.config_path == "/etc/medre/medre.toml"
+        assert env.config_path == "/etc/medre/medre.yaml"
         assert env.db_path == "/data/medre.db"
         assert env.log_level == "TRACE"
 

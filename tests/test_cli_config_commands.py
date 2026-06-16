@@ -17,6 +17,7 @@ from tests.helpers.cli import (
     CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
+    _run_cli_raw,
 )
 
 # ---------------------------------------------------------------------------
@@ -287,3 +288,229 @@ def test_sample_parses_as_yaml() -> None:
     assert isinstance(data, dict)
     assert "runtime" in data
     assert "adapters" in data
+
+
+# ---------------------------------------------------------------------------
+# config check — strict validation surfaced via the CLI (Track D)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCheckStrictValidation:
+    """CLI-level coverage for the strict-validation behaviour added by the
+    config-schema-authority-hardening tranche.
+
+    Covers:
+
+    * TOML config rejection with the migration message.
+    * YAML parse errors reported with ``path:line:column:`` information.
+    * Typed validation errors (unknown root key, unknown adapter key)
+      reporting the ``section_path`` and the offending key name.
+    * Secret values must never appear in CLI error output — only key names.
+    """
+
+    def test_check_rejects_toml_with_migration_message(self, tmp_path: Path) -> None:
+        """``medre config check --config <file>.toml`` exits nonzero and the
+        error includes the dedicated TOML migration pointer."""
+        toml_path = tmp_path / "legacy.toml"
+        toml_path.write_text("# legacy TOML config\n")
+        _stdout, stderr, code = _run_cli_raw(
+            "config", "check", "--config", str(toml_path)
+        )
+        assert code != 0
+        assert "TOML config files are no longer supported" in stderr
+        assert "Traceback" not in stderr
+
+    def test_check_yaml_parse_error_includes_path_line_column(
+        self, tmp_path: Path
+    ) -> None:
+        """Malformed YAML produces a clear error carrying path:line:column."""
+        import re
+
+        cfg = tmp_path / "broken.yaml"
+        # An unclosed flow sequence triggers a YAML parse error.
+        cfg.write_text("runtime:\n  name: [unclosed sequence\n")
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        # The error references the file by name.
+        assert "broken.yaml" in stderr
+        # The strict-YAML formatter produces a ``path:line:column:`` prefix.
+        assert re.search(
+            r":\d+:\d+:", stderr
+        ), f"Expected path:line:column pattern in stderr, got: {stderr!r}"
+
+    def test_check_unknown_root_key_reports_root_section_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown root-level key (typo of ``routes``) is rejected via the CLI
+        with the offending key name and a root-config error message."""
+        cfg = tmp_path / "unknown_root.yaml"
+        cfg.write_text(
+            "runtime:\n  name: typo-test\n"
+            "roues: {}\n"  # typo of "routes"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        # The offending key name must appear so the operator can fix the typo.
+        assert "roues" in stderr
+        # The root section path marker is included for attribution.
+        assert "root config key" in stderr
+
+    def test_check_unknown_adapter_key_reports_section_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown adapter-level key is rejected via the CLI with the full
+        ``adapters.<transport>.<instance>`` section path."""
+        cfg = tmp_path / "unknown_adapter.yaml"
+        cfg.write_text(
+            "runtime:\n  name: adapter-typo\n"
+            "storage:\n  backend: memory\n"
+            "adapters:\n"
+            "  matrix:\n"
+            "    main:\n"
+            "      enabled: true\n"
+            "      adapter_kind: fake\n"
+            "      homeserver: https://fake.local\n"
+            "      user_id: '@bot:fake.local'\n"
+            "      access_token: tok\n"
+            "      room_allowlist: ['!room:fake.local']\n"
+            "      encryption_mode: plaintext\n"
+            "      bogusextra: true\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        # The full adapter section path is included for attribution.
+        assert "adapters.matrix.main" in stderr
+        # The offending key name must appear.
+        assert "bogusextra" in stderr
+
+    def test_check_error_does_not_leak_redaction_probe(self, tmp_path: Path) -> None:
+        """Validation errors must reference key NAMES, never secret VALUES.
+
+        Constructs a config that contains a fake access token AND a
+        validation error (unknown root key). The CLI error output must
+        mention the offending key (``roues``) but must never include the
+        token value, even though the adapter section parses successfully
+        before the root-key check fires.
+        """
+        redaction_probe = "redaction_probe_12345"
+        cfg = tmp_path / "secret_leak.yaml"
+        cfg.write_text(
+            "runtime:\n  name: leak-test\n"
+            "roues: {}\n"  # unknown root key triggers the validation error
+            "adapters:\n"
+            "  matrix:\n"
+            "    main:\n"
+            "      enabled: true\n"
+            "      adapter_kind: fake\n"
+            "      homeserver: https://fake.local\n"
+            "      user_id: '@bot:fake.local'\n"
+            f"      access_token: {redaction_probe}\n"
+            "      room_allowlist: ['!room:fake.local']\n"
+            "      encryption_mode: plaintext\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        # The offending key name is shown so the operator can act on it.
+        assert "roues" in stderr
+        # The secret value must NOT appear anywhere in the error output.
+        assert (
+            redaction_probe not in stderr
+        ), f"Secret value leaked into CLI error output: {stderr!r}"
+
+
+# ---------------------------------------------------------------------------
+# config check — section-level strict validation surfaced via the CLI
+# (Tasks 3, 4, 5: unknown transport / malformed instance / unknown retry key)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCheckSectionStrictValidation:
+    """CLI-level coverage for the section-level strict validation added by
+    the config-schema-authority-hardening tranche (Tasks 3, 4, 5).
+
+    Each test verifies that ``medre config check``:
+
+    * exits nonzero,
+    * emits a clean error message (no Python traceback),
+    * names the offending key so the operator can act on it.
+    """
+
+    def test_check_rejects_unknown_transport_group(self, tmp_path: Path) -> None:
+        """``adapters.matrixx`` exits nonzero with a clean message naming
+        the typo'd transport and the valid transport list."""
+        cfg = tmp_path / "unknown_transport.yaml"
+        cfg.write_text(
+            "runtime:\n  name: typo\n"
+            "adapters:\n"
+            "  matrixx:\n"
+            "    main:\n"
+            "      enabled: true\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "matrixx" in stderr
+
+    def test_check_rejects_malformed_adapter_instance(self, tmp_path: Path) -> None:
+        """``adapters.matrix.main: 'bad'`` exits nonzero with a clean
+        message; previously it was silently skipped."""
+        cfg = tmp_path / "bad_instance.yaml"
+        cfg.write_text(
+            "runtime:\n"
+            "  name: typo\n"
+            "adapters:\n"
+            "  matrix:\n"
+            "    main: bad\n"
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "adapters.matrix.main" in stderr
+
+    def test_check_rejects_unknown_global_retry_key(self, tmp_path: Path) -> None:
+        """``retry: {bogus: 123}`` exits nonzero with a clean message
+        naming the unknown key."""
+        cfg = tmp_path / "unknown_retry.yaml"
+        cfg.write_text(
+            "runtime:\n"
+            "  name: typo\n"
+            "retry:\n"
+            "  bogus: 123\n",
+        )
+        _stdout, stderr, code = _run_cli_raw("config", "check", "--config", str(cfg))
+        assert code != 0
+        assert "Traceback" not in stderr
+        assert "bogus" in stderr
+
+
+# ---------------------------------------------------------------------------
+# config sample — structured channel_room_map documentation (Track D)
+# ---------------------------------------------------------------------------
+
+
+class TestSampleConfigStructuredChannelRoomMap:
+    """The generated sample config documents the structured
+    ``channel_room_map`` entry shape added by the per-context origin-label
+    tranche.
+
+    Operators running ``medre config sample`` should see both the
+    ``channel_room_map`` field name and the structured-entry field names
+    (``source_origin_label`` / ``dest_origin_label``) so they can discover
+    the shape without reading the spec.
+    """
+
+    def test_sample_mentions_channel_room_map(self) -> None:
+        """Sample output mentions ``channel_room_map`` by name."""
+        output = _run_cli("config", "sample")
+        assert "channel_room_map" in output
+
+    def test_sample_documents_structured_entry_labels(self) -> None:
+        """Sample documents per-entry ``source_origin_label`` and
+        ``dest_origin_label`` fields used by the structured CRM shape."""
+        output = _run_cli("config", "sample")
+        assert "source_origin_label" in output
+        assert "dest_origin_label" in output

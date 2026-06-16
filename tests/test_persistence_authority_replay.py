@@ -76,7 +76,7 @@ class TestReplayNewReceiptsPreserveOld:
         """Replay-generated receipts carry source='replay' and replay_run_id."""
         paths = MedrePaths(
             config_dir=tmp_path / "config",
-            config_file=tmp_path / "config" / "config.toml",
+            config_file=tmp_path / "config" / "config.yaml",
             state_dir=tmp_path / "state",
             data_dir=tmp_path / "data",
             cache_dir=tmp_path / "cache",
@@ -141,7 +141,7 @@ class TestReplayNewReceiptsPreserveOld:
         """After replay appends a new receipt, old receipt rows are byte-for-byte identical."""
         paths = MedrePaths(
             config_dir=tmp_path / "config",
-            config_file=tmp_path / "config" / "config.toml",
+            config_file=tmp_path / "config" / "config.yaml",
             state_dir=tmp_path / "state",
             data_dir=tmp_path / "data",
             cache_dir=tmp_path / "cache",
@@ -241,7 +241,7 @@ class TestReplayNewReceiptsPreserveOld:
         """Replay receipts use incremented attempt_number across replay runs."""
         paths = MedrePaths(
             config_dir=tmp_path / "config",
-            config_file=tmp_path / "config" / "config.toml",
+            config_file=tmp_path / "config" / "config.yaml",
             state_dir=tmp_path / "state",
             data_dir=tmp_path / "data",
             cache_dir=tmp_path / "cache",
