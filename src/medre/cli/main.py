@@ -430,6 +430,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     register_builtin_contributors(sub)
 
+    # support (with sub-subcommands)
+    support_p = sub.add_parser(
+        "support",
+        help="Operator support bundle commands (offline, redacted)",
+    )
+    support_sub = support_p.add_subparsers(dest="support_command", required=True)
+    support_bundle_p = support_sub.add_parser(
+        "bundle",
+        help="Write a redacted support bundle ZIP (offline; no adapter I/O)",
+    )
+    support_bundle_p.add_argument(
+        "--config",
+        default=None,
+        help="Path to config file (default: standard discovery)",
+    )
+    support_bundle_p.add_argument(
+        "--output",
+        default=None,
+        metavar="PATH",
+        help="Output ZIP path (default: medre-support-bundle.zip in cwd)",
+    )
+
     return parser
 
 
@@ -636,3 +658,8 @@ def main(argv: list[str] | None = None) -> None:
         from .contrib import dispatch_contribution
 
         dispatch_contribution(args)
+    elif args.command == "support":
+        from .diagnostics_commands import _support_bundle
+
+        if args.support_command == "bundle":
+            _support_bundle(args.config, args.output)

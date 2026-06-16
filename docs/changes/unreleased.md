@@ -865,3 +865,62 @@ answers "is this config well-formed?"; `medre routes plan` answers
 - `docs/ops/troubleshooting.md`: new _Route Plan Diagnostics_ section
   covering `channel_room_map` debugging, origin-label provenance
   interpretation, fan-in warnings, and duplicate-room ambiguity errors.
+
+---
+
+## Operator Support Bundle Command (`medre diagnostics bundle`)
+
+Add a new `medre diagnostics bundle` command that collects a redacted,
+offline diagnostic bundle for filing issues. It assembles the config
+check result, expanded route plan, adapter summary, environment info,
+and a redacted config copy into a single ZIP archive.
+
+**Behavior:**
+
+- Offline by default — no adapter startup, no network or hardware I/O.
+  The bundle is computed purely from the parsed config plus static
+  runtime metadata.
+- Secret-named fields are redacted via the existing `sanitize_for_log`
+  and `sanitize_error` surfaces. Env-override provenance exposes names
+  only, never values.
+- Partial output on config errors: if the config fails to load, the
+  command still writes a partial archive containing `manifest.json`
+  and `config_check.json` with the validation error, and exits with
+  code 2.
+- Exit codes follow the existing convention: 0 on successful write
+  (including partial section status), 2 on config error, 3 on build
+  error, 4 on startup error (only relevant when `--refresh-health` is
+  requested).
+
+**Bundle members:**
+
+- `manifest.json` — member list, byte sizes, SHA-256 digests, MEDRE
+  version info.
+- `config_source.json` — config discovery source, resolved paths,
+  storage backend.
+- `config_check.json` — `medre config check` result.
+- `route_plan.json` — `medre routes plan` output (expanded legs,
+  origin-label provenance).
+- `adapters.json` — adapter wrapper summary (id, transport, kind,
+  enabled).
+- `environment.json` — env-override names applied (values redacted).
+- `redacted_config.yaml` — parsed config with secret-named keys
+  dropped.
+
+**Not included:** raw secrets, live logs (by default), live probe
+results, storage contents. The bundle is observational — it describes
+the configured shape of the runtime and does not constitute delivery
+evidence.
+
+**Docs updated:**
+
+- `docs/ops/troubleshooting.md`: new _Support Bundles_ section covering
+  when to use the command, bundle contents, what is redacted, what is
+  not included, the review-before-sharing caveat, and partial output
+  on config errors.
+- `docs/ops/running-medre.md`: brief mention of
+  `medre diagnostics bundle` as the recommended way to collect
+  diagnostics for issue reports.
+- `docs/ops/configuration.md`: pre-flight validation section notes
+  that `medre diagnostics bundle` can collect a full diagnostic
+  snapshot for support.

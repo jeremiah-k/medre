@@ -814,6 +814,65 @@ Lifecycle convergence diagnostics are deterministic and read-only. They never ch
 7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
 8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`; non-terminal outbox items survive shutdown as resumable work.
 
+## Support Bundles
+
+When filing an issue, collect a redacted diagnostic bundle with:
+
+```bash
+medre diagnostics bundle --config medre.yaml --output medre-support.zip
+```
+
+The bundle is offline by default — it performs no network or hardware
+I/O, starts no adapters, and contacts no transport. Use it as the
+primary artifact when reporting problems.
+
+### Bundle contents
+
+| Member                 | Content                                                       |
+| ---------------------- | ------------------------------------------------------------- |
+| `manifest.json`        | Member list, byte sizes, SHA-256 digests, MEDRE version info  |
+| `config_source.json`   | Config discovery source, resolved paths, storage backend      |
+| `config_check.json`    | The `medre config check` result (validation errors/warnings)  |
+| `route_plan.json`      | The `medre routes plan` output (expanded legs, origin labels) |
+| `adapters.json`        | Adapter wrapper summary (id, transport, kind, enabled)        |
+| `environment.json`     | Env-override names applied (values redacted)                  |
+| `redacted_config.yaml` | Parsed config with secret-named keys dropped                  |
+
+### What is NOT in the bundle
+
+- **Raw secrets** — secret-named fields are dropped or replaced with
+  `***REDACTED***`. Env-override provenance exposes names only, never
+  values.
+- **Live logs** — not attached by default. Attach the relevant log
+  excerpt separately if needed.
+- **Live probe results** — the bundle starts no adapters, so no live
+  health, connectivity, or capability probes run.
+- **Storage contents** — events, receipts, and outbox rows are not
+  included. Use `medre inspect` or `medre evidence --storage-path` for
+  storage-backed evidence.
+
+### Review before sharing
+
+The bundle is redacted, but redaction is name-based. Review the
+`redacted_config.yaml` and `environment.json` members before attaching
+the bundle to a public issue. Filesystem paths, adapter IDs, route IDs,
+homeserver URLs, room IDs, and log levels are included by design —
+mask them manually if they are sensitive in your deployment.
+
+### Observational, not delivery evidence
+
+The bundle describes the configured shape of the runtime — what would
+be built, what would be routed, what config was loaded. It does not
+record, prove, or guarantee any delivery. For delivery evidence, use
+`medre inspect event --evidence` or `medre evidence --storage-path`.
+
+### Partial output on config errors
+
+If the config fails to load, the bundle still writes a partial archive
+containing `manifest.json` and `config_check.json` with the validation
+error, and exits with code 2. This lets operators attach a bundle even
+when the runtime cannot start.
+
 ## See Also
 
 - [diagnostics-and-evidence.md](diagnostics-and-evidence.md) — evidence provenance, bundle collection, report shapes

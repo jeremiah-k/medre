@@ -1,0 +1,367 @@
+"""Offline, redacted operator support bundle writer.
+
+Produces a single ZIP artifact (``medre-support-bundle.zip`` by default)
+containing JSON/YAML members that an operator can attach to a support
+issue. The bundle is **observational only**:
+
+- No adapter SDK is imported (no nio / meshtastic / meshcore / lxmf).
+- No adapter is started, no network or hardware I/O is performed.
+- All secret-named fields are redacted to ``***REDACTED***``.
+- Error messages are routed through
+  :func:`~medre.core.observability.sanitization.sanitize_error` so token
+  substrings never leak.
+
+The bundle is built from configuration + route plan only; it does not
+reuse :func:`medre.runtime.evidence.collect_evidence_bundle`, which
+builds a runtime and would violate the offline guarantee.
+"""
+
+from __future__ import annotations
+
+import importlib.metadata
+import json
+import platform
+import sys
+import zipfile
+from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from medre.config._yaml import StrictYAMLError, parse_yaml_config
+from medre.config.env import MedreEnvConfig
+from medre.config.errors import ConfigError, ConfigValidationError
+from medre.config.loader import ConfigSource, find_config, load_config
+from medre.core.observability.sanitization import sanitize_error
+from medre.runtime.route_plan import build_route_plan
+
+__all__ = ["create_support_bundle", "BUNDLE_SCHEMA_VERSION"]
+
+BUNDLE_SCHEMA_VERSION: int = 1
+"""Manifest ``bundle_schema_version``. Frozen at 1 during pre-release."""
+
+_DEFAULT_OUTPUT_NAME = "medre-support-bundle.zip"
+_REDACTED = "***REDACTED***"
+
+# Substring tokens (case-insensitive) for secret-key detection. Over-broad
+# on purpose: redacting a benign field is safe, leaking a secret is not.
+# Covers the union of the audit's five redaction surfaces plus the
+# task-specified token list.
+_SECRET_KEY_TOKENS: frozenset[str] = frozenset(
+    {
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "auth",
+        "key",
+        "private",
+        "identity",
+        "pin",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "bearer",
+    }
+)
+
+
+def _is_secret_key(key: Any) -> bool:
+    """Return True if *key* looks like a secret-named field."""
+    if not isinstance(key, str):
+        return False
+    lc = key.lower()
+    return any(tok in lc for tok in _SECRET_KEY_TOKENS)
+
+
+def _redact(obj: Any) -> Any:
+    """Recursively replace secret-named values with ``***REDACTED***``.
+
+    Preserves structure (keys are kept) so the redacted config remains
+    useful for debugging. Non-dict/list values pass through unchanged.
+    """
+    if isinstance(obj, dict):
+        return {
+            k: (_REDACTED if _is_secret_key(k) else _redact(v)) for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact(item) for item in obj]
+    return obj
+
+
+def _get_version() -> str:
+    """Return the MEDRE version string (``"unknown"`` if not installed)."""
+    try:
+        return importlib.metadata.version("medre")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _json_default(obj: Any) -> Any:
+    """``json.dumps`` default hook for dataclasses and datetimes."""
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serialisable")
+
+
+def _platform_info() -> dict[str, str]:
+    return {
+        "python_version": platform.python_version(),
+        "platform": platform.system().lower() or "unknown",
+        "machine": platform.machine() or "unknown",
+    }
+
+
+def _safe_error(exc: BaseException) -> str:
+    """Sanitise an exception's string form for inclusion in the bundle."""
+    return sanitize_error(str(exc))
+
+
+def _section_path_of(exc: BaseException) -> str | None:
+    """Pull ``section_path`` off a ConfigValidationError if present."""
+    if isinstance(exc, ConfigValidationError):
+        return exc.section_path
+    return None
+
+
+def _build_manifest(now_fn: datetime) -> dict[str, Any]:
+    return {
+        "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
+        "created_at": now_fn.isoformat(),
+        "command": "medre support bundle",
+        "medre_version": _get_version(),
+        "platform": _platform_info(),
+        "redaction_policy": "secret-key-name-match-v1",
+    }
+
+
+def _build_environment() -> dict[str, Any]:
+    info = _platform_info()
+    info["medre_version"] = _get_version()
+    return info
+
+
+def _build_config_source(
+    source: ConfigSource | None,
+    path: Path | None,
+) -> dict[str, Any]:
+    env_set = False
+    try:
+        env_set = MedreEnvConfig.from_environ().has_any_set()
+    except Exception:
+        # Legacy-prefix or parse errors in env vars are not fatal to the
+        # bundle; report the env as "not applied" and move on.
+        env_set = False
+    return {
+        "source": source.value if source is not None else None,
+        "path": str(path) if path is not None else None,
+        "env_overrides_applied": env_set,
+    }
+
+
+def _build_adapters(config: Any) -> dict[str, Any]:
+    """Adapter inventory with only safe wrapper fields.
+
+    Never introspects ``rtc.config`` internals — origin_label comes from
+    the route-plan walk which already filters it to the safe fallback
+    string.
+    """
+    adapters: list[dict[str, Any]] = []
+    try:
+        for transport, adapter_id, rtc in config.adapters.all_configs():
+            adapters.append(
+                {
+                    "adapter_id": adapter_id,
+                    "transport": transport,
+                    "enabled": bool(getattr(rtc, "enabled", False)),
+                    "origin_label": getattr(
+                        getattr(rtc, "config", None), "origin_label", ""
+                    )
+                    or "",
+                }
+            )
+    except Exception:
+        # Defensive: a malformed adapter set should not sink the bundle.
+        adapters = []
+    return {"adapters": adapters}
+
+
+def _build_route_plan_member(config: Any) -> dict[str, Any]:
+    """Serialise ``build_route_plan(config)`` to a JSON-safe dict.
+
+    On any failure, returns ``{"error": "<sanitised>"}`` so the member
+    is always valid JSON.
+    """
+    try:
+        plan = build_route_plan(config)
+        return asdict(plan)
+    except Exception as exc:  # noqa: BLE001 — bundle must stay JSON-valid
+        return {"error": _safe_error(exc)}
+
+
+def _build_redacted_config_text(raw_text: str, source_label: str) -> str | None:
+    """Parse *raw_text* as YAML and return a redacted YAML serialisation.
+
+    Returns ``None`` if the text cannot be parsed (the failure is
+    surfaced elsewhere as a config_check error). Round-trips through
+    :func:`parse_yaml_config` so the same strict parsing rules apply.
+
+    *source_label* is the config path used in parser error messages.
+    """
+    try:
+        data = parse_yaml_config(raw_text, source_label)
+    except StrictYAMLError:
+        # Config-check already records the load failure; no config member.
+        return None
+    redacted = _redact(data)
+    return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
+
+
+def create_support_bundle(
+    config_path: str | Path | None = None,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Create a redacted support bundle ZIP file.
+
+    Parameters
+    ----------
+    config_path:
+        Optional explicit path to a YAML config file. When ``None`` the
+        standard MEDRE discovery path is used.
+    output_path:
+        Optional path for the ZIP file. When ``None`` the bundle is
+        written to ``medre-support-bundle.zip`` in the current working
+        directory.
+
+    Returns
+    -------
+    Path
+        Absolute path to the written ZIP file.
+
+    Notes
+    -----
+    The bundle is offline and observational: it loads config through
+    the normal strict YAML path, runs config validation (recording
+    success/failure), builds a route plan (if config loads), collects
+    adapter summaries, redacts all secret-named fields, and writes a
+    deterministic set of JSON / YAML members to a ZIP archive. It never
+    starts adapters or performs network / hardware I/O.
+
+    On any per-section failure the ZIP is still written with the
+    sections that succeeded plus an ``error`` field describing the
+    failure (sanitised). The function only raises if the ZIP itself
+    cannot be written.
+    """
+    out = Path(output_path) if output_path is not None else Path(_DEFAULT_OUTPUT_NAME)
+    out = out.expanduser().resolve()
+
+    now = datetime.now(timezone.utc)
+
+    members: dict[str, bytes] = {}
+
+    # -- Always-present members --------------------------------------------
+    members["manifest.json"] = _json_bytes(_build_manifest(now))
+    members["environment.json"] = _json_bytes(_build_environment())
+
+    # -- Config discovery, load, and validation ----------------------------
+    discovered_path: Path | None = None
+    discovered_source: ConfigSource | None = None
+    config_check: dict[str, Any] = {
+        "success": False,
+        "error": None,
+        "error_section_path": None,
+    }
+
+    try:
+        discovered_path, discovered_source = find_config(config_path)
+    except Exception as exc:  # noqa: BLE001 — bundle keeps going on config miss
+        config_check["error"] = _safe_error(exc)
+
+    members["config_source.json"] = _json_bytes(
+        _build_config_source(discovered_source, discovered_path)
+    )
+
+    raw_text: str | None = None
+    config: Any = None
+    if discovered_path is not None:
+        try:
+            raw_text = discovered_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            config_check["error"] = _safe_error(exc)
+            raw_text = None
+
+    if discovered_path is not None:
+        try:
+            config, _source, _paths = load_config(config_path)
+            config_check["success"] = True
+            config_check["error"] = None
+            config_check["error_section_path"] = None
+        except ConfigValidationError as exc:
+            config_check["success"] = False
+            config_check["error"] = _safe_error(exc)
+            config_check["error_section_path"] = _section_path_of(exc)
+        except ConfigError as exc:
+            config_check["success"] = False
+            config_check["error"] = _safe_error(exc)
+        except Exception as exc:  # noqa: BLE001 — defensive: keep bundle alive
+            config_check["success"] = False
+            config_check["error"] = _safe_error(exc)
+
+    members["config_check.json"] = _json_bytes(config_check)
+
+    # -- Route plan (only meaningful when config loaded) -------------------
+    if config is not None:
+        members["route_plan.json"] = _json_bytes(_build_route_plan_member(config))
+        members["adapters.json"] = _json_bytes(_build_adapters(config))
+    else:
+        members["route_plan.json"] = _json_bytes({"error": "config load failed"})
+        members["adapters.json"] = _json_bytes({"adapters": []})
+
+    # -- Redacted config text ---------------------------------------------
+    if raw_text is not None and discovered_path is not None:
+        redacted_yaml = _build_redacted_config_text(raw_text, str(discovered_path))
+        if redacted_yaml is not None:
+            members["redacted_config.yaml"] = redacted_yaml.encode("utf-8")
+
+    # -- Write the ZIP -----------------------------------------------------
+    try:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, payload in members.items():
+                zf.writestr(name, payload)
+    except OSError:
+        # ZIP write itself failed — this is the one hard failure path.
+        raise
+
+    return out
+
+
+def _json_bytes(data: Any) -> bytes:
+    """Serialise *data* to canonical, sorted, indented JSON UTF-8 bytes."""
+    return (
+        json.dumps(data, indent=2, sort_keys=True, default=_json_default) + "\n"
+    ).encode("utf-8")
+
+
+if __name__ == "__main__":  # ponytail: tiny self-check, no test framework
+    # Smoke: round-trip a redactor walk on a synthetic config dict.
+    sample = {
+        "adapters": {
+            "matrix": {
+                "main": {
+                    "access_token": "syt_secret_value",
+                    "homeserver": "https://example.org",
+                    "origin_label": "bridge",
+                }
+            }
+        },
+        "storage": {"backend": "sqlite", "path": "/tmp/medre.db"},
+    }
+    redacted = _redact(sample)
+    matrix_cfg = redacted["adapters"]["matrix"]["main"]
+    assert matrix_cfg["access_token"] == _REDACTED, matrix_cfg
+    assert matrix_cfg["homeserver"] == "https://example.org"
+    assert matrix_cfg["origin_label"] == "bridge"
+    assert redacted["storage"]["path"] == "/tmp/medre.db"
+    print("support_bundle self-check OK", file=sys.stderr)

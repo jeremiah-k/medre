@@ -1,10 +1,11 @@
-"""Diagnostics CLI commands: static snapshot and live health refresh."""
+"""Diagnostics CLI commands: static snapshot, live health refresh, and bundle."""
 
 from __future__ import annotations
 
 import json
 import logging
 import sys
+import zipfile
 from datetime import datetime, timezone
 
 from medre.config.env import apply_env_overrides
@@ -167,3 +168,37 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
             await app.stop()
         except Exception as exc:
             logger.warning("Error during diagnostics shutdown: %s", exc)
+
+
+def _support_bundle(config_path: str | None, output_path: str | None) -> None:
+    """Write a redacted, offline support bundle ZIP.
+
+    Delegates to :func:`medre.runtime.support_bundle.create_support_bundle`.
+    The bundle loads config, builds a route plan, and redacts every
+    secret-named field; it never starts adapters or performs network /
+    hardware I/O.
+
+    Exit codes: ``0`` when the ZIP was written (including the partial
+    case where config load failed but the bundle still contains
+    manifest / environment / config_check / config_source). Non-zero
+    only if the ZIP itself could not be written or an unexpected error
+    escaped the collector.
+    """
+    from medre.runtime.support_bundle import create_support_bundle
+
+    try:
+        written = create_support_bundle(config_path, output_path)
+    except Exception as exc:
+        print(f"Support bundle error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_BUILD)
+
+    try:
+        with zipfile.ZipFile(written, "r") as zf:
+            member_count = len(zf.namelist())
+    except Exception:
+        member_count = 0
+
+    print(
+        f"Support bundle written to {written}. "
+        f"{member_count} files, secrets redacted."
+    )

@@ -172,6 +172,21 @@ Writes a runtime snapshot JSON to the specified PATH after graceful shutdown. Co
 
 Counters and events are process-local — without this flag, they are lost on exit.
 
+## Diagnostic Bundles for Issue Reports
+
+When filing an issue, collect a redacted diagnostic bundle with:
+
+```bash
+medre diagnostics bundle --config config.yaml --output medre-support.zip
+```
+
+This is the recommended way to collect diagnostics for a bug report. It
+is offline by default — no adapters start, no network or hardware I/O
+is performed — and produces a redacted ZIP containing the config check,
+route plan, adapter summary, and environment info. See
+[troubleshooting.md](troubleshooting.md) for bundle contents, what is
+redacted, and what is not included.
+
 ## Per-Transport Delivery Semantics
 
 Each transport has fundamentally different delivery guarantees. Understanding these differences is essential for interpreting receipts.
