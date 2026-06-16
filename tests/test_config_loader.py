@@ -328,7 +328,7 @@ def test_valid_root_keys_accepted(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_removed_root_key_hint_appended(tmp_path: Path) -> None:
+def test_removed_root_key_meshnet_name_rejected(tmp_path: Path) -> None:
     """``meshnet_name`` as a root key is rejected as unknown.
 
     The offending key name must appear in the error message.
@@ -343,7 +343,7 @@ def test_removed_root_key_hint_appended(tmp_path: Path) -> None:
     assert "meshnet_name" in msg
 
 
-def test_removed_runtime_key_hint_appended(tmp_path: Path) -> None:
+def test_removed_runtime_key_meshnet_name_rejected(tmp_path: Path) -> None:
     """``meshnet_name`` inside ``[runtime]`` is rejected as unknown."""
     p = _write_config(
         tmp_path,

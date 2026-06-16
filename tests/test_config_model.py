@@ -209,7 +209,7 @@ def test_unknown_adapter_key_rejected_via_load(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_removed_adapter_key_hint_appended_via_load(tmp_path: Path) -> None:
+def test_removed_adapter_key_meshnet_name_rejected_via_load(tmp_path: Path) -> None:
     """``meshnet_name`` as an adapter key is rejected as unknown.
 
     Exercises the rejection path in :func:`_coerce_adapter_kwargs`

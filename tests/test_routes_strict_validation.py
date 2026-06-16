@@ -154,7 +154,7 @@ def test_non_list_filter_hooks_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_removed_route_key_hint_appended() -> None:
+def test_removed_route_key_meshnet_name_rejected() -> None:
     """``meshnet_name`` as a route-level key is rejected as unknown."""
     with pytest.raises(ConfigValidationError, match=r"unknown key\(s\)") as exc_info:
         RouteConfig.from_dict(
