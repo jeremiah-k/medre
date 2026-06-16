@@ -145,13 +145,19 @@ class TestSampleConfig:
         output = _run_cli("config", "sample")
         assert "Required fields" in output or "required" in output.lower()
 
-    def test_sample_no_yaml(self) -> None:
-        """Sample must not contain YAML syntax markers."""
-        output = _run_cli("config", "sample")
+    def test_sample_is_valid_yaml_not_toml(self) -> None:
+        """Sample config is valid YAML with no TOML artifacts or secrets."""
+        output = generate_sample_config()
+        parsed = parse_yaml_config(output)
+        assert isinstance(parsed, dict)
         for line in output.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- ") and "=" not in stripped:
-                pytest.fail(f"Sample appears to contain YAML-style list: {line!r}")
+            # no TOML table headers
+            assert not line.startswith("["), f"TOML table header: {line!r}"
+            # no tab indentation
+            assert "\t" not in line, f"Tab in sample: {line!r}"
+            # no real-looking secrets
+            assert "syt_" not in line, f"Secret token in sample: {line!r}"
+            assert "BEGIN PRIVATE KEY" not in line, f"Private key in sample: {line!r}"
 
 
 # ---------------------------------------------------------------------------

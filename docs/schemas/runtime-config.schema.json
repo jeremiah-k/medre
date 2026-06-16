@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/runtime-config.schema.json",
+  "title": "RuntimeConfig",
+  "description": "Full MEDRE runtime configuration document — the root YAML file operators write and pass to `medre run --config`. Models the STRUCTURE of the root config (root keys, section shapes, transport groups, route entries). Per-field constraints (adapter field validation, route policy shapes) are enforced by the typed config dataclasses at load time and by the component schemas (adapter-config.schema.json, routing-config.schema.json). The authoritative runtime validator is `medre config check`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "description": "Top-level runtime behaviour knobs (RuntimeOptions).",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "medre",
+          "description": "Runtime name."
+        },
+        "shutdown_timeout_seconds": {
+          "type": "integer",
+          "default": 10,
+          "description": "Graceful shutdown timeout in seconds."
+        },
+        "limits": {
+          "type": "object",
+          "description": "Runtime resource limits (RuntimeLimits).",
+          "additionalProperties": false,
+          "properties": {
+            "max_inflight_deliveries": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum concurrently in-flight deliveries."
+            },
+            "max_inflight_replay_events": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum concurrently processed replay events."
+            },
+            "shutdown_drain_timeout_seconds": {
+              "type": "integer",
+              "default": 10,
+              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown."
+            },
+            "delivery_acquire_timeout_seconds": {
+              "type": "number",
+              "default": 1.0,
+              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached."
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration (LoggingConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "default": "INFO",
+          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["text", "json"],
+          "default": "text",
+          "description": "Log format preset."
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "description": "Per-logger namespace level overrides keyed by logger name (e.g. nio: WARNING)."
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "description": "Persistence / storage configuration (StorageConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "default": "sqlite",
+          "description": "Storage backend identifier (e.g. sqlite, memory)."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Storage path. Null means the default {state}/medre.sqlite is used."
+        }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "description": "Global retry worker configuration (RetryConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the background retry worker is active."
+        },
+        "interval_seconds": {
+          "type": "number",
+          "default": 10.0,
+          "description": "Polling interval in seconds for checking due retry receipts."
+        },
+        "batch_size": {
+          "type": "integer",
+          "default": 20,
+          "description": "Maximum retry receipts processed per polling cycle."
+        },
+        "max_attempts": {
+          "type": "integer",
+          "default": 3,
+          "description": "Maximum total delivery attempts before dead-lettering."
+        }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "description": "Adapter instances grouped by transport. Only the four known transport groups are accepted; unknown groups (e.g. a typo like 'matrixx') are rejected. Per-instance field validation is done by adapter-config.schema.json and the typed adapter config dataclasses at load time.",
+      "additionalProperties": false,
+      "properties": {
+        "matrix": {
+          "type": "object",
+          "description": "Matrix adapter instances: mapping of instance name to MatrixConfig table.",
+          "additionalProperties": {"type": "object"}
+        },
+        "meshtastic": {
+          "type": "object",
+          "description": "Meshtastic adapter instances: mapping of instance name to MeshtasticConfig table.",
+          "additionalProperties": {"type": "object"}
+        },
+        "meshcore": {
+          "type": "object",
+          "description": "MeshCore adapter instances: mapping of instance name to MeshCoreConfig table.",
+          "additionalProperties": {"type": "object"}
+        },
+        "lxmf": {
+          "type": "object",
+          "description": "LXMF adapter instances: mapping of instance name to LxmfConfig table.",
+          "additionalProperties": {"type": "object"}
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / channel_room_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
+      "patternProperties": {
+        "^[A-Za-z0-9_-]+$": {"$ref": "#/$defs/RouteEntry"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "RouteEntry": {
+      "title": "RouteEntry",
+      "description": "A single route definition, keyed by route_id in the routes mapping. Mirrors RouteConfig from routing-config.schema.json with route_id optional (it is the mapping key). Policy / retry / channel_room_map are modelled as plain objects here; their internal shape is enforced by the component schema and the typed dataclass.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Optional explicit route_id. When omitted, the mapping key is used."
+        },
+        "source_adapters": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Source adapter IDs for this route."
+        },
+        "dest_adapters": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Destination adapter IDs for this route."
+        },
+        "directionality": {
+          "type": "string",
+          "enum": ["source_to_dest", "dest_to_source", "bidirectional"],
+          "default": "source_to_dest",
+          "description": "Direction of event flow."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this route is enabled at startup."
+        },
+        "filter_hooks": {
+          "type": "array",
+          "items": {"type": "string"},
+          "maxItems": 0,
+          "default": [],
+          "description": "Reserved — must be empty. Non-empty filter_hooks are rejected at runtime."
+        },
+        "source_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source channel / conversation ID."
+        },
+        "dest_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination channel / conversation ID."
+        },
+        "source_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source room ID (alias for source_channel)."
+        },
+        "dest_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination room ID (alias for dest_channel)."
+        },
+        "policy": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optional static bridge policy. Shape validated by routing-config.schema.json BridgePolicy."
+        },
+        "retry": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optional per-route retry policy. Shape validated by routing-config.schema.json RouteRetryConfig."
+        },
+        "channel_room_map": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optional Meshtastic channel → Matrix room mapping. Shape validated by routing-config.schema.json."
+        },
+        "source_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Source-side human-readable label for the forward leg of this route."
+        },
+        "dest_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Source-side human-readable label for the reverse leg of this route."
+        }
+      },
+      "required": ["source_adapters", "dest_adapters"]
+    }
+  }
+}

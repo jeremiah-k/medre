@@ -5,6 +5,7 @@ callers can catch the base class or a specific subclass as needed.
 """
 
 from collections.abc import Iterable
+from typing import Any
 
 
 class ConfigError(Exception):
@@ -86,7 +87,7 @@ def suggest_removed_key(key: str) -> str | None:
     return _REMOVED_KEY_SUGGESTIONS.get(key)
 
 
-def format_removed_key_hints(keys: Iterable[str]) -> str:
+def format_removed_key_hints(keys: Iterable[Any]) -> str:
     """Build a value-free hint block for removed keys among *keys*.
 
     Returns ``""`` when none of *keys* match a known removed key, so
