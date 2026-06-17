@@ -1,4 +1,4 @@
-"""Track 1 — long-running fake-runtime soak validation.
+"""Long-running fake-runtime soak validation.
 
 Deterministic, fake-only tests covering:
 

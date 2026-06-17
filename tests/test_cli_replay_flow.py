@@ -169,22 +169,22 @@ class TestReplayBestEffortCLI:
 
 
 class TestFullWalkthroughCLI:
-    """Full alpha walkthrough: smoke → inspect → inspect flags → replay via main()."""
+    """Full operator workflow: smoke → inspect → inspect flags → replay via main()."""
 
     def test_full_walkthrough_sequence(self, tmp_path: Path) -> None:
         """Prove the documented operator walkthrough sequence works via main().
 
-        Phases (as documented in alpha-walkthrough.md):
-        Phase 1: medre smoke --config <sqlite-config> --json  → event_id
-        Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
-        Phase 3: medre inspect event <id> --timeline --storage-path <db>  (deeper investigation)
+        Operator walkthrough (as documented in operator-workflows.md):
+        medre smoke --config <sqlite-config> --json  → event_id
+        medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
+        medre inspect event <id> --timeline --storage-path <db>  (deeper investigation)
                  medre inspect event <id> --evidence --storage-path <db>
-        Phase 4: medre replay --config <path> --mode dry_run --event <id> --json    (lower-level)
+        medre replay --config <path> --mode dry_run --event <id> --json    (lower-level)
                  medre replay --config <path> --mode best_effort --event <id> --json
         """
         config_path = smoke_config_path()
 
-        # Phase 1: Optional local smoke seeds persistent DB
+        # Optional local smoke seeds persistent DB
         db_path = tmp_path / "full_walkthrough.db"
         config_path = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
@@ -203,7 +203,7 @@ class TestFullWalkthroughCLI:
         assert report["status"] == "passed"
         event_id = report["event_id"]
 
-        # Phase 2: Inspect-first — check delivery receipts
+        # Inspect-first — check delivery receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -218,7 +218,7 @@ class TestFullWalkthroughCLI:
             )
         assert "sent" in stdout_buf.getvalue()
 
-        # Phase 3a: Deeper investigation — inspect event --timeline
+        # Deeper investigation — inspect event --timeline
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -238,7 +238,7 @@ class TestFullWalkthroughCLI:
         entry_types = [e.get("entry_type") for e in result["timeline"]]
         assert "receipt" in entry_types
 
-        # Phase 3b: Deeper investigation — inspect event --evidence
+        # Deeper investigation — inspect event --evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -254,10 +254,10 @@ class TestFullWalkthroughCLI:
         result = json.loads(stdout_buf.getvalue())
         assert result["evidence"]["status"] in ("partial", "passed")
 
-        # Phases 4: Replay uses config with SQLite pointing at the same DB
+        # Replay uses config with SQLite pointing at the same DB
         replay_config = write_replay_config(tmp_path, db_path)
 
-        # Phase 4a: Replay dry_run (lower-level, specialized)
+        # Replay dry_run (lower-level, specialized)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -276,7 +276,7 @@ class TestFullWalkthroughCLI:
         assert dry_summary["mode"] == "dry_run"
         assert dry_summary["events_scanned"] >= 1
 
-        # Phase 4b: Replay best_effort (lower-level, specialized)
+        # Replay best_effort (lower-level, specialized)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -297,7 +297,7 @@ class TestFullWalkthroughCLI:
     def test_event_id_flows_through_all_commands(self, tmp_path: Path) -> None:
         """Verify the exact event_id from smoke appears in every downstream command (inspect-first path)."""
 
-        # Phase 1: Seed via optional local smoke
+        # Seed via optional local smoke
         db_path = tmp_path / "event_flow.db"
         config_path = write_sqlite_config_from_example(tmp_path, db_path)
         stdout_buf = io.StringIO()
@@ -314,7 +314,7 @@ class TestFullWalkthroughCLI:
         assert exc_info.value.code == 0
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
-        # Phase 2: Inspect-first — receipts
+        # Inspect-first — receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -329,7 +329,7 @@ class TestFullWalkthroughCLI:
             )
         assert event_id in stdout_buf.getvalue()
 
-        # Phase 3a: Deeper investigation — inspect event --timeline
+        # Deeper investigation — inspect event --timeline
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -346,7 +346,7 @@ class TestFullWalkthroughCLI:
         assert result["event"]["event_id"] == event_id
         assert len(result["timeline"]) >= 1
 
-        # Phase 3b: Deeper investigation — inspect event --evidence
+        # Deeper investigation — inspect event --evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(
@@ -365,7 +365,7 @@ class TestFullWalkthroughCLI:
             == event_id
         )
 
-        # Phase 4: Replay dry_run (lower-level, specialized)
+        # Replay dry_run (lower-level, specialized)
         replay_config = write_replay_config(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):

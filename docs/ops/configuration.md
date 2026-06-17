@@ -76,15 +76,25 @@ no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key 
 For interactive route debugging, `medre routes validate [--config PATH]`
 prints a topology preview alongside the same route validation.
 
-### Collecting a diagnostic snapshot
+### Collecting a support bundle
 
 `medre support bundle --config <path> --output medre-support.zip`
-collects a full diagnostic snapshot for support — config check result,
-route plan, adapter summary, environment info, and a redacted config
-copy, packed into a single ZIP. It is offline by default: no adapters
-start, no network or hardware I/O is performed. Use it as the primary
-artifact when filing issues. See [troubleshooting.md](troubleshooting.md)
-for bundle contents and redaction scope.
+collects an offline, redacted support bundle for issue reports. The ZIP
+is built from config discovery, `config check`, the route plan, the
+adapter inventory, config/adapter schema presence, environment metadata,
+and a redacted copy of the parsed config. It is offline by design: no
+adapters start, no live health is refreshed, and no network or hardware
+I/O is performed.
+
+The support bundle is **observational, not delivery evidence**. It does
+not include live probe results, adapter health refresh, storage contents
+(events, receipts, outbox rows), delivery evidence, runtime logs, or any
+hardware/network checks. For storage-backed delivery evidence use
+`medre inspect event --evidence` (per-event) or `medre evidence
+--storage-path` (storage-backed evidence report) — these are separate
+paths, not parts of the bundle. See [troubleshooting.md](troubleshooting.md)
+for the full bundle contents, the complete not-included list, and the
+redaction scope.
 
 ### Route Topology Preview with `medre routes plan`
 
@@ -952,6 +962,11 @@ When deploying in containers:
 
 `medre inspect` is the primary read-only investigation command. The recommended sequence for daily operation: `medre config check` and `medre routes validate` (pre-flight), `medre run` (start), then `medre inspect event` and `medre inspect receipts` (investigate).
 
+The `medre support bundle` command and the `medre evidence` command are distinct paths and must not be conflated:
+
+- **`medre support bundle`** writes an offline, redacted ZIP built from config discovery, `config check`, the route plan, the adapter inventory, schemas, environment metadata, and a redacted config copy. It does **not** include live probes, storage contents, delivery evidence, runtime logs, adapter health refresh, or hardware/network checks. See [troubleshooting.md](troubleshooting.md) § "Support Bundles".
+- **`medre evidence`** is a read-only, storage-backed evidence report for investigating event and replay-run receipts. Prefer `medre inspect event --evidence` for per-event evidence bundles.
+
 ```text
 medre run [--config PATH]
     Start the MEDRE runtime.
@@ -1004,8 +1019,9 @@ medre trace (event|replay) --storage-path PATH [--json]
     inspect event --timeline for per-event timelines.
 
 medre evidence --storage-path PATH [--event ID] [--replay-run ID] [--json]
-    Specialized support bundle collection. Prefer
-    inspect event --evidence for per-event bundles.
+    Read-only, storage-backed evidence report for event or replay-run
+    receipt investigation. Prefer inspect event --evidence for per-event
+    evidence bundles. This is distinct from medre support bundle.
 
 medre replay --mode MODE --config PATH [--event ID] [--json]
     Execute a one-shot replay operation. Each invocation processes stored
@@ -1016,6 +1032,24 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
 medre recover --storage-path PATH [--event ID] [--failed-only] [--dry-run] [--json]
     Specialized recovery classification. Prefer
     inspect event --recovery for per-event runbook.
+
+medre storage (status|reset) [--storage-path PATH]
+    Storage management. status reports schema health (read-only).
+    reset deletes the database (destructive; accepts --backup and --yes).
+
+medre adapter matrix auth (login|status)
+    Matrix credential management (no runtime). login authenticates with
+    the homeserver and saves credentials to a sidecar JSON file; it never
+    prints the access token. status shows credential file status without
+    printing secrets.
+
+medre support bundle [--config PATH] [--output PATH]
+    Write an offline, redacted support bundle ZIP. Built from config
+    discovery, config check, route plan, adapter inventory, schemas,
+    environment metadata, and a redacted config copy. Does NOT include
+    live probes, storage contents, delivery evidence, runtime logs,
+    adapter health refresh, or hardware/network checks. See
+    troubleshooting.md § "Support Bundles".
 ```
 
 ## Environment Variable `.env` Files

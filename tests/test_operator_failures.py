@@ -1,4 +1,4 @@
-"""Track 4: Operator failure UX hardening tests.
+"""Operator failure UX hardening tests.
 
 Validates that operators receive concise, actionable, deterministic error
 messages for common misconfiguration and failure scenarios — without needing

@@ -1,4 +1,4 @@
-"""Track 3 — snapshot/diagnostics stress tests.
+"""Snapshot/diagnostics stress tests.
 
 Covers:
 - Large route tables (exceeding _MAX_ROUTES, unbounded RouteStats growth).

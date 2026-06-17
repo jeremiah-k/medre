@@ -79,7 +79,7 @@ class ReplayMetrics:
 
     def __init__(self) -> None:
         self._route_counters: dict[str, ReplayRouteCounters] = {}
-        # Track 6+7 diagnostics: backlog, rejection, cancellation counters.
+        # Backlog, rejection, cancellation counters.
         self._backlog_estimate: int = 0
         self._rejection_count: int = 0
         self._cancellation_count: int = 0
@@ -185,7 +185,7 @@ class ReplayMetrics:
             ),
         )
 
-    # -- Track 6+7: Backlog / rejection / cancellation counters ----------------
+    # -- Backlog / rejection / cancellation counters ----------------
 
     def set_backlog_estimate(self, count: int) -> None:
         """Update the estimated number of pending replay events."""

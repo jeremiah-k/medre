@@ -1,4 +1,4 @@
-"""Tranche 6 tests for LxmfSession: post-stop callback guard, failed-start
+"""LxmfSession callback guard tests: post-stop callback guard, failed-start
 cleanup, async callback exception handling, no-callback-without-loop, and
 delivery-state thread-safe bridging.
 
@@ -44,12 +44,12 @@ def _make_session(**config_overrides: Any) -> LxmfSession:
     )
 
 
-# ===================================================================
-# Tranche 6: Post-stop callback guard
-# ===================================================================
+# ====================================================================
+# Post-stop callback guard
+# ====================================================================
 
 
-class TestTranche6PostStopCallbackGuard:
+class TestPostStopCallbackGuard:
     """Late SDK callbacks after stop() are silently dropped."""
 
     async def test_callback_not_invoked_after_stop(self) -> None:
@@ -101,12 +101,12 @@ class TestTranche6PostStopCallbackGuard:
         assert session._loop is None
 
 
-# ===================================================================
-# Tranche 6: Failed-start callback/loop cleanup
-# ===================================================================
+# ====================================================================
+# Failed-start callback/loop cleanup
+# ====================================================================
 
 
-class TestTranche6FailedStartCleanup:
+class TestFailedStartCallbackCleanup:
     """Failed LXMF start clears _message_callback, _loop, and diagnostics."""
 
     async def test_real_start_failure_clears_callback_and_loop(self) -> None:
@@ -167,12 +167,12 @@ class TestTranche6FailedStartCleanup:
         assert session.connected is False
 
 
-# ===================================================================
-# Tranche 6: Async callback exception handling
-# ===================================================================
+# ====================================================================
+# Async callback exception handling
+# ====================================================================
 
 
-class TestTranche6AsyncCallbackException:
+class TestAsyncCallbackExceptionHandling:
     """Async callback exceptions are consumed/logged, not unhandled."""
 
     async def test_async_callback_exception_consumed(self) -> None:
@@ -213,12 +213,12 @@ class TestTranche6AsyncCallbackException:
         await session.stop()
 
 
-# ===================================================================
-# Tranche 6: No callback when loop is None/not running
-# ===================================================================
+# ====================================================================
+# No callback when loop is None/not running
+# ====================================================================
 
 
-class TestTranche6NoCallbackWithoutLoop:
+class TestNoCallbackWithoutLoop:
     """Inbound callbacks are never invoked directly on Reticulum threads
     when no valid asyncio loop is available."""
 
@@ -300,12 +300,12 @@ class TestTranche6NoCallbackWithoutLoop:
         await session.stop()
 
 
-# ===================================================================
-# Tranche 6: Delivery state thread-safe bridging
-# ===================================================================
+# ====================================================================
+# Delivery state thread-safe bridging
+# ====================================================================
 
 
-class TestTranche6DeliveryStateBridging:
+class TestDeliveryStateBridging:
     """Delivery state updates are bridged onto the asyncio loop."""
 
     async def test_state_update_works_via_bridge(self) -> None:

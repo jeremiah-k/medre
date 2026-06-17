@@ -1,4 +1,4 @@
-"""Runtime crash/recovery and persistence tests (Wave 3E).
+"""Runtime crash/recovery and persistence tests.
 
 Covers:
 - Classification correctness: calling classify_runtime_health() with FAILED

@@ -283,7 +283,7 @@ class TestMeshtasticPipelineIntegration:
         await queue.enqueue({"text": "test"}, 0)
         assert queue.pending_count == 1
 
-        # process_one in tranche 1 is a no-op (no sleep)
+        # process_one is a no-op (no sleep)
         import time
 
         t0 = time.monotonic()

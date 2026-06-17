@@ -194,7 +194,7 @@ class TestMeshtasticSessionBoundary:
         adapter = MeshtasticAdapter(config)
         diag = adapter.diagnostics()
         assert diag["started"] is False
-        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        # session sub-dict always present with safe defaults.
         assert isinstance(diag["session"], dict)
         assert diag["session"]["connected"] is False
         assert diag["session"]["reconnecting"] is False

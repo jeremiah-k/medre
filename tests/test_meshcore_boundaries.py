@@ -592,7 +592,7 @@ class TestMeshCoreOutboundNativeRefs:
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 
-    async def test_real_adapter_returns_none_in_tranche1(self) -> None:
+    async def test_real_adapter_deliver_returns_none_when_scaffolded(self) -> None:
         """Real MeshCoreAdapter.deliver() returns None (scaffolded)."""
         config = MeshCoreConfig(adapter_id="meshcore-1")
         adapter = MeshCoreAdapter(config)

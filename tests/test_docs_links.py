@@ -7,6 +7,8 @@ Asserts that:
   3. No bare prose references to legacy paths appear outside the legacy
      directories themselves.
   4. Broken links are reported with file path and line number.
+  5. Root-level build/config files (pyproject.toml and siblings) do not
+     reference the removed docs/contracts/ or docs/runbooks/ trees.
 """
 
 from __future__ import annotations
@@ -163,7 +165,23 @@ class TestDocLinks:
 class TestNoLegacyPathProseReferences:
     """Markdown files must not contain bare path references to legacy
     directories docs/contracts/ or docs/runbooks/ in prose or code
-    blocks. Files inside those legacy directories are exempt."""
+    blocks. Files inside those legacy directories are exempt.
+
+    Carve-out: a line is exempt when it explicitly describes the removal
+    or replacement of the legacy tree. Removal is detected by the
+    presence of any keyword in ``_REMOVAL_KEYWORDS`` (for example
+    ``replaced``, ``removed``, ``legacy``, ``former``, ``migrated``,
+    ``repointed``, ``stale``, ``instead``). This lets the changelog
+    document ``stale docs/runbooks/ references repointed at docs/ops/``
+    or ``no durable replacement`` without tripping the check, while
+    still catching live references that point at the removed paths as
+    if they were active (``see docs/runbooks/foo.md for details``).
+
+    A small set of style/process files (``documentation-style.md``,
+    ``README.md``, ``change-process.md``) are fully exempt via
+    ``exempt_names`` because they routinely reference the old system
+    by name.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -174,7 +192,8 @@ class TestNoLegacyPathProseReferences:
         """No bare references to docs/contracts/ or docs/runbooks/
         should appear in any docs/ markdown file outside those directories.
         Style guides and READMEs that reference the old system as
-        'replaced' are exempt."""
+        'replaced' are exempt, and any line containing a removal keyword
+        in ``_REMOVAL_KEYWORDS`` is exempt as textual migration context."""
         if _is_legacy(filepath):
             return
 
@@ -187,6 +206,9 @@ class TestNoLegacyPathProseReferences:
         failures: list[str] = []
 
         for lineno, line in enumerate(text.splitlines(), start=1):
+            lowered = line.lower()
+            if any(keyword in lowered for keyword in _REMOVAL_KEYWORDS):
+                continue
             for match in _LEGACY_PROSE_RE.finditer(line):
                 failures.append(
                     f"{_relative(filepath)}:{lineno}: "
@@ -198,4 +220,95 @@ class TestNoLegacyPathProseReferences:
                 f"Found {len(failures)} reference(s) to legacy paths "
                 f"(use docs/spec/, docs/ops/, or docs/dev/ instead):\n  "
                 + "\n  ".join(failures)
+            )
+
+
+# ===========================================================================
+# 3. Root-level build/config files must not reference removed doc trees
+# ===========================================================================
+
+
+# Root-level project metadata files that may declare paths into docs/. The
+# docs/ tree itself is covered by the classes above; this list covers
+# source-of-truth files at the repository root. Files that do not exist
+# are skipped at runtime, so adding one later automatically opts it in.
+_ROOT_CONFIG_FILES = [
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "tox.ini",
+    "noxfile.py",
+    "Makefile",
+]
+
+# A line is treated as "describing the removal" (and therefore exempt) when
+# it contains any of these keywords. They are unambiguous signals that the
+# reference is textual context about the migration, not a live link.
+# Shared by both the root-config scan (TestNoLegacyPathReferencesInRootConfig)
+# and the prose-reference scan (TestNoLegacyPathProseReferences) so a single
+# notion of "removal context" governs both checks.
+_REMOVAL_KEYWORDS = (
+    "replaced",
+    "replacement",
+    "removed",
+    "legacy",
+    "former",
+    "migrated",
+    "repointed",
+    "stale",
+    "instead",
+    "prevent",
+    "do not reference",
+)
+
+
+class TestNoLegacyPathReferencesInRootConfig:
+    """Root-level build/config files must not reference removed doc trees.
+
+    Scope: top-level project metadata files listed in
+    ``_ROOT_CONFIG_FILES`` (``pyproject.toml`` today, plus the conventional
+    sibling build/config filenames so future additions are covered
+    automatically). The ``docs/`` tree is scanned by the classes above;
+    this class covers source-of-truth files at the repository root that
+    tend to hard-code paths in comments or ``tool.*`` tables.
+
+    Carve-out: a line is exempt when it explicitly describes the removal or
+    replacement of the legacy tree. Removal is detected by the presence of
+    any keyword in ``_REMOVAL_KEYWORDS`` (for example ``replaced``,
+    ``removed``, ``legacy``, ``former``, ``migrated``). This lets a file
+    document ``# the old docs/contracts/ tree was removed; use docs/spec/``
+    without tripping the check, while still catching live references that
+    point at the removed paths as if they were active
+    (``# see docs/contracts/25-matrix-e2ee-readiness.md``).
+
+    ``.git/`` is never scanned by this class.
+    """
+
+    @pytest.mark.parametrize(
+        "filename",
+        _ROOT_CONFIG_FILES,
+    )
+    def test_no_legacy_path_references(self, filename: str) -> None:
+        filepath = _ROOT / filename
+        if not filepath.is_file():
+            pytest.skip(f"{filename} not present at repository root")
+
+        text = filepath.read_text(encoding="utf-8")
+        failures: list[str] = []
+
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            lowered = line.lower()
+            if any(keyword in lowered for keyword in _REMOVAL_KEYWORDS):
+                continue
+            for match in _LEGACY_PROSE_RE.finditer(line):
+                failures.append(
+                    f"{filename}:{lineno}: "
+                    f"reference to legacy path '{match.group()}'"
+                )
+
+        if failures:
+            pytest.fail(
+                f"Found {len(failures)} reference(s) to removed doc trees "
+                f"in {filename} (use docs/spec/, docs/ops/, or docs/dev/ "
+                f"instead):\n  " + "\n  ".join(failures)
             )

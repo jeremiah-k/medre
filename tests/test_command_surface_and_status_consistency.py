@@ -111,14 +111,14 @@ class TestEvidenceStatusConsistency:
         assert _section_skipped("test")["status"] in valid
 
     def test_alpha_walkthrough_evidence_status_is_passed(self) -> None:
-        """alpha-walkthrough.md evidence example must say 'passed' or 'partial'.
+        """operator-workflows.md evidence example must say 'passed' or 'partial'.
 
         The evidence command returns 'passed' or 'partial', never 'ok'.
         Line 'Expected output: JSON evidence bundle with "status": "ok"'
         is stale and should say 'passed'.
         """
         if not ALPHA_WALKTHROUGH.exists():
-            pytest.skip("alpha-walkthrough.md not found")
+            pytest.skip("operator-workflows.md not found")
         text = _read(ALPHA_WALKTHROUGH)
         # Find evidence section examples.
         in_evidence_section = False
@@ -127,7 +127,7 @@ class TestEvidenceStatusConsistency:
                 in_evidence_section = True
             if in_evidence_section and '"status": "ok"' in line:
                 pytest.fail(
-                    f"alpha-walkthrough.md:{lineno}: evidence example uses "
+                    f"operator-workflows.md:{lineno}: evidence example uses "
                     f'stale "status": "ok" (should be "passed" or "partial").\n'
                     f"  {line.strip()}"
                 )
@@ -411,6 +411,155 @@ class TestCommandSurfaceMatchesParser:
                     f"Parser rejects 'trace {subcmd}' but it is "
                     f"documented in configuration.md."
                 )
+
+
+# ===========================================================================
+# 3b. Nested command coverage (PARSER -> DOCS, reads actual subparsers)
+# ===========================================================================
+
+
+def _subparser_choices(parser, *path: str) -> set[str]:
+    """Return the set of subcommand names registered at ``parser``.
+
+    Descends through ``path`` to resolve a nested subparser first. For
+    example ``_subparser_choices(root, "adapter", "matrix", "auth")``
+    walks adapter -> matrix -> auth and returns the choices registered
+    on the auth subparser. Returns an empty set if the path does not
+    resolve or the leaf parser has no subparsers.
+    """
+    current = parser
+    for name in path:
+        subparsers = getattr(current, "_subparsers", None)
+        if subparsers is None:
+            return set()
+        found = None
+        for action in subparsers._actions:
+            choices = getattr(action, "choices", None)
+            if choices and name in choices:
+                found = choices[name]
+                break
+        if found is None:
+            return set()
+        current = found
+    subparsers = getattr(current, "_subparsers", None)
+    if subparsers is None:
+        return set()
+    result: set[str] = set()
+    for action in subparsers._actions:
+        choices = getattr(action, "choices", None)
+        if choices:
+            result.update(choices.keys())
+    return result
+
+
+class TestNestedCommandCoverage:
+    """Every operator-facing nested subcommand registered in the parser
+    must be documented in configuration.md's CLI inventory.
+
+    Unlike the parse-args style checks above, these tests read the
+    subparser choices directly so they reflect the actual parser shape
+    rather than a hardcoded expectation. They also guard the docs side:
+    when a subcommand exists in the parser but is missing from the
+    inventory (or vice versa), the mismatch is reported explicitly.
+    """
+
+    @pytest.fixture(scope="class")
+    def root_parser(self):
+        from medre.cli.main import _build_parser
+
+        return _build_parser()
+
+    @pytest.fixture(scope="class")
+    def config_text(self) -> str:
+        if not CONFIG_DOC.exists():
+            pytest.skip("configuration.md not found")
+        return _read(CONFIG_DOC)
+
+    @pytest.mark.parametrize(
+        "top_level,expected",
+        [
+            ("config", {"check", "sample"}),
+            ("routes", {"validate", "topology", "list", "plan"}),
+            ("inspect", {"event", "receipts", "native-ref", "replay"}),
+            ("trace", {"event", "replay"}),
+            ("storage", {"status", "reset"}),
+            ("support", {"bundle"}),
+        ],
+    )
+    def test_nested_subcommands_exist_and_documented(
+        self, root_parser, config_text: str, top_level: str, expected: set[str]
+    ) -> None:
+        """Each nested subcommand listed in the operator surface must
+        (a) actually exist in the parser and (b) appear in the
+        configuration.md CLI inventory.
+
+        The docs use either the individual form
+        (``medre inspect event``) or the grouped form
+        (``medre routes (validate|topology|list|plan)``); both satisfy the
+        coverage requirement. This reads the actual parser subparsers so
+        the test reflects the real command surface."""
+        actual = _subparser_choices(root_parser, top_level)
+        assert actual, f"Parser exposes no subcommands under '{top_level}'"
+        missing_from_parser = expected - actual
+        assert not missing_from_parser, (
+            f"Parser is missing '{top_level}' subcommands: "
+            f"{sorted(missing_from_parser)}. Actual: {sorted(actual)}"
+        )
+        for sub in sorted(expected):
+            # Accept either "medre <top> <sub>" or
+            # "medre <top> (...<sub>...)" grouped form.
+            grouped = re.compile(
+                rf"medre\s+{re.escape(top_level)}\s*\([^)]*\b"
+                rf"{re.escape(sub)}\b[^)]*\)"
+            )
+            individual = f"medre {top_level} {sub}"
+            assert grouped.search(config_text) or individual in config_text, (
+                f"configuration.md CLI inventory must document "
+                f"'medre {top_level} {sub}' (individual or grouped form). "
+                f"Parser exposes it but the docs do not."
+            )
+
+    def test_adapter_matrix_auth_subcommands_documented(
+        self, root_parser, config_text: str
+    ) -> None:
+        """``adapter matrix auth`` exposes ``login`` and ``status``; both
+        must appear in configuration.md. ``logout`` is intentionally not
+        asserted — it is not registered in the parser."""
+        actual = _subparser_choices(root_parser, "adapter", "matrix", "auth")
+        assert actual, "Parser exposes no subcommands under 'adapter matrix auth'"
+        expected = {"login", "status"}
+        missing_from_parser = expected - actual
+        assert not missing_from_parser, (
+            "Parser is missing 'adapter matrix auth' subcommands: "
+            f"{sorted(missing_from_parser)}. Actual: {sorted(actual)}"
+        )
+        for sub in sorted(expected):
+            # configuration.md groups the auth subcommands as
+            # "adapter matrix auth (login|status)".
+            assert sub in config_text, (
+                f"configuration.md CLI inventory must document "
+                f"'adapter matrix auth {sub}'."
+            )
+        # Sanity: the grouped form is present.
+        assert "adapter matrix auth" in config_text, (
+            "configuration.md must document the 'medre adapter matrix auth' "
+            "command group."
+        )
+
+    def test_adapter_matrix_auth_logout_not_registered(self, root_parser) -> None:
+        """``adapter matrix auth logout`` is not registered in the parser.
+
+        Documents the gap between the planned operator surface and the
+        current parser so a future addition flips this test green rather
+        than silently landing undocumented.
+        """
+        actual = _subparser_choices(root_parser, "adapter", "matrix", "auth")
+        assert "logout" not in actual, (
+            "'adapter matrix auth logout' is now registered in the parser. "
+            "Add it to configuration.md's CLI inventory and update this "
+            "test plus test_docs_command_surface.py. Actual auth "
+            f"subcommands: {sorted(actual)}"
+        )
 
 
 # ===========================================================================

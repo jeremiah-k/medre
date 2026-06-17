@@ -298,13 +298,13 @@ def test_sample_parses_as_yaml() -> None:
 
 
 # ---------------------------------------------------------------------------
-# config check — strict validation surfaced via the CLI (Track D)
+# config check — strict validation surfaced via the CLI
 # ---------------------------------------------------------------------------
 
 
 class TestConfigCheckStrictValidation:
     """CLI-level coverage for the strict-validation behaviour added by the
-    config-schema-authority-hardening tranche.
+    config-schema-authority-hardening.
 
     Covers:
 
@@ -431,13 +431,13 @@ class TestConfigCheckStrictValidation:
 
 # ---------------------------------------------------------------------------
 # config check — section-level strict validation surfaced via the CLI
-# (Tasks 3, 4, 5: unknown transport / malformed instance / unknown retry key)
+# (unknown transport / malformed instance / unknown retry key)
 # ---------------------------------------------------------------------------
 
 
 class TestConfigCheckSectionStrictValidation:
     """CLI-level coverage for the section-level strict validation added by
-    the config-schema-authority-hardening tranche (Tasks 3, 4, 5).
+    the config-schema-authority-hardening.
 
     Each test verifies that ``medre config check``:
 
@@ -488,14 +488,13 @@ class TestConfigCheckSectionStrictValidation:
 
 
 # ---------------------------------------------------------------------------
-# config sample — structured channel_room_map documentation (Track D)
+# config sample — structured channel_room_map documentation
 # ---------------------------------------------------------------------------
 
 
 class TestSampleConfigStructuredChannelRoomMap:
     """The generated sample config documents the structured
-    ``channel_room_map`` entry shape added by the per-context origin-label
-    tranche.
+    ``channel_room_map`` entry shape added for per-context origin labels.
 
     Operators running ``medre config sample`` should see both the
     ``channel_room_map`` field name and the structured-entry field names

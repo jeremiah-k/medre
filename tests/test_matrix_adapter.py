@@ -573,7 +573,7 @@ class TestRoomAllowlist:
 
 class TestThirdPartyInboundCanonicalEventShape:
     """Verify the full CanonicalEvent produced by _on_room_message for a
-    third-party sender.  This is the core of Track 2 inbound validation:
+    third-party sender.  This is the core of inbound validation:
     the canonical event must carry the correct source_adapter, sender as
     source_transport_id, room_id as source_channel_id, payload body, and
     source_native_ref with the Matrix event_id.

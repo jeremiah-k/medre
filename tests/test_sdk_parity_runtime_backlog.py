@@ -1,6 +1,6 @@
 """SDK parity runtime backlog characterization tests.
 
-Tests that document and guard the current state of Wave 1 SDK parity backlog
+Tests that document and guard the current state of the SDK parity backlog
 items (P-01 through P-12 from ``docs/dev/sdk-parity-backlog.md``).  These tests
 characterize **current behavior** — they verify what the adapters do today so
 that future parity work can detect regressions and confirm improvements.
@@ -17,7 +17,7 @@ Gap classification:
 
 References:
 - ``docs/dev/sdk-parity-backlog.md`` — full backlog with rationale
-- ``docs/dev/adapter-reality-audit.md`` — prior correctness wave (R1–R10)
+- ``docs/dev/adapter-reality-audit.md`` — prior correctness audit (R1–R10)
 - ``docs/dev/reference-repos.md`` — boundary rules on external references
 """
 

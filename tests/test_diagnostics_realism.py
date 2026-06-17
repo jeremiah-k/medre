@@ -1,4 +1,4 @@
-"""Track 6 — snapshot + diagnostics realism validation.
+"""Snapshot + diagnostics realism validation.
 
 Validates that snapshots, diagnostics, and operator-facing summaries remain
 useful, readable, deterministic, and safe under fake-realistic runtime

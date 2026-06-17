@@ -1,4 +1,4 @@
-"""Track 8 — Final operational boundary and scope enforcement tests.
+"""Operational boundary and scope enforcement tests.
 
 These tests enforce structural invariants that prevent feature creep and
 guarantee default non-live behaviour.  They use **source-level text
@@ -229,7 +229,7 @@ class TestOperationalEvidenceNoDirectSdk:
     _EVIDENCE_TEST_FILES = [
         "test_diagnostics_realism.py",
         "test_runtime_diagnostics.py",
-        "test_track3_diagnostics_refinement.py",
+        "test_session_diagnostics_state_hygiene.py",
         "test_diagnostic_contract.py",
         "test_route_replay_observability.py",
         "test_runtime_boot_summary.py",
@@ -591,7 +591,7 @@ class TestDiagnosticsNoTransportCoupling:
     _DIAGNOSTICS_TEST_FILES = [
         "test_runtime_diagnostics.py",
         "test_diagnostics_realism.py",
-        "test_track3_diagnostics_refinement.py",
+        "test_session_diagnostics_state_hygiene.py",
         "test_diagnostic_contract.py",
     ]
 

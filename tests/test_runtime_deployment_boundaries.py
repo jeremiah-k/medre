@@ -1,11 +1,11 @@
-"""Track 9 — Runtime-level deployment boundary enforcement tests.
+"""Runtime-level deployment boundary enforcement tests.
 
 These tests enforce structural invariants that guarantee the runtime
 subsystem remains transport-agnostic and deployment-clean.  They use
 **source-level text inspection** (not runtime importing of optional SDKs).
 
-Complement: ``tests/test_deployment_boundaries.py`` covers Track 8
-(deployment helpers, CLI, clean-env tests, soak, no-live-by-default).
+Complement: ``tests/test_deployment_boundaries.py`` covers deployment
+helpers, CLI, clean-env tests, soak, no-live-by-default.
 This file covers runtime-level boundaries:
 
 1. Runtime core modules (app, builder, capacity) do not import transport
@@ -800,15 +800,15 @@ class TestExportReportingTestsSdkFree:
 
 
 # ===================================================================
-# 8. Documentation boundary test — Track 8/9 headers present
+# 8. Documentation boundary test — classification headers present
 # ===================================================================
 
 
 class TestDocumentationTrackHeaders:
-    """Verify that key documentation files have Track 8/9 headers.
+    """Verify that key documentation files have classification headers.
 
     This is a lightweight structural check to prevent drift where
-    documentation files lose their track classification.
+    documentation files lose their classification header.
     """
 
     _REPO_ROOT = Path(__file__).parent.parent
@@ -836,7 +836,7 @@ class TestDocumentationTrackHeaders:
             pytest.skip(f"{doc_path} not found")
 
         source = _file_source(full_path)
-        # Check the first 30 lines for track references
+        # Check the first 30 lines for classification header references
         header = "\n".join(source.splitlines()[:30])
         for keyword in required_keywords:
             assert keyword in header or keyword.lower() in header.lower(), (

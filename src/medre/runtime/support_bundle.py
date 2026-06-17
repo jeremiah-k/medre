@@ -239,9 +239,9 @@ def _read_schema_meta(filename: str) -> SchemaEntry:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 — schema metadata is best-effort
-        # ponytail: failure path emits present=False. When schemas are
-        # present (the normal case) all four keys appear; on failure the
-        # extra null keys are informative rather than harmful.
+        # Failure path emits present=False. When schemas are present (the
+        # normal case) all four keys appear; on failure the extra null
+        # keys are informative rather than harmful.
         return SchemaEntry(present=False)
     if not isinstance(data, dict):
         return SchemaEntry(present=False)
@@ -282,32 +282,54 @@ def _get_version() -> str:
 
 
 def _json_default(obj: Any) -> Any:
-    """``json.dumps`` default hook for dataclasses and datetimes."""
+    """``json.dumps`` default hook for dataclasses, Structs, and datetimes.
+
+    ``_to_builtins`` already converts every production input, so this hook
+    normally never fires for those types. The Struct branch is defense in
+    depth: if a ``msgspec.Struct`` somehow survived ``_to_builtins`` (e.g.
+    a Struct nested inside a dataclass nested inside a Struct in a future
+    member shape), ``json.dumps`` would otherwise raise ``TypeError``.
+    """
+    # Defense-in-depth fallback. _to_builtins handles every current input;
+    # this only fires if a future payload shape slips past it.
+    if isinstance(obj, msgspec.Struct):
+        return msgspec.to_builtins(obj)
     if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serialisable")
 
 
 def _to_builtins(obj: Any) -> Any:
-    """Convert msgspec.Struct or dataclass instances to JSON-safe builtins.
+    """Convert msgspec.Struct / dataclass instances to JSON-safe builtins.
 
-    ``msgspec.to_builtins`` recursively converts Struct instances (including
-    nested Structs) to plain ``dict`` / ``list`` / primitives with the same
-    field names (honouring ``msgspec.field(name=...)`` aliases). Dataclass
-    instances fall through to :func:`dataclasses.asdict`. Plain dicts and
-    lists are traversed so Struct/dataclass instances nested inside them
-    are converted too — otherwise a Struct would reach :func:`json.dumps`
-    untouched and trigger ``TypeError`` (the ``_json_default`` hook only
-    handles dataclasses, not Structs). Everything else passes through
-    unchanged.
+    Each container kind is handled so a Struct (or dataclass) nested at
+    any depth is converted before reaching :func:`json.dumps`:
+
+    - ``msgspec.Struct`` → :func:`msgspec.to_builtins` (recursively
+      converts nested Structs, honours ``msgspec.field(name=...)``
+      aliases such as ``$id`` / ``$schema`` on :class:`SchemaEntry`).
+    - dataclass instance → :func:`dataclasses.asdict`, then the result
+      is RECURSED back through this function. ``asdict`` does not know
+      about Structs, so a Struct-valued field survives ``asdict`` as a
+      raw Struct and would trip :func:`json.dumps` (the ``_json_default``
+      hook only handles dataclasses, not Structs). The recursion also
+      normalises tuples produced by ``asdict`` into lists.
+    - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
+      become lists (matching :func:`json.dumps` tuple semantics).
+
+    Anything else passes through unchanged.
     """
     if isinstance(obj, msgspec.Struct):
         return msgspec.to_builtins(obj)
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return dataclasses.asdict(obj)
+        # asdict does not see Structs; recurse the result so a Struct nested
+        # inside a dataclass field cannot leak through.
+        return _to_builtins(dataclasses.asdict(obj))
     if isinstance(obj, dict):
         return {k: _to_builtins(v) for k, v in obj.items()}
     if isinstance(obj, list):
+        return [_to_builtins(v) for v in obj]
+    if isinstance(obj, tuple):
         return [_to_builtins(v) for v in obj]
     return obj
 
@@ -412,9 +434,9 @@ def _build_adapters(config: Any) -> dict[str, Any]:
                 "adapter_kind": getattr(rtc, "adapter_kind", "real"),
             }
             cfg = getattr(rtc, "config", None)
-            # ponytail: enrichment is best-effort per adapter — a single
-            # malformed wrapper must not strip enrichment from the others,
-            # and must never sink the bundle.
+            # Enrichment is best-effort per adapter — a single malformed
+            # wrapper must not strip enrichment from the others, and must
+            # never sink the bundle.
             try:
                 ct = getattr(cfg, "connection_type", None)
                 if ct is not None:
@@ -619,9 +641,9 @@ def create_support_bundle(
 
     if discovered_path is not None:
         try:
-            # ponytail: pass the discovered path, not the original argument —
-            # when discovery expanded a directory to a file (or applied an
-            # XDG default), load_config must see the same path that was read.
+            # Pass the discovered path, not the original argument — when
+            # discovery expanded a directory to a file (or applied an XDG
+            # default), load_config must see the same path that was read.
             config, _source, _paths = load_config(discovered_path)
             config_check.success = True
             config_check.error = None
@@ -679,7 +701,7 @@ def _json_bytes(data: Any) -> bytes:
     ).encode("utf-8")
 
 
-if __name__ == "__main__":  # ponytail: tiny self-check, no test framework
+if __name__ == "__main__":  # tiny self-check, no test framework
     # Smoke: round-trip a redactor walk on a synthetic config dict.
     sample = {
         "adapters": {
@@ -723,4 +745,51 @@ if __name__ == "__main__":  # ponytail: tiny self-check, no test framework
             }
         ]
     }, _to_builtins(nested)
+
+    # _to_builtins must convert tuples to lists and recurse into them,
+    # so a Struct nested inside a tuple cannot survive to json.dumps
+    # (whose _json_default only handles dataclasses).
+    tup = (
+        EnvironmentMember(
+            python_version="3.11",
+            platform="linux",
+            machine="x86_64",
+            medre_version="0",
+        ),
+    )
+    assert _to_builtins(tup) == [
+        {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        }
+    ], _to_builtins(tup)
+
+    # dataclasses.asdict() must be fed back through _to_builtins so a
+    # Struct nested in a dataclass field is converted (otherwise it
+    # survives asdict untouched and trips json.dumps).
+    @dataclasses.dataclass
+    class _Holder:
+        label: str
+        env: EnvironmentMember
+
+    holder = _Holder(
+        label="x",
+        env=EnvironmentMember(
+            python_version="3.11",
+            platform="linux",
+            machine="x86_64",
+            medre_version="0",
+        ),
+    )
+    assert _to_builtins(holder) == {
+        "label": "x",
+        "env": {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        },
+    }, _to_builtins(holder)
     print("support_bundle self-check OK", file=sys.stderr)

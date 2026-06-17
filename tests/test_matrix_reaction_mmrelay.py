@@ -774,7 +774,7 @@ class TestMMRelayConstants:
 
 
 # ===========================================================================
-# Tranche 3: Meshtastic→Matrix reaction rendering (MMRelay emote)
+# Meshtastic→Matrix reaction rendering (MMRelay emote)
 # ===========================================================================
 
 

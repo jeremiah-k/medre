@@ -119,14 +119,14 @@ class MatrixSessionDiagnostics:
     last_crypto_error: str | None
     encrypted_room_seen: bool
     undecryptable_event_count: int
-    # Track 1 — sync recovery diagnostics
+    # Sync recovery diagnostics
     sync_running: bool
     reconnecting: bool
     reconnect_attempts: int
     last_successful_sync: float | None
-    # Track 2 — crypto-store continuity
+    # Crypto-store continuity
     crypto_store_loaded: bool
-    # Track 4 — room-state tracking counts (no room names/IDs)
+    # Room-state tracking counts (no room names/IDs)
     encrypted_room_count: int
     plaintext_room_count: int
     # E2EE key management diagnostics
@@ -169,15 +169,15 @@ class MatrixSession:
         "_encrypted_room_seen",
         "_undecryptable_event_count",
         "_last_crypto_error",
-        # Track 1 — sync recovery
+        # Sync recovery
         "_reconnect_attempts",
         "_reconnecting",
         "_last_reconnect_error",
         "_last_successful_sync",
         "_stop_requested",
-        # Track 2 — crypto-store continuity
+        # Crypto-store continuity
         "_crypto_store_loaded",
-        # Track 4 — room-state tracking
+        # Room-state tracking
         "_room_states",
         # Part D — auto-join
         "_auto_join_rooms",
@@ -214,15 +214,15 @@ class MatrixSession:
         self._encrypted_room_seen: bool = False
         self._undecryptable_event_count: int = 0
         self._last_crypto_error: str | None = None
-        # Track 1
+        # Sync recovery
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
         self._last_reconnect_error: str | None = None
         self._last_successful_sync: float | None = None
         self._stop_requested: bool = False
-        # Track 2
+        # Crypto-store continuity
         self._crypto_store_loaded: bool = False
-        # Track 4
+        # Room-state tracking
         self._room_states: dict[str, RoomEncryptionState] = {}
         # Part D — auto-join
         self._auto_join_rooms = auto_join_rooms
@@ -285,7 +285,7 @@ class MatrixSession:
         """Description of the most recent crypto error, if any."""
         return self._last_crypto_error
 
-    # Track 1 — sync recovery properties
+    # Sync recovery properties
 
     @property
     def sync_running(self) -> bool:
@@ -316,14 +316,14 @@ class MatrixSession:
         """
         return self._live_sync_started
 
-    # Track 2 — crypto-store continuity
+    # Crypto-store continuity
 
     @property
     def crypto_store_loaded(self) -> bool:
         """``True`` when the crypto store was loaded/initialized."""
         return self._crypto_store_loaded
 
-    # Track 4 — room-state tracking
+    # Room-state tracking
 
     def room_state(self, room_id: str) -> RoomEncryptionState:
         """Return the tracked encryption state for a room.
@@ -427,15 +427,15 @@ class MatrixSession:
         self._encrypted_room_seen = False
         self._undecryptable_event_count = 0
         self._last_crypto_error = None
-        # Track 1 — reset reconnect state
+        # Reset reconnect state
         self._reconnect_attempts = 0
         self._reconnecting = False
         self._last_reconnect_error = None
         self._last_successful_sync = None
         self._stop_requested = False
-        # Track 2 — reset crypto store state
+        # Reset crypto store state
         self._crypto_store_loaded = False
-        # Track 4 — reset room states
+        # Reset room states
         self._room_states = {}
         # Sync boundary / history suppression
         self._live_sync_started = False
@@ -552,7 +552,7 @@ class MatrixSession:
             )
 
         self._crypto_enabled = True
-        # Track 2 — verify Olm and store loaded after restore_login.
+        # Verify Olm and store loaded after restore_login.
         # If Olm/store are None despite E2EE deps, the crypto subsystem
         # is broken and we must not claim crypto is operational.
         if self._client.olm is None:
@@ -1000,7 +1000,7 @@ class MatrixSession:
 
         self._encrypted_room_seen = True
 
-        # Track 4 — mark room as encrypted (shared helper)
+        # Mark room as encrypted (shared helper)
         self._track_room_encrypted(room, room_id)
 
         # History suppression: suppress backlog undecryptable events.
@@ -1114,7 +1114,7 @@ class MatrixSession:
         self._encrypted_room_seen = True
         room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
 
-        # Track 4 — mark room as encrypted (always, regardless of logging)
+        # Mark room as encrypted (always, regardless of logging)
         self._track_room_encrypted(room, room_id)
 
         # Deduped logging: first event per room at DEBUG, rest silent.
@@ -1125,7 +1125,7 @@ class MatrixSession:
                 room_id,
             )
 
-    # Track 4 — track rooms seen via sync (called by message callback wrapper)
+    # Track rooms seen via sync (called by message callback wrapper)
     def _track_room(self, room_id: str) -> None:
         """Track a room as seen.  Sets 'unknown' if not already tracked.
 
@@ -1147,7 +1147,7 @@ class MatrixSession:
             )
         self._room_states[room_id] = "unknown"
 
-    # -- Sync loop (Track 1 — Automatic Sync Recovery) -----------------------
+    # -- Sync loop (Automatic Sync Recovery) -----------------------
 
     async def _run_sync(self) -> None:
         """Wrap ``_sync_with_reconnect`` — entry point for the sync task."""
@@ -1475,14 +1475,14 @@ class MatrixSession:
             last_crypto_error=self._last_crypto_error,
             encrypted_room_seen=self._encrypted_room_seen,
             undecryptable_event_count=self._undecryptable_event_count,
-            # Track 1
+            # Sync recovery
             sync_running=self.sync_running,
             reconnecting=self._reconnecting,
             reconnect_attempts=self._reconnect_attempts,
             last_successful_sync=self._last_successful_sync,
-            # Track 2 — truthful crypto_store_loaded based on live state
+            # Truthful crypto_store_loaded based on live state
             crypto_store_loaded=olm_loaded and store_loaded,
-            # Track 4
+            # Room-state tracking
             encrypted_room_count=self.encrypted_room_count,
             plaintext_room_count=self.plaintext_room_count,
             # E2EE key management diagnostics

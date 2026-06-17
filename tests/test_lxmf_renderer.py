@@ -262,7 +262,7 @@ class TestLxmfRenderer:
         )
         assert result.metadata["renderer"] == "lxmf"
 
-    async def test_render_very_long_text_no_truncation_in_tranche1(self) -> None:
+    async def test_render_very_long_text_no_truncation(self) -> None:
         renderer = LxmfRenderer()
         long_text = "x" * 1000
         event = _make_event(payload={"body": long_text})

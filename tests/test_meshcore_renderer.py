@@ -677,7 +677,7 @@ class TestMeshCoreRendererTruncation:
 
 
 # ===================================================================
-# Tranche 4: Prefix formatting and config propagation
+# Prefix formatting and config propagation
 # ===================================================================
 
 

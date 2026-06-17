@@ -385,7 +385,7 @@ class TestSupplementalReceiptChannelCorrelation:
 
 
 # ===================================================================
-# delivery_plan_id propagation through Meshtastic queue (Tranche 5)
+# delivery_plan_id propagation through Meshtastic queue
 # ===================================================================
 
 

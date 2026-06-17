@@ -163,7 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # evidence
     evidence_p = sub.add_parser(
         "evidence",
-        help="Specialized support bundle, usually inspect event --evidence (read-only; requires --storage-path)",
+        help="Specialized storage-backed report, usually inspect event --evidence (read-only; requires --storage-path)",
     )
     evidence_p.add_argument(
         "--storage-path",

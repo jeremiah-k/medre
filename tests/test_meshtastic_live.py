@@ -644,7 +644,7 @@ class TestMeshtasticLiveSmoke:
         pass
 
     async def test_inbound_dm_not_supported_note(self):
-        """Document: outbound DM delivery is not supported in tranche 1.
+        """Document: outbound DM delivery is not supported.
 
         This test always passes.  The adapter declares
         ``direct_messages=False``.  Inbound DM metadata is preserved but

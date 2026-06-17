@@ -1,4 +1,4 @@
-"""Track 4: Deployment / Container Path Verification.
+"""Deployment / Container Path Verification.
 
 Tests that verify MEDRE's deployment path model behaves correctly for
 container and non-container scenarios.  These tests are intentionally

@@ -1,4 +1,4 @@
-"""Track 6+7: Queue boundary and invariant tests.
+"""Queue boundary and invariant tests.
 
 Verifies that:
 1. All delivery paths acquire capacity before proceeding.
@@ -683,7 +683,7 @@ class TestShutdownDrainObservable:
 
 
 # ===================================================================
-# Track 6+7: ReplayMetrics extended diagnostics
+# ReplayMetrics extended diagnostics
 # ===================================================================
 
 

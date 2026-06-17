@@ -2,7 +2,7 @@
 
 Date: 2026-06-15
 Branch: config-schema-authority-hardening
-Auditor: deep agent (Wave 1)
+Auditor: deep agent
 
 ## Summary
 
@@ -552,8 +552,8 @@ ChannelRoomMapEntry`.
 - **Expected state**: Either keep the glob (defensive collection is
   harmless) or drop `*.toml` to match the YAML-only runtime posture.
 - **Recommendation**: Low priority. If touched, drop `*.toml` and add
-  a `# ponytail: *.toml kept defensively; drop if Docker tests no
-longer produce .toml artifacts` comment, or just drop it outright.
+  a `# *.toml kept defensively; drop if Docker tests no longer produce
+.toml artifacts` comment, or just drop it outright.
 
 ### [F-021] `additionalProperties: false` on adapter schema conflicts with loader's silent-drop behavior
 
@@ -589,7 +589,7 @@ longer produce .toml artifacts` comment, or just drop it outright.
   reconciliation, listing the affected files, and noting any breaking
   changes (none expected — F-002 fixes examples that never loaded).
 - **Recommendation**: Add the fragment as part of the implementation
-  wave that lands the largest fix. Note that `AGENTS.md` mentions a
+  that lands the largest fix. Note that `AGENTS.md` mentions a
   per-fragment directory `docs/changes/unreleased/NNN-*.md`, but the
   project actually uses a single `unreleased.md` file (see
   `docs/changes/README.md`); follow the file convention, not the

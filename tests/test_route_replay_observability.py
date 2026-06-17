@@ -1,4 +1,4 @@
-"""Tests for route/replay metrics observability (Track 2 – diagnostics hardening).
+"""Tests for route/replay metrics observability.
 
 Covers:
 - Route counters are present in diagnostics after replay.

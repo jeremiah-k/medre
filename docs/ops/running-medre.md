@@ -172,20 +172,29 @@ Writes a runtime snapshot JSON to the specified PATH after graceful shutdown. Co
 
 Counters and events are process-local — without this flag, they are lost on exit.
 
-## Diagnostic Bundles for Issue Reports
+## Support Bundles for Issue Reports
 
-When filing an issue, collect a redacted diagnostic bundle with:
+When filing an issue, collect an offline, redacted support bundle with:
 
 ```bash
 medre support bundle --config config.yaml --output medre-support.zip
 ```
 
-This is the recommended way to collect diagnostics for a bug report. It
-is offline by default — no adapters start, no network or hardware I/O
-is performed — and produces a redacted ZIP containing the config check,
-route plan, adapter summary, and environment info. See
-[troubleshooting.md](troubleshooting.md) for bundle contents, what is
-redacted, and what is not included.
+This is the recommended artifact for a bug report. The ZIP is built
+offline from config discovery, `config check`, the route plan, the
+adapter inventory, schema presence, environment metadata, and a
+redacted copy of the parsed config — no adapters start, no live health
+is refreshed, and no network or hardware I/O is performed.
+
+The support bundle is **observational, not delivery evidence**. It does
+not include live probe results, adapter health refresh, storage contents
+(events, receipts, outbox rows), delivery evidence, runtime logs, or any
+hardware/network checks. For storage-backed delivery evidence use
+`medre inspect event --evidence` (per-event) or `medre evidence
+--storage-path` (storage-backed evidence report) — these are separate
+paths from the support bundle. See [troubleshooting.md](troubleshooting.md)
+§ "Support Bundles" for the complete bundle contents, the full
+not-included list, and the redaction scope.
 
 ## Per-Transport Delivery Semantics
 

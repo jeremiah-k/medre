@@ -1,4 +1,4 @@
-"""Tests for runtime event accounting counters (Track 5 – runtime accounting).
+"""Tests for runtime event accounting counters.
 
 Covers:
 - Fresh instance has all counters at zero.

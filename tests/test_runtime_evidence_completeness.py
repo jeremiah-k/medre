@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.forbidden_terms import PLANNING_CYCLE_TERMS
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -439,19 +441,27 @@ def test_event_buffer_snapshot_events_json_safe() -> None:
 
 
 def test_spec_docs_no_temporary_language_near_shutdown_rejection() -> None:
-    """Spec docs near shutdown_rejection should not contain temporary/tranche
-    language (per user requirement: no temporary language in main specs)."""
+    """Spec docs near shutdown_rejection should not contain the forbidden
+    planning-cycle vocabulary or other temporary language (per user
+    requirement: no temporary language in main specs)."""
     for spec_file in _SPEC_DIR.rglob("*.md"):
         content = _read_doc(spec_file)
         if "shutdown_rejection" not in content:
             continue
         lower = content.lower()
-        # Check that the doc doesn't use temporary/tranche language near
-        # shutdown_rejection. These terms belong in dev audit docs only.
-        for term in ("tranche", "temporary", "tentative"):
+        # Check that the doc doesn't use the forbidden planning-cycle
+        # vocabulary or other temporary language near shutdown_rejection.
+        # These terms belong in dev audit docs only.
+        for term in ("temporary", "tentative"):
             assert term not in lower, (
                 f"Spec doc {spec_file.name} should not contain "
                 f"'{term}' language — belongs in dev audit docs"
+            )
+        for pattern in PLANNING_CYCLE_TERMS:
+            assert not pattern.search(content), (
+                f"Spec doc {spec_file.name} should not contain "
+                f"forbidden planning-cycle language — belongs in dev "
+                f"audit docs"
             )
 
 

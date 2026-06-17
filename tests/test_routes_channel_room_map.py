@@ -268,7 +268,7 @@ class TestChannelRoomMapConfig:
     def test_config_allows_duplicate_room(self) -> None:
         """Duplicate room *values* are accepted by the config parser.
 
-        Wave 1 moved the duplicate-room check from config parsing to
+        The duplicate-room check moved from config parsing to
         runtime route expansion (see
         :mod:`medre.runtime.route_engine`), because whether duplicates
         are ambiguous depends on the route's directionality and the

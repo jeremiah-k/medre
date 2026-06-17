@@ -25,15 +25,32 @@ structure conventions — not by adding a standalone contract.
 
 ## No Internal Planning-Cycle Vocabulary
 
-The following terms are internal development vocabulary and must not appear in
-permanent documentation (`docs/spec/`, `docs/ops/`, `docs/dev/`):
+The following terms are internal development vocabulary and are forbidden in
+**all durable artifacts**:
 
 - "tranche" (use "release scope", "work package", or "implementation phase")
 - "boulder" (use "task" or "work item")
 - "sprint" (use "development cycle")
+- "ponytail" (an internal development skill name; describe the underlying idea
+  plainly, e.g. "minimal change" rather than referencing the skill)
 
-These terms may appear in `docs/changes/` fragments and commit messages where
-they describe temporary development state.
+Durable artifacts include: documentation under `docs/` (including
+`docs/spec/`, `docs/ops/`, `docs/dev/`, `docs/schemas/`, and `docs/changes/`),
+source code comments and docstrings under `src/`, test names, test method
+names, test comments, test docstrings, test filenames, example configs and
+scripts under `examples/`, branch names, new commit messages, and
+agent-facing prompts (including `AGENTS.md` and skill instructions).
+
+These terms describe temporary internal planning state and must not leak into
+any artifact that persists beyond the planning cycle. The only files that may
+contain them are the definitional ones that enumerate the forbidden list
+itself (`tests/helpers/forbidden_terms.py`), the enforcer test that names
+the terms while checking for them
+(`tests/test_docs_no_internal_planning_language.py`), and the style guide
+that documents the ban (this page).
+
+Historical git commit messages are preserved as-is — this policy does not
+rewrite existing history. New commit messages must follow the stricter rule.
 
 ## No Stale Generated Headers
 

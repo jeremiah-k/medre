@@ -412,7 +412,7 @@ class TestMeshtasticOutboundNativeRefs:
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 
-    async def test_real_adapter_returns_none_in_tranche1(self) -> None:
+    async def test_real_adapter_returns_none_when_queue_based(self) -> None:
         """Real MeshtasticAdapter.deliver() returns AdapterDeliveryResult with
         delivery_note='locally enqueued' and native_message_id=None (queue-based)."""
         config = MeshtasticConfig(adapter_id="mesh-1")
@@ -481,7 +481,7 @@ class TestMeshtasticPipelineNoSleep:
     """Pipeline does not perform Meshtastic-specific sleeps."""
 
     async def test_queue_process_one_is_no_op(self) -> None:
-        """process_one in tranche 1 does not sleep."""
+        """process_one does not sleep."""
         import time
 
         queue = MeshtasticOutboundQueue(delay_between_messages=5.0)

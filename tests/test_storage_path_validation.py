@@ -1,4 +1,4 @@
-"""Track 6: Storage / Path Validation.
+"""Storage / Path Validation.
 
 Tests that the storage and path model behaves correctly:
 multiple Matrix stores are isolated, Meshtastic adapters don't get

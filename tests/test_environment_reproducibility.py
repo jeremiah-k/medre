@@ -1,4 +1,4 @@
-"""Track 3/4: Environment reproducibility validation tests.
+"""Environment reproducibility validation tests.
 
 Validates that MEDRE produces a **deterministic, reproducible** environment
 across installations, path resolution modes, and CLI invocations.  Every

@@ -1,4 +1,4 @@
-"""Track 6 — Soak foundations v2: extended stability verification.
+"""Soak foundations v2: extended stability verification.
 
 Builds on the harness from ``test_soak_harness.py`` with deeper patterns:
 

@@ -94,6 +94,95 @@ class TestConfigurationCliSurface:
 
 
 # ===========================================================================
+# Parser -> docs direction: every operator-facing top-level command in the
+# parser must appear in configuration.md's CLI inventory.
+# ===========================================================================
+
+
+def _parser_top_level_commands() -> set[str]:
+    """Extract the set of top-level command names from the CLI parser.
+
+    Walks ``medre.cli.main._build_parser()`` and returns every name
+    registered on the root subparsers. This reads the actual parser so the
+    test reflects reality, not a hardcoded list.
+    """
+    from medre.cli.main import _build_parser
+
+    parser = _build_parser()
+    commands: set[str] = set()
+    subparsers = getattr(parser, "_subparsers", None)
+    if subparsers is None:
+        return commands
+    for action in subparsers._actions:
+        choices = getattr(action, "choices", None)
+        if choices:
+            commands.update(choices.keys())
+    return commands
+
+
+class TestParserCommandsDocumented:
+    """PARSER -> DOCS direction: every operator-facing top-level command
+    produced by ``_build_parser()`` must be documented in the configuration.md
+    CLI inventory. This is the reverse of the docs->parser check and catches
+    commands added to the parser but never surfaced to operators."""
+
+    def test_every_parser_command_documented_in_configuration_md(self) -> None:
+        text = _read(OPS_DIR / "configuration.md")
+        parser_commands = _parser_top_level_commands()
+        assert parser_commands, "Parser unexpectedly exposed no top-level commands"
+
+        # Every parser command is operator-facing (see operator-surface-audit);
+        # there is no separate hidden/internal command set.
+        undocumented = sorted(
+            cmd for cmd in parser_commands if f"medre {cmd}" not in text
+        )
+        assert not undocumented, (
+            "configuration.md CLI inventory is missing operator-facing "
+            f"commands that exist in the parser: {undocumented}. "
+            f"Parser commands: {sorted(parser_commands)}"
+        )
+
+    def test_full_command_set_matches_pc_expectation(self) -> None:
+        """The parser command set must match the expected operator surface.
+
+        Guards against silent additions or removals at the parser level.
+        Adapter sub-namespaces (matrix auth login/status) are verified in
+        a separate nested-coverage test in
+        ``test_command_surface_and_status_consistency.py``.
+        """
+        parser_commands = _parser_top_level_commands()
+        expected = {
+            "run",
+            "config",
+            "paths",
+            "version",
+            "adapters",
+            "diagnostics",
+            "routes",
+            "smoke",
+            "inspect",
+            "trace",
+            "evidence",
+            "replay",
+            "recover",
+            "storage",
+            "adapter",
+            "support",
+        }
+        missing = expected - parser_commands
+        extra = parser_commands - expected
+        assert not missing, (
+            f"Parser is missing expected commands: {sorted(missing)}. "
+            f"Available: {sorted(parser_commands)}"
+        )
+        assert not extra, (
+            "Parser has commands not covered by the expected operator "
+            f"surface: {sorted(extra)}. Update the expectation (and "
+            "configuration.md) if these are operator-facing."
+        )
+
+
+# ===========================================================================
 # 15. Alpha command surface freeze section present
 # DISABLED: operator-command-surface.md was deleted during docs consolidation.
 # TODO: operator-command-surface.md needs a home in the new docs tree.

@@ -1,4 +1,4 @@
-"""Track 9 — MeshCore operational boundary enforcement tests.
+"""MeshCore operational boundary enforcement tests.
 
 These tests enforce structural invariants that guarantee MeshCore adapter
 operational safety without requiring the ``meshcore`` SDK or radio hardware.

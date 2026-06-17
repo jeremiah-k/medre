@@ -1,4 +1,4 @@
-"""Track 9 — LXMF operational boundary enforcement tests.
+"""LXMF operational boundary enforcement tests.
 
 These tests enforce structural invariants that guarantee the LXMF adapter
 operates safely without requiring the ``lxmf`` or ``RNS`` packages or

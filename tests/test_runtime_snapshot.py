@@ -1,4 +1,4 @@
-"""Tests for the runtime snapshot module (Track 4).
+"""Tests for the runtime snapshot module.
 
 Covers:
 - Deterministic output (same inputs -> same snapshot, sorted keys).

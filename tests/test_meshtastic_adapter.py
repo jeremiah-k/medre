@@ -1080,7 +1080,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
 
 
 # ===================================================================
-# Diagnostics health key follows tranche lifecycle rule
+# Diagnostics health key follows phase lifecycle rule
 # ===================================================================
 
 

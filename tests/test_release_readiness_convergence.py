@@ -267,8 +267,8 @@ def test_no_stale_process_language_in_ops() -> None:
 
 
 def test_no_stale_alpha_beta_branding_in_spec() -> None:
-    """spec/ docs must not contain stale alpha/beta branding terms
-    like 'until beta', 'Status: Alpha', 'E2EE Text Alpha', etc."""
+    """spec/ docs must not contain stale alpha/beta branding terms from the
+    forbidden planning-cycle vocabulary defined in tests/helpers/forbidden_terms.py."""
     raw = find_stale_terms(["spec"], FORBIDDEN_TERMS)
     violations = [
         f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"

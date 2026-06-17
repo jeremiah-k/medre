@@ -38,8 +38,9 @@ set -euo pipefail
 # "partial" and populated limitations.
 #
 # IMPORTANT: This proves Docker SDK-boundary validation only.  No real external
-# Matrix account, real radio, or live network behavior is claimed.  See
-# docs/runbooks/docker-bridge-artifacts.md for full honesty requirements.
+# Matrix account, real radio, or live network behavior is claimed.  See the
+# operator docs under docs/ops/ (diagnostics-and-evidence.md) for Docker
+# SDK-boundary honesty requirements.
 # =============================================================================
 
 PYTHON="${PYTHON:-python}"

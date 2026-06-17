@@ -143,7 +143,7 @@ class TestReplayConfigRequirement:
     )
     def test_replay_config_requirement_mentioned(self, doc_path: Path) -> None:
         text = _read(doc_path)
-        # recovery-and-replay.md has its own section; alpha-walkthrough mentions
+        # recovery-and-replay.md has its own section; operator-workflows mentions
         # replay in the table / notes.
         # Both should mention that replay requires config.
         if doc_path.name == "recovery-and-replay.md":

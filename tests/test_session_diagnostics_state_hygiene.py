@@ -1,4 +1,4 @@
-"""Track 3 — runtime observability refinement tests.
+"""Adapter session diagnostics state hygiene tests.
 
 Covers diagnostics truthfulness gaps found during audit:
   - Reconnect counter reset on stop() for MatrixSession, MeshtasticSession, LxmfSession.

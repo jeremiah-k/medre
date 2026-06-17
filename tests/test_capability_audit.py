@@ -1,7 +1,7 @@
 """Capability truth audit tests: durable proof that capability declarations are
 authoritative runtime truth and do not overclaim.
 
-Turns the Wave 1 capability audit (``docs/dev/capability-truth-audit.md``)
+Turns the capability audit (``docs/dev/capability-truth-audit.md``)
 into machine-checked conformance proof.  The audit found 84 declarations
 (4 adapters × 21 fields) that all pass, with 0 overclaims and 0 actionable
 underclaims.  These tests lock that finding in place.

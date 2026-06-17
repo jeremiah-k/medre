@@ -285,8 +285,8 @@ class TestLoadErrors:
 
 # --- Unknown root-level key rejection (TC-010 / audit finding F-012) ---
 # Unknown top-level keys (typos like ``roues:``) are rejected at load.
-# Wave 2 added an explicit ``set(data) - _KNOWN_ROOT_KEYS`` check at the
-# end of ``_parse_runtime_config`` so a typo at the root surfaces as a
+# An explicit ``set(data) - _KNOWN_ROOT_KEYS`` check at the end of
+# ``_parse_runtime_config`` so a typo at the root surfaces as a
 # :class:`ConfigValidationError` instead of silently being dropped (which
 # would leave the operator with default values for the section they
 # thought they were configuring). Matches ``additionalProperties: false``

@@ -1,4 +1,4 @@
-"""Tests for runtime snapshot diagnostics surfaces (Tranche 3).
+"""Tests for runtime snapshot diagnostics surfaces.
 
 Split from ``test_runtime_snapshot.py`` to stay within the 1 500-line
 suite boundary.

@@ -738,7 +738,7 @@ class TestCrossShapeEquivalence:
 
 
 class TestNestedSessionDiagnosticsLimitation:
-    """Track 5: document that normalize_diagnostics operates on flat keys only.
+    """Document that normalize_diagnostics operates on flat keys only.
 
     Some adapters (Meshtastic, MeshCore, LXMF) nest delivery failure counters
     under a ``session`` sub-dict rather than at the top level.  The

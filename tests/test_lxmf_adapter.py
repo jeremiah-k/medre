@@ -270,7 +270,9 @@ class TestLxmfAdapterLifecycle:
         info = await adapter.health_check()
         assert info.health == "unknown"
 
-    async def test_deliver_returns_none_in_tranche1(self, make_adapter_context) -> None:
+    async def test_deliver_returns_pending_result_via_fake_session(
+        self, make_adapter_context
+    ) -> None:
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-1")
@@ -785,7 +787,7 @@ class TestLxmfAdapterSessionIntegration:
         await adapter.stop()
 
     async def test_adapter_diagnostics_returns_dict(self, make_adapter_context) -> None:
-        """Track 5: adapter.diagnostics() returns a structured dict."""
+        """adapter.diagnostics() returns a structured dict."""
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-diag")
@@ -805,7 +807,7 @@ class TestLxmfAdapterSessionIntegration:
         await adapter.stop()
 
     async def test_adapter_diagnostics_before_start(self) -> None:
-        """Track 5: adapter.diagnostics() works before start()."""
+        """adapter.diagnostics() works before start()."""
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
 
