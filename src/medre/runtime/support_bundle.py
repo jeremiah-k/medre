@@ -296,7 +296,9 @@ def _to_builtins(obj: Any) -> Any:
     field names (honouring ``msgspec.field(name=...)`` aliases). Dataclass
     instances fall through to :func:`dataclasses.asdict`. Everything else
     passes through unchanged so plain dicts/lists reach ``json.dumps``
-    intact.
+    intact. Only top-level Struct/dataclass instances are converted;
+    nested Struct/dataclass instances inside plain dicts still rely on
+    the ``_json_default`` hook.
     """
     if isinstance(obj, msgspec.Struct):
         return msgspec.to_builtins(obj)
