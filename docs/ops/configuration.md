@@ -76,6 +76,16 @@ no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key 
 For interactive route debugging, `medre routes validate [--config PATH]`
 prints a topology preview alongside the same route validation.
 
+### Collecting a diagnostic snapshot
+
+`medre support bundle --config <path> --output medre-support.zip`
+collects a full diagnostic snapshot for support — config check result,
+route plan, adapter summary, environment info, and a redacted config
+copy, packed into a single ZIP. It is offline by default: no adapters
+start, no network or hardware I/O is performed. Use it as the primary
+artifact when filing issues. See [troubleshooting.md](troubleshooting.md)
+for bundle contents and redaction scope.
+
 ### Route Topology Preview with `medre routes plan`
 
 `medre routes plan --config <path>` renders the expanded route topology

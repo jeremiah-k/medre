@@ -865,3 +865,82 @@ answers "is this config well-formed?"; `medre routes plan` answers
 - `docs/ops/troubleshooting.md`: new _Route Plan Diagnostics_ section
   covering `channel_room_map` debugging, origin-label provenance
   interpretation, fan-in warnings, and duplicate-room ambiguity errors.
+
+---
+
+## Operator Support Bundle Command (`medre support bundle`)
+
+Add a new `medre support bundle` command that collects a redacted,
+offline diagnostic bundle for filing issues. It assembles the config
+check result, expanded route plan, adapter summary, environment info,
+and a redacted config copy into a single ZIP archive.
+
+**Behavior:**
+
+- Offline by default — no adapter startup, no network or hardware I/O.
+  The bundle is computed purely from the parsed config plus static
+  runtime metadata.
+- Secret-named field values are replaced with `***REDACTED***` (keys
+  are preserved) by a bundle-scoped redactor (`_redact()` in
+  `support_bundle.py`). This is consistent within bundle outputs but
+  intentionally separate from `sanitize_for_log()` (which drops keys)
+  and `sanitize_error()` (an in-string token regex); consolidating
+  those surfaces is deferred. Error strings inside the bundle still
+  flow through the existing `sanitize_error`. Environment members
+  carry platform metadata only.
+- Partial output on config errors: if the config fails to load, the
+  command still writes a partial archive containing `manifest.json`,
+  `environment.json`, `schemas.json`, `config_source.json`, and
+  `config_check.json` (with the validation error), and exits with code 0.
+- Exit codes: 0 whenever the ZIP was written successfully (including
+  the partial-config-failure case), 3 (`EXIT_BUILD`) only when the
+  ZIP write itself fails.
+
+**Bundle members:**
+
+- `manifest.json` — `bundle_schema_version`, `created_at`, `command`,
+  MEDRE version, platform info, redaction policy.
+- `environment.json` — Python version, platform, machine, MEDRE version.
+- `schemas.json` — runtime/adapter/routing/evidence-bundle config schema
+  file presence, `$id`/`$schema`, and whether
+  `scripts/ci/validate-example-configs.sh` exists. Useful for diagnosing
+  config/schema drift between a deployment and the schemas the bundle
+  was built against. Never carries secret values.
+- `config_source.json` — config discovery source, resolved path,
+  `env_overrides_applied` boolean.
+- `config_check.json` — config load result (`success`, `error`,
+  `error_section_path`).
+- `route_plan.json` — `medre routes plan` output (expanded legs,
+  origin-label provenance).
+- `adapters.json` — adapter summary. Per adapter: `adapter_id`,
+  `transport`, `enabled`, `origin_label`, `adapter_kind` (`"real"` or
+  `"fake"`), and (when the typed adapter config exposes them)
+  `connection_type` (the transport mode string, e.g. `"fake"`,
+  `"tcp"`, `"serial"`, `"ble"`, `"reticulum"`),
+  `endpoint_fields_present` (`{field_name: true}` for populated safe
+  endpoint-ish fields such as `homeserver`, `user_id`, `host`, `port`,
+  `serial_port`, `ble_address`, `channel_mapping`, `room_allowlist`,
+  `storage_path`, `display_name` — presence only, never values), and
+  `secret_fields_present` (`{field_name: true}` for populated
+  secret-like fields such as `access_token`, `ble_pin`,
+  `identity_path` — **boolean presence only, never values**).
+- `redacted_config.yaml` — parsed config with secret-named field
+  values replaced with `***REDACTED***` (keys preserved).
+
+**Not included:** raw secrets, live logs (by default), live probe
+results, storage contents. The bundle is observational — it describes
+the configured shape of the runtime and does not constitute delivery
+evidence.
+
+**Docs updated:**
+
+- `docs/ops/troubleshooting.md`: new _Support Bundles_ section covering
+  when to use the command, bundle contents, what is redacted, what is
+  not included, the review-before-sharing caveat, and partial output
+  on config errors.
+- `docs/ops/running-medre.md`: brief mention of
+  `medre support bundle` as the recommended way to collect
+  diagnostics for issue reports.
+- `docs/ops/configuration.md`: pre-flight validation section notes
+  that `medre support bundle` can collect a full diagnostic
+  snapshot for support.
