@@ -57,19 +57,11 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Source-level static checks
+# Source-level static checks (AST-based for import/call robustness)
 # ---------------------------------------------------------------------------
 
-# ponytail: substring scan of the module source is the shortest reliable
-# gate that the bundle stays SDK-free and side-effect-free. A unit test
-# exercising the offline path is paired below.
-_SDK_IMPORT_TOKENS = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import lxmf",
-)
-_STARTUP_TOKENS = (".start()", ".connect()", ".stop()", ".close()")
+_FORBIDDEN_SDK_ROOTS = frozenset({"nio", "meshtastic", "meshcore", "lxmf"})
+_FORBIDDEN_METHODS = frozenset({"start", "connect", "stop", "close"})
 
 
 def _module_source() -> str:
@@ -95,17 +87,33 @@ def test_bundle_builds_with_fake_adapters(tmp_path: Path) -> None:
 
 def test_no_sdk_imports_in_module() -> None:
     """support_bundle.py does not import any adapter SDK."""
-    source = _module_source()
-    for token in _SDK_IMPORT_TOKENS:
-        assert (
-            token not in source
-        ), f"forbidden SDK import {token!r} found in support_bundle.py"
+    import ast
+
+    tree = ast.parse(_module_source())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                assert (
+                    root not in _FORBIDDEN_SDK_ROOTS
+                ), f"forbidden SDK import {alias.name!r} in support_bundle.py"
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            root = node.module.split(".")[0]
+            assert (
+                root not in _FORBIDDEN_SDK_ROOTS
+            ), f"forbidden SDK import from {node.module!r} in support_bundle.py"
 
 
 def test_no_adapter_startup_calls_in_module() -> None:
     """support_bundle.py does not call adapter .start()/.connect()/.stop()/.close()."""
-    source = _module_source()
-    for token in _STARTUP_TOKENS:
-        assert (
-            token not in source
-        ), f"forbidden adapter I/O call {token!r} found in support_bundle.py"
+    import ast
+
+    tree = ast.parse(_module_source())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in _FORBIDDEN_METHODS:
+                raise AssertionError(
+                    f"forbidden adapter I/O call .{func.attr}() "
+                    f"in support_bundle.py"
+                )

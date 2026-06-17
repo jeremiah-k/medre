@@ -306,8 +306,8 @@ def _build_adapters(config: Any) -> dict[str, Any]:
                 pass
             adapters.append(entry)
     except Exception:
-        # Defensive: a malformed adapter set should not sink the bundle.
-        adapters = []
+        # Defensive: keep partial inventory already collected before failure.
+        pass
     return {"adapters": adapters}
 
 
