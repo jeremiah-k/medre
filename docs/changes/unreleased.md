@@ -944,3 +944,13 @@ evidence.
 - `docs/ops/configuration.md`: pre-flight validation section notes
   that `medre support bundle` can collect a full diagnostic
   snapshot for support.
+
+---
+
+## Support Bundle Typed Member Models
+
+Support bundle internals now use `msgspec.Struct` models for
+manifest, config_source, config_check, environment, schemas, and
+adapter summary members to reduce schema drift. No bundle behavior
+or redaction guarantees were intentionally changed; JSON output
+shape is unchanged on success paths; schema-failure entries now emit explicit null keys for visibility.

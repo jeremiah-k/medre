@@ -18,6 +18,7 @@ builds a runtime and would violate the offline guarantee.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import json
 import os
@@ -29,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+import msgspec
 import yaml
 
 from medre.config._yaml import parse_yaml_config
@@ -44,6 +46,85 @@ BUNDLE_SCHEMA_VERSION: int = 1
 
 _DEFAULT_OUTPUT_NAME = "medre-support-bundle.zip"
 _REDACTED = "***REDACTED***"
+
+
+# ---------------------------------------------------------------------------
+# Typed bundle members (msgspec.Struct)
+# ---------------------------------------------------------------------------
+#
+# Structured bundle members use ``msgspec.Struct`` per project convention
+# (see :mod:`medre.core.evidence.bundle`). Frozen members are immutable
+# snapshots; :class:`ConfigCheckMember` is mutable because its fields are
+# set incrementally during bundle creation.
+#
+# JSON output identity is preserved: ``msgspec.to_builtins`` on a Struct
+# produces the same dict as the old manual construction, and
+# ``sort_keys=True`` in :func:`_json_bytes` canonicalises ordering.
+
+
+class ManifestMember(msgspec.Struct, frozen=True):
+    """``manifest.json`` — bundle identity and build context."""
+
+    bundle_schema_version: int
+    created_at: str
+    command: str
+    medre_version: str
+    platform: dict[str, str]
+    redaction_policy: str
+
+
+class EnvironmentMember(msgspec.Struct, frozen=True):
+    """``environment.json`` — Python/platform/runtime version snapshot."""
+
+    python_version: str
+    platform: str
+    machine: str
+    medre_version: str
+
+
+class ConfigSourceMember(msgspec.Struct, frozen=True):
+    """``config_source.json`` — where the config was discovered."""
+
+    source: str | None
+    path: str | None
+    env_overrides_applied: bool
+
+
+class ConfigCheckMember(msgspec.Struct):
+    """``config_check.json`` — config load/validation outcome.
+
+    Not frozen: fields are set incrementally as config discovery, load,
+    and validation proceed within :func:`create_support_bundle`.
+    """
+
+    success: bool = False
+    error: str | None = None
+    error_section_path: str | None = None
+
+
+class SchemaEntry(msgspec.Struct, frozen=True):
+    """One schema-file metadata entry within :class:`SchemasMember`.
+
+    ``$id`` / ``$schema`` are JSON-Schema keywords (not valid Python
+    identifiers), so the Python field names use ``id`` / ``schema`` with
+    ``msgspec.field(name=...)`` aliases for serialisation.
+    """
+
+    present: bool
+    path: str | None = None
+    id: str | None = msgspec.field(name="$id", default=None)
+    schema: str | None = msgspec.field(name="$schema", default=None)
+
+
+class SchemasMember(msgspec.Struct, frozen=True):
+    """``schemas.json`` — schema-file presence and metadata."""
+
+    runtime_config_schema: SchemaEntry
+    adapter_config_schema: SchemaEntry
+    routing_config_schema: SchemaEntry
+    evidence_bundle_schema: SchemaEntry
+    validate_example_configs_script_present: bool
+
 
 # Substring tokens (case-insensitive) for secret-key detection. Over-broad
 # on purpose: redacting a benign field is safe, leaking a secret is not.
@@ -147,28 +228,32 @@ _VALIDATE_EXAMPLE_CONFIGS_SCRIPT = (
 )
 
 
-def _read_schema_meta(filename: str) -> dict[str, Any]:
+def _read_schema_meta(filename: str) -> SchemaEntry:
     """Return presence + ``$id``/``$schema`` for *filename* under docs/schemas.
 
     Defensive by design: a missing or malformed schema never raises. Returns
-    ``{"present": False}`` on any failure so the bundle stays JSON-valid.
+    a :class:`SchemaEntry` with ``present=False`` on any failure so the
+    bundle stays JSON-valid.
     """
     path = _SCHEMAS_DIR / filename
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 — schema metadata is best-effort
-        return {"present": False}
+        # ponytail: failure path emits present=False. When schemas are
+        # present (the normal case) all four keys appear; on failure the
+        # extra null keys are informative rather than harmful.
+        return SchemaEntry(present=False)
     if not isinstance(data, dict):
-        return {"present": False}
-    return {
-        "present": True,
-        "path": str(path),
-        "$id": data.get("$id"),
-        "$schema": data.get("$schema"),
-    }
+        return SchemaEntry(present=False)
+    return SchemaEntry(
+        present=True,
+        path=str(path),
+        id=data.get("$id"),
+        schema=data.get("$schema"),
+    )
 
 
-def _build_schemas_member() -> dict[str, Any]:
+def _build_schemas_member() -> SchemasMember:
     """Build the ``schemas.json`` bundle member: schema-file metadata.
 
     Surfaces presence and ``$id``/``$schema`` for the runtime, adapter,
@@ -177,15 +262,15 @@ def _build_schemas_member() -> dict[str, Any]:
     between a deployment and the schemas the bundle was built against.
     Defensive — never raises.
     """
-    return {
-        "runtime_config_schema": _read_schema_meta("runtime-config.schema.json"),
-        "adapter_config_schema": _read_schema_meta("adapter-config.schema.json"),
-        "routing_config_schema": _read_schema_meta("routing-config.schema.json"),
-        "evidence_bundle_schema": _read_schema_meta("evidence-bundle.schema.json"),
-        "validate_example_configs_script_present": (
+    return SchemasMember(
+        runtime_config_schema=_read_schema_meta("runtime-config.schema.json"),
+        adapter_config_schema=_read_schema_meta("adapter-config.schema.json"),
+        routing_config_schema=_read_schema_meta("routing-config.schema.json"),
+        evidence_bundle_schema=_read_schema_meta("evidence-bundle.schema.json"),
+        validate_example_configs_script_present=(
             _VALIDATE_EXAMPLE_CONFIGS_SCRIPT.is_file()
         ),
-    }
+    )
 
 
 def _get_version() -> str:
@@ -201,6 +286,30 @@ def _json_default(obj: Any) -> Any:
     if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serialisable")
+
+
+def _to_builtins(obj: Any) -> Any:
+    """Convert msgspec.Struct or dataclass instances to JSON-safe builtins.
+
+    ``msgspec.to_builtins`` recursively converts Struct instances (including
+    nested Structs) to plain ``dict`` / ``list`` / primitives with the same
+    field names (honouring ``msgspec.field(name=...)`` aliases). Dataclass
+    instances fall through to :func:`dataclasses.asdict`. Plain dicts and
+    lists are traversed so Struct/dataclass instances nested inside them
+    are converted too — otherwise a Struct would reach :func:`json.dumps`
+    untouched and trigger ``TypeError`` (the ``_json_default`` hook only
+    handles dataclasses, not Structs). Everything else passes through
+    unchanged.
+    """
+    if isinstance(obj, msgspec.Struct):
+        return msgspec.to_builtins(obj)
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    if isinstance(obj, dict):
+        return {k: _to_builtins(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_builtins(v) for v in obj]
+    return obj
 
 
 def _platform_info() -> dict[str, str]:
@@ -223,33 +332,37 @@ def _section_path_of(exc: BaseException) -> str | None:
     return None
 
 
-def _build_manifest(now_fn: datetime) -> dict[str, Any]:
-    return {
-        "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
-        "created_at": now_fn.isoformat(),
-        "command": "medre support bundle",
-        "medre_version": _get_version(),
-        "platform": _platform_info(),
-        "redaction_policy": "secret-key-name-match-v1",
-    }
+def _build_manifest(now_fn: datetime) -> ManifestMember:
+    return ManifestMember(
+        bundle_schema_version=BUNDLE_SCHEMA_VERSION,
+        created_at=now_fn.isoformat(),
+        command="medre support bundle",
+        medre_version=_get_version(),
+        platform=_platform_info(),
+        redaction_policy="secret-key-name-match-v1",
+    )
 
 
-def _build_environment() -> dict[str, Any]:
+def _build_environment() -> EnvironmentMember:
     info = _platform_info()
-    info["medre_version"] = _get_version()
-    return info
+    return EnvironmentMember(
+        python_version=info["python_version"],
+        platform=info["platform"],
+        machine=info["machine"],
+        medre_version=_get_version(),
+    )
 
 
 def _build_config_source(
     source: ConfigSource | None,
     path: Path | None,
-) -> dict[str, Any]:
+) -> ConfigSourceMember:
     env_overrides_applied = _has_config_env_overrides()
-    return {
-        "source": source.value if source is not None else None,
-        "path": str(path) if path is not None else None,
-        "env_overrides_applied": env_overrides_applied,
-    }
+    return ConfigSourceMember(
+        source=source.value if source is not None else None,
+        path=str(path) if path is not None else None,
+        env_overrides_applied=env_overrides_applied,
+    )
 
 
 def _build_adapters(config: Any) -> dict[str, Any]:
@@ -276,6 +389,14 @@ def _build_adapters(config: Any) -> dict[str, Any]:
     trigger an adapter SDK import. If introspection fails for one
     adapter, that adapter keeps its base fields and enrichment is
     skipped; the bundle stays JSON-valid.
+
+    .. note::
+
+       This member stays a plain ``dict`` rather than a ``msgspec.Struct``:
+       ``connection_type`` is conditionally present (tests assert its
+       *absence* for transports without one), and enrichment fields are
+       omitted entirely on per-adapter introspection failure. A Struct
+       always emits all fields, which would change the JSON shape.
     """
     adapters: list[dict[str, Any]] = []
     try:
@@ -388,6 +509,13 @@ def _build_route_plan_member(config: Any) -> dict[str, Any]:
 
     On any failure, returns ``{"error": "<sanitised>"}`` so the member
     is always valid JSON.
+
+    .. note::
+
+       Stays a plain ``dict``: the success path is already typed via the
+       ``RoutePlan`` dataclass (serialised with :func:`dataclasses.asdict`),
+       and the failure fallback ``{"error": ...}`` is intentionally
+       dynamic. No separate model is warranted.
     """
     try:
         plan = build_route_plan(config)
@@ -469,16 +597,12 @@ def create_support_bundle(
     # -- Config discovery, load, and validation ----------------------------
     discovered_path: Path | None = None
     discovered_source: ConfigSource | None = None
-    config_check: dict[str, Any] = {
-        "success": False,
-        "error": None,
-        "error_section_path": None,
-    }
+    config_check = ConfigCheckMember()
 
     try:
         discovered_path, discovered_source = find_config(config_path)
     except Exception as exc:  # noqa: BLE001 — bundle keeps going on config miss
-        config_check["error"] = _safe_error(exc)
+        config_check.error = _safe_error(exc)
 
     members["config_source.json"] = _json_bytes(
         _build_config_source(discovered_source, discovered_path)
@@ -490,7 +614,7 @@ def create_support_bundle(
         try:
             raw_text = discovered_path.read_text(encoding="utf-8")
         except OSError as exc:
-            config_check["error"] = _safe_error(exc)
+            config_check.error = _safe_error(exc)
             raw_text = None
 
     if discovered_path is not None:
@@ -499,19 +623,19 @@ def create_support_bundle(
             # when discovery expanded a directory to a file (or applied an
             # XDG default), load_config must see the same path that was read.
             config, _source, _paths = load_config(discovered_path)
-            config_check["success"] = True
-            config_check["error"] = None
-            config_check["error_section_path"] = None
+            config_check.success = True
+            config_check.error = None
+            config_check.error_section_path = None
         except ConfigValidationError as exc:
-            config_check["success"] = False
-            config_check["error"] = _safe_error(exc)
-            config_check["error_section_path"] = _section_path_of(exc)
+            config_check.success = False
+            config_check.error = _safe_error(exc)
+            config_check.error_section_path = _section_path_of(exc)
         except ConfigError as exc:
-            config_check["success"] = False
-            config_check["error"] = _safe_error(exc)
+            config_check.success = False
+            config_check.error = _safe_error(exc)
         except Exception as exc:  # noqa: BLE001 — defensive: keep bundle alive
-            config_check["success"] = False
-            config_check["error"] = _safe_error(exc)
+            config_check.success = False
+            config_check.error = _safe_error(exc)
 
     members["config_check.json"] = _json_bytes(config_check)
 
@@ -538,9 +662,20 @@ def create_support_bundle(
 
 
 def _json_bytes(data: Any) -> bytes:
-    """Serialise *data* to canonical, sorted, indented JSON UTF-8 bytes."""
+    """Serialise *data* to canonical, sorted, indented JSON UTF-8 bytes.
+
+    msgspec.Struct instances are converted to plain builtins via
+    :func:`_to_builtins` before reaching :func:`json.dumps`; the
+    ``default`` hook remains as a fallback for any stray dataclasses.
+    """
     return (
-        json.dumps(data, indent=2, sort_keys=True, default=_json_default) + "\n"
+        json.dumps(
+            _to_builtins(data),
+            indent=2,
+            sort_keys=True,
+            default=_json_default,
+        )
+        + "\n"
     ).encode("utf-8")
 
 
@@ -564,4 +699,28 @@ if __name__ == "__main__":  # ponytail: tiny self-check, no test framework
     assert matrix_cfg["homeserver"] == "https://example.org"
     assert matrix_cfg["origin_label"] == "bridge"
     assert redacted["storage"]["path"] == "/tmp/medre.db"
+
+    # _to_builtins must recurse into plain dicts/lists so a Struct nested
+    # in one is converted; otherwise json.dumps raises TypeError on it
+    # (the _json_default hook only handles dataclasses, not Structs).
+    nested = {
+        "items": [
+            EnvironmentMember(
+                python_version="3.11",
+                platform="linux",
+                machine="x86_64",
+                medre_version="0",
+            )
+        ]
+    }
+    assert _to_builtins(nested) == {
+        "items": [
+            {
+                "python_version": "3.11",
+                "platform": "linux",
+                "machine": "x86_64",
+                "medre_version": "0",
+            }
+        ]
+    }, _to_builtins(nested)
     print("support_bundle self-check OK", file=sys.stderr)
