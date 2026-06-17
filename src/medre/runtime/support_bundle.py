@@ -294,16 +294,21 @@ def _to_builtins(obj: Any) -> Any:
     ``msgspec.to_builtins`` recursively converts Struct instances (including
     nested Structs) to plain ``dict`` / ``list`` / primitives with the same
     field names (honouring ``msgspec.field(name=...)`` aliases). Dataclass
-    instances fall through to :func:`dataclasses.asdict`. Everything else
-    passes through unchanged so plain dicts/lists reach ``json.dumps``
-    intact. Only top-level Struct/dataclass instances are converted;
-    nested Struct/dataclass instances inside plain dicts still rely on
-    the ``_json_default`` hook.
+    instances fall through to :func:`dataclasses.asdict`. Plain dicts and
+    lists are traversed so Struct/dataclass instances nested inside them
+    are converted too — otherwise a Struct would reach :func:`json.dumps`
+    untouched and trigger ``TypeError`` (the ``_json_default`` hook only
+    handles dataclasses, not Structs). Everything else passes through
+    unchanged.
     """
     if isinstance(obj, msgspec.Struct):
         return msgspec.to_builtins(obj)
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return dataclasses.asdict(obj)
+    if isinstance(obj, dict):
+        return {k: _to_builtins(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_builtins(v) for v in obj]
     return obj
 
 
@@ -694,4 +699,28 @@ if __name__ == "__main__":  # ponytail: tiny self-check, no test framework
     assert matrix_cfg["homeserver"] == "https://example.org"
     assert matrix_cfg["origin_label"] == "bridge"
     assert redacted["storage"]["path"] == "/tmp/medre.db"
+
+    # _to_builtins must recurse into plain dicts/lists so a Struct nested
+    # in one is converted; otherwise json.dumps raises TypeError on it
+    # (the _json_default hook only handles dataclasses, not Structs).
+    nested = {
+        "items": [
+            EnvironmentMember(
+                python_version="3.11",
+                platform="linux",
+                machine="x86_64",
+                medre_version="0",
+            )
+        ]
+    }
+    assert _to_builtins(nested) == {
+        "items": [
+            {
+                "python_version": "3.11",
+                "platform": "linux",
+                "machine": "x86_64",
+                "medre_version": "0",
+            }
+        ]
+    }, _to_builtins(nested)
     print("support_bundle self-check OK", file=sys.stderr)
