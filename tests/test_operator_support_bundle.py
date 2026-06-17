@@ -15,10 +15,17 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import msgspec
 import pytest
 
 from medre.runtime.support_bundle import (
     BUNDLE_SCHEMA_VERSION,
+    ConfigCheckMember,
+    ConfigSourceMember,
+    EnvironmentMember,
+    ManifestMember,
+    SchemaEntry,
+    SchemasMember,
     _has_config_env_overrides,
     create_support_bundle,
 )
@@ -601,3 +608,62 @@ def test_adapters_json_does_not_include_raw_ble_pin(tmp_path: Path) -> None:
     # Endpoint-ish fields for the BLE-configured MeshCore node are reported.
     assert meshcore["endpoint_fields_present"]["ble_address"] is True
     assert meshcore["connection_type"] == "ble"
+
+
+# ---------------------------------------------------------------------------
+# Typed bundle members are msgspec.Struct subclasses
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_member_models_are_msgspec_structs() -> None:
+    """Bundle member models are msgspec.Struct subclasses.
+
+    Regression guard: ensures the typed models are not accidentally
+    swapped back to plain dataclasses or removed.
+    """
+    for model in (
+        ManifestMember,
+        EnvironmentMember,
+        ConfigSourceMember,
+        ConfigCheckMember,
+        SchemaEntry,
+        SchemasMember,
+    ):
+        assert issubclass(model, msgspec.Struct), model
+
+
+def test_manifest_member_is_frozen() -> None:
+    """ManifestMember is frozen (immutable snapshot)."""
+    m = ManifestMember(
+        bundle_schema_version=1,
+        created_at="2024-01-01T00:00:00+00:00",
+        command="medre support bundle",
+        medre_version="0.1.0",
+        platform={"python_version": "3.11.0", "platform": "linux", "machine": "x86_64"},
+        redaction_policy="secret-key-name-match-v1",
+    )
+    with pytest.raises(AttributeError):
+        m.command = "other"  # type: ignore[misc]
+
+
+def test_config_check_member_is_mutable() -> None:
+    """ConfigCheckMember allows incremental field mutation."""
+    c = ConfigCheckMember()
+    assert c.success is False
+    assert c.error is None
+    c.success = True
+    c.error = "boom"
+    assert c.success is True
+    assert c.error == "boom"
+
+
+def test_schema_entry_uses_dollar_prefixed_json_keys() -> None:
+    """SchemaEntry serialises with $id / $schema JSON keys (not Python names)."""
+    entry = SchemaEntry(present=True, path="/x", id="https://id", schema="https://sch")
+    builtins = msgspec.to_builtins(entry)
+    assert "$id" in builtins
+    assert "$schema" in builtins
+    assert "id" not in builtins
+    assert "schema" not in builtins
+    assert builtins["$id"] == "https://id"
+    assert builtins["$schema"] == "https://sch"
