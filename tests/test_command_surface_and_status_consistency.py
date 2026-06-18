@@ -452,6 +452,20 @@ def _subparser_choices(parser, *path: str) -> set[str]:
     return result
 
 
+@pytest.fixture(scope="module")
+def root_parser():
+    from medre.cli.main import _build_parser
+
+    return _build_parser()
+
+
+@pytest.fixture(scope="module")
+def config_text() -> str:
+    if not CONFIG_DOC.exists():
+        pytest.skip("configuration.md not found")
+    return _read(CONFIG_DOC)
+
+
 class TestNestedCommandCoverage:
     """Every operator-facing nested subcommand registered in the parser
     must be documented in configuration.md's CLI inventory.
@@ -462,18 +476,6 @@ class TestNestedCommandCoverage:
     when a subcommand exists in the parser but is missing from the
     inventory (or vice versa), the mismatch is reported explicitly.
     """
-
-    @pytest.fixture(scope="class")
-    def root_parser(self):
-        from medre.cli.main import _build_parser
-
-        return _build_parser()
-
-    @pytest.fixture(scope="class")
-    def config_text(self) -> str:
-        if not CONFIG_DOC.exists():
-            pytest.skip("configuration.md not found")
-        return _read(CONFIG_DOC)
 
     @pytest.mark.parametrize(
         "top_level,expected",
