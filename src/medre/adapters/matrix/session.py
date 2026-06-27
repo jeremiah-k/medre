@@ -320,7 +320,15 @@ class MatrixSession:
 
     @property
     def crypto_store_loaded(self) -> bool:
-        """``True`` when the crypto store was loaded/initialized."""
+        """``True`` when the crypto store was loaded at startup.
+
+        This is a cached flag set during ``start()``/``restore_login()``.
+        :meth:`diagnostics` recomputes from live client state
+        (``olm_loaded and store_loaded``) for operational freshness.
+        The two sources are intentionally separate: the property answers
+        "was it ever loaded?" while diagnostics answers "is it loaded
+        right now?"
+        """
         return self._crypto_store_loaded
 
     # Room-state tracking
