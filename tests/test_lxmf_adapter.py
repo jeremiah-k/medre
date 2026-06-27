@@ -284,6 +284,10 @@ class TestLxmfAdapterLifecycle:
         assert delivery is not None
         assert isinstance(delivery, AdapterDeliveryResult)
         assert delivery.native_message_id is not None
+        assert delivery.metadata["lxmf"]["delivery_state"] in (
+            "outbound",
+            "pending",
+        )
         await adapter.stop()
 
     async def test_deliver_rejects_canonical_event(self) -> None:

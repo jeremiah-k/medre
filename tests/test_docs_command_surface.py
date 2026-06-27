@@ -25,17 +25,20 @@ def _read(path: Path) -> str:
 
 
 def _extract_cli_inventory(text: str) -> str:
-    """Extract the CLI inventory code block from *text*.
+    """Return the ```text code block inside the '## CLI Commands' section.
 
-    Finds the ```text fence whose content contains ``medre`` lines that
-    look like command entries (``medre <word>``) rather than path references.
+    Section-scoped extraction keeps the coverage check honest: a prose
+    mention elsewhere must not mask a missing CLI inventory entry.
     """
-    best = ""
-    for m in re.finditer(r"```text\n(.*?)```", text, re.DOTALL):
-        block = m.group(1)
-        if re.search(r"^medre\s+\S", block, re.MULTILINE):
-            best = block
-    return best
+    section = re.search(
+        r"^## CLI Commands(.*?)(?=^## |\Z)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if not section:
+        return ""
+    fence = re.search(r"```text\n(.*?)```", section.group(1), re.DOTALL)
+    return fence.group(1) if fence else ""
 
 
 # ===========================================================================
