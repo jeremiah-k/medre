@@ -564,9 +564,15 @@ class TestNestedCommandCoverage:
         for sub in sorted(expected):
             # configuration.md groups the auth subcommands as
             # "adapter matrix auth (login|status)".
-            assert sub in cli_section, (
+            grouped = re.compile(
+                rf"medre\s+adapter\s+matrix\s+auth\s*\([^)]*\b"
+                rf"{re.escape(sub)}\b[^)]*\)"
+            )
+            individual = f"medre adapter matrix auth {sub}"
+            assert grouped.search(cli_section) or individual in cli_section, (
                 f"configuration.md CLI inventory must document "
-                f"'adapter matrix auth {sub}'."
+                f"'medre adapter matrix auth {sub}' (individual or grouped form). "
+                f"Parser exposes it but the docs do not."
             )
         # Sanity: the grouped form is present.
         assert "adapter matrix auth" in cli_section, (

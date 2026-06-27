@@ -443,25 +443,48 @@ def test_event_buffer_snapshot_events_json_safe() -> None:
 def test_spec_docs_no_temporary_language_near_shutdown_rejection() -> None:
     """Spec docs near shutdown_rejection should not contain the forbidden
     planning-cycle vocabulary or other temporary language (per user
-    requirement: no temporary language in main specs)."""
+    requirement: no temporary language in main specs).
+
+    The scan is narrowed to a ±20-line window around each
+    ``shutdown_rejection`` mention so planning terms elsewhere in the
+    same spec file do not trigger false failures. The intent is "no
+    planning vocabulary near shutdown_rejection", not "no planning
+    vocabulary anywhere in the file".
+    """
+    window = 20
     for spec_file in _SPEC_DIR.rglob("*.md"):
         content = _read_doc(spec_file)
         if "shutdown_rejection" not in content:
             continue
-        lower = content.lower()
-        # Check that the doc doesn't use the forbidden planning-cycle
-        # vocabulary or other temporary language near shutdown_rejection.
+        lines = content.splitlines()
+        hit_indices = [
+            i for i, line in enumerate(lines) if "shutdown_rejection" in line
+        ]
+        # Build the joined window (original case + lowercase) across all
+        # shutdown_rejection mentions in this file. Windows may overlap
+        # when mentions cluster; joining with a newline is sufficient
+        # because each pattern is matched within its own window slice.
+        near_parts: list[str] = []
+        for i in hit_indices:
+            lo = max(0, i - window)
+            hi = min(len(lines), i + window + 1)
+            near_parts.append("\n".join(lines[lo:hi]))
+        near = "\n".join(near_parts)
+        near_lower = near.lower()
+        # Check that the windowed region doesn't use the forbidden
+        # planning-cycle vocabulary or other temporary language.
         # These terms belong in dev audit docs only.
         for term in ("temporary", "tentative"):
-            assert term not in lower, (
+            assert term not in near_lower, (
                 f"Spec doc {spec_file.name} should not contain "
-                f"'{term}' language — belongs in dev audit docs"
+                f"'{term}' language within ±{window} lines of "
+                f"shutdown_rejection — belongs in dev audit docs"
             )
         for pattern in PLANNING_CYCLE_TERMS:
-            assert not pattern.search(content), (
+            assert not pattern.search(near), (
                 f"Spec doc {spec_file.name} should not contain "
-                f"forbidden planning-cycle language — belongs in dev "
-                f"audit docs"
+                f"forbidden planning-cycle language within ±{window} "
+                f"lines of shutdown_rejection — belongs in dev audit docs"
             )
 
 

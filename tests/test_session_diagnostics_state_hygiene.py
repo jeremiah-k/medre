@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -89,7 +89,7 @@ def _build_mock_nio_module() -> MagicMock:
 
 
 @pytest.fixture
-def mock_nio():
+def mock_nio() -> MagicMock:
     """Inject a mock nio module and patch HAS_NIO."""
     mock = _build_mock_nio_module()
     saved_nio = sys.modules.get("nio")
@@ -423,8 +423,8 @@ class TestCrossSessionReconnectCounterConsistency:
 
 
 @pytest.fixture
-def make_adapter_context():
-    """Create an AdapterContext for testing."""
+def make_adapter_context() -> Callable[[str], "AdapterContext"]:
+    """Create an AdapterContext factory for testing."""
     from datetime import datetime, timezone
 
     from medre.core.contracts.adapter import AdapterContext

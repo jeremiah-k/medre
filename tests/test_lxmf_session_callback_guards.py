@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
+
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
 )
@@ -188,8 +190,8 @@ class TestAsyncCallbackExceptionHandling:
 
         session.inject_inbound({"content": "trigger"})
 
-        # Give the event loop a turn to run the scheduled task.
-        await asyncio.sleep(0.05)
+        # Wait deterministically for the scheduled async task to run.
+        await wait_until(lambda: len(received) >= 1)
 
         # Callback was invoked (received the message) and exception
         # was consumed by the done callback — session survives.

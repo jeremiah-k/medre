@@ -320,9 +320,10 @@ def _to_builtins(obj: Any) -> Any:
     - dataclass instance → :func:`dataclasses.asdict`, then the result
       is RECURSED back through this function. ``asdict`` does not know
       about Structs, so a Struct-valued field survives ``asdict`` as a
-      raw Struct and would trip :func:`json.dumps` (the ``_json_default``
-      hook only handles dataclasses, not Structs). The recursion also
-      normalises tuples produced by ``asdict`` into lists.
+       raw Struct and would fall back to ``_json_default`` which now also
+       handles Structs. The recursion keeps that case on the main
+       normalisation path and also normalises tuples produced by ``asdict``
+       into lists.
     - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
       become lists (matching :func:`json.dumps` tuple semantics).
 

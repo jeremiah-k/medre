@@ -728,6 +728,43 @@ def test_to_builtins_converts_tuple_of_struct_to_list() -> None:
     ]
 
 
+def test_to_builtins_converts_set_and_frozenset_to_sorted_list() -> None:
+    """A heterogeneous set/frozenset is converted to a deterministic sorted list.
+
+    Previously ``set`` and ``frozenset`` fell through ``_to_builtins``
+    unchanged, so a set reached ``json.dumps`` and raised TypeError
+    (sets are not JSON-serialisable). The fix recurses each element
+    through ``_to_builtins`` and sorts by the element's canonical JSON
+    representation so the output is a stable total order even when
+    heterogeneous types share str forms (e.g. ``{1, "1"}``).
+    """
+    raw_set = {"b", 1, "a"}
+    raw_frozenset = frozenset({"y", 2, "x"})
+
+    # Must not raise TypeError.
+    out_set = _to_builtins(raw_set)
+    out_frozenset = _to_builtins(raw_frozenset)
+
+    # Output is a list, never a set/frozenset.
+    assert isinstance(out_set, list)
+    assert isinstance(out_frozenset, list)
+    assert not isinstance(out_set, (set, frozenset))
+    assert not isinstance(out_frozenset, (set, frozenset))
+
+    sort_key = lambda v: json.dumps(v, sort_keys=True, separators=(",", ":"))
+
+    expected_set = sorted([_to_builtins(v) for v in raw_set], key=sort_key)
+    expected_frozenset = sorted(
+        [_to_builtins(v) for v in raw_frozenset], key=sort_key
+    )
+    assert out_set == expected_set
+    assert out_frozenset == expected_frozenset
+
+    # The sorted list must JSON-serialise without raising TypeError.
+    json.dumps(out_set)
+    json.dumps(out_frozenset)
+
+
 def test_to_builtins_recurses_struct_nested_in_dataclass_field() -> None:
     """A Struct nested inside a dataclass field is converted to a dict.
 

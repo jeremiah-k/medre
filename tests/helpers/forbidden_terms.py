@@ -12,10 +12,11 @@ Policy scope (see ``docs/dev/documentation-style.md``):
     branch names, new commit messages, and agent-facing prompts.
 
 Scan scope (default):
-    - ``docs/``  — all ``.md`` files (spec, ops, dev, schemas, changes)
-    - ``src/``   — all ``.py`` files (comments, docstrings)
-    - ``tests/`` — all ``.py`` files (names, methods, comments, docstrings)
-    - ``examples/`` — ``.md``, ``.py``, ``.toml``, ``.yaml``, ``.yml``, ``.json``
+    All trees (``docs/``, ``src/``, ``tests/``, ``examples/``) scan every
+    file whose extension appears in ``_SCANNED_EXTENSIONS`` (``.md``,
+    ``.py``, ``.rst``, ``.toml``, ``.yaml``, ``.yml``, ``.json``, ``.txt``,
+    ``.cfg``, ``.ini``). Filenames themselves are scanned across the above
+    trees.
     - Filenames themselves are scanned across the above trees.
 
 Not scanned:

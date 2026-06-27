@@ -6,6 +6,7 @@ auth command appears in the operator command surface.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,20 @@ OPS_DIR = _ROOT / "docs" / "ops"
 def _read(path: Path) -> str:
     """Read file contents as UTF-8 string."""
     return path.read_text(encoding="utf-8")
+
+
+def _extract_cli_inventory(text: str) -> str:
+    """Extract the CLI inventory code block from *text*.
+
+    Finds the ```text fence whose content contains ``medre`` lines that
+    look like command entries (``medre <word>``) rather than path references.
+    """
+    best = ""
+    for m in re.finditer(r"```text\n(.*?)```", text, re.DOTALL):
+        block = m.group(1)
+        if re.search(r"^medre\s+\S", block, re.MULTILINE):
+            best = block
+    return best
 
 
 # ===========================================================================
@@ -124,13 +139,18 @@ class TestParserCommandsDocumented:
 
     def test_every_parser_command_documented_in_configuration_md(self) -> None:
         text = _read(OPS_DIR / "configuration.md")
+        inventory = _extract_cli_inventory(text)
+        assert inventory, (
+            "configuration.md has no ```text code block containing 'medre' "
+            "commands — the CLI inventory section may be missing or renamed."
+        )
         parser_commands = _parser_top_level_commands()
         assert parser_commands, "Parser unexpectedly exposed no top-level commands"
 
         # Every parser command is operator-facing (see operator-surface-audit);
         # there is no separate hidden/internal command set.
         undocumented = sorted(
-            cmd for cmd in parser_commands if f"medre {cmd}" not in text
+            cmd for cmd in parser_commands if f"medre {cmd}" not in inventory
         )
         assert not undocumented, (
             "configuration.md CLI inventory is missing operator-facing "
