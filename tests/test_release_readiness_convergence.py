@@ -302,7 +302,7 @@ def test_no_stale_alpha_beta_branding_in_ops() -> None:
 def test_no_test_alpha_class_names() -> None:
     """No test class name should start with 'TestAlpha'.
 
-    All 'TestAlpha*' classes are stale naming from the alpha walkthrough
+    All 'TestAlpha*' classes are stale naming from the prerelease branding
     era. They must be renamed to drop the 'Alpha' qualifier.
     """
     import ast as _ast
@@ -348,7 +348,6 @@ def test_deleted_monolith_refs_include_former() -> None:
         "test_pipeline",
         "test_replay",
         "test_cli",
-        "test_alpha_walkthrough_cli",
         "test_docker_bridge_artifacts",
     )
 

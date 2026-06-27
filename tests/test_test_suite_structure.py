@@ -32,7 +32,6 @@ DELETED_MONOLITHS = (
     "test_pipeline",
     "test_replay",
     "test_cli",
-    "test_alpha_walkthrough_cli",
     "test_docker_bridge_artifacts",
 )
 

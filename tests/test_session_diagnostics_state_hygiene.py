@@ -304,26 +304,27 @@ class TestMeshtasticAdapterDiagnosticsQueueRejected:
 
 
 # ===================================================================
-# GAP F: MatrixSession clears _last_reconnect_error on recovery
+# GAP F: MatrixSession _last_reconnect_error state invariant
 # ===================================================================
 
 
-class TestMatrixReconnectErrorClearsOnRecovery:
-    """MatrixSession._sync_with_reconnect() must clear _last_reconnect_error
-    on successful sync recovery."""
+class TestMatrixReconnectErrorStateInvariant:
+    """Documents that MatrixSession can enter the stale reconnect-error
+    state. This is a state-invariant documentation test; it does not
+    exercise the recovery path."""
 
-    async def test_reconnect_error_cleared_on_recovery(
+    async def test_reconnect_error_state_can_be_set(
         self, mock_nio: MagicMock
     ) -> None:
-        """State invariant: after recovery, error fields are cleared.
+        """State invariant: the session can hold a stale error state.
 
-        LIMITATION: this test verifies the post-condition state directly
-        rather than driving ``_sync_with_reconnect`` through a real
-        failure-then-success cycle (which would require a full nio mock
-        returning error responses followed by a success response). The
-        actual reset lives at ``session.py:1252-1253`` inside the sync
-        loop. A future integration test should mock ``client.sync()``
-        to exercise that branch end-to-end.
+        This test documents the pre-condition state invariant. It sets
+        ``_last_reconnect_error`` and ``_reconnect_attempts`` and
+        asserts they persist on the instance. It does NOT exercise the
+        recovery code path: the production reset lives at
+        ``session.py:1252-1253`` inside the sync loop and is not driven
+        here. A future integration test should mock ``client.sync()``
+        to drive the real recovery cycle.
         """
         config = _make_matrix_config()
         session = MatrixSession(config)
@@ -341,24 +342,25 @@ class TestMatrixReconnectErrorClearsOnRecovery:
 
 
 # ===================================================================
-# GAP G: LxmfSession._reconnect_loop() resets reconnect_attempts on success
+# GAP G: LxmfSession reconnect_attempts counter state invariant
 # ===================================================================
 
 
-class TestLxmfReconnectAttemptsResetOnSuccess:
-    """LxmfSession._reconnect_loop() must reset reconnect_attempts to 0
-    on successful reconnect."""
+class TestLxmfReconnectCounterStateInvariant:
+    """Documents that LxmfSession can enter the stale reconnect-counter
+    state. This is a state-invariant documentation test; it does not
+    exercise the reconnect loop."""
 
-    async def test_reconnect_attempts_reset_on_success(self) -> None:
-        """State invariant: after successful reconnect, counters are reset.
+    async def test_reconnect_counter_state_can_be_set(self) -> None:
+        """State invariant: the session can hold stale reconnect counters.
 
-        LIMITATION: this test verifies the post-condition state directly
-        rather than driving ``_reconnect_loop`` through a real
-        failure-then-success cycle (which would require mocking
-        ``_connect_real`` to fail then succeed). The actual reset lives
-        at ``session.py:1768-1769`` inside the reconnect loop. A future
-        integration test should mock the RNS link to exercise that
-        branch end-to-end.
+        This test documents the pre-condition state invariant. It sets
+        ``_diag.reconnect_attempts`` and asserts it persists on the
+        diagnostics object. It does NOT exercise the reconnect loop:
+        the production reset lives at ``lxmf/session.py:1768-1769``
+        inside ``_reconnect_loop`` and is not driven here. A future
+        integration test should mock the reconnect path to drive a
+        real failure-then-success cycle.
         """
         session = LxmfSession(
             config=_make_lxmf_config(),

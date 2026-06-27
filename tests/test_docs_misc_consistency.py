@@ -135,7 +135,7 @@ class TestRetrySemantics:
             "opt-in" in text.lower() or "disabled by default" in text.lower()
         ), "running-medre.md must describe retry as opt-in/disabled by default."
 
-    def test_alpha_walkthrough_describes_retry_levels(self) -> None:
+    def test_operator_workflows_describes_retry_levels(self) -> None:
         text = _read(OPS_DIR / "operator-workflows.md")
         # Must mention both route-level and worker-level retry
         if "retry" in text.lower():

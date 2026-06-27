@@ -179,7 +179,7 @@ class MatrixSession:
         "_crypto_store_loaded",
         # Room-state tracking
         "_room_states",
-        # Part D — auto-join
+        # Auto-join
         "_auto_join_rooms",
         "_joining_rooms",
         # Sync boundary / history suppression
@@ -224,7 +224,7 @@ class MatrixSession:
         self._crypto_store_loaded: bool = False
         # Room-state tracking
         self._room_states: dict[str, RoomEncryptionState] = {}
-        # Part D — auto-join
+        # Auto-join
         self._auto_join_rooms = auto_join_rooms
         self._joining_rooms: dict[str, asyncio.Task[bool]] = {}
         # Sync boundary / history suppression
@@ -816,7 +816,7 @@ class MatrixSession:
         # Register MegolmEvent callback for undecryptable encrypted events.
         self._register_megolm_callback()
 
-        # Part D — register invite callback for auto-join.
+        # Register invite callback for auto-join.
         self._register_invite_callback()
 
         sync_coro = self._run_sync()
@@ -868,7 +868,7 @@ class MatrixSession:
         except ImportError:
             pass
 
-    # Part D — invite callback registration
+    # Invite callback registration
     def _register_invite_callback(self) -> None:
         """Register an InviteMemberEvent callback for auto-join.
 
@@ -893,7 +893,7 @@ class MatrixSession:
         except (ImportError, AttributeError):
             pass
 
-    # Part D — ensure_joined helper
+    # ensure_joined helper
     async def ensure_joined(self, room_id: str) -> bool:
         """Ensure the session has joined the given room.
 
@@ -956,7 +956,7 @@ class MatrixSession:
         self._joining_rooms[room_id] = task
         return await asyncio.shield(task)
 
-    # Part D — ensure_joined_rooms batch helper
+    # ensure_joined_rooms batch helper
     async def ensure_joined_rooms(self, room_ids: Iterable[str]) -> dict[str, bool]:
         """Join multiple rooms, returning a mapping of room_id → success.
 
@@ -969,7 +969,7 @@ class MatrixSession:
             results[rid] = await self.ensure_joined(rid)
         return results
 
-    # Part D — invite handler
+    # Invite handler
     async def _on_invite(self, room: Any, event: Any) -> None:
         """Handle an InviteMemberEvent.
 

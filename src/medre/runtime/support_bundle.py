@@ -282,7 +282,7 @@ def _get_version() -> str:
 
 
 def _json_default(obj: Any) -> Any:
-    """``json.dumps`` default hook for dataclasses, Structs, and datetimes.
+    """``json.dumps`` default hook for dataclasses and Structs.
 
     ``_to_builtins`` already converts every production input, so this hook
     normally never fires for those types. Both branches are defense in
@@ -344,6 +344,14 @@ def _to_builtins(obj: Any) -> Any:
         return [_to_builtins(v) for v in obj]
     if isinstance(obj, tuple):
         return [_to_builtins(v) for v in obj]
+    # Closes the set/frozenset gap: previously fell through to the
+    # fallthrough below and tripped json.dumps. Sorted by str for
+    # deterministic output.
+    # bytes/datetime/Enum intentionally NOT handled here —
+    # they need a conversion-policy decision (encoding, format, value
+    # vs name). Add explicit branches when a member actually needs them.
+    if isinstance(obj, (set, frozenset)):
+        return [_to_builtins(v) for v in sorted(obj, key=str)]
     return obj
 
 

@@ -385,7 +385,7 @@ class MatrixAdapter(AdapterContract):
             self.ctx = None
             raise
 
-        # Part D — auto-join configured rooms after startup.
+        # Auto-join configured rooms after startup.
         if self._config.auto_join_rooms:
             ctx.logger.debug("Matrix session connected; joining configured rooms")
             try:
@@ -595,7 +595,7 @@ class MatrixAdapter(AdapterContract):
         if not room_id:
             raise AdapterPermanentError("no room_id in result")
 
-        # Part D — auto-join configured target room if not already joined.
+        # Auto-join configured target room if not already joined.
         if (
             self._config.auto_join_rooms
             and room_id in self._config.auto_join_rooms

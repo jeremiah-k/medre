@@ -58,7 +58,7 @@ FORBIDDEN_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\bStatus:" + r"\s*Alpha\b"),
     re.compile(r"\bE2EE Text " + r"Alpha\b", re.IGNORECASE),
     re.compile(r"\bMatrix Operation " + r"Alpha\b"),
-    re.compile(r"\balpha-" + r"walkthrough\b"),
+    re.compile(r"\balpha[-_]" + r"walkthrough\b"),
     re.compile(r"\balpha-" + r"installation\b"),
     re.compile(r"\bAlpha " + r"validates\b"),
 ]
@@ -88,6 +88,12 @@ PLANNING_CYCLE_TERMS: list[re.Pattern[str]] = [
     # immediately followed by optional whitespace and a digit. Same class
     # of internal qualifier as the bare labels above.
     re.compile(r"\b(?:track" + r"|wave)\s*\d", re.IGNORECASE),
+    # Letter-suffixed batch qualifiers (case-sensitive): a capitalized
+    # batch label followed by a single uppercase letter. Deliberately
+    # not IGNORECASE so ordinary lowercase usage ("part of", "part 1",
+    # "parts are", "participate") does not trip the guard. Fragmented
+    # so the literal word does not appear in this file.
+    re.compile(r"\b" + "P" + r"art\s+[A-Z]\b"),
 ]
 
 #: Union of all forbidden patterns — use for full-scope durable-artifact scans.

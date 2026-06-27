@@ -20,7 +20,7 @@ from tests.helpers.matrix_session import (
 )
 
 # ===================================================================
-# Part D — auto-join integration
+# auto-join integration
 # ===================================================================
 
 

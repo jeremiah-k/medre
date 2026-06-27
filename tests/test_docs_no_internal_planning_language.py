@@ -2,8 +2,8 @@
 
 Asserts that internal planning vocabulary does not appear in any durable
 artifact. The blocked terms (internal batch-work labels, development-cycle
-markers, numeric batch qualifiers, and tooling-skill names) are planning
-artifacts and MUST NOT appear in:
+markers, letter- and numeric-suffixed batch qualifiers, and tooling-skill
+names) are planning artifacts and MUST NOT appear in:
 
     - documentation under ``docs/`` (spec, ops, dev, schemas, changes)
     - source code comments and docstrings under ``src/``

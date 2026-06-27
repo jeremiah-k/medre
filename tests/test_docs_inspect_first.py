@@ -255,7 +255,7 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
     Step 2) must not recommend ``medre trace event`` as the first or default
     investigation step.  ``medre inspect event`` is the primary path."""
 
-    def test_alpha_walkthrough_phase2_inspect_first(self) -> None:
+    def test_operator_workflows_phase2_inspect_first(self) -> None:
         """Phase 2 in operator-workflows.md must start with inspect, not trace."""
         path = OPS_DIR / "operator-workflows.md"
         if not path.exists():

@@ -28,11 +28,11 @@ import pytest
 _ROOT = Path(__file__).resolve().parent.parent
 OPS_DIR = _ROOT / "docs" / "ops"
 CONFIG_DOC = OPS_DIR / "configuration.md"
-ALPHA_WALKTHROUGH = OPS_DIR / "operator-workflows.md"
+OPERATOR_WORKFLOWS = OPS_DIR / "operator-workflows.md"
 BRIDGE_EVIDENCE = OPS_DIR / "diagnostics-and-evidence.md"
 
 TARGET_DOCS = [
-    ALPHA_WALKTHROUGH,
+    OPERATOR_WORKFLOWS,
     BRIDGE_EVIDENCE,
     OPS_DIR / "running-medre.md",
     OPS_DIR / "recovery-and-replay.md",
@@ -110,16 +110,16 @@ class TestEvidenceStatusConsistency:
         assert _section_error("test")["status"] in valid
         assert _section_skipped("test")["status"] in valid
 
-    def test_alpha_walkthrough_evidence_status_is_passed(self) -> None:
+    def test_operator_workflows_evidence_status_is_passed(self) -> None:
         """operator-workflows.md evidence example must say 'passed' or 'partial'.
 
         The evidence command returns 'passed' or 'partial', never 'ok'.
         Line 'Expected output: JSON evidence bundle with "status": "ok"'
         is stale and should say 'passed'.
         """
-        if not ALPHA_WALKTHROUGH.exists():
+        if not OPERATOR_WORKFLOWS.exists():
             pytest.skip("operator-workflows.md not found")
-        text = _read(ALPHA_WALKTHROUGH)
+        text = _read(OPERATOR_WORKFLOWS)
         # Find evidence section examples.
         in_evidence_section = False
         for lineno, line in enumerate(text.splitlines(), start=1):

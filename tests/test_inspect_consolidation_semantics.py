@@ -1015,7 +1015,7 @@ class TestWalkthroughUsesInspect:
     command surface.
     """
 
-    def test_alpha_walkthrough_mentions_inspect(self) -> None:
+    def test_operator_workflows_mentions_inspect(self) -> None:
         """operator-workflows.md must mention 'medre inspect'."""
         from pathlib import Path
 
@@ -1029,7 +1029,7 @@ class TestWalkthroughUsesInspect:
             "the primary investigation command."
         )
 
-    def test_alpha_walkthrough_inspect_before_trace(self) -> None:
+    def test_operator_workflows_inspect_before_trace(self) -> None:
         """inspect step appears before trace step in walkthrough order."""
         from pathlib import Path
 

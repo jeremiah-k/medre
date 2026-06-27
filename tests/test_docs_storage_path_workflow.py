@@ -117,7 +117,7 @@ class TestStoragePathReadOnlyConsistency:
             "--config" in text
         ), "recovery-and-replay.md must mention --config requirement."
 
-    def test_alpha_walkthrough_storage_path_for_inspect(self) -> None:
+    def test_operator_workflows_storage_path_for_inspect(self) -> None:
         """operator-workflows.md inspect section should show --storage-path."""
         text = _read(OPS_DIR / "operator-workflows.md")
         # The inspect section should mention --storage-path

@@ -773,7 +773,7 @@ class TestReactionCallbackMultiClass:
 
 
 # ===================================================================
-# Part D — ensure_joined / ensure_joined_rooms / invite handling
+# ensure_joined / ensure_joined_rooms / invite handling
 # ===================================================================
 
 
