@@ -773,7 +773,7 @@ belong in.
   in `docs/schemas/examples/routing-config-example.json`. Pair with
   F-010.
 
-### `tests/test_config_loader.py` (or a new `tests/test_config_unknown_keys.py`)
+### `tests/test_config_loader.py`
 
 - **TC-010**: Test that an unknown root-level key (e.g. `roues:`)
   is either rejected with `ConfigValidationError(section_path="<root>")`
@@ -786,7 +786,7 @@ belong in.
   consistently with the schema's `additionalProperties`. Pair with
   F-013 / F-021 decision.
 
-### `tests/test_routes_channel_room_map_context_labels.py` (already covers most label edge cases)
+### `tests/test_channel_room_map_context_labels.py` (already covers most label edge cases)
 
 - **TC-013**: Test that a `null` (explicit YAML `null`) per-entry
   `source_origin_label` falls back to the route-level label, then to

@@ -498,8 +498,9 @@ The tracker would work roughly as follows:
    stack traces of any surviving connections.
 
 This pattern has been validated in the meshtastic-matrix-relay project
-(`tests/sqlite_provenance.py`). If leak noise resurfaces despite the rules
-above, implementing this tracker is the next step.
+at its own `tests/sqlite_provenance.py` (an external sibling repo, not a
+MEDRE file). If leak noise resurfaces despite the rules above,
+implementing this tracker here is the next step.
 
 ## Troubleshooting
 

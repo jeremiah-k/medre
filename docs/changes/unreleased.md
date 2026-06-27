@@ -188,3 +188,11 @@ create per-commit fragment files.
   paths. A regression test guards against their return.
 - **Dead code removed.** Removed TOML credential mutation helpers from
   `src/medre/adapters/matrix/auth.py` after the YAML-only migration.
+- **Dead test-file references resolved.** Four `tests/*.py` references in
+  developer docs pointed at non-existent files; each was corrected to the
+  existing target or labeled as external to MEDRE.
+- **Docs reference guard.** `tests/test_docs_links.py` gained
+  `TestDocTestReferencesResolve`, which scans `docs/**/*.md` for
+  `tests/*.py` paths and fails when one does not resolve, with a narrow
+  per-(file, regex) allow-list for explicitly-labeled historical and
+  external-repo references.

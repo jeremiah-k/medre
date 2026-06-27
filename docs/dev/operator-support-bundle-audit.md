@@ -513,9 +513,9 @@ fake_tok_value`, `password: hunter2`, `ble_address: AA:BB:CC...`,
   `identity_path: /path/to/identity`), writes it via the new
   command, reads the output back, and asserts none of the secret
   substrings appear in any member.
-- **Recommendation**: Add `tests/test_cli_diagnostics_bundle.py`
-  (or extend `test_cli_diagnostics_commands.py` if under the 1,500
-  line cap — currently 430 lines, so room exists). Cover: (1)
+- **Recommendation**: Add coverage in
+  `tests/test_cli_diagnostics_commands.py` (currently 430 lines, so room
+  exists under the 1,500-line cap). Cover: (1)
   config-path mode with secrets in config, (2) storage-path mode
   with secrets in receipts/outbox (already covered by
   `test_storage_only_evidence.py` but worth a CLI-level test), (3)

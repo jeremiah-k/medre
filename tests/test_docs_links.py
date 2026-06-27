@@ -388,7 +388,143 @@ class TestNoLegacyPathReferencesInRootConfig:
 
 
 # ===========================================================================
-# 4. Removal-context carve-out boundary (locks the narrowed rule above)
+# 4. Test paths referenced in docs must resolve (or be allow-listed)
+# ===========================================================================
+
+
+# Match a tests/-prefixed Python path appearing in prose, e.g.
+# ``tests/test_foo.py`` or ``tests/helpers/bar.py``.
+_TEST_PATH_RE = re.compile(r"tests/[a-zA-Z0-9_/.-]+\.py")
+
+# Narrow historical allow-list. Each entry is a (doc_relative_path, regex,
+# reason) tuple. A flagged line is exempt only when BOTH hold: it lives in
+# the named file AND the regex matches the line. Regexes must be tight
+# enough to scope the exemption to the historical context, not arbitrary
+# surrounding prose. Add an entry only when a doc deliberately references a
+# non-existent test file as historical/triage context (the surrounding
+# section must itself say so).
+_HISTORICAL_TEST_PATH_ALLOWLIST: list[tuple[str, "re.Pattern[str]", str]] = [
+    # docs/dev/TESTING_GUIDE.md references meshtastic-matrix-relay's own
+    # `tests/sqlite_provenance.py` as an external sibling-repo example,
+    # not a MEDRE file. The regex anchors on the same-line "external
+    # sibling repo" label so a future MEDRE-local reference cannot
+    # inherit the exemption.
+    (
+        "docs/dev/TESTING_GUIDE.md",
+        re.compile(r"tests/sqlite_provenance\.py.*external sibling repo"),
+        "External-repo reference: the path belongs to the "
+        "meshtastic-matrix-relay sibling project, not MEDRE.",
+    ),
+    # docs/dev/runtime-execution-authority-audit.md has a section
+    # "Missing tests/test_replay_delivery.py -- triaged: no gap, no file
+    # needed" that explicitly documents why this file does not and should
+    # not exist; coverage lives in sibling files. All four mentions live
+    # inside that triage section. The regex requires a same-line absence
+    # marker (Missing / no dedicated / Do not create before the path, or
+    # triaged / needed / finding after it) so a future live reference
+    # such as "Run tests/test_replay_delivery.py" cannot inherit the
+    # exemption.
+    (
+        "docs/dev/runtime-execution-authority-audit.md",
+        re.compile(
+            r"(?:"
+            r"\b(?:Missing|no dedicated|Do not create)\b"
+            r".*tests/test_replay_delivery\.py"
+            r"|"
+            r"tests/test_replay_delivery\.py"
+            r".*\b(?:triaged|needed|finding)\b"
+            r")"
+        ),
+        "Triaged historical section: explains why this file does not and "
+        "should not exist; coverage lives in sibling files.",
+    ),
+    # docs/dev/testing.md "Completed Splits" table. Each row names a
+    # former test file alongside a "Split" or "Deleted" Result column.
+    # The exemption regex requires BOTH the path AND the Result marker on
+    # the same line, so a live reference (no marker) cannot inherit the
+    # exemption.
+    *[
+        (
+            "docs/dev/testing.md",
+            re.compile(rf"`{re.escape(name)}`.*\bSplit\b"),
+            f"Historical 'Completed Splits' table row: {name} was split "
+            "into behavioral-domain files.",
+        )
+        for name in (
+            "tests/test_adapter_callback_bridge.py",
+            "tests/test_longrun_callback_bridge.py",
+            "tests/test_operator_workflows.py",
+            "tests/test_pipeline.py",
+            "tests/test_replay.py",
+            "tests/test_cli.py",
+            "tests/test_docker_bridge_artifacts.py",
+        )
+    ],
+    (
+        "docs/dev/testing.md",
+        re.compile(r"`tests/test_storage_outbox\.py`.*\bDeleted\b"),
+        "Historical 'Completed Splits' table row: test_storage_outbox.py "
+        "was deleted (split into 5 behavioral-domain files).",
+    ),
+]
+
+
+class TestDocTestReferencesResolve:
+    """Test paths mentioned in docs/*.md must resolve to a real file under
+    ``tests/`` or be on the narrow historical allow-list.
+
+    Catches the bug class where a doc references a renamed, deleted, or
+    never-created test file as if it currently exists. Historical
+    references that explicitly describe a missing file (e.g. a triage
+    section) are exempt via ``_HISTORICAL_TEST_PATH_ALLOWLIST``.
+
+    The guard intentionally scans every line, including lines inside
+    fenced code blocks: a ``tests/*.py`` reference that does not resolve
+    is a bug class regardless of whether it appears in prose or in a
+    code example. Fence-skipping is not added because the tighter
+    behavior has not produced false positives.
+    """
+
+    @pytest.mark.parametrize(
+        "filepath",
+        _all_md_files(),
+        ids=lambda p: str(p.relative_to(_ROOT)),
+    )
+    def test_referenced_test_files_exist(self, filepath: Path) -> None:
+        rel = _relative(filepath)
+        text = filepath.read_text(encoding="utf-8")
+
+        applicable_allow_regexes = [
+            regex
+            for doc_path, regex, _reason in _HISTORICAL_TEST_PATH_ALLOWLIST
+            if doc_path == rel
+        ]
+
+        failures: list[str] = []
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for match in _TEST_PATH_RE.finditer(line):
+                test_path = match.group()
+                test_file = _ROOT / test_path
+                if test_file.exists():
+                    continue
+                if any(regex.search(line) for regex in applicable_allow_regexes):
+                    continue
+                failures.append(
+                    f"{rel}:{lineno}: references '{test_path}' "
+                    "which does not exist"
+                )
+
+        if failures:
+            pytest.fail(
+                "Docs reference test files that do not exist. Rename the "
+                "reference, remove it, or label historical and add an entry "
+                "to _HISTORICAL_TEST_PATH_ALLOWLIST in "
+                "tests/test_docs_links.py:\n  " + "\n  ".join(failures)
+            )
+
+
+# ===========================================================================
+# 5. Removal-context carve-out boundary (locks the narrowed rule above)
 # ===========================================================================
 
 
