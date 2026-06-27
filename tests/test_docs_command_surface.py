@@ -153,7 +153,12 @@ class TestParserCommandsDocumented:
         # Every parser command is operator-facing (see operator-surface-audit);
         # there is no separate hidden/internal command set.
         undocumented = sorted(
-            cmd for cmd in parser_commands if f"medre {cmd}" not in inventory
+            cmd
+            for cmd in parser_commands
+            if not re.search(
+                rf"(?m)^medre {re.escape(cmd)}(?:\s|$)",
+                inventory,
+            )
         )
         assert not undocumented, (
             "configuration.md CLI inventory is missing operator-facing "
