@@ -17,7 +17,6 @@ Scan scope (default):
     ``.py``, ``.rst``, ``.toml``, ``.yaml``, ``.yml``, ``.json``, ``.txt``,
     ``.cfg``, ``.ini``). Filenames themselves are scanned across the above
     trees.
-    - Filenames themselves are scanned across the above trees.
 
 Not scanned:
     - ``.git/`` (history is preserved; the policy does not rewrite history)

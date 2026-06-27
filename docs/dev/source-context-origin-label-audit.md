@@ -944,7 +944,7 @@ change" rule (`AGENTS.md:50-54`).
 
 **Recommended implementation sequencing:**
 
- 1. **Config model.** Add `ChannelRoomMapEntry`, extend
+1. **Config model.** Add `ChannelRoomMapEntry`, extend
    `RouteConfig.from_dict` to parse the polymorphic value shape, keep
    the existing `channel_room_map: dict[str, ?]` attribute typed as
    `dict[str, ChannelRoomMapEntry]` (always normalised). Add parsing

@@ -423,7 +423,7 @@ class TestCrossSessionReconnectCounterConsistency:
 
 
 @pytest.fixture
-def make_adapter_context() -> Callable[[str], "AdapterContext"]:
+def make_adapter_context() -> Callable[[str], Any]:
     """Create an AdapterContext factory for testing."""
     from datetime import datetime, timezone
 

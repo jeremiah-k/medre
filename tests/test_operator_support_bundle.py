@@ -751,12 +751,11 @@ def test_to_builtins_converts_set_and_frozenset_to_sorted_list() -> None:
     assert not isinstance(out_set, (set, frozenset))
     assert not isinstance(out_frozenset, (set, frozenset))
 
-    sort_key = lambda v: json.dumps(v, sort_keys=True, separators=(",", ":"))
+    def sort_key(v):
+        return json.dumps(v, sort_keys=True, separators=(",", ":"))
 
     expected_set = sorted([_to_builtins(v) for v in raw_set], key=sort_key)
-    expected_frozenset = sorted(
-        [_to_builtins(v) for v in raw_frozenset], key=sort_key
-    )
+    expected_frozenset = sorted([_to_builtins(v) for v in raw_frozenset], key=sort_key)
     assert out_set == expected_set
     assert out_frozenset == expected_frozenset
 

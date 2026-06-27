@@ -324,10 +324,12 @@ def _to_builtins(obj: Any) -> Any:
        handles Structs. The recursion keeps that case on the main
        normalisation path and also normalises tuples produced by ``asdict``
        into lists.
-    - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
-      become lists (matching :func:`json.dumps` tuple semantics).
+     - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
+       become lists (matching :func:`json.dumps` tuple semantics).
+     - ``set`` / ``frozenset`` → normalise each element, then sort by
+       JSON representation for deterministic output.
 
-    Anything else passes through unchanged.
+     Anything else passes through unchanged.
     """
     if isinstance(obj, msgspec.Struct):
         # msgspec.to_builtins handles Structs natively, but its output
