@@ -323,9 +323,7 @@ def _is_removal_context(line: str) -> bool:
     lowered = line.lower()
     if not any(keyword in lowered for keyword in _REMOVAL_KEYWORDS):
         return False
-    return not any(
-        indicator in lowered for indicator in _LIVE_REFERENCE_INDICATORS
-    )
+    return not any(indicator in lowered for indicator in _LIVE_REFERENCE_INDICATORS)
 
 
 class TestNoLegacyPathReferencesInRootConfig:

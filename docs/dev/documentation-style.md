@@ -29,7 +29,7 @@ The blocked vocabulary includes internal incremental-work labels,
 development-cycle terms, batch qualifiers, and tooling-skill markers. These
 terms describe temporary internal planning state and are forbidden in
 **all durable artifacts**. The canonical pattern list lives in
-``tests/helpers/forbidden_terms.py`` — refer to that module for the exact
+`tests/helpers/forbidden_terms.py` — refer to that module for the exact
 set of compiled patterns. The patterns are stored as concatenated string
 fragments so this style guide and the helper itself contain no literal
 blocked word either.
@@ -48,7 +48,7 @@ but does not inspect git metadata.
 
 These terms describe temporary internal planning state and must not leak into
 any artifact that persists beyond the planning cycle. The enforcer test
-``tests/test_docs_no_internal_planning_language.py`` scans file content and
+`tests/test_docs_no_internal_planning_language.py` scans file content and
 filenames under `docs/`, `src/`, `tests/`, and `examples/` against the canonical
 pattern list and fails on any match. Branch names, commit messages, and other
 git metadata are policy-only (manual review, not automated).

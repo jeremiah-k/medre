@@ -313,9 +313,7 @@ class TestMatrixReconnectErrorStateInvariant:
     state. This is a state-invariant documentation test; it does not
     exercise the recovery path."""
 
-    async def test_reconnect_error_state_can_be_set(
-        self, mock_nio: MagicMock
-    ) -> None:
+    async def test_reconnect_error_state_can_be_set(self, mock_nio: MagicMock) -> None:
         """State invariant: the session can hold a stale error state.
 
         This test documents the pre-condition state invariant. It sets
