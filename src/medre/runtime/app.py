@@ -932,6 +932,8 @@ class MedreApp:
             try:
                 persisted_count = await self.storage.count_events()
             except Exception:
+                # cleanup-silent: best-effort populate; operators see
+                # persisted_count=None in the startup summary.
                 persisted_count = None
 
         # -- Count disabled adapters ------------------------------------------
@@ -1540,6 +1542,8 @@ class MedreApp:
                             exc,
                         )
             except Exception:
+                # cleanup-silent: inner guard around the warning call
+                # above; never mask the original task outcome.
                 pass
             finally:
                 self._abandoned_adapter_stop_tasks.discard(task)
@@ -1601,6 +1605,8 @@ class MedreApp:
                 try:
                     item = await self.storage.get_outbox_item(inflight.outbox_id)
                 except Exception:
+                    # cleanup-silent: best-effort attempt_number lookup;
+                    # receipt is still persisted with attempt_number=1.
                     item = None
                 if item is not None:
                     attempt_number = item.attempt_number

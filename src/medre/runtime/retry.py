@@ -262,6 +262,8 @@ class RetryWorker:
                             exc,
                         )
             except Exception:
+                # cleanup-silent: inner guard around the warning call
+                # above; never mask the original task outcome.
                 pass
             finally:
                 if self._abandoned_task is task:
@@ -779,6 +781,10 @@ class RetryWorker:
                     if _dl_receipts:
                         _dl_receipt_id = _dl_receipts[-1].receipt_id
                 except Exception:
+                    # cleanup-silent: best-effort cross-reference; the
+                    # dead-letter itself is persisted at the
+                    # mark_outbox_dead_lettered call below without
+                    # relying on _dl_receipt_id.
                     pass
                 await self._storage.mark_outbox_dead_lettered(
                     item.outbox_id,

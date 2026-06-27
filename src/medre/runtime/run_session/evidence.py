@@ -104,6 +104,7 @@ async def _poll_for_receipts(
             if receipts:
                 return receipts
         except Exception:
+            # cleanup-silent: retry on next poll cycle until deadline.
             pass
         now = asyncio.get_event_loop().time()
         if now >= deadline:
@@ -114,6 +115,8 @@ async def _poll_for_receipts(
     try:
         return await storage.list_receipts_for_event(event_id)
     except Exception:
+        # cleanup-silent: deadline expired; return [] so the caller
+        # surfaces "no receipts" rather than the storage error.
         return []
 
 

@@ -250,6 +250,8 @@ async def _collect_native_refs(
             # Storage backend may not implement list_native_refs_for_event.
             continue
         except Exception:
+            # cleanup-silent: best-effort native-ref evidence; remaining
+            # outcomes still inspected.
             continue
 
         for nref in native_ref_records:
@@ -266,6 +268,8 @@ async def _collect_native_refs(
                     native_message_id,
                 )
             except Exception:
+                # cleanup-silent: skip this ref; remaining refs still
+                # inspected.
                 continue
             refs.append(
                 native_ref_to_report_dict(
@@ -415,6 +419,10 @@ async def run_fake_bridge_smoke(
         injection_error = f"{type(exc).__name__}: {exc}"
 
     # -- Step 6: Collect evidence -------------------------------------------
+    # Best-effort evidence gathering: every swallow in this section drops
+    # the affected field to its None/empty default. The smoke report's
+    # PASS/FAIL criteria check what was actually populated, so a failed
+    # lookup surfaces as a missing field rather than a swallowed error.
     storage = app.storage
 
     # Stored event
@@ -423,6 +431,8 @@ async def run_fake_bridge_smoke(
         try:
             stored_event = await storage.get(event.event_id)
         except Exception:
+            # cleanup-silent: stored_event stays None; reported as
+            # event_stored=False below.
             pass
 
     # Delivery receipts
@@ -431,6 +441,7 @@ async def run_fake_bridge_smoke(
         try:
             receipts = await storage.list_receipts_for_event(event.event_id)
         except Exception:
+            # cleanup-silent: receipts stays []; reported as empty below.
             pass
 
     # Native refs
@@ -442,6 +453,7 @@ async def run_fake_bridge_smoke(
         try:
             accounting = app._runtime_accounting.snapshot()
         except Exception:
+            # cleanup-silent: accounting stays None.
             pass
 
     # Route stats
@@ -450,6 +462,7 @@ async def run_fake_bridge_smoke(
         try:
             route_stats = app.route_stats.snapshot()
         except Exception:
+            # cleanup-silent: route_stats stays None.
             pass
 
     # Target adapters from outcomes
@@ -485,6 +498,7 @@ async def run_fake_bridge_smoke(
             monotonic_fn=monotonic_fn,
         )
     except Exception:
+        # cleanup-silent: snap stays {}; report omits snapshot-derived fields.
         pass
 
     # -- Step 8: Build report -----------------------------------------------
