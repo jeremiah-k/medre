@@ -305,78 +305,120 @@ class TestMeshtasticAdapterDiagnosticsQueueRejected:
 
 
 # ===================================================================
-# GAP F: MatrixSession _last_reconnect_error state invariant
+# GAP F: MatrixSession sync recovery clears stale reconnect state
 # ===================================================================
 
 
-class TestMatrixReconnectErrorStateInvariant:
-    """Documents that MatrixSession can enter the stale reconnect-error
-    state. This is a state-invariant documentation test; it does not
-    exercise the recovery path."""
+class TestMatrixReconnectErrorStateRecovery:
+    """Drives the production sync recovery path and asserts it clears
+    stale reconnect state.  Replaces a former state-invariant test that
+    only set the fields and re-asserted them."""
 
-    async def test_reconnect_error_state_can_be_set(self, mock_nio: MagicMock) -> None:
-        """State invariant: the session can hold a stale error state.
+    async def test_sync_recovery_clears_stale_reconnect_state(self) -> None:
+        """Behavior: ``_sync_with_reconnect`` clears stale state on a
+        successful sync.
 
-        This test documents the pre-condition state invariant. It sets
-        ``_last_reconnect_error`` and ``_reconnect_attempts`` and
-        asserts they persist on the instance. It does NOT exercise the
-        recovery code path: the production reset lives at
-        ``session.py:1252-1253`` inside the sync loop and is not driven
-        here. A future integration test should mock ``client.sync()``
-        to drive the real recovery cycle.
+        Pre-sets stale ``_reconnect_attempts`` and ``_last_reconnect_error``
+        (simulating state left by a prior failed reconnect), then drives
+        the production recovery method with a fake client whose
+        ``sync()`` returns a successful response.  Asserts the recovery
+        code at ``src/medre/adapters/matrix/session.py`` clears both
+        fields and drops the reconnecting flag.
         """
         config = _make_matrix_config()
         session = MatrixSession(config)
 
-        # Pre-condition: a failed reconnect leaves stale error state.
+        # Minimal fake client — bypasses start() and the real nio SDK.
+        fake_client = MagicMock()
+        fake_client.olm = None  # skip the E2EE key-management block
+        fake_client.send_to_device_messages = AsyncMock()
+
+        async def _sync_then_stop(**_kwargs: object) -> SimpleNamespace:
+            # Stop the loop after one successful iteration so the test
+            # exits cleanly instead of looping forever.
+            session._stop_requested = True
+            return SimpleNamespace(next_batch="recovered-token")
+
+        fake_client.sync = _sync_then_stop
+        session._client = fake_client
+
+        # Pre-condition: stale state from a prior failed reconnect.
+        session._reconnect_attempts = 4
         session._last_reconnect_error = "previous failure"
-        session._reconnect_attempts = 3
+        session._reconnecting = True
 
-        # The production code path (session.py:1252-1253) clears both
-        # fields when sync succeeds after reconnects. We verify the
-        # invariant holds; a full integration test is tracked as a
-        # follow-up to exercise the async sync loop directly.
-        assert session._last_reconnect_error == "previous failure"
-        assert session._reconnect_attempts == 3
+        # Drive the production recovery method.
+        await session._sync_with_reconnect()
+
+        # Production recovery cleared the stale state.
+        assert session._reconnect_attempts == 0
+        assert session._last_reconnect_error is None
+        assert session._reconnecting is False
 
 
 # ===================================================================
-# GAP G: LxmfSession reconnect_attempts counter state invariant
+# GAP G: LxmfSession reconnect loop clears state on recovery
 # ===================================================================
 
 
-class TestLxmfReconnectCounterStateInvariant:
-    """Documents that LxmfSession can enter the stale reconnect-counter
-    state. This is a state-invariant documentation test; it does not
-    exercise the reconnect loop."""
+class TestLxmfReconnectCounterRecovery:
+    """Drives the production LXMF reconnect loop and asserts it clears
+    stale reconnect state after a failure-then-success cycle.  Replaces
+    a former state-invariant test that only set the counter and
+    re-asserted it."""
 
-    async def test_reconnect_counter_state_can_be_set(self) -> None:
-        """State invariant: the session can hold stale reconnect counters.
+    async def test_reconnect_loop_clears_state_after_failure_then_success(
+        self,
+    ) -> None:
+        """Behavior: ``_reconnect_loop`` records a failed attempt then
+        clears state when ``_connect_real`` succeeds.
 
-        This test documents the pre-condition state invariant. It sets
-        ``_diag.reconnect_attempts`` and asserts it persists on the
-        diagnostics object. It does NOT exercise the reconnect loop:
-        the production reset lives at ``lxmf/session.py:1768-1769``
-        inside ``_reconnect_loop`` and is not driven here. A future
-        integration test should mock the reconnect path to drive a
-        real failure-then-success cycle.
+        Patches ``_connect_real`` to fail on the first call and succeed
+        on the second, drives the production ``_reconnect_loop`` method,
+        and asserts the recovery code at
+        ``src/medre/adapters/lxmf/session.py`` clears
+        ``reconnect_attempts`` and ``reconnecting`` after the successful
+        reconnect.
         """
         session = LxmfSession(
             config=_make_lxmf_config(),
             adapter_id="lxmf-test",
         )
-        await session.start()
 
-        # Pre-condition: a failed reconnect leaves stale counters.
-        session._diag.reconnect_attempts = 3
-        session._diag.reconnecting = True
+        call_count = 0
 
-        # The production code path (lxmf/session.py:1768-1769) resets both
-        # fields when _connect_real succeeds. We verify the invariant
-        # holds; a full integration test is tracked as a follow-up.
-        assert session._diag.reconnect_attempts == 3
+        async def _connect_fail_then_succeed(self: LxmfSession) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated connect failure")
+            # Mimic the success side-effects of the real _connect_real
+            # without resetting reconnect_attempts — the loop's own
+            # reset (lxmf/session.py:1768) is the behavior under test.
+            self._diag.connected = True
+            self._diag.router_running = True
 
-        await session.stop()
+        original_sleep = asyncio.sleep
+
+        async def _fast_sleep(delay: float) -> None:
+            # Yield for non-positive delays (cooperative scheduling);
+            # skip positive backoff delays so the test runs instantly.
+            if delay <= 0:
+                await original_sleep(0)
+
+        # _connect_real is awaited by the loop.  LxmfSession uses
+        # __slots__, so patch at the class level; the async function
+        # becomes a bound method matching the production call shape.
+        with patch.object(
+            LxmfSession, "_connect_real", _connect_fail_then_succeed
+        ), patch("asyncio.sleep", side_effect=_fast_sleep):
+            await session._reconnect_loop()
+
+        # One failure then one success — the failure-then-success cycle ran.
+        assert call_count == 2
+        # Production loop reset the counter after the successful reconnect.
+        assert session._diag.reconnect_attempts == 0
+        assert session._diag.reconnecting is False
 
 
 # ===================================================================
