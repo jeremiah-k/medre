@@ -311,7 +311,7 @@ class TestMeshtasticAdapterDiagnosticsQueueRejected:
 
 class TestMatrixReconnectErrorStateRecovery:
     """Drives the production sync recovery path and asserts it clears
-    stale reconnect state.  Replaces a former state-invariant test that
+    stale reconnect state. Replaces a former state-invariant test that
     only set the fields and re-asserted them."""
 
     async def test_sync_recovery_clears_stale_reconnect_state(self) -> None:
@@ -321,7 +321,7 @@ class TestMatrixReconnectErrorStateRecovery:
         Pre-sets stale ``_reconnect_attempts`` and ``_last_reconnect_error``
         (simulating state left by a prior failed reconnect), then drives
         the production recovery method with a fake client whose
-        ``sync()`` returns a successful response.  Asserts the recovery
+        ``sync()`` returns a successful response. Asserts the recovery
         code at ``src/medre/adapters/matrix/session.py`` clears both
         fields and drops the reconnecting flag.
         """
@@ -363,7 +363,7 @@ class TestMatrixReconnectErrorStateRecovery:
 
 class TestLxmfReconnectCounterRecovery:
     """Drives the production LXMF reconnect loop and asserts it clears
-    stale reconnect state after a failure-then-success cycle.  Replaces
+    stale reconnect state after a failure-then-success cycle. Replaces
     a former state-invariant test that only set the counter and
     re-asserted it."""
 
@@ -401,14 +401,19 @@ class TestLxmfReconnectCounterRecovery:
         original_sleep = asyncio.sleep
 
         async def _fast_sleep(delay: float) -> None:
-            # Yield for non-positive delays (cooperative scheduling);
-            # skip positive backoff delays so the test runs instantly.
+            """Fast no-op for positive backoff delays; yields only for
+            non-positive delays.
+
+            Positive delays are skipped entirely (test-speed
+            optimization); the reconnect loop's other ``await`` points
+            from ``_connect_real`` provide sufficient cooperative yields.
+            """
             if delay <= 0:
                 await original_sleep(0)
 
-        # _connect_real is awaited by the loop.  LxmfSession uses
-        # __slots__, so patch at the class level; the async function
-        # becomes a bound method matching the production call shape.
+        # _connect_real is awaited by the loop. Patch at the class level
+        # so the async function becomes a bound method matching the
+        # production call shape.
         with patch.object(
             LxmfSession, "_connect_real", _connect_fail_then_succeed
         ), patch("asyncio.sleep", side_effect=_fast_sleep):
