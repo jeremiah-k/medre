@@ -65,7 +65,12 @@ if _SKIP_DOCKER or not _DOCKER_AVAILABLE:
 # Defaults — configurable via environment variables.
 # ---------------------------------------------------------------------------
 
-_SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.153.0")
+# Tag-only by design: this default fires only for local runs without
+# MEDRE_SYNAPSE_IMAGE set. CI (docker-integration.yml) and docker-compose
+# always pin the full image@digest. Keep the tag in sync with the source of
+# truth in docker-compose.integration.yaml; alignment is enforced by
+# tests/test_integration_image_alignment.py.
+_SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.155.0")
 _MESHTASTICD_IMAGE = os.environ.get(
     "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
 )
