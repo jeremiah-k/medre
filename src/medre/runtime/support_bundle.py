@@ -117,13 +117,24 @@ class SchemaEntry(msgspec.Struct, frozen=True):
 
 
 class SchemasMember(msgspec.Struct, frozen=True):
-    """``schemas.json`` — schema-file presence and metadata."""
+    """``schemas.json`` — schema-file presence and metadata.
+
+    ``schema_source`` reports whether the schema tree is reachable from
+    this installation: ``"source-tree"`` when ``docs/schemas/`` is found
+    relative to the package (a source checkout or editable install), or
+    ``"not-packaged"`` when it is unreachable (a wheel / site-packages
+    install). The schema files and the example-config validator script
+    are source-checkout-only resources and are not shipped as package
+    data, so a ``"not-packaged"`` value contextualises the per-entry
+    ``present: false`` reports as expected rather than as drift.
+    """
 
     runtime_config_schema: SchemaEntry
     adapter_config_schema: SchemaEntry
     routing_config_schema: SchemaEntry
     evidence_bundle_schema: SchemaEntry
     validate_example_configs_script_present: bool
+    schema_source: str
 
 
 # Substring tokens (case-insensitive) for secret-key detection. Over-broad
@@ -260,7 +271,13 @@ def _build_schemas_member() -> SchemasMember:
     routing, and evidence-bundle schemas, plus whether the example-config
     validator script exists. Useful for diagnosing config/schema drift
     between a deployment and the schemas the bundle was built against.
-    Defensive — never raises.
+
+    ``schema_source`` reports whether the schema tree is reachable from
+    this installation. Schema files and the validator script are
+    source-checkout-only resources (they live under ``docs/schemas/``
+    and ``scripts/ci/`` and are not shipped as package data); when the
+    tree is unreachable the per-entry ``present: false`` reports are the
+    expected consequence, not a defect. Defensive — never raises.
     """
     return SchemasMember(
         runtime_config_schema=_read_schema_meta("runtime-config.schema.json"),
@@ -270,6 +287,7 @@ def _build_schemas_member() -> SchemasMember:
         validate_example_configs_script_present=(
             _VALIDATE_EXAMPLE_CONFIGS_SCRIPT.is_file()
         ),
+        schema_source="source-tree" if _SCHEMAS_DIR.is_dir() else "not-packaged",
     )
 
 

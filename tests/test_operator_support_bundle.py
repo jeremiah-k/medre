@@ -842,6 +842,7 @@ def test_json_bytes_handles_mixed_struct_and_dataclass_payload() -> None:
             routing_config_schema=SchemaEntry(present=True, path="/rt"),
             evidence_bundle_schema=SchemaEntry(present=True, path="/e"),
             validate_example_configs_script_present=True,
+            schema_source="source-tree",
         ),
     }
 
@@ -1066,7 +1067,7 @@ def test_bundle_member_shape_valid_config(tmp_path: Path) -> None:
     assert check["error"] is None
     assert check["error_section_path"] is None
 
-    # schemas.json (all four schema entries + validator flag)
+    # schemas.json (all four schema entries + validator flag + source context)
     schemas = _read_json_member(members, "schemas.json")
     assert set(schemas.keys()) == {
         "runtime_config_schema",
@@ -1074,8 +1075,11 @@ def test_bundle_member_shape_valid_config(tmp_path: Path) -> None:
         "routing_config_schema",
         "evidence_bundle_schema",
         "validate_example_configs_script_present",
+        "schema_source",
     }
     assert isinstance(schemas["validate_example_configs_script_present"], bool)
+    # In a source checkout the schema tree is reachable.
+    assert schemas["schema_source"] == "source-tree"
     for key in (
         "runtime_config_schema",
         "adapter_config_schema",
@@ -1136,10 +1140,12 @@ def test_bundle_member_shape_missing_config(tmp_path: Path) -> None:
         "routing_config_schema",
         "evidence_bundle_schema",
         "validate_example_configs_script_present",
+        "schema_source",
     }
     rt = schemas["runtime_config_schema"]
     assert set(rt.keys()) == {"present", "path", "$id", "$schema"}
     assert isinstance(rt["present"], bool)
+    assert isinstance(schemas["schema_source"], str)
 
 
 # ---------------------------------------------------------------------------
@@ -1214,6 +1220,79 @@ def test_schema_entry_failure_shape_in_full_bundle(
         assert entry["path"] is None, key
         assert entry["$id"] is None, key
         assert entry["$schema"] is None, key
+
+
+def test_schema_source_reports_not_packaged_when_schema_tree_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When ``docs/schemas/`` is unreachable, ``schema_source`` reports
+    ``"not-packaged"`` so operators understand the per-entry
+    ``present: false`` reports as expected rather than as drift.
+
+    Simulates a wheel / site-packages install by pointing
+    ``_SCHEMAS_DIR`` and the validator-script path at non-existent
+    locations. The bundle stays JSON-valid, every schema entry carries
+    its locked failure shape, and the top-level
+    ``validate_example_configs_script_present`` is ``False`` with
+    ``schema_source`` providing the context that these are
+    source-checkout-only resources.
+    """
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle._SCHEMAS_DIR", tmp_path / "no-schemas"
+    )
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle._VALIDATE_EXAMPLE_CONFIGS_SCRIPT",
+        tmp_path / "no-script",
+    )
+
+    out = create_support_bundle(config_path=cfg, output_path=tmp_path / "bundle.zip")
+    members = _read_bundle(out)
+    schemas = _read_json_member(members, "schemas.json")
+
+    # The context field makes the absence explicit.
+    assert schemas["schema_source"] == "not-packaged"
+    assert schemas["validate_example_configs_script_present"] is False
+
+    # Each schema entry reports the locked four-key failure shape.
+    for key in (
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+    ):
+        entry = schemas[key]
+        assert entry["present"] is False, key
+        assert entry["path"] is None, key
+        assert entry["$id"] is None, key
+        assert entry["$schema"] is None, key
+
+
+def test_schema_source_reports_source_tree_in_real_checkout(tmp_path: Path) -> None:
+    """In a real source checkout, ``schema_source`` is ``"source-tree"``
+    and the four tracked schemas report ``present: True`` with non-empty
+    paths and ``$id`` values.
+
+    Contrast case for the ``"not-packaged"`` absence path: this locks
+    the reachable-tree shape so a regression that always reports
+    ``"not-packaged"`` is caught.
+    """
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+    schemas = _read_json_member(members, "schemas.json")
+
+    assert schemas["schema_source"] == "source-tree"
+    assert schemas["validate_example_configs_script_present"] is True
+    for key in (
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+    ):
+        entry = schemas[key]
+        assert entry["present"] is True, key
+        assert isinstance(entry["path"], str) and entry["path"], key
+        assert isinstance(entry["$id"], str) and entry["$id"], key
 
 
 def test_schema_entry_present_true_contrasts_failure_shape() -> None:
