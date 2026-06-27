@@ -95,7 +95,7 @@ LXMF delivery states are modelled truthfully:
 The session does **not** pretend real-time delivery success.  Outbound
 messages start in ``generating``/``outbound`` and progress
 asynchronously through the LXMF delivery pipeline.  The adapter
-reports honest ``pending`` semantics.
+reports honest pending semantics.
 
 Inbound Normalisation
 ---------------------

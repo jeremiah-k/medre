@@ -1061,7 +1061,7 @@ CI scripts point at active docs, and prevent regressions.
 
 ---
 
-## Durable-Language Enforcement Cleanup
+## Durable-Language Scanner Hardening
 
 Tightened the language-policy enforcement to match the absolute rule, and
 hardened the support-bundle serializer defensively.

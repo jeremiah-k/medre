@@ -166,7 +166,7 @@ class TestParserCommandsDocumented:
             f"Parser commands: {sorted(parser_commands)}"
         )
 
-    def test_full_command_set_matches_pc_expectation(self) -> None:
+    def test_full_command_set_matches_operator_surface(self) -> None:
         """The parser command set must match the expected operator surface.
 
         Guards against silent additions or removals at the parser level.

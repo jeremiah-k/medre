@@ -2,7 +2,7 @@
 
 Tests that document and guard the current state of the SDK parity backlog
 items (P-01 through P-12 from ``docs/dev/sdk-parity-backlog.md``).  These tests
-characterize **current behavior** - they verify what the adapters do today so
+characterize **current behavior** -- they verify what the adapters do today so
 that future parity work can detect regressions and confirm improvements.
 
 Evidence level: **fake_pipeline** (tier 1) and **fake_adapter_callback** (tier 2).
