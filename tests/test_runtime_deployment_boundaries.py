@@ -836,7 +836,7 @@ class TestDocumentationTrackHeaders:
             pytest.skip(f"{doc_path} not found")
 
         source = _file_source(full_path)
-        # Check the first 30 lines for classification header references
+        # Check the first 30 lines for "Track" classification header
         header = "\n".join(source.splitlines()[:30])
         for keyword in required_keywords:
             assert keyword in header or keyword.lower() in header.lower(), (

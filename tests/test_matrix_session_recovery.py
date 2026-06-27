@@ -823,6 +823,7 @@ class TestOperationalDiagnostics:
         assert hasattr(diag, "crypto_store_loaded")
         assert hasattr(diag, "encrypted_room_count")
         assert hasattr(diag, "plaintext_room_count")
+        assert hasattr(diag, "olm_loaded")
 
     async def test_all_adapter_diagnostic_fields(self, mock_nio) -> None:
         """Adapter diagnostics() dict includes all new fields."""
@@ -838,6 +839,7 @@ class TestOperationalDiagnostics:
             assert "crypto_store_loaded" in diag
             assert "encrypted_room_count" in diag
             assert "plaintext_room_count" in diag
+            assert "olm_loaded" in diag
             assert "transient_delivery_failures" in diag
             assert "permanent_delivery_failures" in diag
         finally:

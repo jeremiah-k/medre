@@ -38,13 +38,20 @@ Durable artifacts include: documentation under `docs/` (including
 `docs/spec/`, `docs/ops/`, `docs/dev/`, `docs/schemas/`, and `docs/changes/`),
 source code comments and docstrings under `src/`, test names, test method
 names, test comments, test docstrings, test filenames, example configs and
-scripts under `examples/`, branch names, new commit messages, and
-agent-facing prompts (including `AGENTS.md` and skill instructions).
+scripts under `examples/`.
+
+Branch names, new commit messages, and agent-facing prompts (including
+`AGENTS.md` and skill instructions) are also subject to this policy, but
+enforcement for those is manual review only — the automated scanner covers
+file content and filenames under `docs/`, `src/`, `tests/`, and `examples/`
+but does not inspect git metadata.
 
 These terms describe temporary internal planning state and must not leak into
 any artifact that persists beyond the planning cycle. The enforcer test
-``tests/test_docs_no_internal_planning_language.py`` scans every durable
-artifact against the canonical pattern list and fails on any match.
+``tests/test_docs_no_internal_planning_language.py`` scans file content and
+filenames under `docs/`, `src/`, `tests/`, and `examples/` against the canonical
+pattern list and fails on any match. Branch names, commit messages, and other
+git metadata are policy-only (manual review, not automated).
 
 Historical git commit messages are preserved as-is — this policy does not
 rewrite existing history. New commit messages must follow the stricter rule.

@@ -17,7 +17,7 @@ Gap classification:
 
 References:
 - ``docs/dev/sdk-parity-backlog.md`` — full backlog with rationale
-- ``docs/dev/adapter-reality-audit.md`` — prior correctness audit (R1–R10)
+- ``docs/dev/adapter-reality-audit.md`` - prior correctness audit (R1-R10)
 - ``docs/dev/reference-repos.md`` — boundary rules on external references
 """
 
