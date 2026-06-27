@@ -222,3 +222,11 @@ create per-commit fragment files.
 - **Exception suppression audit.** Classified fifteen silent swallowed
   exceptions in runtime/storage with `cleanup-silent` comments; follow-up
   inventory in adapters/ remains.
+- **Matrix auth docs prefer stdin / interactive password entry.** The
+  `adapter matrix auth login --help` epilog, `docs/ops/configuration.md`,
+  and `docs/ops/install.md` now present the interactive prompt and
+  `--password-stdin` as the preferred paths, and warn that `--password`
+  is visible in shell history, process listings, and audit logs. The
+  `--password` flag remains supported for automation that cannot pipe
+  stdin. No login behavior changed; `src/medre/adapters/matrix/cli.py`
+  is untouched.

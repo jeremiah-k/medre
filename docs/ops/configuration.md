@@ -892,13 +892,34 @@ The runtime derives device ID via `whoami()` and uses an internal store path. Th
 
 **Using `medre adapter matrix auth login` for token acquisition:**
 
+Interactive (preferred for operators — prompts for the password securely and
+keeps it out of shell history):
+
 ```bash
 medre adapter matrix auth login \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```
 
-This command prompts securely, keeps the token out of terminal output, and saves credentials to the Matrix sidecar JSON file. The runtime reads credentials from this sidecar at startup. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`.
+Non-interactive via stdin (preferred for automation — read from a file or a
+secret manager so the password never appears on the command line):
+
+```bash
+medre adapter matrix auth login \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com \
+  --password-stdin < /run/secrets/matrix_password
+```
+
+The command keeps the token out of terminal output and saves credentials to
+the Matrix sidecar JSON file. The runtime reads credentials from this sidecar
+at startup. Accepted flags: `--homeserver`, `--user`, `--password`,
+`--password-stdin`.
+
+`--password` reads the password from the command line. It is supported for
+automation that cannot pipe stdin, but the value is visible in shell history,
+process listings, and audit logs — prefer interactive login or
+`--password-stdin` whenever the caller can read from a file or pipe.
 
 **If a token is leaked** (pasted in chat, committed to git, appeared in logs):
 
