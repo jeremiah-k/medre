@@ -882,3 +882,4 @@ class TestOperationalDiagnostics:
         assert diag["plaintext_room_count"] == 0
         assert diag["transient_delivery_failures"] == 0
         assert diag["permanent_delivery_failures"] == 0
+        assert diag["olm_loaded"] is False

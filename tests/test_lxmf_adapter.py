@@ -286,7 +286,7 @@ class TestLxmfAdapterLifecycle:
         assert delivery.native_message_id is not None
         assert delivery.metadata["lxmf"]["delivery_state"] in (
             "outbound",
-            "pending",
+            "generating",
         )
         await adapter.stop()
 
