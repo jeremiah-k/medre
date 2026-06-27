@@ -1016,29 +1016,15 @@ Align operator-facing documentation with the actual CLI surface and
 cleanly separate the support-bundle and evidence concepts, which were
 previously conflated in help text and docs.
 
-**Changed:**
-
-- `docs/ops/configuration.md` now documents all 16 top-level CLI
-  commands and their operator-facing subcommands. Previously
-  undocumented surfaces (`storage`, `adapter matrix auth`, `support`)
-  are now listed alongside the rest.
-- "Support bundle" and "evidence" are now cleanly separated across
-  operator docs: `medre support bundle` produces an offline, redacted
-  ZIP (no live probes, no storage access, no delivery evidence), while
-  `medre evidence` produces a storage-backed evidence report. The
+- All top-level CLI commands and their operator-facing subcommands are
+  now documented; previously undocumented surfaces are listed alongside
+  the rest.
+- The support bundle (offline, redacted ZIP) and the storage-backed
+  evidence report are now cleanly separated in help text and docs; the
   previous "full diagnostic snapshot" overclaim for the support bundle
   has been removed.
-- The `medre evidence` CLI help string no longer conflates evidence
-  output with the support bundle.
 - `adapter matrix auth logout` is documented as not-yet-implemented;
   only `login` and `status` exist today.
-
-**Added:**
-
-- `tests/test_docs_command_surface.py`: a parser→docs direction test
-  that fails when a newly-added parser command is missing from the
-  operator CLI documentation, so the command inventory cannot silently
-  drift again.
 
 ---
 
@@ -1050,30 +1036,14 @@ code comments, docstrings, test names, test filenames, branch names,
 and new commit messages). Historical git commit messages are preserved;
 no history rewrite is performed.
 
-**Changed:**
-
-- `docs/dev/documentation-style.md`: the language policy now forbids
-  internal development-process vocabulary — including incremental-work
-  batch qualifiers and an internal development-tooling marker — in all
-  durable artifacts. New commit messages must be durable; historical
-  commit messages are left intact.
-- `tests/helpers/forbidden_terms.py`: gained a `PLANNING_CYCLE_TERMS`
-  constant covering the forbidden vocabulary set, plus
-  `find_forbidden_in_tree()` and `find_forbidden_in_filenames()`
-  scanners. One batch-qualifier pattern uses a bare substring match so
-  suffixed variants (a qualifier with a trailing digit) are caught
-  alongside the standalone form.
-- `tests/test_docs_no_internal_planning_language.py`: rewritten to
-  scan `docs/`, `src/`, `tests/`, and `examples/` content AND
-  filenames, with definitional carve-outs so the policy can describe
-  its own terms without flagging itself.
-- Approximately 70 test files and 3 audit docs were cleaned: internal
-  process-batch qualifiers were stripped from comments and docstrings,
-  12 batch-labeled class names and 5 method names were renamed to
-  durable behavioral names, and 2 test files whose names carried batch
-  qualifiers were renamed to behavioral names (the LXMF session
-  callback-guards suite and the session diagnostics state-hygiene
-  suite).
+- The documentation style policy now forbids internal
+  development-process vocabulary in all durable artifacts; new commit
+  messages must be durable, while historical commit messages are left
+  intact.
+- A tree-wide scanner enforces the policy across docs, source, tests,
+  and examples — both file content and filenames.
+- Existing tests, audit docs, and identifiers across the tree were
+  renamed and cleaned to comply.
 
 ---
 
@@ -1082,17 +1052,34 @@ no history rewrite is performed.
 Remove and repoint stale documentation path references so operators and
 CI scripts point at active docs, and prevent regressions.
 
-**Changed:**
+- Stale references to removed `docs/contracts/` and `docs/runbooks/`
+  paths in root-level config files and CI scripts were removed or
+  repointed at the active `docs/ops/` paths.
+- A regression test guards against the stale paths returning.
 
-- `pyproject.toml`: removed a stale reference to
-  `docs/contracts/25-matrix-e2ee-readiness.md` (no durable replacement
-  exists; the path is simply dropped).
-- `examples/env/docker.env.example` and
-  `scripts/ci/run-docker-bridge-artifacts.sh`: stale `docs/runbooks/`
-  references repointed at the active `docs/ops/` paths.
+---
 
-**Added:**
+## Durable-Language Enforcement Cleanup
 
-- `tests/test_docs_links.py::TestNoLegacyPathReferencesInRootConfig`:
-  prevents `docs/contracts/` and `docs/runbooks/` references from
-  returning in root-level config files.
+Tightened the language-policy enforcement to match the absolute rule, and
+hardened the support-bundle serializer defensively.
+
+- The forbidden-vocabulary scanner now constructs its patterns from string
+  fragments so the blocked words never appear literally in any durable
+  artifact — including the scanner and enforcer files themselves.
+  Definitional file exemptions were removed; the scanner now proves the
+  whole tree is clean under a raw text search.
+- Numeric batch qualifiers are now caught by the scanner (not just the
+  four core terms), closing a gap that left labels in boundary and adapter
+  test files.
+- Reviewer-role labels in adapter tests were renamed to behavioral
+  regression descriptions.
+- The stale-path prevention test's keyword carve-out was narrowed: a line
+  is exempt only when it carries a removal keyword AND lacks a
+  live-reference indicator, so a live reference wearing a removal
+  adjective is still caught.
+- The support-bundle serializer's Struct and dataclass fallback paths now
+  route through the recursive normalizer for defense-in-depth consistency.
+- CLI inventory expanded from grouped forms to explicit per-command lines
+  for searchability.
+- Fixed a deprecated class-scoped pytest fixture that broke CI.

@@ -5,8 +5,6 @@ These tests verify that resource-control code (CapacityController, runtime
 shutdown) remains isolated from concrete transport SDKs and adapter
 implementations, and that the reverse dependency also holds — adapters and
 sessions never import resource-control modules.
-
-TRACK 9 — Resource Boundary Tests
 """
 
 from __future__ import annotations

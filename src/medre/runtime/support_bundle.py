@@ -285,17 +285,21 @@ def _json_default(obj: Any) -> Any:
     """``json.dumps`` default hook for dataclasses, Structs, and datetimes.
 
     ``_to_builtins`` already converts every production input, so this hook
-    normally never fires for those types. The Struct branch is defense in
-    depth: if a ``msgspec.Struct`` somehow survived ``_to_builtins`` (e.g.
-    a Struct nested inside a dataclass nested inside a Struct in a future
-    member shape), ``json.dumps`` would otherwise raise ``TypeError``.
+    normally never fires for those types. Both branches are defense in
+    depth and route through :func:`_to_builtins` so the normalisation
+    contract is identical to the main path: a Struct nested inside a
+    dataclass nested inside a Struct (or any future member shape) cannot
+    leak through as a raw instance and trip :func:`json.dumps`.
     """
     # Defense-in-depth fallback. _to_builtins handles every current input;
-    # this only fires if a future payload shape slips past it.
+    # this only fires if a future payload shape slips past it. The
+    # dataclass branch routes through _to_builtins for the same reason
+    # _to_builtins itself does: asdict leaves Struct-valued fields as
+    # raw Struct instances, which json.dumps cannot serialise.
     if isinstance(obj, msgspec.Struct):
-        return msgspec.to_builtins(obj)
+        return _to_builtins(msgspec.to_builtins(obj))
     if is_dataclass(obj) and not isinstance(obj, type):
-        return asdict(obj)
+        return _to_builtins(asdict(obj))
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serialisable")
 
 
@@ -305,9 +309,14 @@ def _to_builtins(obj: Any) -> Any:
     Each container kind is handled so a Struct (or dataclass) nested at
     any depth is converted before reaching :func:`json.dumps`:
 
-    - ``msgspec.Struct`` → :func:`msgspec.to_builtins` (recursively
-      converts nested Structs, honours ``msgspec.field(name=...)``
-      aliases such as ``$id`` / ``$schema`` on :class:`SchemaEntry`).
+    - ``msgspec.Struct`` → :func:`msgspec.to_builtins`, then the result
+      is RECURSED back through this function. ``msgspec.to_builtins``
+      converts nested Structs and honours ``msgspec.field(name=...)``
+      aliases such as ``$id`` / ``$schema`` on :class:`SchemaEntry`,
+      but it does not convert every container shape the way this
+      function does (e.g. tuples survive as tuples). The recursion
+      guarantees a single normalisation contract for every nesting
+      depth regardless of which layer produced the intermediate dict.
     - dataclass instance → :func:`dataclasses.asdict`, then the result
       is RECURSED back through this function. ``asdict`` does not know
       about Structs, so a Struct-valued field survives ``asdict`` as a
@@ -320,7 +329,11 @@ def _to_builtins(obj: Any) -> Any:
     Anything else passes through unchanged.
     """
     if isinstance(obj, msgspec.Struct):
-        return msgspec.to_builtins(obj)
+        # msgspec.to_builtins handles Structs natively, but its output
+        # is not guaranteed to match this function's container contract
+        # (tuples stay tuples, future field shapes may slip through).
+        # Recurse so every nesting depth is normalised by one function.
+        return _to_builtins(msgspec.to_builtins(obj))
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         # asdict does not see Structs; recurse the result so a Struct nested
         # inside a dataclass field cannot leak through.
@@ -701,95 +714,10 @@ def _json_bytes(data: Any) -> bytes:
     ).encode("utf-8")
 
 
-if __name__ == "__main__":  # tiny self-check, no test framework
-    # Smoke: round-trip a redactor walk on a synthetic config dict.
-    sample = {
-        "adapters": {
-            "matrix": {
-                "main": {
-                    "access_token": "syt_secret_value",
-                    "homeserver": "https://example.org",
-                    "origin_label": "bridge",
-                }
-            }
-        },
-        "storage": {"backend": "sqlite", "path": "/tmp/medre.db"},
-    }
-    redacted = _redact(sample)
-    matrix_cfg = redacted["adapters"]["matrix"]["main"]
-    assert matrix_cfg["access_token"] == _REDACTED, matrix_cfg
-    assert matrix_cfg["homeserver"] == "https://example.org"
-    assert matrix_cfg["origin_label"] == "bridge"
-    assert redacted["storage"]["path"] == "/tmp/medre.db"
-
-    # _to_builtins must recurse into plain dicts/lists so a Struct nested
-    # in one is converted; otherwise json.dumps raises TypeError on it
-    # (the _json_default hook only handles dataclasses, not Structs).
-    nested = {
-        "items": [
-            EnvironmentMember(
-                python_version="3.11",
-                platform="linux",
-                machine="x86_64",
-                medre_version="0",
-            )
-        ]
-    }
-    assert _to_builtins(nested) == {
-        "items": [
-            {
-                "python_version": "3.11",
-                "platform": "linux",
-                "machine": "x86_64",
-                "medre_version": "0",
-            }
-        ]
-    }, _to_builtins(nested)
-
-    # _to_builtins must convert tuples to lists and recurse into them,
-    # so a Struct nested inside a tuple cannot survive to json.dumps
-    # (whose _json_default only handles dataclasses).
-    tup = (
-        EnvironmentMember(
-            python_version="3.11",
-            platform="linux",
-            machine="x86_64",
-            medre_version="0",
-        ),
-    )
-    assert _to_builtins(tup) == [
-        {
-            "python_version": "3.11",
-            "platform": "linux",
-            "machine": "x86_64",
-            "medre_version": "0",
-        }
-    ], _to_builtins(tup)
-
-    # dataclasses.asdict() must be fed back through _to_builtins so a
-    # Struct nested in a dataclass field is converted (otherwise it
-    # survives asdict untouched and trips json.dumps).
-    @dataclasses.dataclass
-    class _Holder:
-        label: str
-        env: EnvironmentMember
-
-    holder = _Holder(
-        label="x",
-        env=EnvironmentMember(
-            python_version="3.11",
-            platform="linux",
-            machine="x86_64",
-            medre_version="0",
-        ),
-    )
-    assert _to_builtins(holder) == {
-        "label": "x",
-        "env": {
-            "python_version": "3.11",
-            "platform": "linux",
-            "machine": "x86_64",
-            "medre_version": "0",
-        },
-    }, _to_builtins(holder)
-    print("support_bundle self-check OK", file=sys.stderr)
+if __name__ == "__main__":  # pragma: no cover — minimal import smoke
+    # Behavioural coverage lives in tests/test_operator_support_bundle.py
+    # and tests/test_support_bundle_no_io.py. This block only confirms
+    # the module imports cleanly and exposes its public symbols.
+    assert create_support_bundle is not None
+    assert BUNDLE_SCHEMA_VERSION == 1
+    print("support_bundle module loads OK", file=sys.stderr)

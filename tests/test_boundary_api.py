@@ -3,8 +3,6 @@
 Verify canonical contract exports, config error hierarchy, credential
 sidecar behavior, config error import paths, and absence of stale
 references in documentation (sections M–S).
-
-TRACK 6 — Boundary/Regression Tests
 """
 
 from __future__ import annotations

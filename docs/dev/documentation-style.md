@@ -25,14 +25,14 @@ structure conventions — not by adding a standalone contract.
 
 ## No Internal Planning-Cycle Vocabulary
 
-The following terms are internal development vocabulary and are forbidden in
-**all durable artifacts**:
-
-- "tranche" (use "release scope", "work package", or "implementation phase")
-- "boulder" (use "task" or "work item")
-- "sprint" (use "development cycle")
-- "ponytail" (an internal development skill name; describe the underlying idea
-  plainly, e.g. "minimal change" rather than referencing the skill)
+The blocked vocabulary includes internal incremental-work labels,
+development-cycle terms, batch qualifiers, and tooling-skill markers. These
+terms describe temporary internal planning state and are forbidden in
+**all durable artifacts**. The canonical pattern list lives in
+``tests/helpers/forbidden_terms.py`` — refer to that module for the exact
+set of compiled patterns. The patterns are stored as concatenated string
+fragments so this style guide and the helper itself contain no literal
+blocked word either.
 
 Durable artifacts include: documentation under `docs/` (including
 `docs/spec/`, `docs/ops/`, `docs/dev/`, `docs/schemas/`, and `docs/changes/`),
@@ -42,12 +42,9 @@ scripts under `examples/`, branch names, new commit messages, and
 agent-facing prompts (including `AGENTS.md` and skill instructions).
 
 These terms describe temporary internal planning state and must not leak into
-any artifact that persists beyond the planning cycle. The only files that may
-contain them are the definitional ones that enumerate the forbidden list
-itself (`tests/helpers/forbidden_terms.py`), the enforcer test that names
-the terms while checking for them
-(`tests/test_docs_no_internal_planning_language.py`), and the style guide
-that documents the ban (this page).
+any artifact that persists beyond the planning cycle. The enforcer test
+``tests/test_docs_no_internal_planning_language.py`` scans every durable
+artifact against the canonical pattern list and fails on any match.
 
 Historical git commit messages are preserved as-is — this policy does not
 rewrite existing history. New commit messages must follow the stricter rule.

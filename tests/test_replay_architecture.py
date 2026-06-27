@@ -7,8 +7,6 @@ Enforce structural constraints on the replay package decomposition:
 - No facade imports or compatibility aliases exist.
 - Canonical import paths are enforced.
 - Replay submodules stay within their stage responsibility.
-
-TRACK 6 — Boundary/Regression Tests
 """
 
 from __future__ import annotations

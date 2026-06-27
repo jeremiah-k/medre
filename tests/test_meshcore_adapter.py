@@ -1135,9 +1135,9 @@ class TestMeshCoreDeliveryMetadataJSONSafe:
 class TestMeshCoreLifecycleGuardOnMessageAsync:
     """_on_message_async must not publish after stop() begins.
 
-    Oracle finding B: an already-scheduled async inbound handler
-    (created by _on_message via asyncio.create_task) must not
-    publish after stop() sets _started = False.
+    Regression: an already-scheduled async inbound handler (created
+    by _on_message via asyncio.create_task) must not publish after
+    stop() sets _started = False.
     """
 
     async def test_on_message_async_skips_publish_after_stop(
@@ -1190,9 +1190,9 @@ class TestMeshCoreLifecycleGuardOnMessageAsync:
 class TestMeshCoreLastHealthLifecycleBoundary:
     """_last_health is cleared at start/stop boundaries.
 
-    Oracle finding C: cached _last_health must be reset to None on
-    start() and stop() so diagnostics never reports a stale health
-    string from a previous session.
+    Regression: cached _last_health must be reset to None on start()
+    and stop() so diagnostics never reports a stale health string from
+    a previous session.
     """
 
     async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:

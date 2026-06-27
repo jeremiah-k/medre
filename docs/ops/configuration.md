@@ -991,9 +991,17 @@ medre diagnostics [--config PATH] [--refresh-health]
     build-time state only. With --refresh-health, starts adapters, polls
     health, then stops.
 
-medre routes (validate|topology|list|plan) [--config PATH]
-    Route management: validate, print topology preview, list routes, or
-    show the expanded route plan (offline, no network I/O). See
+medre routes validate [--config PATH]
+    Validate route configuration (offline, no network I/O).
+
+medre routes topology [--config PATH]
+    Print route topology preview (offline, no network I/O).
+
+medre routes list [--config PATH]
+    List configured routes (offline, no network I/O).
+
+medre routes plan [--config PATH]
+    Show the expanded route plan (offline, no network I/O). See
     "Route Topology Preview with `medre routes plan`" above.
 
 medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
@@ -1014,8 +1022,12 @@ medre inspect replay --storage-path PATH
 
     All inspect subcommands require --storage-path for direct SQLite access.
 
-medre trace (event|replay) --storage-path PATH [--json]
-    Specialized chronological timeline assembly. Prefer
+medre trace event --storage-path PATH [--json]
+    Specialized chronological event timeline assembly. Prefer
+    inspect event --timeline for per-event timelines.
+
+medre trace replay --storage-path PATH [--json]
+    Specialized chronological replay-run timeline assembly. Prefer
     inspect event --timeline for per-event timelines.
 
 medre evidence --storage-path PATH [--event ID] [--replay-run ID] [--json]
@@ -1033,15 +1045,21 @@ medre recover --storage-path PATH [--event ID] [--failed-only] [--dry-run] [--js
     Specialized recovery classification. Prefer
     inspect event --recovery for per-event runbook.
 
-medre storage (status|reset) [--storage-path PATH]
-    Storage management. status reports schema health (read-only).
-    reset deletes the database (destructive; accepts --backup and --yes).
+medre storage status [--storage-path PATH]
+    Storage management (read-only). Reports schema health.
 
-medre adapter matrix auth (login|status)
-    Matrix credential management (no runtime). login authenticates with
+medre storage reset [--storage-path PATH]
+    Storage management (destructive). Deletes the database; accepts
+    --backup and --yes.
+
+medre adapter matrix auth login
+    Matrix credential management (no runtime). Authenticates with
     the homeserver and saves credentials to a sidecar JSON file; it never
-    prints the access token. status shows credential file status without
-    printing secrets.
+    prints the access token.
+
+medre adapter matrix auth status
+    Matrix credential management (no runtime). Shows credential file
+    status without printing secrets.
 
 medre support bundle [--config PATH] [--output PATH]
     Write an offline, redacted support bundle ZIP. Built from config

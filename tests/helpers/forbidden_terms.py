@@ -1,7 +1,10 @@
 """Shared forbidden-term scanning helpers for documentation and code tests.
 
-This module is the single source of truth for the internal planning-cycle
-vocabulary that MUST NOT appear in durable artifacts.
+This module is the single source of truth for the internal vocabulary that
+MUST NOT appear in durable artifacts. The blocked patterns are stored as
+concatenated string fragments so that no complete blocked word appears as a
+literal substring of this file — the file enforces the ban without itself
+containing the banned text.
 
 Policy scope (see ``docs/dev/documentation-style.md``):
     Forbidden in durable docs, code comments/docstrings, test names, test
@@ -19,12 +22,11 @@ Not scanned:
     - ``.git/`` (history is preserved; the policy does not rewrite history)
     - ``__pycache__/``, build artifacts, virtualenvs
 
-Definitional carve-out:
-    The forbidden WORDS legitimately live in this file (``FORBIDDEN_TERMS``,
-    ``PLANNING_CYCLE_TERMS``) and in the style guide that documents the ban
-    (``docs/dev/documentation-style.md``). These files are exempt from
-    content scans so they do not flag themselves. The enforcer test module
-    is also exempt. See ``DEFINITIONAL_EXEMPT_FILES``.
+No definitional carve-out:
+    Every pattern below is assembled from fragments at import time, so this
+    module scans clean against its own compiled patterns. The style guide
+    and enforcer test likewise contain no literal blocked word, so
+    ``DEFINITIONAL_EXEMPT_FILES`` is intentionally empty.
 """
 
 from __future__ import annotations
@@ -36,61 +38,70 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _DOCS_DIR = _ROOT / "docs"
 
-#: Forbidden internal planning terms shared across test suites.
+#: Forbidden internal terms shared across test suites.
 #: Both test_docs_no_internal_planning_language and
-#: test_release_readiness_convergence scan for these patterns.
+#: test_release_readiness_convergence scan for these patterns. Each pattern
+#: is built from concatenated fragments so no blocked phrase appears as a
+#: literal substring of this source file.
 FORBIDDEN_TERMS: list[re.Pattern[str]] = [
-    re.compile(r"\balpha stage\b", re.IGNORECASE),
-    re.compile(r"\bbeta period\b", re.IGNORECASE),
-    re.compile(r"\bbeta contractual\b", re.IGNORECASE),
-    re.compile(r"\bPC-targeted\b"),
-    re.compile(r"\bLSP diagnostics\b", re.IGNORECASE),
-    re.compile(r"\bworking tree clean\b", re.IGNORECASE),
-    re.compile(r"\bfinal report\b", re.IGNORECASE),
-    re.compile(r"\bagent-as-process\b", re.IGNORECASE),
-    re.compile(r"\bfuture tranche\b", re.IGNORECASE),
+    re.compile(r"\balpha " + r"stage\b", re.IGNORECASE),
+    re.compile(r"\bbeta " + r"period\b", re.IGNORECASE),
+    re.compile(r"\bbeta " + r"contractual\b", re.IGNORECASE),
+    re.compile(r"\bPC-" + r"targeted\b"),
+    re.compile(r"\bLSP " + r"diagnostics\b", re.IGNORECASE),
+    re.compile(r"\bworking " + r"tree " + r"clean\b", re.IGNORECASE),
+    re.compile(r"\bfinal " + r"report\b", re.IGNORECASE),
+    re.compile(r"\bagent-" + r"as-process\b", re.IGNORECASE),
+    re.compile(r"\bfuture " + "tr" + "anche" + r"\b", re.IGNORECASE),
     # Stale alpha/beta branding in durable docs
-    re.compile(r"\buntil beta\b", re.IGNORECASE),
-    re.compile(r"\bStatus:\s*Alpha\b"),
-    re.compile(r"\bE2EE Text Alpha\b", re.IGNORECASE),
-    re.compile(r"\bMatrix Operation Alpha\b"),
-    re.compile(r"\balpha-walkthrough\b"),
-    re.compile(r"\balpha-installation\b"),
-    re.compile(r"\bAlpha validates\b"),
+    re.compile(r"\buntil " + r"beta\b", re.IGNORECASE),
+    re.compile(r"\bStatus:" + r"\s*Alpha\b"),
+    re.compile(r"\bE2EE Text " + r"Alpha\b", re.IGNORECASE),
+    re.compile(r"\bMatrix Operation " + r"Alpha\b"),
+    re.compile(r"\balpha-" + r"walkthrough\b"),
+    re.compile(r"\balpha-" + r"installation\b"),
+    re.compile(r"\bAlpha " + r"validates\b"),
 ]
 
-#: Internal planning-cycle vocabulary banned from durable artifacts.
-#: Kept separate from FORBIDDEN_TERMS because release-readiness convergence
-#: tests scan only the shared FORBIDDEN_TERMS list against docs, while the
-#: durable-language enforcer applies the union of both lists everywhere.
+#: Internal vocabulary banned from durable artifacts. Kept separate from
+#: FORBIDDEN_TERMS because release-readiness convergence tests scan only the
+#: shared FORBIDDEN_TERMS list against docs, while the durable-language
+#: enforcer applies the union of both lists everywhere. Each pattern is
+#: built from concatenated fragments so no blocked word appears as a literal
+#: substring of this source file.
 PLANNING_CYCLE_TERMS: list[re.Pattern[str]] = [
-    # Bare substring (no \b) — catches ponytail, Ponytail, _ponytail_,
-    # tranche, tranche1, tranche6, Tranches, _tranche_, Tranche6Foo, etc.
-    # Neither word has a legitimate use in this mesh-relay codebase, so a
-    # substring match has no false positives.
-    # boulder/sprint stay word-bounded: they have real English meanings
-    # (a rock, a run) that appear in unrelated contexts.
-    re.compile(r"ponytail", re.IGNORECASE),
-    re.compile(r"tranche", re.IGNORECASE),
-    re.compile(r"\bboulder\b", re.IGNORECASE),
-    re.compile(r"\bsprint\b", re.IGNORECASE),
+    # Bare-substring patterns (no \b): match the two internal labels that
+    # have no legitimate use in this mesh-relay codebase and would only
+    # surface as planning artifacts. Bare matching catches digit- and
+    # underscore-suffixed forms (e.g. a label followed by a digit) that a
+    # word-bounded anchor would miss. Both labels are assembled from
+    # fragments below.
+    re.compile("po" + "nytail", re.IGNORECASE),
+    re.compile("tr" + "anche", re.IGNORECASE),
+    # Word-bounded patterns: the next two have ordinary English meanings
+    # (a rock, a run) that appear in unrelated contexts, so they stay
+    # anchored on both sides with \b. Fragmented so the literal word does
+    # not appear in this file.
+    re.compile(r"\b" + "bou" + "lder" + r"\b", re.IGNORECASE),
+    re.compile(r"\b" + "sp" + "rint" + r"\b", re.IGNORECASE),
+    # Numeric batch qualifiers (case-insensitive): an internal batch label
+    # immediately followed by optional whitespace and a digit. Same class
+    # of internal qualifier as the bare labels above.
+    re.compile(r"\b(?:track" + r"|wave)\s*\d", re.IGNORECASE),
 ]
 
 #: Union of all forbidden patterns — use for full-scope durable-artifact scans.
 ALL_FORBIDDEN_PATTERNS: list[re.Pattern[str]] = PLANNING_CYCLE_TERMS + FORBIDDEN_TERMS
 
 #: Files that definitionally contain the forbidden words and are therefore
-#: exempt from content scans. These are the files that DEFINE the ban or
-#: enumerate the banned terms in a "do not use" context.
-DEFINITIONAL_EXEMPT_FILES: set[str] = {
-    # This helper: defines the regex patterns containing the forbidden words.
-    "forbidden_terms.py",
-    # The enforcer test: names the forbidden words in its docstring and
-    # test logic.
-    "test_docs_no_internal_planning_language.py",
-    # The style guide: enumerates the banned terms to document the ban.
-    "documentation-style.md",
-}
+#: exempt from content scans. Intentionally empty: every blocked pattern is
+#: assembled from string fragments in this module, the style guide
+#: (``docs/dev/documentation-style.md``) describes the ban without enumerating
+#: the blocked words, and the enforcer test
+#: (``tests/test_docs_no_internal_planning_language.py``) describes its
+#: behavior without naming them. All three definitional files now scan clean
+#: against the compiled patterns, so no self-exemption is required.
+DEFINITIONAL_EXEMPT_FILES: set[str] = set()
 
 #: Directory names never scanned (history, caches, builds, venvs).
 _NEVER_SCAN_DIRS: set[str] = {
@@ -221,7 +232,9 @@ def find_forbidden_in_filenames(
 
     Tests each file's full relative path string (not contents) against the
     patterns. Catches forbidden words embedded in filenames or directory
-    names (e.g. ``test_lxmf_session_tranche6.py``).
+    names — for example, a test file previously carried a blocked batch
+    qualifier in its name and was renamed to ``test_lxmf_session_callback_guards.py``;
+    this scanner protects against regressing that fix.
 
     Args:
         roots: Directory paths to walk.

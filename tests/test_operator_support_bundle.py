@@ -29,6 +29,7 @@ from medre.runtime.support_bundle import (
     SchemasMember,
     _has_config_env_overrides,
     _json_bytes,
+    _json_default,
     _read_schema_meta,
     _to_builtins,
     create_support_bundle,
@@ -844,6 +845,134 @@ def _assert_no_struct_or_dataclass(value: Any) -> None:
     elif isinstance(value, list):
         for v in value:
             _assert_no_struct_or_dataclass(v)
+
+
+# ---------------------------------------------------------------------------
+# Cross-type regression: Struct with a nested dataclass field, and
+# _json_default fallback for a dataclass with a nested Struct field.
+# ---------------------------------------------------------------------------
+#
+# msgspec.Struct fields accept any Python type at runtime; modern msgspec
+# converts nested dataclass values via msgspec.to_builtins, but that is
+# an implementation detail of msgspec, not a contract this module relies
+# on. The first test below locks in _to_builtins' end-to-end behaviour
+# for a Struct-with-dataclass-field shape so a future msgspec change or
+# a new field shape (e.g. a tuple of dataclasses inside a Struct) cannot
+# silently regress to leaving raw dataclass instances in the output.
+#
+# The second test exercises _json_default directly. _json_default is a
+# defensive fallback that only fires when _to_builtins missed a value;
+# if it ever does, the dataclass branch must produce a fully normalised
+# dict (no raw Struct surviving in a field value).
+
+
+def test_to_builtins_normalises_struct_with_nested_dataclass_field() -> None:
+    """A Struct with a dataclass-valued field serialises to plain dicts.
+
+    Covers the recursion added to the Struct branch of _to_builtins:
+    msgspec.to_builtins is called first, then its output is fed back
+    through _to_builtins so any container shape (tuples, nested
+    dataclasses) is normalised to this function's contract.
+
+    The Struct also carries a tuple-of-dataclasses field and a
+    dict-of-dataclasses field. msgspec.to_builtins leaves tuples as
+    tuples; the recursion through _to_builtins converts them to lists,
+    matching the rest of the serialisation contract.
+    """
+
+    @dataclasses.dataclass
+    class Inner:
+        count: int
+
+    class Outer(msgspec.Struct):
+        label: str
+        inner: Inner
+        items: tuple
+        mapping: dict
+
+    obj = Outer(
+        label="x",
+        inner=Inner(count=5),
+        items=(Inner(count=1), Inner(count=2)),
+        mapping={"k": Inner(count=3)},
+    )
+    result = _to_builtins(obj)
+
+    assert result == {
+        "label": "x",
+        "inner": {"count": 5},
+        "items": [{"count": 1}, {"count": 2}],
+        "mapping": {"k": {"count": 3}},
+    }, result
+    # Tuples must be normalised to lists (msgspec.to_builtins alone
+    # leaves them as tuples, which is the gap the recursion closes).
+    assert isinstance(result["items"], list)
+    # No dataclass or Struct instance survives into the output.
+    _assert_no_struct_or_dataclass(result)
+
+
+def test_json_default_dataclass_fallback_recurses_through_struct() -> None:
+    """_json_default's dataclass branch returns a fully normalised dict.
+
+    Regression: previously the dataclass branch returned
+    ``dataclasses.asdict(obj)`` directly, which left Struct-valued
+    fields as raw msgspec.Struct instances. Although json.dumps would
+    eventually call ``default`` again on each surviving Struct, the
+    return value itself was not JSON-safe, breaking the contract that
+    ``default`` return values are serialisable.
+
+    The fix routes asdict's output through _to_builtins so the dataclass
+    branch matches the Struct branch and the main _json_bytes path.
+    """
+
+    @dataclasses.dataclass
+    class Holder:
+        label: str
+        env: EnvironmentMember
+        entries: tuple
+
+    holder = Holder(
+        label="x",
+        env=EnvironmentMember(
+            python_version="3.11",
+            platform="linux",
+            machine="x86_64",
+            medre_version="0",
+        ),
+        entries=(
+            SchemaEntry(present=True, path="/p", id="https://id", schema="https://sch"),
+        ),
+    )
+
+    # Direct call: _json_default must return a value that json.dumps
+    # can serialise without invoking default again.
+    out = _json_default(holder)
+    assert out == {
+        "label": "x",
+        "env": {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        },
+        "entries": [
+            {
+                "present": True,
+                "path": "/p",
+                "$id": "https://id",
+                "$schema": "https://sch",
+            }
+        ],
+    }, out
+
+    # End-to-end: json.dumps with default=_json_default must not raise
+    # and must produce a structure with no Struct/dataclass instances.
+    decoded = json.loads(json.dumps(holder, default=_json_default))
+    assert decoded == out
+    _assert_no_struct_or_dataclass(decoded)
+    # SchemaEntry $id / $schema aliases survive the fallback path.
+    assert decoded["entries"][0]["$id"] == "https://id"
+    assert decoded["entries"][0]["$schema"] == "https://sch"
 
 
 # ---------------------------------------------------------------------------
