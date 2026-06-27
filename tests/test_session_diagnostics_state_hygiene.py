@@ -110,7 +110,7 @@ def mock_nio() -> MagicMock:
 
 
 # ===================================================================
-# GAP A: MatrixSession.stop() resets reconnect_attempts
+# Matrix reconnect counter reset on stop
 # ===================================================================
 
 
@@ -156,7 +156,7 @@ class TestMatrixReconnectCounterResetOnStop:
 
 
 # ===================================================================
-# GAP B: MeshtasticSession.stop() resets reconnect_attempts
+# Meshtastic reconnect counter reset on stop
 # ===================================================================
 
 
@@ -199,7 +199,7 @@ class TestMeshtasticReconnectCounterResetOnStop:
 
 
 # ===================================================================
-# GAP C: LxmfSession.stop() resets reconnect_attempts
+# LXMF reconnect counter reset on stop
 # ===================================================================
 
 
@@ -238,7 +238,7 @@ class TestLxmfReconnectCounterResetOnStop:
 
 
 # ===================================================================
-# GAP D: LxmfSession._teardown_sdk() clears connected/router_running
+# LXMF teardown clears connected flags
 # ===================================================================
 
 
@@ -264,7 +264,7 @@ class TestLxmfTeardownClearsConnected:
 
 
 # ===================================================================
-# GAP E: MeshtasticAdapter.diagnostics() includes queue_total_rejected
+# Meshtastic adapter diagnostics queue rejected
 # ===================================================================
 
 
@@ -305,14 +305,15 @@ class TestMeshtasticAdapterDiagnosticsQueueRejected:
 
 
 # ===================================================================
-# GAP F: MatrixSession sync recovery clears stale reconnect state
+# Matrix sync recovery clears stale reconnect state
 # ===================================================================
 
 
 class TestMatrixReconnectErrorStateRecovery:
     """Drives the production sync recovery path and asserts it clears
-    stale reconnect state. Replaces a former state-invariant test that
-    only set the fields and re-asserted them."""
+    pre-set stale reconnect state on a successful sync. Replaces a
+    former state-invariant test that only set the fields and
+    re-asserted them."""
 
     async def test_sync_recovery_clears_stale_reconnect_state(self) -> None:
         """Behavior: ``_sync_with_reconnect`` clears stale state on a
@@ -357,7 +358,7 @@ class TestMatrixReconnectErrorStateRecovery:
 
 
 # ===================================================================
-# GAP G: LxmfSession reconnect loop clears state on recovery
+# LXMF reconnect loop clears state after failure then success
 # ===================================================================
 
 
