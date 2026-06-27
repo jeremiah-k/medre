@@ -961,7 +961,7 @@ def _wheel_path() -> object:
     """Build wheel once per module and return its path."""
     import tempfile
 
-    import build
+    build = pytest.importorskip("build")
 
     with tempfile.TemporaryDirectory(prefix="medre-wheel-test-") as tmpdir:
         builder = build.ProjectBuilder(_REPO_ROOT)

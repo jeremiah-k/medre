@@ -1144,19 +1144,40 @@ def test_schema_entry_failure_shape_via_read_schema_meta() -> None:
     }
 
 
-def test_schema_entry_failure_shape_in_full_bundle(tmp_path: Path) -> None:
-    """The failure shape survives a full create_support_bundle run when
-    the schema file is absent from the repo (simulated by calling
-    ``_read_schema_meta`` directly, since the repo ships real schemas).
+def test_schema_entry_failure_shape_in_full_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The four-key failure shape survives a real ``create_support_bundle``
+    run and lands in the ``schemas.json`` ZIP member.
+
+    The repo ships real schemas, so ``_SCHEMAS_DIR`` is pointed at an
+    empty path to force every lookup in ``_build_schemas_member`` to
+    miss — exercising the real bundle write and the ``schemas.json``
+    member end-to-end, not just the serializer.
     """
-    entry = _read_schema_meta("does-not-exist.schema.json")
-    # End-to-end through the public-ish serializer the bundle uses.
-    decoded = json.loads(_json_bytes(entry).decode("utf-8"))
-    assert decoded["present"] is False
-    assert set(decoded.keys()) == {"present", "path", "$id", "$schema"}
-    assert decoded["path"] is None
-    assert decoded["$id"] is None
-    assert decoded["$schema"] is None
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle._SCHEMAS_DIR", tmp_path / "no-schemas"
+    )
+
+    out = create_support_bundle(config_path=cfg, output_path=tmp_path / "bundle.zip")
+    members = _read_bundle(out)
+    schemas = _read_json_member(members, "schemas.json")
+
+    # Every schema entry must carry the locked four-key failure shape:
+    #   {"present": false, "path": null, "$id": null, "$schema": null}
+    for key in (
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+    ):
+        entry = schemas[key]
+        assert set(entry.keys()) == {"present", "path", "$id", "$schema"}, key
+        assert entry["present"] is False, key
+        assert entry["path"] is None, key
+        assert entry["$id"] is None, key
+        assert entry["$schema"] is None, key
 
 
 def test_schema_entry_present_true_contrasts_failure_shape() -> None:

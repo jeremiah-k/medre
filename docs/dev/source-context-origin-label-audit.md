@@ -944,13 +944,13 @@ change" rule (`AGENTS.md:50-54`).
 
 **Recommended implementation sequencing:**
 
-1. **Config model.** Add `ChannelRoomMapEntry`, extend
-   `RouteConfig.from_dict` to parse the polymorphic value shape,
-   keep the existing `channel_room_map: dict[str, ?]` attribute typed
-   as `dict[str, ChannelRoomMapEntry]` (always normalised). Add
-   parsing tests (§8.6 item 1). No expansion changes yet — existing
-   expansion tests must still pass because the entry's `room` field
-   carries the same data.
+ 1. **Config model.** Add `ChannelRoomMapEntry`, extend
+   `RouteConfig.from_dict` to parse the polymorphic value shape, keep
+   the existing `channel_room_map: dict[str, ?]` attribute typed as
+   `dict[str, ChannelRoomMapEntry]` (always normalised). Add parsing
+   tests (§8.6 item 1). No expansion changes yet — existing expansion
+   tests must still pass because the entry's `room` field carries the
+   same data.
 
 2. **Expansion.** Update
    `_expand_channel_room_map_route` to read per-entry labels with

@@ -643,7 +643,7 @@ class TestMeshtasticLiveSmoke:
         # See tests/test_meshtastic_startup_backlog.py for full coverage.
         pass
 
-    async def test_inbound_dm_not_supported_note(self):
+    async def test_outbound_dm_not_supported_note(self):
         """Document: outbound DM delivery is not supported.
 
         This test always passes.  The adapter declares

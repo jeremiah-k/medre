@@ -345,13 +345,19 @@ def _to_builtins(obj: Any) -> Any:
     if isinstance(obj, tuple):
         return [_to_builtins(v) for v in obj]
     # Closes the set/frozenset gap: previously fell through to the
-    # fallthrough below and tripped json.dumps. Sorted by str for
-    # deterministic output.
+    # fallthrough below and tripped json.dumps. Elements are normalised
+    # through _to_builtins first, then sorted by their JSON
+    # representation to guarantee a total ordering even for
+    # heterogeneous sets with equal str representations (e.g. {1, "1"}).
     # bytes/datetime/Enum intentionally NOT handled here —
     # they need a conversion-policy decision (encoding, format, value
     # vs name). Add explicit branches when a member actually needs them.
     if isinstance(obj, (set, frozenset)):
-        return [_to_builtins(v) for v in sorted(obj, key=str)]
+        normalised = [_to_builtins(v) for v in obj]
+        return sorted(
+            normalised,
+            key=lambda v: json.dumps(v, sort_keys=True, separators=(",", ":")),
+        )
     return obj
 
 

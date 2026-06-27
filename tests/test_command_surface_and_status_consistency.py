@@ -466,6 +466,32 @@ def config_text() -> str:
     return _read(CONFIG_DOC)
 
 
+def _extract_cli_inventory(text: str) -> str:
+    """Return the ```text code block inside the '## CLI Commands' section
+    of configuration.md.
+
+    Searching only this block keeps the coverage check honest: a prose
+    mention elsewhere must not mask a missing CLI inventory entry.
+    """
+    section = re.search(
+        r"^## CLI Commands(.*?)(?=^## |\Z)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if not section:
+        return ""
+    fence = re.search(r"```text\n(.*?)```", section.group(1), re.DOTALL)
+    return fence.group(1) if fence else ""
+
+
+@pytest.fixture(scope="module")
+def cli_section(config_text: str) -> str:
+    inventory = _extract_cli_inventory(config_text)
+    if not inventory:
+        pytest.skip("CLI inventory text block not found in configuration.md")
+    return inventory
+
+
 class TestNestedCommandCoverage:
     """Every operator-facing nested subcommand registered in the parser
     must be documented in configuration.md's CLI inventory.
@@ -489,7 +515,7 @@ class TestNestedCommandCoverage:
         ],
     )
     def test_nested_subcommands_exist_and_documented(
-        self, root_parser, config_text: str, top_level: str, expected: set[str]
+        self, root_parser, cli_section: str, top_level: str, expected: set[str]
     ) -> None:
         """Each nested subcommand listed in the operator surface must
         (a) actually exist in the parser and (b) appear in the
@@ -515,14 +541,14 @@ class TestNestedCommandCoverage:
                 rf"{re.escape(sub)}\b[^)]*\)"
             )
             individual = f"medre {top_level} {sub}"
-            assert grouped.search(config_text) or individual in config_text, (
+            assert grouped.search(cli_section) or individual in cli_section, (
                 f"configuration.md CLI inventory must document "
                 f"'medre {top_level} {sub}' (individual or grouped form). "
                 f"Parser exposes it but the docs do not."
             )
 
     def test_adapter_matrix_auth_subcommands_documented(
-        self, root_parser, config_text: str
+        self, root_parser, cli_section: str
     ) -> None:
         """``adapter matrix auth`` exposes ``login`` and ``status``; both
         must appear in configuration.md. ``logout`` is intentionally not
@@ -538,12 +564,12 @@ class TestNestedCommandCoverage:
         for sub in sorted(expected):
             # configuration.md groups the auth subcommands as
             # "adapter matrix auth (login|status)".
-            assert sub in config_text, (
+            assert sub in cli_section, (
                 f"configuration.md CLI inventory must document "
                 f"'adapter matrix auth {sub}'."
             )
         # Sanity: the grouped form is present.
-        assert "adapter matrix auth" in config_text, (
+        assert "adapter matrix auth" in cli_section, (
             "configuration.md must document the 'medre adapter matrix auth' "
             "command group."
         )

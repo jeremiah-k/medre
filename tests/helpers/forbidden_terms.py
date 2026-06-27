@@ -255,7 +255,7 @@ def find_forbidden_in_filenames(
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*")):
-            if not path.is_file():
+            if not path.exists():
                 continue
             if _is_exempt(path, exempt_basenames):
                 continue
