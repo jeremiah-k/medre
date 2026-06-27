@@ -50,3 +50,8 @@ Unreleased changes are tracked in a single file:
 
 Append new entries to the bottom of that file. Do not create per-commit
 fragment files.
+
+Keep each entry to a single concise bullet or short paragraph focused on
+operator or developer impact. Omit file-by-file change lists, test names,
+audit-process narrative, and validation-command output — those belong in
+the linked spec, audit, or PR description, not in release notes.
