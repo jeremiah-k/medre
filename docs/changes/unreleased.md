@@ -979,6 +979,8 @@ already worked):**
   `_to_builtins()`. Previously the result was returned directly, so a
   `msgspec.Struct`-valued field on a dataclass survived `asdict` as a
   raw Struct and raised `TypeError` at `json.dumps` time.
+- `set` / `frozenset` values are now normalised to sorted lists via
+  JSON representation for deterministic output.
 - `msgspec.field(name=...)` aliases (e.g. `SchemaEntry`'s `$id` /
   `$schema`) continue to be honoured via `msgspec.to_builtins`.
 

@@ -36,7 +36,6 @@ TARGET_DOCS = [
     BRIDGE_EVIDENCE,
     OPS_DIR / "running-medre.md",
     OPS_DIR / "recovery-and-replay.md",
-    OPS_DIR / "recovery-and-replay.md",
     CONFIG_DOC,
 ]
 

@@ -6,7 +6,7 @@ spec documents and the authoritative status vocabularies in
 ``delivery_state.py``, and prevent ``delivery_status`` from leaking
 into adapter metadata dicts.
 
-Wave E additions:
+Lifecycle authority additions:
 - Classification subset alignment (NON_TERMINAL constants in spec docs).
 - Transition table alignment (receipt and outbox transitions in spec docs
   match RECEIPT_TRANSITIONS / OUTBOX_TRANSITIONS).
@@ -546,7 +546,7 @@ class TestMeshCoreMetadataRegression:
 
 
 # ===========================================================================
-# 7. Classification subset alignment (Wave E)
+# 7. Classification subset alignment
 # ===========================================================================
 
 
@@ -659,7 +659,7 @@ class TestClassificationSubsetAlignment:
 
 
 # ===========================================================================
-# 8. Transition table alignment (Wave E)
+# 8. Transition table alignment
 # ===========================================================================
 
 
@@ -847,7 +847,7 @@ class TestOutboxTransitionAlignment:
 
 
 # ===========================================================================
-# 9. Dead-letter attempt convention alignment (Wave E)
+# 9. Dead-letter attempt convention alignment
 # ===========================================================================
 
 

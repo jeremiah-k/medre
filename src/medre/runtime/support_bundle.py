@@ -320,16 +320,16 @@ def _to_builtins(obj: Any) -> Any:
     - dataclass instance → :func:`dataclasses.asdict`, then the result
       is RECURSED back through this function. ``asdict`` does not know
       about Structs, so a Struct-valued field survives ``asdict`` as a
-       raw Struct and would fall back to ``_json_default`` which now also
-       handles Structs. The recursion keeps that case on the main
-       normalisation path and also normalises tuples produced by ``asdict``
-       into lists.
-     - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
-       become lists (matching :func:`json.dumps` tuple semantics).
-     - ``set`` / ``frozenset`` → normalise each element, then sort by
-       JSON representation for deterministic output.
+      raw Struct and would fall back to ``_json_default`` which now also
+      handles Structs. The recursion keeps that case on the main
+      normalisation path and also normalises tuples produced by ``asdict``
+      into lists.
+    - ``dict`` / ``list`` / ``tuple`` → recurse element-wise; tuples
+      become lists (matching :func:`json.dumps` tuple semantics).
+    - ``set`` / ``frozenset`` → normalise each element, then sort by
+      JSON representation for deterministic output.
 
-     Anything else passes through unchanged.
+    Anything else passes through unchanged.
     """
     if isinstance(obj, msgspec.Struct):
         # msgspec.to_builtins handles Structs natively, but its output
@@ -718,7 +718,7 @@ def _json_bytes(data: Any) -> bytes:
 
     msgspec.Struct instances are converted to plain builtins via
     :func:`_to_builtins` before reaching :func:`json.dumps`; the
-    ``default`` hook remains as a fallback for any stray dataclasses.
+    ``default`` hook remains as a fallback for any stray Structs or dataclasses.
     """
     return (
         json.dumps(

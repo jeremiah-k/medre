@@ -463,7 +463,7 @@ class TestNonTerminalOutboxStatuses:
 
 
 # ---------------------------------------------------------------------------
-# Convergence classification conformance (Wave E)
+# Convergence classification conformance
 # ---------------------------------------------------------------------------
 # Lightweight matrix assertion using the pure build_convergence_summary API.
 # The full convergence matrix (every outbox×receipt combination) is tested
