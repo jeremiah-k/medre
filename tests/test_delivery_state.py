@@ -6,6 +6,8 @@ transition tables, and edge cases.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from medre.core.engine.pipeline.delivery_state import (
@@ -513,8 +515,6 @@ class TestConvergenceClassificationConformance:
                 }
             )
         if receipt_status is not None:
-            from datetime import datetime, timezone
-
             receipts.append(
                 {
                     "receipt_id": "r-1",
@@ -559,7 +559,7 @@ class TestConvergenceClassificationConformance:
         assert self._classify("abandoned", None) == "safe"
 
     def test_terminal_outbox_terminal_receipt_different_safe(self) -> None:
-        """Both terminal but different statuses → safe with warning (§3.3)."""
+        """Both terminal but different statuses → safe (§3.3)."""
         assert self._classify("sent", "dead_lettered") == "safe"
 
     # -- Terminal outbox + non-terminal receipt = inconsistent ----------------

@@ -532,6 +532,11 @@ class TestNestedCommandCoverage:
             f"Parser is missing '{top_level}' subcommands: "
             f"{sorted(missing_from_parser)}. Actual: {sorted(actual)}"
         )
+        extra_in_parser = actual - expected
+        assert not extra_in_parser, (
+            f"Parser has unexpected '{top_level}' subcommands: "
+            f"{sorted(extra_in_parser)}. Update this test and the CLI inventory."
+        )
         for sub in sorted(expected):
             # Accept either "medre <top> <sub>" or
             # "medre <top> (...<sub>...)" grouped form.
@@ -559,6 +564,11 @@ class TestNestedCommandCoverage:
         assert not missing_from_parser, (
             "Parser is missing 'adapter matrix auth' subcommands: "
             f"{sorted(missing_from_parser)}. Actual: {sorted(actual)}"
+        )
+        extra_in_parser = actual - expected
+        assert not extra_in_parser, (
+            f"Parser has unexpected 'adapter matrix auth' subcommands: "
+            f"{sorted(extra_in_parser)}. Update this test and the CLI inventory."
         )
         for sub in sorted(expected):
             # configuration.md groups the auth subcommands as
