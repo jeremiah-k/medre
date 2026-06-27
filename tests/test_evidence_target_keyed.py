@@ -1,4 +1,4 @@
-"""TDD tests for Tranche 2 target-keyed delivery evidence.
+"""TDD tests for target-keyed delivery evidence.
 
 Defines the desired ``delivery_state_by_target`` shape and verifies the
 target-keyed composite key grouping replaces the old adapter-keyed

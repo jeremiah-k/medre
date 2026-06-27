@@ -600,7 +600,7 @@ class TestReceiptQueryHelpers:
 
 
 # ===================================================================
-# Track 6: Receipt sequence monotonicity
+# Receipt sequence monotonicity
 # ===================================================================
 
 

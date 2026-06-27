@@ -1,4 +1,4 @@
-"""Track 3: Clean-environment validation tests — reproducibility evidence.
+"""Clean-environment validation tests — reproducibility evidence.
 
 Validates that a **bare ``pip install .``** (no extras) produces a fully
 functional, deterministic environment.  Every test in this module:

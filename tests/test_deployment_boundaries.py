@@ -1,4 +1,4 @@
-"""Track 8 — Deployment / reproducibility boundary enforcement tests.
+"""Deployment / reproducibility boundary enforcement tests.
 
 These tests enforce structural invariants that guarantee reproducible
 deployments and clean-environment test runs.  They use **source-level text

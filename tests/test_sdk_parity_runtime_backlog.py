@@ -1,8 +1,8 @@
 """SDK parity runtime backlog characterization tests.
 
-Tests that document and guard the current state of Wave 1 SDK parity backlog
+Tests that document and guard the current state of the SDK parity backlog
 items (P-01 through P-12 from ``docs/dev/sdk-parity-backlog.md``).  These tests
-characterize **current behavior** — they verify what the adapters do today so
+characterize **current behavior** -- they verify what the adapters do today so
 that future parity work can detect regressions and confirm improvements.
 
 Evidence level: **fake_pipeline** (tier 1) and **fake_adapter_callback** (tier 2).
@@ -16,9 +16,9 @@ Gap classification:
   behavior.
 
 References:
-- ``docs/dev/sdk-parity-backlog.md`` — full backlog with rationale
-- ``docs/dev/adapter-reality-audit.md`` — prior correctness wave (R1–R10)
-- ``docs/dev/reference-repos.md`` — boundary rules on external references
+- ``docs/dev/sdk-parity-backlog.md`` - full backlog with rationale
+- ``docs/dev/adapter-reality-audit.md`` - prior correctness audit (R1-R10)
+- ``docs/dev/reference-repos.md`` - boundary rules on external references
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _make_matrix_config(**overrides: Any) -> MatrixConfig:
 
 
 # ===================================================================
-# P-01: Meshtastic — No periodic connection health verification
+# P-01: Meshtastic - No periodic connection health verification
 # Gap type: Behavioral
 # ===================================================================
 
@@ -167,7 +167,7 @@ class TestP01MeshtasticNoHealthCheck:
 
 
 # ===================================================================
-# P-02: Meshtastic — SDK connection-lost event subscription (RESOLVED)
+# P-02: Meshtastic - SDK connection-lost event subscription (RESOLVED)
 # Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
@@ -245,7 +245,7 @@ class TestP02MeshtasticConnectionLostSubscriptionResolved:
         # A reconnect task should have been created.
         assert session._reconnect_task is not None
         assert not session._reconnect_task.done()
-        # Clean up — cancel the task.
+        # Clean up - cancel the task.
         session._stop_requested = True
         session._reconnect_task.cancel()
         try:
@@ -255,7 +255,7 @@ class TestP02MeshtasticConnectionLostSubscriptionResolved:
 
 
 # ===================================================================
-# P-03: Matrix — No sync token persistence across restarts
+# P-03: Matrix - No sync token persistence across restarts
 # Gap type: Behavioral
 # ===================================================================
 
@@ -288,7 +288,7 @@ class TestP03MatrixNoSyncTokenPersistence:
         """_last_successful_sync is reset to None in start().
 
         This confirms the session does not carry sync state across
-        restarts — the value is only populated by successful sync
+        restarts - the value is only populated by successful sync
         responses during the current run.
         """
         source = inspect.getsource(matrix_session_mod.MatrixSession.start)
@@ -337,13 +337,13 @@ class TestP03MatrixNoSyncTokenPersistence:
         kwargs = config_call.kwargs
         # Current behavior: only encryption_enabled is passed.
         assert kwargs.get("encryption_enabled") is True
-        # store_sync_tokens is NOT passed — this is the P-03 gap.
+        # store_sync_tokens is NOT passed - this is the P-03 gap.
         assert "store_sync_tokens" not in kwargs
         await session.stop()
 
 
 # ===================================================================
-# P-04: MeshCore — Unused suggested_timeout from SDK send result
+# P-04: MeshCore - Unused suggested_timeout from SDK send result
 # Gap type: Behavioral
 # ===================================================================
 
@@ -433,7 +433,7 @@ class TestP04MeshCoreSuggestedTimeoutResolved:
             ):
                 callback = MagicMock()
                 await session.start(message_callback=callback)
-                # First send succeeds — captures sdk_retry_delay (5.0s).
+                # First send succeeds - captures sdk_retry_delay (5.0s).
                 native_id = await session.send_text("aabbccdd", "hello")
                 assert native_id == "01020304"
 
@@ -501,7 +501,7 @@ class TestP04MeshCoreSuggestedTimeoutResolved:
 
 
 # ===================================================================
-# P-05: MeshCore — Contact-list subscriptions (RESOLVED)
+# P-05: MeshCore - Contact-list subscriptions (RESOLVED)
 # Gap type: Declarative/capability (RESOLVED)
 # ===================================================================
 
@@ -551,7 +551,7 @@ class TestP05MeshCoreContactListSubscriptionsResolved:
 
 
 # ===================================================================
-# P-06: LXMF — Periodic announce for mesh path discovery
+# P-06: LXMF - Periodic announce for mesh path discovery
 # Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
@@ -658,7 +658,7 @@ class TestP06LxmfPeriodicAnnounceImplemented:
 
 
 # ===================================================================
-# P-07: Matrix — No session-level sync watchdog task
+# P-07: Matrix - No session-level sync watchdog task
 # Gap type: Behavioral
 # ===================================================================
 
@@ -669,7 +669,7 @@ class TestP07MatrixNoSessionWatchdogTask:
     ``MatrixAdapter.health_check()`` now provides partial stale-sync
     detection (reports ``'degraded'`` when last successful sync exceeds
     ``_SYNC_STALE_THRESHOLD_SECONDS``).  The remaining gap is sync token
-    persistence (P-03) — the watchdog detects the symptom but the root
+    persistence (P-03) - the watchdog detects the symptom but the root
     cause (full initial sync on restart) is unresolved.
     """
 
@@ -689,7 +689,7 @@ class TestP07MatrixNoSessionWatchdogTask:
         for liveness decisions within the session.
 
         The adapter-level ``health_check()`` reads it via the session
-        property for stale-sync detection — this is external to the
+        property for stale-sync detection - this is external to the
         session.
 
         Positively flags conditional/operational uses (if, comparisons,
@@ -711,7 +711,7 @@ class TestP07MatrixNoSessionWatchdogTask:
             and not line.strip().startswith("#")
             and operational_re.search(line)
         ]
-        # No operational reads — only assignment and diagnostic output.
+        # No operational reads - only assignment and diagnostic output.
         assert len(operational_lines) == 0, (
             f"_last_successful_sync used in operational context: "
             f"{operational_lines}. "
@@ -720,7 +720,7 @@ class TestP07MatrixNoSessionWatchdogTask:
 
 
 # ===================================================================
-# P-08: Meshtastic — Reconnect backoff cap and max attempts
+# P-08: Meshtastic - Reconnect backoff cap and max attempts
 # Gap type: Behavioral
 #
 # (Constants already tested in P-01; this section documents the gap
@@ -786,7 +786,7 @@ class TestP08MeshtasticReconnectParameters:
 
 
 # ===================================================================
-# P-09: Meshtastic — Queue water-mark monitoring
+# P-09: Meshtastic - Queue water-mark monitoring
 # Gap type: Declarative/capability
 # ===================================================================
 
@@ -805,7 +805,7 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
         Scans all modules under ``medre.adapters.meshtastic`` using
         ``pkgutil.walk_packages`` + ``importlib.import_module`` so that
         water-mark constants in queue, session, or future modules are
-        caught — not just the adapter module.  Reports all offending
+        caught - not just the adapter module.  Reports all offending
         module names in the failure message.
         """
         import importlib
@@ -840,7 +840,7 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
 
 
 # ===================================================================
-# P-10: MeshCore — appstart on reconnect (validation — no gap)
+# P-10: MeshCore - appstart on reconnect (validation - no gap)
 # ===================================================================
 
 
@@ -874,7 +874,7 @@ class TestP10MeshCoreAppstartValidation:
 
 
 # ===================================================================
-# P-11: LXMF — Eviction logging lacks delivery state
+# P-11: LXMF - Eviction logging lacks delivery state
 # Gap type: Declarative/capability
 # ===================================================================
 
@@ -914,7 +914,7 @@ class TestP11LxmfEvictionLoggingLacksState:
 
 
 # ===================================================================
-# P-12: Matrix — E2EE key request rate limiting
+# P-12: Matrix - E2EE key request rate limiting
 # Gap type: Behavioral
 # ===================================================================
 
@@ -1025,7 +1025,7 @@ _BACKLOG_ITEMS: dict[str, dict[str, str]] = {
     },
     "P-10": {
         "adapter": "MeshCore",
-        "gap": "appstart on reconnect (validation — no gap)",
+        "gap": "appstart on reconnect (validation - no gap)",
         "type": "Validation",
         "value": "N/A",
     },

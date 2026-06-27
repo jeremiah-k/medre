@@ -83,8 +83,7 @@ registration, outbound send, reconnection, teardown).
 - **Inbound callbacks.**  ``LxmfSession`` wires real LXMRouter delivery
   callbacks.  Inbound messages are normalised to plain dicts before
   leaving the session boundary.
-- **No E2EE.**  LXMF encrypted messages are not supported in the
-  current tranche.
+- **No E2EE.**  LXMF encrypted messages are not supported.
 
 **What this proves:**
 
@@ -1168,7 +1167,7 @@ class TestLxmfLiveSmoke:
         """Document: LXMF encrypted messages are not supported.
 
         This test always passes.  End-to-end encrypted LXMF messages
-        are out of scope for the current tranche.
+        are out of scope.
         """
         pass
 

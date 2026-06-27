@@ -1,4 +1,4 @@
-"""Track 3: ReplaySummary observability hardening tests.
+"""ReplaySummary observability hardening tests.
 
 Tests the immutable ReplaySummary model, collect_replay_summary helper,
 _build_summary construction, to_dict() determinism, JSON-serialisation,

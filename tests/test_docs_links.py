@@ -7,6 +7,8 @@ Asserts that:
   3. No bare prose references to legacy paths appear outside the legacy
      directories themselves.
   4. Broken links are reported with file path and line number.
+  5. Root-level build/config files (pyproject.toml and siblings) do not
+     reference the removed docs/contracts/ or docs/runbooks/ trees.
 """
 
 from __future__ import annotations
@@ -163,7 +165,37 @@ class TestDocLinks:
 class TestNoLegacyPathProseReferences:
     """Markdown files must not contain bare path references to legacy
     directories docs/contracts/ or docs/runbooks/ in prose or code
-    blocks. Files inside those legacy directories are exempt."""
+    blocks. Files inside those legacy directories are exempt.
+
+    Carve-out (narrowed): a line is exempt ONLY when it clearly
+    describes the removal, migration, or replacement of the legacy
+    tree. ``_is_removal_context`` decides this by requiring BOTH (a)
+    a removal keyword from ``_REMOVAL_KEYWORDS`` AND (b) the absence
+    of any live-reference indicator from
+    ``_LIVE_REFERENCE_INDICATORS``. The double guard is what separates
+    a genuine removal note from a live reference wearing a removal
+    adjective.
+
+    Exempt (removal context — keyword present, no live indicator)::
+
+        stale docs/runbooks/ references repointed at docs/ops/
+        removed a reference to docs/contracts/foo.md
+        prevents docs/contracts/ and docs/runbooks/ references from ...
+        docs/contracts/25-matrix-e2ee-readiness.md (no durable replacement)
+
+    Flagged (live reference — either a live indicator is present next
+    to a removal adjective, or no removal keyword exists at all)::
+
+        legacy docs/runbooks/foo.md still has details
+        see docs/runbooks/foo.md for details
+        docs/contracts/bar.md is in the legacy tree
+        refer to docs/runbooks/baz.md
+
+    A small set of style/process files (``documentation-style.md``,
+    ``README.md``, ``change-process.md``) are fully exempt via
+    ``exempt_names`` because they routinely reference the old system
+    by name.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -174,7 +206,10 @@ class TestNoLegacyPathProseReferences:
         """No bare references to docs/contracts/ or docs/runbooks/
         should appear in any docs/ markdown file outside those directories.
         Style guides and READMEs that reference the old system as
-        'replaced' are exempt."""
+        'replaced' are exempt, and any line that is genuine removal
+        context per ``_is_removal_context`` (removal keyword AND no
+        live-reference indicator) is exempt as textual migration
+        context."""
         if _is_legacy(filepath):
             return
 
@@ -187,6 +222,8 @@ class TestNoLegacyPathProseReferences:
         failures: list[str] = []
 
         for lineno, line in enumerate(text.splitlines(), start=1):
+            if _is_removal_context(line):
+                continue
             for match in _LEGACY_PROSE_RE.finditer(line):
                 failures.append(
                     f"{_relative(filepath)}:{lineno}: "
@@ -199,3 +236,203 @@ class TestNoLegacyPathProseReferences:
                 f"(use docs/spec/, docs/ops/, or docs/dev/ instead):\n  "
                 + "\n  ".join(failures)
             )
+
+
+# ===========================================================================
+# 3. Root-level build/config files must not reference removed doc trees
+# ===========================================================================
+
+
+# Root-level project metadata files that may declare paths into docs/. The
+# docs/ tree itself is covered by the classes above; this list covers
+# source-of-truth files at the repository root. Files that do not exist
+# are skipped at runtime, so adding one later automatically opts it in.
+_ROOT_CONFIG_FILES = [
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "tox.ini",
+    "noxfile.py",
+    "Makefile",
+]
+
+# Removal keywords — a NECESSARY but no longer SUFFICIENT signal that a line
+# is textual context about the migration rather than a live link. A line is
+# only treated as removal context when it carries one of these AND does NOT
+# carry a live-reference indicator (see ``_is_removal_context``). The double
+# guard is what separates "stale docs/runbooks/ references repointed at
+# docs/ops/" (exempt) from "legacy docs/runbooks/foo.md still has details"
+# (flagged): both carry a removal adjective next to the path, but only the
+# latter points the reader at the path as if it still exists.
+# Shared by both the root-config scan (TestNoLegacyPathReferencesInRootConfig)
+# and the prose-reference scan (TestNoLegacyPathProseReferences) so a single
+# notion of "removal context" governs both checks.
+_REMOVAL_KEYWORDS = (
+    "replaced",
+    "replacement",
+    "removed",
+    "legacy",
+    "former",
+    "migrated",
+    "repointed",
+    "stale",
+    "instead",
+    "prevent",
+    "do not reference",
+)
+
+# Live-reference indicators — phrases that direct the reader to a path as if
+# it still exists. When a line carries a legacy path AND a removal keyword
+# BUT ALSO one of these indicators, it is treated as a live reference (not
+# removal context) and flagged. Matched as substrings on the lower-cased
+# line; the guard only runs on lines that already carry a legacy path, so the
+# blast radius of common words like "details" is limited to legacy-path
+# lines that also carry a removal keyword.
+_LIVE_REFERENCE_INDICATORS = (
+    "refer to",
+    "for details",
+    "for more",
+    "is in",
+    "lives in",
+    "located at",
+    "found in",
+    "documented in",
+    "described in",
+    "still has",
+    "still exists",
+    "still in",
+    "can be found",
+    "has details",
+)
+
+
+def _is_removal_context(line: str) -> bool:
+    """Return True when *line* clearly describes the removal, migration, or
+    replacement of a legacy path rather than pointing at it as a live
+    reference.
+
+    The line counts as removal context only when it carries a removal
+    keyword (``_REMOVAL_KEYWORDS``) AND does NOT carry a live-reference
+    indicator (``_LIVE_REFERENCE_INDICATORS``). The double guard keeps
+    descriptive lines exempt — e.g. ``stale docs/runbooks/ references
+    repointed at docs/ops/`` or ``removed a reference to
+    docs/contracts/foo.md`` — while catching live references that merely
+    wear a removal adjective, e.g. ``legacy docs/runbooks/foo.md still has
+    details``.
+    """
+    lowered = line.lower()
+    if not any(keyword in lowered for keyword in _REMOVAL_KEYWORDS):
+        return False
+    return not any(indicator in lowered for indicator in _LIVE_REFERENCE_INDICATORS)
+
+
+class TestNoLegacyPathReferencesInRootConfig:
+    """Root-level build/config files must not reference removed doc trees.
+
+    Scope: top-level project metadata files listed in
+    ``_ROOT_CONFIG_FILES`` (``pyproject.toml`` today, plus the conventional
+    sibling build/config filenames so future additions are covered
+    automatically). The ``docs/`` tree is scanned by the classes above;
+    this class covers source-of-truth files at the repository root that
+    tend to hard-code paths in comments or ``tool.*`` tables.
+
+    Carve-out (narrowed): a line is exempt ONLY when it clearly
+    describes the removal or replacement of the legacy tree.
+    ``_is_removal_context`` decides this by requiring BOTH (a) a
+    removal keyword from ``_REMOVAL_KEYWORDS`` AND (b) the absence of
+    any live-reference indicator from ``_LIVE_REFERENCE_INDICATORS``.
+
+    Exempt (removal context — keyword present, no live indicator)::
+
+        # the old docs/contracts/ tree was removed; use docs/spec/
+        # docs/runbooks/ references were repointed at docs/ops/
+        # no durable replacement for docs/contracts/x.md
+
+    Flagged (live reference — either a live indicator is present next
+    to a removal adjective, or no removal keyword exists at all)::
+
+        # see docs/contracts/25-matrix-e2ee-readiness.md
+        # docs/runbooks/foo.md is in this repo
+        # refer to docs/contracts/bar.md for details
+
+    ``.git/`` is never scanned by this class.
+    """
+
+    @pytest.mark.parametrize(
+        "filename",
+        _ROOT_CONFIG_FILES,
+    )
+    def test_no_legacy_path_references(self, filename: str) -> None:
+        filepath = _ROOT / filename
+        if not filepath.is_file():
+            pytest.skip(f"{filename} not present at repository root")
+
+        text = filepath.read_text(encoding="utf-8")
+        failures: list[str] = []
+
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if _is_removal_context(line):
+                continue
+            for match in _LEGACY_PROSE_RE.finditer(line):
+                failures.append(
+                    f"{filename}:{lineno}: "
+                    f"reference to legacy path '{match.group()}'"
+                )
+
+        if failures:
+            pytest.fail(
+                f"Found {len(failures)} reference(s) to removed doc trees "
+                f"in {filename} (use docs/spec/, docs/ops/, or docs/dev/ "
+                f"instead):\n  " + "\n  ".join(failures)
+            )
+
+
+# ===========================================================================
+# 4. Removal-context carve-out boundary (locks the narrowed rule above)
+# ===========================================================================
+
+
+class TestRemovalContextCarveOut:
+    """Lock the narrowed removal-context carve-out so a live reference
+    wearing a removal adjective is still flagged.
+
+    The cases below document the boundary between exempt removal context
+    (``_is_removal_context`` -> True) and flagged live references
+    (``_is_removal_context`` -> False). They exist because the previous
+    broad keyword-anywhere rule let lines like ``legacy docs/runbooks/foo.md
+    still has details`` slip through as exempt. Add a case here whenever
+    the carve-out semantics change.
+    """
+
+    @pytest.mark.parametrize(
+        "line,expected",
+        [
+            # --- Exempt: genuine removal context (keyword + no live indicator)
+            (
+                "stale docs/runbooks/ references repointed at docs/ops/",
+                True,
+            ),
+            ("removed a reference to docs/contracts/foo.md", True),
+            ("docs/contracts/x.md (no durable replacement)", True),
+            ("replaced docs/contracts/ old tree with docs/spec/", True),
+            ("migrated docs/runbooks/foo.md to docs/ops/foo.md", True),
+            ("# docs/contracts/ removed; use docs/spec/ instead", True),
+            (
+                "prevents docs/contracts/ and docs/runbooks/ references "
+                "from returning",
+                True,
+            ),
+            # --- Flagged: live reference wearing a removal adjective
+            ("legacy docs/runbooks/foo.md still has details", False),
+            ("legacy docs/contracts/bar.md still exists", False),
+            ("former docs/runbooks/baz.md has details", False),
+            # --- Flagged: pure live reference (no removal keyword at all)
+            ("see docs/runbooks/foo.md for details", False),
+            ("refer to docs/contracts/bar.md", False),
+            ("docs/runbooks/qux.md is in this repo", False),
+            ("found in docs/contracts/old.md", False),
+            ("documented in docs/runbooks/run.md", False),
+        ],
+    )
+    def test_is_removal_context(self, line: str, expected: bool) -> None:
+        assert _is_removal_context(line) is expected

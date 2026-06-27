@@ -1,4 +1,4 @@
-"""Long-running runtime hygiene tests (Wave 3F, Track 8).
+"""Long-running runtime hygiene tests.
 
 Covers:
 - Boundedness: snapshot adapter/route/build-failure caps, error truncation,
@@ -12,7 +12,7 @@ Covers:
 - BootSummary bounded adapter ID tuples.
 
 Uses no real transport dependencies; all adapters are fake/stub.
-Does not overlap with test_runtime_recovery.py (Wave 3E).
+Does not overlap with test_runtime_recovery.py.
 """
 
 from __future__ import annotations
@@ -455,7 +455,7 @@ class TestReplayMetricsBoundedness:
         assert "last_cancelled_at" in global_keys
 
     def test_cancellation_count_increments(self) -> None:
-        """Cancellation count is tracked (Wave 3F hygiene fix)."""
+        """Cancellation count is tracked."""
         rm = ReplayMetrics()
         assert rm.snapshot()["global"]["cancellation_count"] == 0
         rm.record_cancellation()

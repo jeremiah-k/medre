@@ -185,7 +185,7 @@ async def test_exception_on_final_attempt_raises_meshcore_error() -> None:
 
     msg = str(exc_info.value)
     assert "BLE adapter crashed" in msg
-    # Wave 1: final exception is chained from the original OSError.
+    # final exception is chained from the original OSError.
     assert isinstance(exc_info.value.__cause__, OSError)
     assert str(exc_info.value.__cause__) == "BLE adapter crashed"
 

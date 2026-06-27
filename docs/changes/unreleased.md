@@ -365,8 +365,8 @@ display name > `None`. The opaque `source_hash` is never promoted to
 
 Convert all shipped example configs and primary user-facing documentation
 from TOML to YAML. This is a documentation and example change only; it does
-not alter parser/runtime/test behavior (the parser swap is owned by a
-separate wave). `pyproject.toml` stays TOML — it is packaging metadata, not
+not alter parser/runtime/test behavior (the parser swap is owned
+separately). `pyproject.toml` stays TOML — it is packaging metadata, not
 runtime configuration.
 
 **Changed:**
@@ -411,16 +411,15 @@ runtime configuration.
   (`"0"`, `"1"`, ...) to preserve channel-index string semantics; the
   loader coerces these to canonical `"0"`–`"7"` keys.
 
-**Intentionally untouched (out of scope for this wave):**
+**Intentionally untouched (out of scope):**
 
 - Parser/loader/runtime/sample-config source (`src/medre/config/**`,
-  `src/medre/cli/**`), tests, and JSON Schemas — owned by separate
-  implementation waves.
+  `src/medre/cli/**`), tests, and JSON Schemas — owned separately.
 - `pyproject.toml` references in docs (packaging metadata, stays TOML).
 - `docs/spec/security-privacy.md`, `docs/spec/conformance.md`,
   `docs/spec/storage.md`, `docs/dev/yaml-config-migration-audit.md`, and
-  `docs/dev/live-test-harness.md` — TOML mentions there are out of scope for
-  this docs/examples wave and remain for follow-up.
+  `docs/dev/live-test-harness.md` — TOML mentions there are out of scope
+  and remain for follow-up.
 
 **Breaking:** existing `medre.toml`/`config.toml` files must be renamed to
 `.yaml` (or `.yml`). The loader accepts `.yaml`/`.yml` and rejects `.toml`
@@ -668,8 +667,8 @@ maintaining a second copy.
 - The audit's schema and example-config findings (F-001 missing Meshtastic
   packet-routing fields in `adapter-config.schema.json`; F-002 four
   example configs with invalid `adapter_kind` values; F-010/F-011 schema
-  example coverage) are tracked by the schema/example tracks of this
-  tranche and were outside the docs-only scope of this fragment.
+  example coverage) are tracked by the schema/example tracks and were
+  outside the docs-only scope of this fragment.
 - The audit's loader-tightening recommendations (F-012/F-013/F-014 reject
   unknown keys at root / adapter / route level) are tracked by the
   loader-tightening track; if that track lands in the same release, the
@@ -942,15 +941,147 @@ evidence.
   `medre support bundle` as the recommended way to collect
   diagnostics for issue reports.
 - `docs/ops/configuration.md`: pre-flight validation section notes
-  that `medre support bundle` can collect a full diagnostic
-  snapshot for support.
+  that `medre support bundle` collects an offline, redacted support
+  bundle for issue reports.
 
 ---
 
 ## Support Bundle Typed Member Models
 
 Support bundle internals now use `msgspec.Struct` models for
-manifest, config_source, config_check, environment, schemas, and
-adapter summary members to reduce schema drift. No bundle behavior
-or redaction guarantees were intentionally changed; JSON output
-shape is unchanged on success paths; schema-failure entries now emit explicit null keys for visibility.
+manifest, config_source, config_check, environment, and schemas
+members to reduce schema drift. The `adapters.json` member is
+intentionally a plain `dict` (its enrichment fields are conditionally
+present per adapter), so it is not part of this typed-model set.
+No bundle behavior or redaction guarantees were intentionally
+changed; JSON output shape is unchanged on success paths;
+schema-failure entries now emit explicit null keys for visibility.
+
+---
+
+## Support Bundle Serializer Hardening
+
+Tighten the support-bundle JSON serializer (`_to_builtins` in
+`src/medre/runtime/support_bundle.py`) so mixed `msgspec.Struct` and
+`dataclass` payloads serialise cleanly at any nesting depth. The
+bundle remains offline and observational: no adapter SDK imports, no
+network or hardware I/O, no change to redaction.
+
+**Behavior changes (bugfixes — JSON shape unchanged for inputs that
+already worked):**
+
+- Tuples are now converted to lists element-wise (recursing into each
+  element). Previously tuples fell through `_to_builtins` untouched,
+  so a `msgspec.Struct` nested inside a tuple reached `json.dumps`
+  and raised `TypeError` because the `_json_default` fallback only
+  handles dataclasses, not Structs.
+- Dataclass conversion now feeds `dataclasses.asdict()` back through
+  `_to_builtins()`. Previously the result was returned directly, so a
+  `msgspec.Struct`-valued field on a dataclass survived `asdict` as a
+  raw Struct and raised `TypeError` at `json.dumps` time.
+- `set` / `frozenset` values are now normalised to sorted lists via
+  JSON representation for deterministic output.
+- `msgspec.field(name=...)` aliases (e.g. `SchemaEntry`'s `$id` /
+  `$schema`) continue to be honoured via `msgspec.to_builtins`.
+
+**Locked shapes:**
+
+- Each always-present bundle member (`manifest.json`,
+  `environment.json`, `config_source.json`, `config_check.json`,
+  `schemas.json`) now has shape-identity regression tests covering
+  both a valid-config and a missing/invalid-config case. The tests
+  assert key presence/absence and value TYPES (not exact values,
+  which vary by timestamp, path, and version).
+- The `SchemaEntry` failure shape (the `present=false` path taken
+  when a schema file is missing or unreadable) is now explicitly
+  locked. The emitted JSON is:
+
+  ```json
+  { "$id": null, "$schema": null, "path": null, "present": false }
+  ```
+
+  The explicit `null` keys alongside `present: false` are
+  intentional — they give consumers a stable four-key shape
+  regardless of success or failure. Changing this shape requires a
+  `bundle_schema_version` bump.
+
+**No SDK imports added.** `support_bundle.py` still imports no
+adapter SDK (`nio`, `meshtastic`, `meshcore`, `lxmf`, `RNS`);
+`create_support_bundle` still performs no adapter startup, session
+connect/stop, SDK-client close, or network/hardware I/O.
+
+---
+
+## Operator Surface Alignment
+
+Align operator-facing documentation with the actual CLI surface and
+cleanly separate the support-bundle and evidence concepts, which were
+previously conflated in help text and docs.
+
+- All top-level CLI commands and their operator-facing subcommands are
+  now documented; previously undocumented surfaces are listed alongside
+  the rest.
+- The support bundle (offline, redacted ZIP) and the storage-backed
+  evidence report are now cleanly separated in help text and docs; the
+  previous "full diagnostic snapshot" overclaim for the support bundle
+  has been removed.
+- `adapter matrix auth logout` is documented as not-yet-implemented;
+  only `login` and `status` exist today.
+
+---
+
+## Durable-Language Policy Enforcement
+
+Tighten the durable-artifact language policy so internal
+development-process vocabulary stays out of durable artifacts (docs,
+code comments, docstrings, test names, test filenames, branch names,
+and new commit messages). Historical git commit messages are preserved;
+no history rewrite is performed.
+
+- The documentation style policy now forbids internal
+  development-process vocabulary in all durable artifacts; new commit
+  messages must be durable, while historical commit messages are left
+  intact.
+- A tree-wide scanner enforces the policy across docs, source, tests,
+  and examples — both file content and filenames.
+- Existing tests, audit docs, and identifiers across the tree were
+  renamed and cleaned to comply.
+
+---
+
+## Stale Path Cleanup
+
+Remove and repoint stale documentation path references so operators and
+CI scripts point at active docs, and prevent regressions.
+
+- Stale references to removed `docs/contracts/` and `docs/runbooks/`
+  paths in root-level config files and CI scripts were removed or
+  repointed at the active `docs/ops/` paths.
+- A regression test guards against the stale paths returning.
+
+---
+
+## Durable-Language Scanner Hardening
+
+Tightened the language-policy enforcement to match the absolute rule, and
+hardened the support-bundle serializer defensively.
+
+- The forbidden-vocabulary scanner now constructs its patterns from string
+  fragments so the blocked words never appear literally in any durable
+  artifact — including the scanner and enforcer files themselves.
+  Definitional file exemptions were removed; the scanner now proves the
+  whole tree is clean under a raw text search.
+- Numeric batch qualifiers are now caught by the scanner (not just the
+  four core terms), closing a gap that left labels in boundary and adapter
+  test files.
+- Reviewer-role labels in adapter tests were renamed to behavioral
+  regression descriptions.
+- The stale-path prevention test's keyword carve-out was narrowed: a line
+  is exempt only when it carries a removal keyword AND lacks a
+  live-reference indicator, so a live reference wearing a removal
+  adjective is still caught.
+- The support-bundle serializer's Struct and dataclass fallback paths now
+  route through the recursive normalizer for defense-in-depth consistency.
+- CLI inventory expanded from grouped forms to explicit per-command lines
+  for searchability.
+- Fixed a deprecated class-scoped pytest fixture that broke CI.

@@ -10,6 +10,7 @@ the writer directly, not the CLI. CLI-level tests live in
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import zipfile
 from pathlib import Path
@@ -27,6 +28,10 @@ from medre.runtime.support_bundle import (
     SchemaEntry,
     SchemasMember,
     _has_config_env_overrides,
+    _json_bytes,
+    _json_default,
+    _read_schema_meta,
+    _to_builtins,
     create_support_bundle,
 )
 
@@ -667,3 +672,561 @@ def test_schema_entry_uses_dollar_prefixed_json_keys() -> None:
     assert "schema" not in builtins
     assert builtins["$id"] == "https://id"
     assert builtins["$schema"] == "https://sch"
+
+
+# ---------------------------------------------------------------------------
+# _to_builtins / _json_bytes: recursive serialisation of mixed
+# msgspec.Struct + dataclass payloads at arbitrary depth.
+# ---------------------------------------------------------------------------
+#
+# Regression guard for two gaps that previously let raw Struct instances
+# reach json.dumps (whose ``_json_default`` only handles dataclasses,
+# not Structs):
+#
+#   1. tuples were not traversed — a Struct inside a tuple survived
+#      untouched and raised TypeError at json.dumps time.
+#   2. dataclass conversion returned ``dataclasses.asdict(obj)`` directly
+#      without recursing the result, so a Struct-valued field survived
+#      asdict as a raw Struct and raised TypeError at json.dumps time.
+
+
+@dataclasses.dataclass
+class _NestedDataclass:
+    """Plain dataclass used to exercise asdict-then-recurse behaviour."""
+
+    label: str
+    count: int
+
+
+def test_to_builtins_converts_tuple_of_struct_to_list() -> None:
+    """A tuple containing a Struct is converted to a list of plain dicts.
+
+    Previously tuples fell through ``_to_builtins`` unchanged, so a
+    Struct inside a tuple reached json.dumps and raised TypeError.
+    """
+    env = EnvironmentMember(
+        python_version="3.11",
+        platform="linux",
+        machine="x86_64",
+        medre_version="0",
+    )
+    result = _to_builtins((env, env))
+    assert isinstance(result, list)
+    assert result == [
+        {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        },
+        {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        },
+    ]
+
+
+def test_to_builtins_converts_set_and_frozenset_to_sorted_list() -> None:
+    """A heterogeneous set/frozenset is converted to a deterministic sorted list.
+
+    Previously ``set`` and ``frozenset`` fell through ``_to_builtins``
+    unchanged, so a set reached ``json.dumps`` and raised TypeError
+    (sets are not JSON-serialisable). The fix recurses each element
+    through ``_to_builtins`` and sorts by the element's canonical JSON
+    representation so the output is a stable total order even when
+    heterogeneous types share str forms (e.g. ``{1, "1"}``).
+    """
+    raw_set = {"b", 1, "a"}
+    raw_frozenset = frozenset({"y", 2, "x"})
+
+    # Must not raise TypeError.
+    out_set = _to_builtins(raw_set)
+    out_frozenset = _to_builtins(raw_frozenset)
+
+    # Output is a list, never a set/frozenset.
+    assert isinstance(out_set, list)
+    assert isinstance(out_frozenset, list)
+    assert not isinstance(out_set, (set, frozenset))
+    assert not isinstance(out_frozenset, (set, frozenset))
+
+    def sort_key(v):
+        return json.dumps(v, sort_keys=True, separators=(",", ":"))
+
+    expected_set = sorted([_to_builtins(v) for v in raw_set], key=sort_key)
+    expected_frozenset = sorted([_to_builtins(v) for v in raw_frozenset], key=sort_key)
+    assert out_set == expected_set
+    assert out_frozenset == expected_frozenset
+
+    # The sorted list must JSON-serialise without raising TypeError.
+    json.dumps(out_set)
+    json.dumps(out_frozenset)
+
+
+def test_to_builtins_recurses_struct_nested_in_dataclass_field() -> None:
+    """A Struct nested inside a dataclass field is converted to a dict.
+
+    Previously ``dataclasses.asdict`` was returned directly without
+    recursion; the Struct-valued field survived as a raw Struct and
+    raised TypeError at json.dumps time.
+    """
+
+    @dataclasses.dataclass
+    class Holder:
+        label: str
+        env: EnvironmentMember
+
+    holder = Holder(
+        label="x",
+        env=EnvironmentMember(
+            python_version="3.11",
+            platform="linux",
+            machine="x86_64",
+            medre_version="0",
+        ),
+    )
+    result = _to_builtins(holder)
+    assert isinstance(result, dict)
+    assert isinstance(result["env"], dict), result
+    assert result["env"]["python_version"] == "3.11"
+    assert not isinstance(result["env"], msgspec.Struct)
+
+
+def test_json_bytes_handles_mixed_struct_and_dataclass_payload() -> None:
+    """``_json_bytes`` serialises a payload that mixes Struct and dataclass
+    instances nested inside dicts, lists, and tuples at multiple depths.
+
+    Asserts:
+      - the result parses as JSON (no TypeError leaked),
+      - no Struct or dataclass instance survives into the parsed output,
+      - SchemaEntry ``$id`` / ``$schema`` aliases are preserved end-to-end.
+    """
+
+    @dataclasses.dataclass
+    class Holder:
+        label: str
+        entry: SchemaEntry
+        envs: tuple
+
+    payload = {
+        "name": "mixed",
+        "holder": Holder(
+            label="h",
+            entry=SchemaEntry(
+                present=True, path="/p", id="https://id", schema="https://sch"
+            ),
+            envs=(
+                EnvironmentMember(
+                    python_version="3.11",
+                    platform="linux",
+                    machine="x86_64",
+                    medre_version="0",
+                ),
+            ),
+        ),
+        "items": [
+            _NestedDataclass(label="a", count=1),
+            {
+                "nested_struct": EnvironmentMember(
+                    python_version="3.12",
+                    platform="darwin",
+                    machine="arm64",
+                    medre_version="1",
+                )
+            },
+        ],
+        "top_struct": SchemasMember(
+            runtime_config_schema=SchemaEntry(present=True, path="/r"),
+            adapter_config_schema=SchemaEntry(present=True, path="/a"),
+            routing_config_schema=SchemaEntry(present=True, path="/rt"),
+            evidence_bundle_schema=SchemaEntry(present=True, path="/e"),
+            validate_example_configs_script_present=True,
+        ),
+    }
+
+    encoded = _json_bytes(payload)
+    decoded = json.loads(encoded.decode("utf-8"))
+
+    # No Struct or dataclass leaks into the JSON output.
+    _assert_no_struct_or_dataclass(decoded)
+
+    # SchemaEntry aliases preserved end-to-end through _json_bytes.
+    holder_entry = decoded["holder"]["entry"]
+    assert "$id" in holder_entry
+    assert "$schema" in holder_entry
+    assert "id" not in holder_entry
+    assert "schema" not in holder_entry
+    assert holder_entry["$id"] == "https://id"
+    assert holder_entry["$schema"] == "https://sch"
+
+    # Nested dataclass fields converted to plain dicts.
+    assert decoded["items"][0] == {"label": "a", "count": 1}
+    # Nested Struct inside a list-of-dict converted to plain dict.
+    assert decoded["items"][1]["nested_struct"]["python_version"] == "3.12"
+    # Tuple of Structs serialised as a JSON list of dicts.
+    assert isinstance(decoded["holder"]["envs"], list)
+    assert decoded["holder"]["envs"][0]["platform"] == "linux"
+
+
+def _assert_no_struct_or_dataclass(value: Any) -> None:
+    """Recursively assert *value* holds no msgspec.Struct or dataclass."""
+    if isinstance(value, msgspec.Struct):
+        raise AssertionError(f"struct leaked into JSON output: {value!r}")
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        raise AssertionError(f"dataclass leaked into JSON output: {value!r}")
+    if isinstance(value, dict):
+        for v in value.values():
+            _assert_no_struct_or_dataclass(v)
+    elif isinstance(value, list):
+        for v in value:
+            _assert_no_struct_or_dataclass(v)
+
+
+# ---------------------------------------------------------------------------
+# Cross-type regression: Struct with a nested dataclass field, and
+# _json_default fallback for a dataclass with a nested Struct field.
+# ---------------------------------------------------------------------------
+#
+# msgspec.Struct fields accept any Python type at runtime; modern msgspec
+# converts nested dataclass values via msgspec.to_builtins, but that is
+# an implementation detail of msgspec, not a contract this module relies
+# on. The first test below locks in _to_builtins' end-to-end behaviour
+# for a Struct-with-dataclass-field shape so a future msgspec change or
+# a new field shape (e.g. a tuple of dataclasses inside a Struct) cannot
+# silently regress to leaving raw dataclass instances in the output.
+#
+# The second test exercises _json_default directly. _json_default is a
+# defensive fallback that only fires when _to_builtins missed a value;
+# if it ever does, the dataclass branch must produce a fully normalised
+# dict (no raw Struct surviving in a field value).
+
+
+def test_to_builtins_normalises_struct_with_nested_dataclass_field() -> None:
+    """A Struct with a dataclass-valued field serialises to plain dicts.
+
+    Covers the recursion added to the Struct branch of _to_builtins:
+    msgspec.to_builtins is called first, then its output is fed back
+    through _to_builtins so any container shape (tuples, nested
+    dataclasses) is normalised to this function's contract.
+
+    The Struct also carries a tuple-of-dataclasses field and a
+    dict-of-dataclasses field. msgspec.to_builtins leaves tuples as
+    tuples; the recursion through _to_builtins converts them to lists,
+    matching the rest of the serialisation contract.
+    """
+
+    @dataclasses.dataclass
+    class Inner:
+        count: int
+
+    class Outer(msgspec.Struct):
+        label: str
+        inner: Inner
+        items: tuple
+        mapping: dict
+
+    obj = Outer(
+        label="x",
+        inner=Inner(count=5),
+        items=(Inner(count=1), Inner(count=2)),
+        mapping={"k": Inner(count=3)},
+    )
+    result = _to_builtins(obj)
+
+    assert result == {
+        "label": "x",
+        "inner": {"count": 5},
+        "items": [{"count": 1}, {"count": 2}],
+        "mapping": {"k": {"count": 3}},
+    }, result
+    # Tuples must be normalised to lists (msgspec.to_builtins alone
+    # leaves them as tuples, which is the gap the recursion closes).
+    assert isinstance(result["items"], list)
+    # No dataclass or Struct instance survives into the output.
+    _assert_no_struct_or_dataclass(result)
+
+
+def test_json_default_dataclass_fallback_recurses_through_struct() -> None:
+    """_json_default's dataclass branch returns a fully normalised dict.
+
+    Regression: previously the dataclass branch returned
+    ``dataclasses.asdict(obj)`` directly, which left Struct-valued
+    fields as raw msgspec.Struct instances. Although json.dumps would
+    eventually call ``default`` again on each surviving Struct, the
+    return value itself was not JSON-safe, breaking the contract that
+    ``default`` return values are serialisable.
+
+    The fix routes asdict's output through _to_builtins so the dataclass
+    branch matches the Struct branch and the main _json_bytes path.
+    """
+
+    @dataclasses.dataclass
+    class Holder:
+        label: str
+        env: EnvironmentMember
+        entries: tuple
+
+    holder = Holder(
+        label="x",
+        env=EnvironmentMember(
+            python_version="3.11",
+            platform="linux",
+            machine="x86_64",
+            medre_version="0",
+        ),
+        entries=(
+            SchemaEntry(present=True, path="/p", id="https://id", schema="https://sch"),
+        ),
+    )
+
+    # Direct call: _json_default must return a value that json.dumps
+    # can serialise without invoking default again.
+    out = _json_default(holder)
+    assert out == {
+        "label": "x",
+        "env": {
+            "python_version": "3.11",
+            "platform": "linux",
+            "machine": "x86_64",
+            "medre_version": "0",
+        },
+        "entries": [
+            {
+                "present": True,
+                "path": "/p",
+                "$id": "https://id",
+                "$schema": "https://sch",
+            }
+        ],
+    }, out
+
+    # End-to-end: json.dumps with default=_json_default must not raise
+    # and must produce a structure with no Struct/dataclass instances.
+    decoded = json.loads(json.dumps(holder, default=_json_default))
+    assert decoded == out
+    _assert_no_struct_or_dataclass(decoded)
+    # SchemaEntry $id / $schema aliases survive the fallback path.
+    assert decoded["entries"][0]["$id"] == "https://id"
+    assert decoded["entries"][0]["$schema"] == "https://sch"
+
+
+# ---------------------------------------------------------------------------
+# Per-member JSON shape-identity: valid-config and missing-config cases.
+# ---------------------------------------------------------------------------
+#
+# These tests lock the SHAPE (key presence/absence, value TYPES) of each
+# always-present bundle member. They intentionally avoid asserting exact
+# values where timestamps, paths, or versions vary across environments.
+
+
+def test_bundle_member_shape_valid_config(tmp_path: Path) -> None:
+    """Each always-present member has the expected keys and value types
+    for a valid config (manifest, environment, config_source, config_check,
+    schemas). Asserts shape, not exact values.
+    """
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    members = _read_bundle(create_support_bundle(cfg, tmp_path / "b.zip"))
+
+    # manifest.json
+    manifest = _read_json_member(members, "manifest.json")
+    assert set(manifest.keys()) == {
+        "bundle_schema_version",
+        "created_at",
+        "command",
+        "medre_version",
+        "platform",
+        "redaction_policy",
+    }
+    assert isinstance(manifest["bundle_schema_version"], int)
+    assert isinstance(manifest["created_at"], str) and manifest["created_at"]
+    assert isinstance(manifest["command"], str) and manifest["command"]
+    assert isinstance(manifest["medre_version"], str) and manifest["medre_version"]
+    assert isinstance(manifest["platform"], dict)
+    assert isinstance(manifest["platform"]["python_version"], str)
+    assert isinstance(manifest["redaction_policy"], str)
+
+    # environment.json
+    env = _read_json_member(members, "environment.json")
+    assert set(env.keys()) == {"python_version", "platform", "machine", "medre_version"}
+    for v in env.values():
+        assert isinstance(v, str) and v
+
+    # config_source.json
+    src = _read_json_member(members, "config_source.json")
+    assert set(src.keys()) == {"source", "path", "env_overrides_applied"}
+    assert isinstance(src["source"], str)
+    assert isinstance(src["path"], str) and src["path"]
+    assert isinstance(src["env_overrides_applied"], bool)
+
+    # config_check.json (valid-config success path)
+    check = _read_json_member(members, "config_check.json")
+    assert set(check.keys()) == {"success", "error", "error_section_path"}
+    assert check["success"] is True
+    assert check["error"] is None
+    assert check["error_section_path"] is None
+
+    # schemas.json (all four schema entries + validator flag)
+    schemas = _read_json_member(members, "schemas.json")
+    assert set(schemas.keys()) == {
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+        "validate_example_configs_script_present",
+    }
+    assert isinstance(schemas["validate_example_configs_script_present"], bool)
+    for key in (
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+    ):
+        entry = schemas[key]
+        assert set(entry.keys()) == {"present", "path", "$id", "$schema"}, key
+        assert isinstance(entry["present"], bool)
+        # In this repo the schemas exist; present is True with non-empty path.
+        assert entry["present"] is True, key
+        assert isinstance(entry["path"], str) and entry["path"], key
+
+
+def test_bundle_member_shape_missing_config(tmp_path: Path) -> None:
+    """The always-present members keep their shape when config discovery
+    fails. config_check reports failure; config_source carries nulls.
+    """
+    out = tmp_path / "b.zip"
+    create_support_bundle(config_path=tmp_path / "nonexistent.yaml", output_path=out)
+    members = _read_bundle(out)
+
+    # manifest.json keeps its full shape regardless of config status.
+    manifest = _read_json_member(members, "manifest.json")
+    assert set(manifest.keys()) == {
+        "bundle_schema_version",
+        "created_at",
+        "command",
+        "medre_version",
+        "platform",
+        "redaction_policy",
+    }
+    assert isinstance(manifest["bundle_schema_version"], int)
+
+    # environment.json keeps its full shape.
+    env = _read_json_member(members, "environment.json")
+    assert set(env.keys()) == {"python_version", "platform", "machine", "medre_version"}
+
+    # config_source.json — discovery failed: source/path are null.
+    src = _read_json_member(members, "config_source.json")
+    assert set(src.keys()) == {"source", "path", "env_overrides_applied"}
+    assert src["source"] is None
+    assert src["path"] is None
+    assert isinstance(src["env_overrides_applied"], bool)
+
+    # config_check.json — failure path with non-empty error string.
+    check = _read_json_member(members, "config_check.json")
+    assert set(check.keys()) == {"success", "error", "error_section_path"}
+    assert check["success"] is False
+    assert isinstance(check["error"], str) and check["error"]
+
+    # schemas.json still carries its full shape — it does not depend on
+    # config, so it reports real schema presence from the repo layout.
+    schemas = _read_json_member(members, "schemas.json")
+    assert set(schemas.keys()) == {
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+        "validate_example_configs_script_present",
+    }
+    rt = schemas["runtime_config_schema"]
+    assert set(rt.keys()) == {"present", "path", "$id", "$schema"}
+    assert isinstance(rt["present"], bool)
+
+
+# ---------------------------------------------------------------------------
+# SchemaEntry present=false failure-shape lock.
+# ---------------------------------------------------------------------------
+#
+# When a schema file is missing or unreadable, ``_read_schema_meta``
+# returns ``SchemaEntry(present=False)``. msgspec serialises that to
+# FOUR keys (the optional path/$id/$schema fields emit explicit nulls
+# alongside ``present: false``). This is intentional: it gives
+# operators a stable four-key shape regardless of success/failure, so
+# downstream tooling does not need a key-presence branch. These tests
+# lock that shape.
+
+
+def test_schema_entry_failure_shape_via_read_schema_meta() -> None:
+    """A missing schema file yields the locked four-key failure shape.
+
+    Shape: ``{"present": false, "path": null, "$id": null, "$schema": null}``
+    (keys are alphabetised by ``_json_bytes`` via ``sort_keys=True``).
+
+    Intentional: ``path`` / ``$id`` / ``$schema`` appear as explicit
+    ``null`` keys so consumers see a stable shape whether the schema
+    was present or not. Do not "fix" the null keys away without
+    coordinating the bundle schema version bump.
+    """
+    entry = _read_schema_meta("definitely-not-a-real-schema.schema.json")
+    assert entry.present is False
+
+    encoded = _json_bytes(entry).decode("utf-8")
+    # ``_json_bytes`` uses sort_keys=True, so the alphabetical order is
+    # deterministic; assert the exact serialised form to lock the shape.
+    assert json.loads(encoded) == {
+        "$id": None,
+        "$schema": None,
+        "path": None,
+        "present": False,
+    }
+
+
+def test_schema_entry_failure_shape_in_full_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The four-key failure shape survives a real ``create_support_bundle``
+    run and lands in the ``schemas.json`` ZIP member.
+
+    The repo ships real schemas, so ``_SCHEMAS_DIR`` is pointed at an
+    empty path to force every lookup in ``_build_schemas_member`` to
+    miss — exercising the real bundle write and the ``schemas.json``
+    member end-to-end, not just the serializer.
+    """
+    cfg = _write_config(tmp_path, CONFIG_VALID)
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle._SCHEMAS_DIR", tmp_path / "no-schemas"
+    )
+
+    out = create_support_bundle(config_path=cfg, output_path=tmp_path / "bundle.zip")
+    members = _read_bundle(out)
+    schemas = _read_json_member(members, "schemas.json")
+
+    # Every schema entry must carry the locked four-key failure shape:
+    #   {"present": false, "path": null, "$id": null, "$schema": null}
+    for key in (
+        "runtime_config_schema",
+        "adapter_config_schema",
+        "routing_config_schema",
+        "evidence_bundle_schema",
+    ):
+        entry = schemas[key]
+        assert set(entry.keys()) == {"present", "path", "$id", "$schema"}, key
+        assert entry["present"] is False, key
+        assert entry["path"] is None, key
+        assert entry["$id"] is None, key
+        assert entry["$schema"] is None, key
+
+
+def test_schema_entry_present_true_contrasts_failure_shape() -> None:
+    """The present=True shape emits the same four keys, with non-null
+    path/$id/$schema — contrast case for the failure-shape lock above.
+    """
+    entry = SchemaEntry(
+        present=True, path="/some/path", id="https://id", schema="https://sch"
+    )
+    decoded = json.loads(_json_bytes(entry).decode("utf-8"))
+    assert decoded == {
+        "$id": "https://id",
+        "$schema": "https://sch",
+        "path": "/some/path",
+        "present": True,
+    }

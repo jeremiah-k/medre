@@ -150,7 +150,7 @@ class TestSynapseRunSession:
     Exercises the full MEDRE pipeline against Docker Synapse:
     start adapters → send Matrix message → ingress through real sync path
     → canonical event persisted → delivery to fake target → receipt status
-    = "sent" → final report with ingress_path tracking.
+    = "sent" → final summary with ingress_path tracking.
     """
 
     async def test_run_session_matrix_sync_ingress(
@@ -285,7 +285,7 @@ class TestSynapseRunSession:
             diag = matrix_adapter.diagnostics()
             assert diag["inbound_published"] >= 1
 
-            # -- Build final report (matches run_session shape) --
+            # -- Build final summary (matches run_session shape) --
             limitations = [
                 "Not a live-network proof (Docker loopback only).",
                 "Single message only (not a throughput test).",

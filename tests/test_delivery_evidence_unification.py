@@ -947,7 +947,7 @@ class TestLoopSuppressedVisibility:
 
 
 # ===================================================================
-# 6. DUPLICATE_SUPPRESSED: removed from enum (Tranche 6)
+# 6. DUPLICATE_SUPPRESSED: removed from enum
 # ===================================================================
 
 # DUPLICATE_SUPPRESSED was removed from DeliveryFailureKind because it was

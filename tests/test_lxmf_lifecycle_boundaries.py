@@ -49,9 +49,9 @@ def _make_text_packet(
 class TestLxmfLifecycleGuardSimulateInbound:
     """simulate_inbound must not publish after stop().
 
-    Oracle finding A: ctx is retained after stop() but _started is
-    cleared — a stale ctx must not be sufficient to publish
-    lifecycle-stale inbound messages.
+    Regression: ctx is retained after stop() but _started is cleared
+    — a stale ctx must not be sufficient to publish lifecycle-stale
+    inbound messages.
     """
 
     async def test_simulate_inbound_silent_return_after_stop(

@@ -61,7 +61,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     topic_rooms=True,
 )
 
-# Track 5 — delivery retry constants
+# Delivery retry constants
 _MAX_DELIVERY_RETRIES: int = 3
 _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
@@ -251,7 +251,7 @@ class MatrixAdapter(AdapterContract):
         "_envelope_handler",
         "_started",
         "ctx",
-        # Track 5 — delivery retry stats
+        # Delivery retry stats
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
         # Inbound diagnostics counters
@@ -280,7 +280,7 @@ class MatrixAdapter(AdapterContract):
         self._envelope_handler = MatrixMetadataEnvelope
         self._started: bool = False
         self.ctx: AdapterContext | None = None
-        # Track 5
+        # Delivery retry stats
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
         # Inbound diagnostics counters
@@ -325,7 +325,7 @@ class MatrixAdapter(AdapterContract):
         # never reports a stale health string from a previous session.
         self._last_health = None
 
-        # Track 5 — reset delivery stats on start
+        # Reset delivery stats on start
         self._transient_delivery_failures = 0
         self._permanent_delivery_failures = 0
         # Inbound diagnostics — reset on start
@@ -385,7 +385,7 @@ class MatrixAdapter(AdapterContract):
             self.ctx = None
             raise
 
-        # Part D — auto-join configured rooms after startup.
+        # Auto-join configured rooms after startup.
         if self._config.auto_join_rooms:
             ctx.logger.debug("Matrix session connected; joining configured rooms")
             try:
@@ -551,7 +551,7 @@ class MatrixAdapter(AdapterContract):
         If the response lacks an ``event_id``, the result is returned without one (the
         pipeline will not store a native ref in that case).
 
-        Implements bounded retry (Track 5) for transient network errors:
+        Implements bounded retry for transient network errors:
         up to 3 attempts with exponential backoff (500ms, 1s, 2s, +-25% jitter).
         Non-transient errors raise immediately without retry.
 
@@ -595,7 +595,7 @@ class MatrixAdapter(AdapterContract):
         if not room_id:
             raise AdapterPermanentError("no room_id in result")
 
-        # Part D — auto-join configured target room if not already joined.
+        # Auto-join configured target room if not already joined.
         if (
             self._config.auto_join_rooms
             and room_id in self._config.auto_join_rooms
@@ -637,7 +637,7 @@ class MatrixAdapter(AdapterContract):
         # the Matrix homeserver to deduplicate retries.
         txn_id = _matrix_txn_id(result, room_id)
 
-        # Track 5 — bounded retry for transient errors
+        # Bounded retry for transient errors
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
@@ -893,12 +893,12 @@ class MatrixAdapter(AdapterContract):
                 "last_crypto_error": diag.last_crypto_error,
                 "encrypted_room_seen": diag.encrypted_room_seen,
                 "undecryptable_event_count": diag.undecryptable_event_count,
-                # Track 1 — sync recovery
+                # Sync recovery
                 "sync_running": diag.sync_running,
                 "reconnecting": diag.reconnecting,
                 "reconnect_attempts": diag.reconnect_attempts,
                 "last_successful_sync": diag.last_successful_sync,
-                # Track 2 — crypto-store continuity
+                # Crypto-store continuity
                 "crypto_store_loaded": diag.crypto_store_loaded,
                 # E2EE key management diagnostics
                 "olm_loaded": diag.olm_loaded,
@@ -908,10 +908,10 @@ class MatrixAdapter(AdapterContract):
                 "device_id_in_use": diag.device_id_in_use,
                 "store_path_exists": diag.store_path_exists,
                 "initial_sync_completed": diag.initial_sync_completed,
-                # Track 4 — room counts (no room IDs)
+                # Room counts (no room IDs)
                 "encrypted_room_count": diag.encrypted_room_count,
                 "plaintext_room_count": diag.plaintext_room_count,
-                # Track 5 — delivery stats
+                # Delivery stats
                 "transient_delivery_failures": self._transient_delivery_failures,
                 "permanent_delivery_failures": self._permanent_delivery_failures,
                 # Inbound diagnostics counters
@@ -936,12 +936,12 @@ class MatrixAdapter(AdapterContract):
             "last_crypto_error": None,
             "encrypted_room_seen": False,
             "undecryptable_event_count": 0,
-            # Track 1
+            # Sync recovery
             "sync_running": False,
             "reconnecting": False,
             "reconnect_attempts": 0,
             "last_successful_sync": None,
-            # Track 2
+            # Crypto-store continuity
             "crypto_store_loaded": False,
             # E2EE key management diagnostics
             "olm_loaded": False,
@@ -951,10 +951,10 @@ class MatrixAdapter(AdapterContract):
             "device_id_in_use": None,
             "store_path_exists": False,
             "initial_sync_completed": False,
-            # Track 4
+            # Room counts
             "encrypted_room_count": 0,
             "plaintext_room_count": 0,
-            # Track 5
+            # Delivery stats
             "transient_delivery_failures": self._transient_delivery_failures,
             "permanent_delivery_failures": self._permanent_delivery_failures,
             # Inbound diagnostics counters

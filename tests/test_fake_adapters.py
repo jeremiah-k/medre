@@ -615,7 +615,7 @@ class TestPluginBoundary:
 
 
 # ===================================================================
-# Track 6: FaultyPresentationAdapter failure injector
+# FaultyPresentationAdapter failure injector
 # ===================================================================
 
 

@@ -1,6 +1,6 @@
 """Validate shipped example configs load, parse, and conform to current schema.
 
-Track 3 requirement: every shipped example must be loadable and either fully
+Requirement: every shipped example must be loadable and either fully
 buildable (fake-multi-adapter) or explicitly marked as requiring
 credentials / hardware.  No live SDKs are needed to run this suite.
 """

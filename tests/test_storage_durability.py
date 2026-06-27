@@ -1,4 +1,4 @@
-"""Track 2: Storage durability tests for SQLite operational correctness.
+"""Storage durability tests for SQLite operational correctness.
 
 Covers gaps not addressed by test_storage.py or test_runtime_recovery.py:
 - Repeated open/close lifecycle with cumulative data verification

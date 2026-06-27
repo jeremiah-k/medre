@@ -87,11 +87,11 @@ class TestLxmfSessionFakeLifecycle:
 
 
 # ===================================================================
-# Tranche 6: Async callback coroutine close (no asyncio.run fallback)
+# Async callback coroutine close (no asyncio.run fallback)
 # ===================================================================
 
 
-class TestTranche6AsyncCallbackCoroutineClose:
+class TestAsyncCallbackCoroutineClose:
     """When no running loop is available, async callback coroutines are
     closed (not run via asyncio.run) to avoid cross-thread loop creation."""
 
@@ -900,11 +900,11 @@ class TestFakeSendReturnsAdapterDeliveryResult:
 
 
 # ===================================================================
-# Tranche 5: Callback threading safety
+# Callback threading safety
 # ===================================================================
 
 
-class TestTranche5CallbackThreadingSafety:
+class TestCallbackThreadingSafety:
     """Thread→asyncio bridge safety for inbound callbacks.
 
     Reticulum/LXMF fire delivery callbacks from background daemon
@@ -984,11 +984,11 @@ class TestTranche5CallbackThreadingSafety:
 
 
 # ===================================================================
-# Tranche 5: Send return semantics
+# Send return semantics
 # ===================================================================
 
 
-class TestTranche5SendReturnSemantics:
+class TestSendReturnSemantics:
     """send_text returns honest local-acceptance, NOT delivery confirmation."""
 
     async def test_fake_send_state_is_outbound_not_delivered(self) -> None:
@@ -1026,11 +1026,11 @@ class TestTranche5SendReturnSemantics:
 
 
 # ===================================================================
-# Tranche 5: Full delivery state transition chain
+# Full delivery state transition chain
 # ===================================================================
 
 
-class TestTranche5DeliveryStateTransitions:
+class TestDeliveryStateTransitions:
     """Verify the full outbound→sending→sent→delivered transition chain."""
 
     async def test_outbound_to_delivered_via_callback(self) -> None:
@@ -1121,11 +1121,11 @@ class TestTranche5DeliveryStateTransitions:
 
 
 # ===================================================================
-# Tranche 5: Bounded outbound tracking — cleanup on completion
+# Bounded outbound tracking — cleanup on completion
 # ===================================================================
 
 
-class TestTranche5BoundedOutboundCleanup:
+class TestBoundedOutboundCleanup:
     """Outbound tracking entries are removed when reaching terminal state,
     preventing unbounded growth in long-duration runs."""
 

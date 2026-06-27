@@ -1,4 +1,4 @@
-"""Tests for Meshtastic outbound listen-only gate (Tranche 4).
+"""Tests for Meshtastic outbound listen-only gate.
 
 Verifies:
 - Default outbound_mode="enabled" passes normal queue/enqueue path.

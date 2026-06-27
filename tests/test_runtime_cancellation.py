@@ -1,4 +1,4 @@
-"""Track 1 runtime cancellation / task hygiene hardening tests.
+"""Runtime cancellation / task hygiene hardening tests.
 
 Covers:
 - Repeated cancellation cycles: build→start→stop N times with fresh app instances.
@@ -1060,7 +1060,7 @@ class TestAdapterLifecycleDuringCancellation:
 
 
 # =====================================================================
-# 11. Shutdown coverage regression (Wave 1 gaps)
+# 11. Shutdown coverage regression (coverage gaps)
 # =====================================================================
 
 

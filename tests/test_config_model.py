@@ -89,7 +89,7 @@ class _FakeAdapterConfig:
 class TestCoerceAdapterKwargsListToTuple:
     """_coerce_adapter_kwargs converts list → tuple for tuple-typed fields.
 
-    Since Wave 2 the helper takes required keyword-only ``transport`` and
+    The helper takes required keyword-only ``transport`` and
     ``section_path`` arguments and rejects unknown keys with
     :class:`ConfigValidationError` (matching ``additionalProperties: false``
     on the adapter JSON schemas). These tests pass the new kwargs and

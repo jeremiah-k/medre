@@ -63,17 +63,17 @@ descriptive reason string.
 **Known limitations (explicit):**
 
 - **No E2EE.** These tests target unencrypted rooms only.
-  End-to-end encryption is not part of the Matrix tranche 1 scope.
+  End-to-end encryption is not part of the Matrix scope.
 - **No reactions, edits, deletes, or attachments.** Only ``m.text``
   delivery is tested.
 - **No admin API usage.** Tests do not call Matrix admin endpoints.
 - **No webhook/HTTP server.** Tests exercise the nio sync loop only.
 - **No non-Matrix connectivity.** Meshtastic, MeshCore, LXMF, and
   other adapters are out of scope.
-- **No auth command / credential storage.** The current tranche uses
+- **No auth command / credential storage.** These tests use
   environment-variable access tokens exclusively.  A future mmrelay-like
   ``auth`` command for interactive login and credential management may
-  be useful but is not implemented in this tranche.
+  be useful but is not implemented.
 
 **Local homeserver setup (no Docker required):**
 
@@ -607,7 +607,7 @@ class TestMatrixLiveSmoke:
 
         wrong_allowlist = {"!nonexistent-room:example.com"}
 
-        # --- Phase 1: wrong allowlist ---
+        # --- wrong allowlist ---
         config_blocked = _make_config_with_allowlist(wrong_allowlist)
         publish_blocked = AsyncMock()
         ctx_blocked = AdapterContext(
@@ -679,7 +679,7 @@ class TestMatrixLiveSmoke:
                 adapter_blocked.stop(), timeout=_ADAPTER_STOP_TIMEOUT
             )
 
-        # --- Phase 2: correct allowlist ---
+        # --- correct allowlist ---
         assert MATRIX_ROOM_ID is not None  # narrowed by @require_live gate
         config_allowed = _make_config_with_allowlist({MATRIX_ROOM_ID})
         ctx_allowed = AdapterContext(
@@ -998,7 +998,7 @@ class TestMatrixLiveSmoke:
                     f"Expected sender {inbound_sender!r}, " f"got {matched_sender!r}"
                 )
 
-            # Track 2 — validate CanonicalEvent shape for third-party inbound
+            # Validate CanonicalEvent shape for third-party inbound
             assert found_event.source_adapter == "matrix-live-smoke", (
                 f"Expected source_adapter 'matrix-live-smoke', "
                 f"got {found_event.source_adapter!r}"

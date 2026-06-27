@@ -1,4 +1,4 @@
-"""Track 3: Runtime Event Flow Validation.
+"""Runtime Event Flow Validation.
 
 Tests that events flow correctly through the runtime pipeline:
 inbound events reach the EventBus, outbound delivery targets the

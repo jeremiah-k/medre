@@ -79,7 +79,7 @@ class TestSyncFailureLogging:
 
 
 # ===================================================================
-# Track 1: TestSyncRecovery
+# TestSyncRecovery
 # ===================================================================
 
 
@@ -273,7 +273,7 @@ class TestSyncRecovery:
 
 
 # ===================================================================
-# Track 2: TestCryptoStoreContinuity
+# TestCryptoStoreContinuity
 # ===================================================================
 
 
@@ -358,7 +358,7 @@ class TestCryptoStoreContinuity:
 
 
 # ===================================================================
-# Track 3: TestSyncStateResilience
+# TestSyncStateResilience
 # ===================================================================
 
 
@@ -454,7 +454,7 @@ class TestSyncStateResilience:
 
 
 # ===================================================================
-# Track 4: TestRoomStateTracking
+# TestRoomStateTracking
 # ===================================================================
 
 
@@ -637,7 +637,7 @@ class TestRoomStateTracking:
 
 
 # ===================================================================
-# Track 5: TestDeliveryRetry
+# TestDeliveryRetry
 # ===================================================================
 
 
@@ -796,7 +796,7 @@ class TestDeliveryRetry:
 
 
 # ===================================================================
-# Track 6: TestOperationalDiagnostics
+# TestOperationalDiagnostics
 # ===================================================================
 
 
@@ -816,16 +816,14 @@ class TestOperationalDiagnostics:
         assert hasattr(diag, "crypto_enabled")
         assert hasattr(diag, "encrypted_room_seen")
         assert hasattr(diag, "undecryptable_event_count")
-        # Track 1
         assert hasattr(diag, "sync_running")
         assert hasattr(diag, "reconnecting")
         assert hasattr(diag, "reconnect_attempts")
         assert hasattr(diag, "last_successful_sync")
-        # Track 2
         assert hasattr(diag, "crypto_store_loaded")
-        # Track 4
         assert hasattr(diag, "encrypted_room_count")
         assert hasattr(diag, "plaintext_room_count")
+        assert diag.olm_loaded is False
 
     async def test_all_adapter_diagnostic_fields(self, mock_nio) -> None:
         """Adapter diagnostics() dict includes all new fields."""
@@ -834,17 +832,14 @@ class TestOperationalDiagnostics:
         try:
             await adapter.start(make_matrix_context())
             diag = adapter.diagnostics()
-            # Track 1
             assert "sync_running" in diag
             assert "reconnecting" in diag
             assert "reconnect_attempts" in diag
             assert "last_successful_sync" in diag
-            # Track 2
             assert "crypto_store_loaded" in diag
-            # Track 4
             assert "encrypted_room_count" in diag
             assert "plaintext_room_count" in diag
-            # Track 5
+            assert "olm_loaded" in diag
             assert "transient_delivery_failures" in diag
             assert "permanent_delivery_failures" in diag
         finally:
@@ -887,3 +882,4 @@ class TestOperationalDiagnostics:
         assert diag["plaintext_room_count"] == 0
         assert diag["transient_delivery_failures"] == 0
         assert diag["permanent_delivery_failures"] == 0
+        assert diag["olm_loaded"] is False

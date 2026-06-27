@@ -88,7 +88,7 @@ adapters:
       enabled: true
       adapter_kind: fake
       connection_type: fake
-      origin_label: alpha-walkthrough
+      origin_label: operator-workflows
 routes:
   mx_to_mesh:
     source_adapters: [fake_matrix]

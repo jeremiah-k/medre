@@ -1046,7 +1046,7 @@ class TestDeliveryOutcomeWithFailureKind:
 
 
 # ===================================================================
-# Track 6: Retry/dead-letter observability and deterministic outcomes
+# Retry/dead-letter observability and deterministic outcomes
 # ===================================================================
 
 

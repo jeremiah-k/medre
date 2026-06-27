@@ -1,4 +1,4 @@
-"""Track 5 — Extended long-duration fake-only soak validation.
+"""Extended long-duration fake-only soak validation.
 
 Larger combined scenarios that stress multiple axes simultaneously, going
 beyond what the single-axis soak tests (``test_longrun_soak.py``,

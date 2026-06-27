@@ -250,7 +250,7 @@ constraints.
   `list[ExpandedRouteProvenance]` and derive the dict from it, or (b)
   leave the dict as-is and let the plan command build the triples
   locally by zipping the dict with the routes list. Option (b) is the
-  smaller diff (no engine change) and matches the ponytail principle;
+  smaller diff (no engine change) and keeps the change minimal;
   option (a) is the cleaner long-term shape if the class is to earn its
   keep. Either is acceptable.
 

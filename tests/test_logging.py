@@ -1,4 +1,4 @@
-"""Tests for structured logging hardening (Track 4).
+"""Tests for structured logging hardening.
 
 Covers:
 - Canonical sanitize_for_log integration

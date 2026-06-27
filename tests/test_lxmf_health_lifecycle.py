@@ -1,6 +1,6 @@
 """LXMF adapter health lifecycle parity tests.
 
-Verifies the tranche rule: health is None before first health_check of a
+Verifies the phase rule: health is None before first health_check of a
 lifecycle; health clears on start, stop, and restart boundaries.
 
 Tests cover:
@@ -124,7 +124,7 @@ async def test_health_clears_on_start_restart(
 async def test_health_through_full_restart_cycle(
     make_adapter_context: Any,
 ) -> None:
-    """Health follows the tranche rule through a full restart cycle.
+    """Health follows the phase rule through a full restart cycle.
 
     Sequence: create → start → check → stop → start → check → stop
     """

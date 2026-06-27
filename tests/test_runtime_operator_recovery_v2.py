@@ -1,4 +1,4 @@
-"""Track 6 v2 — Extended operator recovery workflow tests.
+"""Extended operator recovery workflow tests.
 
 Goes beyond ``test_operator_recovery.py`` by exercising multi-error
 sequences, multi-adapter restarts, container-restart simulations, and

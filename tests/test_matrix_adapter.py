@@ -573,7 +573,7 @@ class TestRoomAllowlist:
 
 class TestThirdPartyInboundCanonicalEventShape:
     """Verify the full CanonicalEvent produced by _on_room_message for a
-    third-party sender.  This is the core of Track 2 inbound validation:
+    third-party sender.  This is the core of inbound validation:
     the canonical event must carry the correct source_adapter, sender as
     source_transport_id, room_id as source_channel_id, payload body, and
     source_native_ref with the Matrix event_id.
@@ -1281,9 +1281,9 @@ class TestDisplayNameEnrichment:
 class TestMatrixLastHealthLifecycleBoundary:
     """_last_health is cleared at start/stop boundaries.
 
-    Oracle finding C: cached _last_health must be reset to None on
-    start() and stop() so diagnostics never reports a stale health
-    string from a previous session.
+    Regression: cached _last_health must be reset to None on start()
+    and stop() so diagnostics never reports a stale health string from
+    a previous session.
     """
 
     async def test_last_health_cleared_on_start(self, monkeypatch) -> None:

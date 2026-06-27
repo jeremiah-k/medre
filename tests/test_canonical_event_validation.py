@@ -87,7 +87,7 @@ class TestSchemaRegistryHardening:
 
 
 # ===================================================================
-# Schema version compatibility (Track 2)
+# Schema version compatibility
 # ===================================================================
 
 
@@ -131,7 +131,7 @@ class TestSchemaVersionCompatibility:
 
 
 # ===================================================================
-# Relation validation (Track 2)
+# Relation validation
 # ===================================================================
 
 
@@ -205,7 +205,7 @@ class TestRelationValidation:
 
 
 # ===================================================================
-# Lineage validation (Track 2)
+# Lineage validation
 # ===================================================================
 
 
@@ -259,7 +259,7 @@ class TestLineageValidation:
 
 
 # ===================================================================
-# Malformed payload validation (Track 2)
+# Malformed payload validation
 # ===================================================================
 
 
@@ -320,7 +320,7 @@ class TestMalformedPayloadValidation:
 
 
 # ===================================================================
-# Schema migration behavior (Track 2)
+# Schema migration behavior
 # ===================================================================
 
 
@@ -407,7 +407,7 @@ class TestSchemaMigrationBehavior:
 
 
 # ===================================================================
-# Event taxonomy audit (Track 2)
+# Event taxonomy audit
 # ===================================================================
 
 
@@ -457,7 +457,7 @@ class TestEventTaxonomyAudit:
 
 
 # ===================================================================
-# Protocol-neutral readiness (Track 5)
+# Protocol-neutral readiness
 # ===================================================================
 
 

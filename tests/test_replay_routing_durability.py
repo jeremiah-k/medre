@@ -1,4 +1,4 @@
-"""Track 5: Replay/routing durability tests.
+"""Replay/routing durability tests.
 
 Covers replay cancellation, degraded pipeline behaviour, shutdown
 semantics, repeated-cycle determinism, observability consistency,

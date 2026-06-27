@@ -30,7 +30,6 @@ dev = [
   "jsonschema>=4.0,<5.0",
 ]
 # mindroom-nio v0.25.3 — fork of matrix-nio with MindRoom patches.
-# Floor pin matches the version audited in docs/contracts/25-matrix-e2ee-readiness.md.
 matrix = ["mindroom-nio>=0.25.3"]
 matrix-e2e = ["mindroom-nio[e2e]>=0.25.3"]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".

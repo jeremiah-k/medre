@@ -268,11 +268,11 @@ class TestLxmfCodecErrors:
 
 
 # ===================================================================
-# Tranche 5: signature_validated flag propagation
+# signature_validated flag propagation
 # ===================================================================
 
 
-class TestTranche5SignatureValidated:
+class TestSignatureValidated:
     """signature_validated does not leak into native metadata.
 
     The codec accepts signature_validated=True/False/missing without
@@ -308,11 +308,11 @@ class TestTranche5SignatureValidated:
 
 
 # ===================================================================
-# Tranche 5: Missing/optional field handling
+# Missing/optional field handling
 # ===================================================================
 
 
-class TestTranche5MissingOptionalFields:
+class TestMissingOptionalFields:
     """Codec handles packets with missing or empty optional fields."""
 
     def test_decode_missing_source_hash(self) -> None:
@@ -378,11 +378,11 @@ class TestTranche5MissingOptionalFields:
 
 
 # ===================================================================
-# Tranche 5: delivery_method in native metadata
+# delivery_method in native metadata
 # ===================================================================
 
 
-class TestTranche5DeliveryMethodMetadata:
+class TestDeliveryMethodMetadata:
     """delivery_method and has_fields are preserved in native metadata.
 
     Tests cover both the delivery_method field (direct, opportunistic,

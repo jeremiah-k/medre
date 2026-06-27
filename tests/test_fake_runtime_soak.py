@@ -1,4 +1,4 @@
-"""Track 7: Fake runtime soak and comprehensive happy-path tests.
+"""Fake runtime soak and comprehensive happy-path tests.
 
 Diagnostics snapshot stability across cycles, replay delivery isolation,
 and full end-to-end pipeline verification — all with fake adapters and

@@ -394,11 +394,11 @@ class TestMockedSDKCallbackNormalization:
 
 
 # ===================================================================
-# Tranche 6: Sync callback support (no false TypeError)
+# Sync callback support (no false TypeError)
 # ===================================================================
 
 
-class TestTranche6SyncCallback:
+class TestSyncCallback:
     """Sync inbound callbacks work without false TypeError logging."""
 
     async def test_sync_callback_receives_payload(self) -> None:
@@ -518,11 +518,11 @@ class TestTranche6SyncCallback:
 
 
 # ===================================================================
-# Tranche 6: Failed-start state cleanup
+# Failed-start state cleanup
 # ===================================================================
 
 
-class TestTranche6FailedStartCleanup:
+class TestFailedStartCleanup:
     """Failed MeshCore start does not retain callbacks or report
     connected/reconnecting in diagnostics."""
 
@@ -563,7 +563,7 @@ class TestTranche6FailedStartCleanup:
 
 
 # ===================================================================
-# Tranche: Adapter Reality Audit — appstart + expected_ack
+# Adapter Reality Audit — appstart + expected_ack
 # ===================================================================
 
 

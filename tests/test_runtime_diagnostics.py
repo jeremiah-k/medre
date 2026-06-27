@@ -1,4 +1,4 @@
-"""Tests for runtime diagnostic snapshot (Track 1).
+"""Tests for runtime diagnostic snapshot.
 
 Covers:
 - Deterministic output across two identical ``to_dict()`` calls.

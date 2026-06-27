@@ -2,8 +2,6 @@
 
 Ensure core, config, and source modules follow canonical import rules
 and that old/noncanonical modules are not referenced (sections G–L).
-
-TRACK 6 — Boundary/Regression Tests
 """
 
 from __future__ import annotations

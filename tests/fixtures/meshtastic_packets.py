@@ -274,7 +274,7 @@ def make_ack_packet(
     does **not** correspond to any real protobuf enum value.  Real ACKs
     arrive via ``"ROUTING_APP"`` with ``decoded.routing.errorReason ==
     "NONE"``.  See ``make_symbolic_routing_ack_packet`` for the real ACK
-    shape.  Full ACK handling is deferred to a later tranche.
+    shape.  Full ACK handling is deferred.
     """
     return {
         "from": _node_num(sender),

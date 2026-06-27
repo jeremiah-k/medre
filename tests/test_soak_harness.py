@@ -1,4 +1,4 @@
-"""Track 5 — Soak harness foundation for stability verification.
+"""Soak harness foundation for stability verification.
 
 This is a soak **HARNESS**, not a soak CI run.  It verifies stability
 patterns (start/stop cycling, replay cycling, pressure, long-running)

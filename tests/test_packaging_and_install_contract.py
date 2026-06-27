@@ -956,6 +956,23 @@ class TestCliMainModule:
 # ===================================================================
 
 
+@pytest.fixture(scope="module")
+def _wheel_path() -> object:
+    """Build wheel once per module and return its path."""
+    import tempfile
+
+    build = pytest.importorskip("build")
+
+    with tempfile.TemporaryDirectory(prefix="medre-wheel-test-") as tmpdir:
+        builder = build.ProjectBuilder(_REPO_ROOT)
+        wheel = builder.build(
+            distribution="wheel",
+            output_directory=tmpdir,
+            config_settings={"--no-isolation": ""},
+        )
+        yield Path(wheel)
+
+
 class TestWheelArtifactContract:
     """Build a wheel with ``--no-isolation`` and inspect its contents.
 
@@ -970,22 +987,6 @@ class TestWheelArtifactContract:
             import build  # noqa: F401
         except ImportError:
             pytest.skip("python 'build' package not installed")
-
-    @pytest.fixture(scope="module")
-    def _wheel_path(self: "TestWheelArtifactContract") -> object:
-        """Build wheel once per class and return its path."""
-        import tempfile
-
-        import build
-
-        with tempfile.TemporaryDirectory(prefix="medre-wheel-test-") as tmpdir:
-            builder = build.ProjectBuilder(_REPO_ROOT)
-            wheel = builder.build(
-                distribution="wheel",
-                output_directory=tmpdir,
-                config_settings={"--no-isolation": ""},
-            )
-            yield Path(wheel)
 
     def _wheel_names(self, wheel_path: Path) -> set[str]:
         """Return the set of file names inside the wheel."""

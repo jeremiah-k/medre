@@ -226,7 +226,7 @@ class TestMeshtasticNoSdkLifecycle:
         assert "queue_total_failed" in diag
         assert "queue_total_rejected" in diag
         assert "background_tasks" in diag
-        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        # session sub-dict always present with safe defaults.
         assert isinstance(diag["session"], dict)
         assert diag["session"]["connected"] is False
         assert diag["session"]["reconnecting"] is False
@@ -310,7 +310,7 @@ class TestMeshtasticDiagnostics:
         assert isinstance(diag["queue_total_rejected"], int)
         assert isinstance(diag["background_tasks"], int)
 
-        # Wave 2 evidence parity: session sub-dict always present with safe defaults.
+        # session sub-dict always present with safe defaults.
         assert isinstance(diag["session"], dict)
         assert diag["session"]["connected"] is False
         assert diag["session"]["reconnecting"] is False

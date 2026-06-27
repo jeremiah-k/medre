@@ -942,17 +942,17 @@ schema updates in `docs/schemas`, tests, and a fragment under
 `docs/changes/unreleased/NNN-brief-description.md` in the same
 change" rule (`AGENTS.md:50-54`).
 
-**Recommended wave sequencing:**
+**Recommended implementation sequencing:**
 
-1. **Wave 1 — Config model.** Add `ChannelRoomMapEntry`, extend
-   `RouteConfig.from_dict` to parse the polymorphic value shape,
-   keep the existing `channel_room_map: dict[str, ?]` attribute typed
-   as `dict[str, ChannelRoomMapEntry]` (always normalised). Add
-   parsing tests (§8.6 item 1). No expansion changes yet — existing
-   expansion tests must still pass because the entry's `room` field
-   carries the same data.
+1. **Config model.** Add `ChannelRoomMapEntry`, extend
+   `RouteConfig.from_dict` to parse the polymorphic value shape, keep
+   the existing `channel_room_map: dict[str, ?]` attribute typed as
+   `dict[str, ChannelRoomMapEntry]` (always normalised). Add parsing
+   tests (§8.6 item 1). No expansion changes yet — existing expansion
+   tests must still pass because the entry's `room` field carries the
+   same data.
 
-2. **Wave 2 — Expansion.** Update
+2. **Expansion.** Update
    `_expand_channel_room_map_route` to read per-entry labels with
    the two-level lookup described in §8.2. Add expansion tests
    (§8.6 item 2). Update the existing
@@ -961,25 +961,25 @@ change" rule (`AGENTS.md:50-54`).
    shape directly — they should continue to work via the parser
    normalisation path.
 
-3. **Wave 3 — Docs and changelog.** Update
+3. **Docs and changelog.** Update
    `docs/spec/routing-delivery.md` §17.5.8 (remove the "not
    implemented" note, document the new shape). Update
    `docs/dev/relay-prefix-attribution-audit.md` §9. Add a change
    fragment under `docs/changes/unreleased/`. Update
    `docs/schemas/` if a JSON Schema exists for routes.
 
-4. **Wave 4 — End-to-end test (optional).** Add a single
+4. **End-to-end test (optional).** Add a single
    integration-style test that exercises a delivery through a
    `channel_room_map` with per-entry labels and asserts the rendered
    prefix uses the per-entry value.
 
-5. **Wave 5 — Audit update.** Update this document to reflect the
+5. **Audit update.** Update this document to reflect the
    shipped behaviour (remove the "gap" framing, document the new
    precedence chain).
 
 The RenderingContext, renderer, formatter, source-attribution
 registry, target-delivery service, and storage layers require NO
-changes in any wave. The entire feature is structurally confined to
+changes for this feature. The entire feature is structurally confined to
 the config and expansion layers.
 
 ---

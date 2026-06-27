@@ -816,15 +816,22 @@ Lifecycle convergence diagnostics are deterministic and read-only. They never ch
 
 ## Support Bundles
 
-When filing an issue, collect a redacted diagnostic bundle with:
+When filing an issue, collect an offline, redacted support bundle with:
 
 ```bash
 medre support bundle --config medre.yaml --output medre-support.zip
 ```
 
-The bundle is offline by default — it performs no network or hardware
-I/O, starts no adapters, and contacts no transport. Use it as the
-primary artifact when reporting problems.
+The support bundle is offline by design — it performs no network or
+hardware I/O, starts no adapters, refreshes no live health, and contacts
+no transport. Use it as the primary artifact when reporting problems.
+
+The support bundle is distinct from `medre evidence`. The bundle
+describes the configured shape of the runtime (what would be built,
+what would be routed, what config was loaded); `medre evidence
+--storage-path` and `medre inspect event --evidence` produce
+storage-backed delivery evidence for receipt investigation. Do not use
+"support bundle" to refer to `medre evidence` output.
 
 ### Bundle contents
 
@@ -841,6 +848,30 @@ primary artifact when reporting problems.
 
 ### What is NOT in the bundle
 
+The support bundle is **observational, not delivery evidence**. It is
+built purely from config discovery, `config check`, the route plan, the
+adapter inventory, schema presence, environment metadata, and a redacted
+config copy. The following are explicitly **not** collected:
+
+- **Live probes** — the bundle starts no adapters, so no connectivity,
+  capability, or transport probes run.
+- **Adapter health refresh** — `--refresh-health`-style live health is
+  never performed for the bundle; `adapters.json` carries config-derived
+  summary fields only.
+- **Storage contents** — events, receipts, outbox rows, and replay state
+  are not included. Use `medre inspect` (per-event / per-receipt /
+  per-replay-run) or `medre evidence --storage-path` (storage-backed
+  evidence report) for storage-backed investigation.
+- **Delivery evidence** — no receipts, delivery outcomes, or convergence
+  findings are bundled. These live in storage; use `medre inspect event
+--evidence` or `medre evidence --storage-path`.
+- **Runtime logs** — the log file is not attached. Attach the relevant
+  log excerpt separately if needed.
+- **Hardware/network checks** — no serial, BLE, TCP, RF, or Matrix
+  homeserver reachability checks are performed.
+
+In addition:
+
 - **Raw secrets** — secret-named field values are replaced with
   `***REDACTED***` (keys are preserved so the redacted config stays
   useful for debugging). Environment members carry platform metadata
@@ -849,13 +880,6 @@ primary artifact when reporting problems.
   `secret_fields_present` map in `adapters.json` reports **boolean
   presence only** (e.g. `{"access_token": true}`) — it never carries
   the underlying token, PIN, or identity-file contents.
-- **Live logs** — not attached by default. Attach the relevant log
-  excerpt separately if needed.
-- **Live probe results** — the bundle starts no adapters, so no live
-  health, connectivity, or capability probes run.
-- **Storage contents** — events, receipts, and outbox rows are not
-  included. Use `medre inspect` or `medre evidence --storage-path` for
-  storage-backed evidence.
 
 ### Review before sharing
 
@@ -864,13 +888,6 @@ The bundle is redacted, but redaction is name-based. Review the
 the bundle to a public issue. Filesystem paths, adapter IDs, route IDs,
 homeserver URLs, room IDs, and log levels are included by design —
 mask them manually if they are sensitive in your deployment.
-
-### Observational, not delivery evidence
-
-The bundle describes the configured shape of the runtime — what would
-be built, what would be routed, what config was loaded. It does not
-record, prove, or guarantee any delivery. For delivery evidence, use
-`medre inspect event --evidence` or `medre evidence --storage-path`.
 
 ### Partial output on config errors
 

@@ -270,7 +270,9 @@ class TestLxmfAdapterLifecycle:
         info = await adapter.health_check()
         assert info.health == "unknown"
 
-    async def test_deliver_returns_none_in_tranche1(self, make_adapter_context) -> None:
+    async def test_deliver_returns_pending_result_via_fake_session(
+        self, make_adapter_context
+    ) -> None:
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-1")
@@ -282,6 +284,10 @@ class TestLxmfAdapterLifecycle:
         assert delivery is not None
         assert isinstance(delivery, AdapterDeliveryResult)
         assert delivery.native_message_id is not None
+        assert delivery.metadata["lxmf"]["delivery_state"] in (
+            "outbound",
+            "generating",
+        )
         await adapter.stop()
 
     async def test_deliver_rejects_canonical_event(self) -> None:
@@ -785,7 +791,7 @@ class TestLxmfAdapterSessionIntegration:
         await adapter.stop()
 
     async def test_adapter_diagnostics_returns_dict(self, make_adapter_context) -> None:
-        """Track 5: adapter.diagnostics() returns a structured dict."""
+        """adapter.diagnostics() returns a structured dict."""
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-diag")
@@ -805,7 +811,7 @@ class TestLxmfAdapterSessionIntegration:
         await adapter.stop()
 
     async def test_adapter_diagnostics_before_start(self) -> None:
-        """Track 5: adapter.diagnostics() works before start()."""
+        """adapter.diagnostics() works before start()."""
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
 
@@ -1362,9 +1368,9 @@ class TestFakeLxmfAdapterRepeatedStop:
 class TestLxmfLastHealthLifecycleBoundary:
     """_last_health is cleared at start/stop boundaries.
 
-    Oracle finding C: cached _last_health must be reset to None on
-    start() and stop() so diagnostics never reports a stale health
-    string from a previous session.
+    Regression: cached _last_health must be reset to None on start()
+    and stop() so diagnostics never reports a stale health string from
+    a previous session.
     """
 
     async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:

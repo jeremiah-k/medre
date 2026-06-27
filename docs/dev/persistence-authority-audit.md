@@ -2,7 +2,7 @@
 
 > **Classification:** Developer reference (derived from [storage.md](../spec/storage.md) Section 16)
 > **Audience:** Runtime developers, code reviewers, operators wanting implementation detail.
-> **Authority:** [storage.md](../spec/storage.md) is the normative specification. This document synthesizes Wave 1 audit findings into a compact per-domain inventory. If this document conflicts with storage.md, storage.md is correct.
+> **Authority:** [storage.md](../spec/storage.md) is the normative specification. This document synthesizes audit findings into a compact per-domain inventory. If this document conflicts with storage.md, storage.md is correct.
 
 ## Domain Inventory
 
@@ -39,7 +39,7 @@ Each row covers one persisted SQLite domain. Classifications follow the legend b
 
 ## Deletion and Retention Rules
 
-**There is no runtime `DELETE FROM` on any table.** This is a core invariant verified by the Wave 1 storage audit.
+**There is no runtime `DELETE FROM` on any table.** This is a core invariant verified by the storage audit.
 
 - `DROP VIEW IF EXISTS` and `DROP INDEX IF EXISTS` in `initialize()` are schema housekeeping, not data deletion. They drop and recreate the `delivery_status` view and indexes to match the current column shape.
 - Terminal outbox rows (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. They are never deleted, only superseded by new rows with different `attempt_number` values.

@@ -1,4 +1,4 @@
-"""Tests for adapter health normalization (Track 2).
+"""Tests for adapter health normalization.
 
 Covers:
 - VALID_HEALTH_STRINGS contains the required six values.

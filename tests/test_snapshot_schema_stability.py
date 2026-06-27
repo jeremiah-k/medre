@@ -1,4 +1,4 @@
-"""Track 7 — snapshot + diagnostics schema stability validation.
+"""Snapshot + diagnostics schema stability validation.
 
 Validates that all snapshot and diagnostics export surfaces remain
 deterministic, well-shaped, bounded, JSON-safe, and free of secrets
@@ -328,7 +328,7 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
 _EXPECTED_DIAG_SNAPSHOT_KEYS: frozenset[str] = frozenset({"routes", "replay"})
 
 # ---------------------------------------------------------------------------
-# Tranche 3 — expected-key constants for diagnostics schema.
+# Expected-key constants for diagnostics schema.
 # ---------------------------------------------------------------------------
 
 _EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(

@@ -4,8 +4,6 @@ These tests protect structural invariants of the MEDRE framework — ensuring
 core/route-engine/config-model/reusable-adapter-module boundaries via
 comprehensive AST-based import checks, and enforcing the clean import
 surface after SQLite storage decomposition (sections T–X).
-
-TRACK 6 — Boundary/Regression Tests
 """
 
 from __future__ import annotations

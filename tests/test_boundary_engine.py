@@ -3,8 +3,6 @@
 Enforce that core engine modules (replay, route, pipeline) and the
 RuntimeBuilder stay free of concrete transport SDK imports and that
 replay test files use only fake adapters (sections A–F).
-
-TRACK 6 — Boundary/Regression Tests
 """
 
 from __future__ import annotations

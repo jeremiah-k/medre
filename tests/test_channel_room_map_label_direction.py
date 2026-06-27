@@ -126,7 +126,7 @@ def _structured_entry(
 #
 # Note on the "same room, different channel" scenario: the config parser
 # accepts duplicate Matrix rooms inside a single ``channel_room_map``
-# (Wave 1 lifted the former parse-time rejection).  Whether duplicates
+# (The former parse-time rejection was lifted).  Whether duplicates
 # are legal is decided at runtime expansion based on directionality and
 # adapter platforms — see ``test_channel_room_map_duplicate_room_fanin.py``
 # for that directionality matrix.  The realistic operator pattern for

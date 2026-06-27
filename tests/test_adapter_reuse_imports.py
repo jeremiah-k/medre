@@ -5,8 +5,8 @@ Verify that importing codec, renderer, and interop modules does not:
 - Pull in runtime.builder, core.engine.pipeline, core.storage, or adapter wrappers
 - Call setup_logging
 
-Part B — Import Side-Effect Tests
-Part F — Logging Boundary Tests
+Import Side-Effect Tests
+Logging Boundary Tests
 """
 
 from __future__ import annotations

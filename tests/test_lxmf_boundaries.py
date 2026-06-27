@@ -519,8 +519,8 @@ class TestLxmfOutboundNativeRefs:
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id is None
 
-    async def test_real_adapter_returns_none_in_tranche1(self) -> None:
-        """Real LxmfAdapter.deliver() now returns AdapterDeliveryResult via session.
+    async def test_real_adapter_deliver_raises_when_not_started(self) -> None:
+        """Real LxmfAdapter.deliver() raises when the adapter is not started.
 
         With session integration, deliver() delegates to LxmfSession.send_text()
         which requires the adapter to be started first.  Without start,

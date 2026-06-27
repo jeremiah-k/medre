@@ -472,7 +472,7 @@ class TestMalformedCanonicalEvent:
 
 
 # ===================================================================
-# Serialization determinism (Track 2)
+# Serialization determinism
 # ===================================================================
 
 
@@ -536,7 +536,7 @@ class TestSerializationDeterminism:
 
 
 # ===================================================================
-# Immutable-after-ingress (Track 2)
+# Immutable-after-ingress
 # ===================================================================
 
 
@@ -620,7 +620,7 @@ class TestImmutableAfterIngress:
 
 
 # ===================================================================
-# Unknown metadata fields behavior (Track 2)
+# Unknown metadata fields behavior
 # ===================================================================
 
 

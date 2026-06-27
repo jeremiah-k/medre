@@ -25,15 +25,36 @@ structure conventions — not by adding a standalone contract.
 
 ## No Internal Planning-Cycle Vocabulary
 
-The following terms are internal development vocabulary and must not appear in
-permanent documentation (`docs/spec/`, `docs/ops/`, `docs/dev/`):
+The blocked vocabulary includes internal incremental-work labels,
+development-cycle terms, batch qualifiers, and tooling-skill markers. These
+terms describe temporary internal planning state and are forbidden in
+**all durable artifacts**. The canonical pattern list lives in
+`tests/helpers/forbidden_terms.py` — refer to that module for the exact
+set of compiled patterns. The patterns are stored as concatenated string
+fragments so this style guide and the helper itself contain no literal
+blocked word either.
 
-- "tranche" (use "release scope", "work package", or "implementation phase")
-- "boulder" (use "task" or "work item")
-- "sprint" (use "development cycle")
+Durable artifacts include: documentation under `docs/` (including
+`docs/spec/`, `docs/ops/`, `docs/dev/`, `docs/schemas/`, and `docs/changes/`),
+source code comments and docstrings under `src/`, test names, test method
+names, test comments, test docstrings, test filenames, example configs and
+scripts under `examples/`.
 
-These terms may appear in `docs/changes/` fragments and commit messages where
-they describe temporary development state.
+Branch names, new commit messages, and agent-facing prompts (including
+`AGENTS.md` and skill instructions) are also subject to this policy, but
+enforcement for those is manual review only — the automated scanner covers
+file content and filenames under `docs/`, `src/`, `tests/`, and `examples/`
+but does not inspect git metadata.
+
+These terms describe temporary internal planning state and must not leak into
+any artifact that persists beyond the planning cycle. The enforcer test
+`tests/test_docs_no_internal_planning_language.py` scans file content and
+filenames under `docs/`, `src/`, `tests/`, and `examples/` against the canonical
+pattern list and fails on any match. Branch names, commit messages, and other
+git metadata are policy-only (manual review, not automated).
+
+Historical git commit messages are preserved as-is — this policy does not
+rewrite existing history. New commit messages must follow the stricter rule.
 
 ## No Stale Generated Headers
 

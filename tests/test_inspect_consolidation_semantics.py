@@ -1002,21 +1002,21 @@ class TestInspectReplayEquivalence:
 
 
 # ===================================================================
-# Alpha walkthrough uses inspect-based investigation
+# Operator workflow uses inspect-based investigation
 # ===================================================================
 
 
 class TestWalkthroughUsesInspect:
-    """The alpha walkthrough runbook should use inspect-based investigation
+    """The operator workflow runbook should use inspect-based investigation
     commands (inspect receipts, inspect event) as the primary investigation
     surface, with trace/evidence/recover available as deeper commands.
 
-    This test verifies the alpha-walkthrough.md references the inspect
+    This test verifies operator-workflows.md references the inspect
     command surface.
     """
 
-    def test_alpha_walkthrough_mentions_inspect(self) -> None:
-        """alpha-walkthrough.md must mention 'medre inspect'."""
+    def test_operator_workflows_mentions_inspect(self) -> None:
+        """operator-workflows.md must mention 'medre inspect'."""
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
@@ -1029,7 +1029,7 @@ class TestWalkthroughUsesInspect:
             "the primary investigation command."
         )
 
-    def test_alpha_walkthrough_inspect_before_trace(self) -> None:
+    def test_operator_workflows_inspect_before_trace(self) -> None:
         """inspect step appears before trace step in walkthrough order."""
         from pathlib import Path
 

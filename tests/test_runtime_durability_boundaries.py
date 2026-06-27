@@ -1,4 +1,4 @@
-"""Track 8 — Runtime durability architectural boundary tests.
+"""Runtime durability architectural boundary tests.
 
 These tests enforce structural invariants (PC non-negotiables) of the MEDRE
 framework via **AST/text import inspection** — not runtime importing of

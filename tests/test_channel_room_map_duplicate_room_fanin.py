@@ -1,6 +1,6 @@
 """Duplicate-room fan-in behaviour for ``channel_room_map`` routes.
 
-Wave 1 moved the duplicate-room check out of the config parser
+The duplicate-room check was moved out of the config parser
 (:mod:`medre.config.routes`) and into runtime route expansion
 (:mod:`medre.runtime.route_engine`).  Config parsing now *accepts*
 duplicate Matrix room values inside a single ``channel_room_map``.

@@ -1017,9 +1017,9 @@ class TestMeshtasticAdapterSelfEcho:
 class TestMeshtasticLastHealthLifecycleBoundary:
     """_last_health is cleared at start/stop boundaries.
 
-    Oracle finding C: cached _last_health must be reset to None on
-    start() and stop() so diagnostics never reports a stale health
-    string from a previous session.
+    Regression: cached _last_health must be reset to None on start()
+    and stop() so diagnostics never reports a stale health string from
+    a previous session.
     """
 
     async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:
@@ -1080,7 +1080,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
 
 
 # ===================================================================
-# Diagnostics health key follows tranche lifecycle rule
+# Diagnostics health key follows phase lifecycle rule
 # ===================================================================
 
 

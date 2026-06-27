@@ -1,4 +1,4 @@
-"""Track 5 & 7: Fake multi-adapter runtime smoke and short soak tests.
+"""Fake multi-adapter runtime smoke and short soak tests.
 
 Proves the fake runtime can start from a multi-adapter config, route a
 synthetic event through the real RouteEngine / PipelineRunner, generate
@@ -118,7 +118,7 @@ def _make_pipeline_failure_config(
 
 
 # ===================================================================
-# SMOKE TESTS — Track 5
+# SMOKE TESTS
 # ===================================================================
 
 
@@ -557,7 +557,7 @@ class TestRuntimeStopsCleanly:
 
 
 # ===================================================================
-# SHORT SOAK TESTS — Track 7
+# SHORT SOAK TESTS
 # ===================================================================
 
 

@@ -1,4 +1,4 @@
-"""Track 5 v3 — Extended long-run soak with larger route graphs and combined stress.
+"""Extended long-run soak with larger route graphs and combined stress.
 
 Goes beyond ``test_longrun_soak.py`` (single-axis) and
 ``test_extended_longrun_soak.py`` (combined dual-axis) by exercising:
@@ -210,7 +210,7 @@ class TestMassiveRouteGraphChurn:
 
     @pytest.mark.asyncio
     async def test_200_routes_mixed_ops_20_rounds(self) -> None:
-        """200 routes × 20 rounds of delivered/failed/skipped/loop_prevented."""
+        """200 routes x 20 rounds of delivered/failed/skipped/loop_prevented."""
         stats = RouteStats()
         routes = [f"v3-route-{i:04d}" for i in range(200)]
 
@@ -513,28 +513,28 @@ class TestBoundedRouteStatsCreationChurn:
 
     @pytest.mark.asyncio
     async def test_route_churn_with_deletion_pattern(self) -> None:
-        """Create routes in waves. Each wave adds new routes; previous waves
-        remain in the snapshot (RouteStats does not prune)."""
+        """Create routes in rounds. Each round adds new routes; previous
+        rounds remain in the snapshot (RouteStats does not prune)."""
         stats = RouteStats()
-        wave_routes: list[set[str]] = []
+        round_routes: list[set[str]] = []
 
-        for wave in range(5):
-            wave_set = set()
+        for round_idx in range(5):
+            round_set = set()
             for r in range(20):
-                rid = f"wave-{wave}-route-{r:03d}"
-                wave_set.add(rid)
+                rid = f"round-{round_idx}-route-{r:03d}"
+                round_set.add(rid)
                 stats.record_delivered(rid)
-            wave_routes.append(wave_set)
+            round_routes.append(round_set)
 
             snap = stats.snapshot()
-            # All routes from all waves must be present.
+            # All routes from all rounds must be present.
             all_so_far = set()
-            for ws in wave_routes:
+            for ws in round_routes:
                 all_so_far |= ws
             assert set(snap.keys()) == all_so_far
 
         final = stats.snapshot()
-        assert len(final) == 100  # 5 waves × 20 routes
+        assert len(final) == 100  # 5 rounds x 20 routes
 
 
 # ===================================================================
@@ -709,7 +709,7 @@ class TestBoundedSnapshotGrowthEscalating:
 
             await app.stop()
 
-        # Max size should not exceed 4× the min size (adapter variation only).
+        # Max size should not exceed 4x the min size (adapter variation only).
         assert (
             max(sizes) <= min(sizes) * 4 + 200
         ), f"Snapshot size grew unboundedly: {sizes}"
@@ -929,7 +929,7 @@ class TestSustainedReplayMetrics100Routes:
 
     @pytest.mark.asyncio
     async def test_100_routes_25_rounds_mixed(self) -> None:
-        """100 routes × 25 rounds of mixed metrics operations."""
+        """100 routes x 25 rounds of mixed metrics operations."""
         metrics = ReplayMetrics()
         routes = [f"v3-metric-{i:03d}" for i in range(100)]
 
@@ -946,7 +946,7 @@ class TestSustainedReplayMetrics100Routes:
 
         snap = metrics.snapshot()
         assert len(snap["by_route"]) == 100
-        # 100 routes × 25 rounds = 2500 events processed.
+        # 100 routes x 25 rounds = 2500 events processed.
         assert snap["global"]["replay_events_processed"] == 2500
         assert snap["global"]["replay_deliveries_attempted"] == 2500
 

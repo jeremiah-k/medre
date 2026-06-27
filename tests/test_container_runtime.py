@@ -1,4 +1,4 @@
-"""Track 3/4: Deterministic container-runtime validation tests.
+"""Deterministic container-runtime validation tests.
 
 Validates MEDRE's container deployment model behaves deterministically
 without requiring Docker, Kubernetes, or any container runtime.  Every test
