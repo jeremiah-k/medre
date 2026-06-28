@@ -230,3 +230,7 @@ create per-commit fragment files.
   `--password` flag remains supported for automation that cannot pipe
   stdin. No login behavior changed; `src/medre/adapters/matrix/cli.py`
   is untouched.
+- **Post-audit cleanup.** Matrix `--password-stdin` now tolerates stdin
+  streams without a file descriptor (no crash on `io.StringIO` or
+  process-substitution input). Documentation test-file references
+  verified current. Durable-language enforcer prose neutralized.

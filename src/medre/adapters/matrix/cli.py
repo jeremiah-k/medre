@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import getpass
-import os
 import sys
 from pathlib import Path
 
@@ -125,7 +124,9 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     elif password_cli:
         password = password_cli
     elif password_stdin:
-        if os.isatty(sys.stdin.fileno()):
+        # sys.stdin.isatty() tolerates streams without a real file descriptor
+        # (io.StringIO, process substitution); bare os.isatty(fileno()) raises.
+        if sys.stdin.isatty():
             print(
                 "Error: --password-stdin expects piped input. "
                 "Use interactive login (without --password-stdin), "

@@ -19,9 +19,8 @@ from medre.cli.main import _build_parser
 
 
 def _pipe_stdin(text: str) -> io.StringIO:
-    """Return a StringIO with a ``fileno`` stub (for ``os.isatty`` call)."""
+    """Return a StringIO suitable for patching in as ``sys.stdin``."""
     buf = io.StringIO(text)
-    buf.fileno = lambda: 0  # type: ignore[attr-defined]
     return buf
 
 
@@ -199,10 +198,12 @@ class TestPasswordStdinTtyGuard:
 
         args = self._make_args(password_stdin=True)
 
+        tty_stdin = _pipe_stdin("")
+        tty_stdin.isatty = lambda: True  # type: ignore[attr-defined]
+
         stderr_buf = io.StringIO()
         with (
-            patch("medre.adapters.matrix.cli.os.isatty", return_value=True),
-            patch("sys.stdin", _pipe_stdin("")),
+            patch("sys.stdin", tty_stdin),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -226,11 +227,12 @@ class TestPasswordStdinTtyGuard:
             access_token="tok",
         )
 
+        # Bare io.StringIO: isatty() returns False natively; no fileno() stub
+        # is needed now that the production code calls sys.stdin.isatty()
+        # instead of os.isatty(sys.stdin.fileno()).
         pipe_stdin = io.StringIO("test_pw\n")
-        pipe_stdin.fileno = lambda: 0  # type: ignore[attr-defined]
 
         with (
-            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch(
                 "medre.adapters.matrix.auth.matrix_whoami",
@@ -242,6 +244,51 @@ class TestPasswordStdinTtyGuard:
             ),
             patch("sys.stdin", pipe_stdin),
         ):
+            await _adapter_matrix_auth_login(args)
+
+    @pytest.mark.asyncio
+    async def test_password_stdin_handles_stream_without_fileno(self) -> None:
+        """Regression: --password-stdin must not crash when stdin has no fileno().
+
+        Streams like io.StringIO raise OSError/ValueError/UnsupportedOperation
+        when ``.fileno()`` is called. The TTY guard calls
+        ``sys.stdin.isatty()`` (which TextIOWrapper implements without
+        touching fileno()) so fileno-less stdin is treated as non-TTY and
+        piped input proceeds.
+        """
+        from medre.adapters.matrix.auth import MatrixLoginResult
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+        args = self._make_args(password_stdin=True)
+
+        login_result = MatrixLoginResult(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            device_id="DEV",
+            access_token="tok",
+        )
+
+        # io.StringIO with no fileno override — calling .fileno() raises
+        # io.UnsupportedOperation. isatty() returns False natively.
+        fileno_less_stdin = io.StringIO("test_pw\n")
+        # Sanity check the regression setup: a real .fileno() call must raise.
+        with pytest.raises(io.UnsupportedOperation):
+            fileno_less_stdin.fileno()
+
+        with (
+            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:matrix.org",
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=Path("/tmp/matrix.json"),
+            ),
+            patch("sys.stdin", fileno_less_stdin),
+        ):
+            # No exception should escape — the guard must tolerate the
+            # fileno-less stream and proceed to read the piped password.
             await _adapter_matrix_auth_login(args)
 
 
