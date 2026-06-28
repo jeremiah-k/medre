@@ -28,8 +28,8 @@ No definitional carve-out:
     without naming them. All three files scan clean against the compiled
     patterns, so ``DEFINITIONAL_EXEMPT_FILES`` is intentionally empty.
 
-If this test fails in files owned by another work track, do NOT weaken it.
-Report the violation so the orchestrator can route a cleanup wave.
+If this test fails in files owned by another change, do NOT weaken it.
+Report the violation so a focused cleanup task can be filed.
 """
 
 from __future__ import annotations
