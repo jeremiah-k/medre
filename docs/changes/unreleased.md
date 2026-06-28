@@ -195,3 +195,6 @@ create per-commit fragment files.
   coverage continues from `docs/ops/configuration.md` via
   `tests/test_docs_command_surface.py` and the surviving assertions in
   `tests/test_command_surface_and_status_consistency.py`.
+- **Exception suppression audit.** Classified fifteen silent swallowed
+  exceptions in runtime/storage with `cleanup-silent` comments; follow-up
+  inventory in adapters/ remains.

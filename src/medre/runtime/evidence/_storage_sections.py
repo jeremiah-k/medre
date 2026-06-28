@@ -128,6 +128,8 @@ async def _collect_storage_data_from_backend(
                             _list_outbox(event_id),
                         )
                     except Exception:
+                        # cleanup-silent: best-effort outbox enrichment;
+                        # remaining convergence queries continue with [].
                         outbox_items = []
 
                 # Compact incident summary using shared classification.
