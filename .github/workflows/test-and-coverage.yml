@@ -2,11 +2,10 @@ name: Tests and Coverage
 
 on:
   push:
-    branches: [main, develop, "**-review"]
+    branches: [main]
   pull_request:
     branches:
       - main
-      - develop
       - "**-review"
   workflow_dispatch:
 
