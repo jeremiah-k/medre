@@ -394,7 +394,7 @@ class TestNoLegacyPathReferencesInRootConfig:
 
 # Match a tests/-prefixed Python path appearing in prose, e.g.
 # ``tests/test_foo.py`` or ``tests/helpers/bar.py``.
-_TEST_PATH_RE = re.compile(r"tests/[a-zA-Z0-9_/.-]+\.py")
+_TEST_PATH_RE = re.compile(r"\btests/[a-zA-Z0-9_/.-]+\.py\b")
 
 # Narrow historical allow-list. Each entry is a (doc_relative_path, regex,
 # reason) tuple. A flagged line is exempt only when BOTH hold: it lives in
@@ -469,6 +469,19 @@ _HISTORICAL_TEST_PATH_ALLOWLIST: list[tuple[str, "re.Pattern[str]", str]] = [
 ]
 
 
+def _allow_list_matches_path(
+    regex: "re.Pattern[str]", line: str, start: int, end: int
+) -> bool:
+    """Check if an allow-list regex matches a region of *line* overlapping
+    the ``[start, end)`` span of the current test path.
+
+    Prevents a line-level allow-list match from exempting a *different*
+    non-existent test path that happens to appear on the same line.
+    """
+    m = regex.search(line)
+    return m is not None and m.start() < end and m.end() > start
+
+
 class TestDocTestReferencesResolve:
     """Test paths mentioned in docs/*.md must resolve to a real file under
     ``tests/`` or be on the narrow historical allow-list.
@@ -507,7 +520,10 @@ class TestDocTestReferencesResolve:
                 test_file = _ROOT / test_path
                 if test_file.exists():
                     continue
-                if any(regex.search(line) for regex in applicable_allow_regexes):
+                if any(
+                    _allow_list_matches_path(regex, line, match.start(), match.end())
+                    for regex in applicable_allow_regexes
+                ):
                     continue
                 failures.append(
                     f"{rel}:{lineno}: references '{test_path}' "
@@ -521,6 +537,26 @@ class TestDocTestReferencesResolve:
                 "to _HISTORICAL_TEST_PATH_ALLOWLIST in "
                 "tests/test_docs_links.py:\n  " + "\n  ".join(failures)
             )
+
+    def test_allow_list_does_not_exempt_unrelated_path_on_same_line(self) -> None:
+        """Regression: a line with two non-existent test paths must not
+        exempt the non-allow-listed one just because the allow-listed one
+        shares the line."""
+        line = (
+            "See tests/test_replay_delivery.py (triaged) and "
+            "tests/test_nonexistent_regression.py for details."
+        )
+        regex = re.compile(r"tests/test_replay_delivery\.py.*\btriaged\b")
+
+        replay_start = line.index("tests/test_replay_delivery.py")
+        replay_end = replay_start + len("tests/test_replay_delivery.py")
+        nonexistent_start = line.index("tests/test_nonexistent_regression.py")
+        nonexistent_end = nonexistent_start + len("tests/test_nonexistent_regression.py")
+
+        assert _allow_list_matches_path(regex, line, replay_start, replay_end)
+        assert not _allow_list_matches_path(
+            regex, line, nonexistent_start, nonexistent_end
+        )
 
 
 # ===========================================================================
