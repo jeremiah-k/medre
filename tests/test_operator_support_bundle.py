@@ -1268,6 +1268,10 @@ def test_schema_source_reports_not_packaged_when_schema_tree_unreachable(
         assert entry["$schema"] is None, key
 
 
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent.parent / "docs" / "schemas").is_dir(),
+    reason="Requires a real source checkout with docs/schemas/ available",
+)
 def test_schema_source_reports_source_tree_in_real_checkout(tmp_path: Path) -> None:
     """In a real source checkout, ``schema_source`` is ``"source-tree"``
     and the four tracked schemas report ``present: True`` with non-empty
