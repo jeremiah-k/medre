@@ -170,7 +170,7 @@ medre adapter matrix auth login \
   --user @bot:example.com
 ```
 
-This performs an interactive login and saves credentials to the Matrix sidecar JSON file. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`. For non-interactive automation prefer `--password-stdin` (read from a file or pipe) over `--password`, which is visible in shell history and process listings. See [configuration.md](configuration.md) for credential handling details.
+This performs an interactive login and saves credentials to the Matrix sidecar JSON file. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`. For non-interactive automation, prefer `--password-stdin` (supplying the password via a file or pipe) over `--password`, which is visible in shell history and process listings. See [configuration.md](configuration.md) for credential handling details.
 
 Config file locations:
 

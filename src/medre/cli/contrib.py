@@ -78,7 +78,7 @@ def _register_matrix_contributions(subparsers) -> None:
             "\n"
             "  Non-interactive via stdin (preferred for automation; password is\n"
             "  read from stdin and never appears in shell history or process\n"
-            "  listings). Pipe from a file or a secret manager:\n"
+            "  listings). Redirect from a file or pipe from a secret manager:\n"
             "    medre adapter matrix auth login \\\n"
             "      --homeserver matrix.example.com \\\n"
             "      --user @bot:example.com \\\n"

@@ -919,7 +919,7 @@ at startup. Accepted flags: `--homeserver`, `--user`, `--password`,
 `--password` reads the password from the command line. It is supported for
 automation that cannot pipe stdin, but the value is visible in shell history,
 process listings, and audit logs — prefer interactive login or
-`--password-stdin` whenever the caller can read from a file or pipe.
+`--password-stdin` whenever the password can be supplied via a file or pipe.
 
 **If a token is leaked** (pasted in chat, committed to git, appeared in logs):
 
