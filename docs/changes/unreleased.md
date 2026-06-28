@@ -96,6 +96,18 @@ create per-commit fragment files.
   `MatrixConfig`. `announce_interval_seconds` (float, default `600.0`)
   configures periodic LXMF announce for mesh path discovery. Meshtastic
   packet classification policy is now configurable.
+- **Synapse integration image pinned to one source of truth.** The
+  Synapse Docker image is now anchored consistently across the integration
+  compose file, the Docker integration CI workflow, the integration test
+  conftest default, the docker-bridge-artifacts runtime env-fallbacks, and
+  the integration runner script. The compose file
+  (`docker-compose.integration.yaml`) is canonical
+  (`matrixdotorg/synapse:v1.155.0@sha256:...`); the CI workflow pins the
+  same tag and digest; the conftest and runtime env-fallbacks carry the
+  tag only (digest intentionally omitted — those defaults fire only for
+  local runs without `MEDRE_SYNAPSE_IMAGE` set). A non-docker regression
+  test statically scans each site with narrow per-file patterns and fails
+  fast on future drift.
 
 ## Transport & Attribution
 

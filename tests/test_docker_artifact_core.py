@@ -88,6 +88,8 @@ class TestRedactConfigSnapshot:
 
     def test_preserves_safe_values(self) -> None:
         config = {
+            # Fixture input, intentionally decoupled from the alignment source
+            # of truth (see tests/test_integration_image_alignment.py).
             "synapse_image": "matrixdotorg/synapse:v1.153.0",
             "port": 8008,
             "enabled": True,

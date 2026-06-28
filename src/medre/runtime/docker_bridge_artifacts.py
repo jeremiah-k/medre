@@ -1144,7 +1144,7 @@ def _build_matrix_evidence(
         room = room_match.group(1)
 
     return {
-        "container": env.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.153.0"),
+        "container": env.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.155.0"),
         "room": room,
         "event_id": event_ids[0] if event_ids else None,
         "ingress_path": ingress_path,
@@ -1240,7 +1240,7 @@ def _collect_config_snapshot(
     """
     raw: dict[str, Any] = {
         "synapse_image": env.get(
-            "MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.153.0"
+            "MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.155.0"
         ),
         "synapse_port": env.get("MEDRE_SYNAPSE_PORT", "8008"),
         "meshtasticd_image": env.get(

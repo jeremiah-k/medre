@@ -14,7 +14,7 @@ set -euo pipefail
 #   ./scripts/ci/run-docker-integration.sh
 #
 # Environment variables:
-#   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.149.0)
+#   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.155.0)
 #   MEDRE_MESHTASTICD_IMAGE   — meshtasticd Docker image (default: meshtastic/meshtasticd:2.7.15)
 #   MEDRE_SYNAPSE_PORT        — Synapse port (default: 8008)
 #   MEDRE_MESHTASTICD_PORT    — meshtasticd port (default: 4403)
