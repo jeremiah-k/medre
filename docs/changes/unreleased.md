@@ -154,6 +154,11 @@ create per-commit fragment files.
 - **Outbox lifecycle extracted.** Outbox lifecycle operations extracted
   from `PipelineRunner` into a dedicated `OutboxManager` module. Pure
   refactoring — no behavior changes.
+- **Diagnostics recovery behavior coverage.** Replaced two
+  state-precondition tests in `test_session_diagnostics_state_hygiene.py`
+  with tests that drive the production Matrix `_sync_with_reconnect` and
+  LXMF `_reconnect_loop` recovery paths and assert stale reconnect state
+  is cleared by production code, not just by setters.
 
 ## Support Bundle Internals
 
