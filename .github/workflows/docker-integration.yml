@@ -4,13 +4,10 @@ on:
   pull_request:
     branches:
       - main
-      - develop
       - "**-review"
   push:
     branches:
       - main
-      - develop
-      - "**-review"
   workflow_dispatch:
 
 permissions:
