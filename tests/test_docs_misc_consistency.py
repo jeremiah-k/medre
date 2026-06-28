@@ -31,10 +31,6 @@ TARGET_DOCS = [
     OPS_DIR / "configuration.md",
 ]
 
-# TODO: operator-command-surface.md needs a home in the new docs tree
-# _OPERATOR_COMMAND_SURFACE = (
-#     _ROOT / "docs" / "architecture" / "operator-command-surface.md"
-# )
 _EXAMPLES_CONFIGS_DIR = _ROOT / "examples" / "configs"
 _LIVE_CONFIG_HELPER = _ROOT / "tests" / "helpers" / "live_config.py"
 

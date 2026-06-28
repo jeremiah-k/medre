@@ -188,3 +188,10 @@ create per-commit fragment files.
   paths. A regression test guards against their return.
 - **Dead code removed.** Removed TOML credential mutation helpers from
   `src/medre/adapters/matrix/auth.py` after the YAML-only migration.
+- **Stale command-surface test fixtures removed.** Dropped a skipped
+  test class, a commented-out constant, and a redundant
+  trace-event-config assertion that referenced the deleted
+  `docs/architecture/operator-command-surface.md`. Live command-surface
+  coverage continues from `docs/ops/configuration.md` via
+  `tests/test_docs_command_surface.py` and the surviving assertions in
+  `tests/test_command_surface_and_status_consistency.py`.
