@@ -82,8 +82,8 @@ def test_conftest_default_tag_matches() -> None:
     text = _read(_CONFTEST)
     match = re.search(
         r'_SYNAPSE_IMAGE\s*=\s*os\.environ\.get\(\s*'
-        r'"MEDRE_SYNAPSE_IMAGE"\s*,\s*'
-        r'"matrixdotorg/synapse:(v[0-9.]+)"',
+        r'["\']MEDRE_SYNAPSE_IMAGE["\']\s*,\s*'
+        r'["\']matrixdotorg/synapse:(v[0-9.]+)["\']',
         text,
     )
     assert match is not None, "_SYNAPSE_IMAGE default not found in conftest"
@@ -102,7 +102,7 @@ def test_artifacts_defaults_tag_matches() -> None:
     """
     text = _read(_ARTIFACTS)
     matches = re.findall(
-        r'"MEDRE_SYNAPSE_IMAGE",\s*"matrixdotorg/synapse:(v[0-9.]+)"',
+        r'["\']MEDRE_SYNAPSE_IMAGE["\']\s*,\s*["\']matrixdotorg/synapse:(v[0-9.]+)["\']',
         text,
     )
     assert len(matches) == 2, (
