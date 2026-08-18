@@ -678,10 +678,11 @@ class TestReproducibilityEvidence:
 
         PyYAML was added for strict YAML loading; msgspec is the core
         serialisation library.  Asserting the exact set prevents accidental
-        dependency creep.
+        dependency creep.  Both are exact-pinned so Renovate maintains
+        them (rangeStrategy: pin in renovate.json).
         """
         deps = self._project.get("dependencies", [])
-        expected = {"msgspec==0.21.1", "pyyaml>=6.0"}
+        expected = {"msgspec==0.21.1", "pyyaml==6.0.3"}
         assert (
             set(deps) == expected
         ), f"Base dependencies changed: expected {expected}, got {set(deps)}"
