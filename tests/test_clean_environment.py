@@ -29,6 +29,7 @@ import importlib
 import io
 import os
 import py_compile
+import re
 import subprocess
 import sys
 import tomllib
@@ -137,12 +138,16 @@ class TestBuildSystemMetadata:
         assert any(
             "setuptools" in r for r in requires
         ), f"setuptools not in build-system.requires: {requires}"
-        # Pin should be >=68 per pyproject.toml
+        # The floor of 68 is the invariant, not the constraint spelling:
+        # Renovate (rangeStrategy: pin) may convert ``>=68`` to an exact
+        # pin (``==84.0.0``), so accept any operator form whose first
+        # version component is at least 68.
         for r in requires:
             if "setuptools" in r:
-                assert (
-                    ">=" in r or ">68" in r
-                ), f"setuptools version constraint looks wrong: {r!r}"
+                match = re.search(r"[<>=!~]+\s*(\d+)", r)
+                if match:
+                    major = int(match.group(1))
+                    assert major >= 68, f"setuptools floor below 68: {r!r}"
 
     def test_setuptools_packages_find_points_to_src(self) -> None:
         """``[tool.setuptools.packages.find] where = ["src"]`` must exist."""
@@ -677,15 +682,21 @@ class TestReproducibilityEvidence:
         """Base install should have exactly the known required dependencies.
 
         PyYAML was added for strict YAML loading; msgspec is the core
-        serialisation library.  Asserting the exact set prevents accidental
-        dependency creep.  Both are exact-pinned so Renovate maintains
-        them (rangeStrategy: pin in renovate.json).
+        serialisation library.  The package-name set is the invariant
+        (it prevents accidental dependency creep); versions are exact
+        pins maintained by Renovate (``rangeStrategy: pin``) and are
+        intentionally not asserted here, so pin bumps need no test edit.
         """
         deps = self._project.get("dependencies", [])
-        expected = {"msgspec==0.21.1", "pyyaml==6.0.3"}
-        assert (
-            set(deps) == expected
-        ), f"Base dependencies changed: expected {expected}, got {set(deps)}"
+        names = {re.split(r"[<>=!~;[ ]", d.strip(), maxsplit=1)[0] for d in deps}
+        assert names == {"msgspec", "pyyaml"}, (
+            f"Base dependencies changed: expected {{msgspec, pyyaml}}, got {names}"
+        )
+        unpinned = [d for d in deps if "==" not in d]
+        assert not unpinned, (
+            f"Base dependencies must be exact pins (Renovate-maintained): "
+            f"{unpinned}"
+        )
 
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""
