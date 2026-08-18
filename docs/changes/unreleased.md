@@ -282,6 +282,9 @@ create per-commit fragment files.
   persisted. Passwords remain transient. `--reset-cross-signing` is an
   explicitly destructive, fresh-password-authenticated recovery path; normal
   runtime startup cannot bootstrap or rotate account cross-signing identity.
+- **Bounded Matrix auth HTTP operations.** Login, whoami verification, and
+  logout now use the same explicit 30-second request timeout so cross-signing
+  failure cleanup cannot hang indefinitely on an unresponsive homeserver.
 - **Runtime identity reconciliation.** E2EE startup verifies existing
   cross-signing state and may safely repair a missing current-device
   signature. Missing/mismatched identity material is reported without

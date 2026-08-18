@@ -18,6 +18,9 @@ from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.config.adapters.matrix_credentials import write_credentials_json
 
 
+_HTTP_TIMEOUT_SECONDS: float = 30.0
+
+
 def _normalize_homeserver(homeserver: str) -> str:
     """Normalize a Matrix homeserver URL.
 
@@ -111,7 +114,7 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
 
     try:
         with urllib.request.urlopen(
-            req
+            req, timeout=_HTTP_TIMEOUT_SECONDS
         ) as resp:  # nosec: homeserver URL validated by _normalize_homeserver()
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
@@ -186,7 +189,7 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
 
     try:
         with urllib.request.urlopen(
-            req
+            req, timeout=_HTTP_TIMEOUT_SECONDS
         ) as resp:  # nosec: homeserver validated by _normalize_homeserver()
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
@@ -225,7 +228,7 @@ def matrix_logout(homeserver: str, access_token: str) -> None:
 
     try:
         with urllib.request.urlopen(
-            req
+            req, timeout=_HTTP_TIMEOUT_SECONDS
         ):  # nosec: homeserver validated by _normalize_homeserver()
             pass
     except urllib.error.HTTPError as exc:

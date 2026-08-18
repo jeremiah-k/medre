@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import builtins
 import io
 import stat
@@ -357,6 +358,41 @@ async def test_login_does_not_persist_credentials_when_bootstrap_fails(
         await _adapter_matrix_auth_login(args)
 
     assert exc_info.value.code == 1
+    save.assert_not_called()
+    logout.assert_called_once_with(result.homeserver, result.access_token)
+
+
+async def test_login_invalidates_session_when_bootstrap_is_cancelled() -> None:
+    from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+    args = SimpleNamespace(
+        homeserver="https://matrix.example.com",
+        user="@bot:example.com",
+        password="fresh-password",
+        password_stdin=False,
+        adapter_id="main",
+        reset_cross_signing=False,
+    )
+    result = _login_result()
+    save = MagicMock()
+    logout = MagicMock()
+
+    with (
+        patch("medre.adapters.matrix.auth.matrix_login", return_value=result),
+        patch(
+            "medre.adapters.matrix.auth.matrix_whoami",
+            return_value="@bot:example.com",
+        ),
+        patch("medre.adapters.matrix.auth.save_credentials_json", save),
+        patch("medre.adapters.matrix.auth.matrix_logout", logout),
+        patch(
+            "medre.adapters.matrix.e2ee_bootstrap.bootstrap_login_cross_signing",
+            side_effect=asyncio.CancelledError,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await _adapter_matrix_auth_login(args)
+
     save.assert_not_called()
     logout.assert_called_once_with(result.homeserver, result.access_token)
 

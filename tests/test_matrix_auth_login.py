@@ -16,6 +16,7 @@ import pytest
 
 from medre.adapters.matrix.auth import (
     MatrixLoginResult,
+    _HTTP_TIMEOUT_SECONDS,
     _normalize_homeserver,
     check_credentials_completeness,
     discover_well_known,
@@ -157,6 +158,7 @@ class TestMatrixLogin:
         matrix_login("https://m.org", "@u:m.org", "pw")
 
         call_args = mock_urlopen.call_args
+        assert call_args.kwargs["timeout"] == _HTTP_TIMEOUT_SECONDS
         req = call_args[0][0]
         sent = json.loads(req.data)
         assert sent == {
@@ -281,7 +283,9 @@ class TestMatrixWhoami:
 
         matrix_whoami("https://m.org", "my_token")
 
-        req = mock_urlopen.call_args[0][0]
+        call_args = mock_urlopen.call_args
+        assert call_args.kwargs["timeout"] == _HTTP_TIMEOUT_SECONDS
+        req = call_args[0][0]
         assert req.get_header("Authorization") == "Bearer my_token"
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
@@ -329,6 +333,7 @@ def test_matrix_logout_posts_with_bearer_token() -> None:
     ) as urlopen:
         matrix_logout("https://matrix.org", "syt_token")
 
+    assert urlopen.call_args.kwargs["timeout"] == _HTTP_TIMEOUT_SECONDS
     request = urlopen.call_args.args[0]
     assert request.full_url == "https://matrix.org/_matrix/client/v3/logout"
     assert request.method == "POST"
