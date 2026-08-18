@@ -73,6 +73,9 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `tests/integration/test_synapse_bridge_smoke.py` | `docker` | Full pipeline with real Matrix SDK                 |
 | `tests/integration/test_synapse_e2ee_smoke.py`   | `docker` | E2EE encrypted room lifecycle                      |
 | `tests/test_matrix_e2ee_live.py`                 | `live`   | E2EE mode startup and encrypted-room operations    |
+| `tests/test_matrix_sync_checkpoint_ownership.py` | unit     | MEDRE-owned Classic cursor commit/ack ordering      |
+| `tests/test_matrix_durable_admission_boundary.py` | unit     | nio admission rejection and durable handoff        |
+| `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract        |
 
 ## Evidence Tiers Achieved
 
@@ -125,12 +128,7 @@ Back it up and restore matching state if possible. Use
 - No room-key backup/import/export workflow is managed by MEDRE.
 - Soak tests: NOT EXECUTED.
 
-## See Also
-
-- [transport-setup/matrix.md](../transport-setup/matrix.md) — adapter setup, config, and troubleshooting
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
-
-### Durable Classic Sync checkpoint validation
+## Durable Classic Sync checkpoint validation
 
 The Phase 2 durable-ingress contract has three validation layers:
 
@@ -140,7 +138,7 @@ pytest -q tests/test_durable_ingress_storage.py \
   tests/test_durable_ingress_crash_recovery.py
 pytest -q tests/test_matrix_sync_checkpoint_ownership.py \
   tests/test_matrix_durable_admission_boundary.py
-pytest -q tests/test_matrix_sync_recovery_sdk_contract.py
+pytest -q tests/test_matrix_sync_recovery_sdk_contract.py -m matrix_sdk
 ```
 
 With the Matrix extra installed, the SDK-contract test verifies the pinned
@@ -155,3 +153,8 @@ must increment `recovered_event_count`; initial cold history may increment
 `history_event_count` but must remain durably suppressed. Any unrecoverable room gap
 must increment `recovery_abandoned_room_count` and leave secret-free abandonment
 evidence in `recovery_last_abandonment`.
+
+## See Also
+
+- [transport-setup/matrix.md](../transport-setup/matrix.md) — adapter setup, config, and troubleshooting
+- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection

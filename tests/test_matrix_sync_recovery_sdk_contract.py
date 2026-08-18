@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import inspect
 
 import pytest
 
 
+@pytest.mark.matrix_sdk
 def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
-    nio = pytest.importorskip("nio")
-    provenance = pytest.importorskip("nio.event_provenance")
+    import nio
+    from nio import event_provenance as provenance
+
+    # Import name alone cannot distinguish mindroom-nio from upstream matrix-nio.
+    assert importlib.metadata.version("mindroom-nio")
 
     config_params = inspect.signature(nio.AsyncClientConfig).parameters
     for name in (
@@ -34,6 +39,10 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
         getattr(nio.AsyncClient, "has_uncommitted_classic_sync_state", None),
         property,
     )
+    admission_params = inspect.signature(
+        nio.AsyncClient.add_event_admission_callback
+    ).parameters
+    assert len(admission_params) == 3  # self + callback + event classes
     assert list(provenance.TimelineEventProvenance) == [
         provenance.TimelineEventProvenance.LIVE,
         provenance.TimelineEventProvenance.RECOVERED,

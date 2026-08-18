@@ -64,7 +64,8 @@ pythonpath = ["src"]
 markers = [
   "live: tests that connect to a real service or hardware (skipped by default)",
   "docker: tests requiring Docker services like Synapse or meshtasticd (skipped by default)",
+  "matrix_sdk: tests requiring the pinned mindroom-nio Matrix SDK (skipped by default)",
   "hardware: tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) — implies live (skipped by default)",
 ]
-addopts = "-m 'not live and not docker and not hardware'"
+addopts = "-m 'not live and not docker and not hardware and not matrix_sdk'"
 filterwarnings = ["error"]
