@@ -10,6 +10,7 @@
     "docker-compose",
     "custom.regex"
   ],
+  "ignorePaths": [],
   "timezone": "America/Chicago",
   "updateNotScheduled": true,
   "dependencyDashboard": true,
