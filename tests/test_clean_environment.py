@@ -742,6 +742,24 @@ class TestReproducibilityEvidence:
         """_dep_name tolerates extras, markers, and odd whitespace."""
         assert _dep_name(dependency) == expected
 
+    def test_requires_python_stays_a_floor(self) -> None:
+        """``requires-python`` must remain an inclusive floor, never a pin.
+
+        The supported Python range is deliberate policy mirrored by the CI
+        test matrix (3.11 through 3.14). Pinning it to a single CPython
+        release (e.g. ``==3.14.7``) makes the package uninstallable on
+        every other supported Python; a Renovate pin attempt did exactly
+        that. Renovate is disabled for this field in renovate.json; this
+        guard makes an accidental re-pinning fail at PR time.
+        """
+        rp = str(self._project.get("requires-python", ""))
+        assert rp.startswith(">="), (
+            f"requires-python must be a '>=...' floor, got {rp!r}"
+        )
+        assert "==" not in rp, (
+            f"requires-python must not contain '==': {rp!r}"
+        )
+
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""
         bs = self._data.get("build-system", {})
@@ -782,6 +800,38 @@ class TestReproducibilityEvidence:
         assert (
             pytest_cfg.get("asyncio_mode") == "auto"
         ), f"asyncio_mode should be 'auto': {pytest_cfg.get('asyncio_mode')}"
+
+
+class TestCIPythonPolicy:
+    """CI workflow Python versions are deliberate policy, not pins.
+
+    The test matrix (3.11 through 3.14) mirrors ``requires-python`` and the
+    classifiers. Workflow ``python-version`` values must stay minor-level
+    (``3.14``) so every matrix job floats across patch releases; a Renovate
+    pin attempt rewrote ``3.14`` to ``3.14.7``. Renovate is disabled for
+    these values in renovate.json; this guard makes an accidental re-pin
+    fail at PR time.
+    """
+
+    _WORKFLOWS = sorted(
+        (Path(__file__).resolve().parent.parent / ".github" / "workflows")
+        .glob("*.yml")
+    )
+
+    def test_workflow_python_versions_are_minor_level(self) -> None:
+        """Every python-version literal is ``MAJOR.MINOR`` — never patch."""
+        seen: list[str] = []
+        for workflow in self._WORKFLOWS:
+            for line in workflow.read_text(encoding="utf-8").splitlines():
+                if "python-version" not in line or "${{" in line:
+                    continue
+                seen.extend(re.findall(r'"(\d[^"]*)"', line))
+        assert seen, "no python-version literals found in workflows"
+        pinned = [v for v in seen if not re.fullmatch(r"\d+\.\d+", v)]
+        assert not pinned, (
+            f"workflow python-version values must be minor-level "
+            f"(e.g. '3.14'), found pin-style values: {pinned}"
+        )
 
 
 # ===================================================================
