@@ -15,10 +15,19 @@ Internal authority:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from typing import Any
 
+from medre.core.storage.sqlite.ingress_sql import (
+    CLAIM_INGRESS_SELECT,
+    CLAIM_INGRESS_UPDATE,
+    INSERT_INGRESS_WORK,
+    SELECT_CANONICAL_EVENT_ID,
+    SELECT_NATIVE_EVENT_ID,
+    claimed_ingress_row,
+)
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 
 
@@ -76,6 +85,55 @@ def sync_write(
             raise
 
 
+def sync_write_rowcount(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    sql: str,
+    params: tuple[Any, ...] = (),
+) -> int:
+    """Execute a write and return the number of rows affected."""
+    with lock:
+        try:
+            cursor = db.execute(sql, params)
+            db.commit()
+            return int(cursor.rowcount)
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_find_schema_shape_mismatch(
+    db_path: str, required_columns: dict[str, frozenset[str]]
+) -> tuple[str, list[str]] | None:
+    """Inspect a stamped existing database before any schema DDL runs."""
+    if db_path == ":memory:" or not os.path.exists(db_path):
+        return None
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        meta = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_medre_schema_meta'"
+        ).fetchone()
+        if meta is None:
+            return None
+        version = db.execute(
+            "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
+        ).fetchone()
+        if version is None:
+            return None
+        for table, required in required_columns.items():
+            rows = db.execute(f"PRAGMA table_info({table})").fetchall()
+            existing = {str(row[1]) for row in rows}
+            missing = sorted(required - existing)
+            if missing:
+                return table, missing
+        return None
+    finally:
+        db.close()
+
+
 def sync_write_batch(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -125,43 +183,50 @@ def sync_admit_ingress(
     event_ops: list[tuple[str, tuple[Any, ...]]],
     native_identity: tuple[str, str | None, str] | None,
     native_insert: tuple[str, tuple[Any, ...]] | None,
-    work_insert: tuple[str, tuple[Any, ...]],
     event_id: str,
+    provenance: str,
+    work_status: str,
+    now_iso: str,
 ) -> tuple[str, bool]:
     """Atomically admit an event/native ref/work marker.
 
-    Returns ``(canonical_event_id, created)``.  Native identity is the
-    idempotency key when present; otherwise ``event_id`` is used.
+    Existing native identities are repaired with a missing work row in the
+    same transaction so switching from legacy admission cannot silently mark
+    an event complete without ever routing it.
     """
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE")
+            existing_event_id: str | None = None
             if native_identity is not None:
-                row = db.execute(
-                    """
-                    SELECT event_id FROM native_message_refs
-                    WHERE adapter = ? AND native_channel_id IS ?
-                      AND native_message_id = ?
-                    """,
-                    native_identity,
-                ).fetchone()
+                row = db.execute(SELECT_NATIVE_EVENT_ID, native_identity).fetchone()
                 if row is not None:
-                    db.rollback()
-                    return str(row[0]), False
+                    existing_event_id = str(row[0])
             else:
-                row = db.execute(
-                    "SELECT event_id FROM canonical_events WHERE event_id = ?",
-                    (event_id,),
-                ).fetchone()
+                row = db.execute(SELECT_CANONICAL_EVENT_ID, (event_id,)).fetchone()
                 if row is not None:
-                    db.rollback()
-                    return event_id, False
+                    existing_event_id = event_id
+            if existing_event_id is not None:
+                work_row = db.execute(
+                    "SELECT 1 FROM durable_ingress_work WHERE event_id = ?",
+                    (existing_event_id,),
+                ).fetchone()
+                if work_row is None:
+                    db.execute(
+                        INSERT_INGRESS_WORK,
+                        (existing_event_id, provenance, work_status, now_iso, now_iso),
+                    )
+                db.commit()
+                return existing_event_id, False
 
             for sql, params in event_ops:
                 db.execute(sql, params)
             if native_insert is not None:
                 db.execute(*native_insert)
-            db.execute(*work_insert)
+            db.execute(
+                INSERT_INGRESS_WORK,
+                (event_id, provenance, work_status, now_iso, now_iso),
+            )
             db.commit()
             return event_id, True
         except BaseException:
@@ -214,44 +279,21 @@ def sync_claim_ingress_work(
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE")
-            rows = db.execute(
-                """
-                SELECT event_id, provenance, status, attempts, last_error,
-                       created_at, updated_at, locked_at, lease_until, worker_id
-                FROM durable_ingress_work
-                WHERE status = 'pending'
-                   OR (status = 'processing' AND lease_until IS NOT NULL
-                       AND lease_until <= ?)
-                ORDER BY created_at, event_id
-                LIMIT ?
-                """,
-                (now_iso, limit),
-            ).fetchall()
+            rows = db.execute(CLAIM_INGRESS_SELECT, (now_iso, limit)).fetchall()
             claimed: list[dict[str, Any]] = []
             for row in rows:
                 event_id = str(row[0])
                 db.execute(
-                    """
-                    UPDATE durable_ingress_work
-                    SET status='processing', attempts=attempts+1,
-                        locked_at=?, lease_until=?, worker_id=?, updated_at=?
-                    WHERE event_id=?
-                    """,
+                    CLAIM_INGRESS_UPDATE,
                     (now_iso, lease_until, worker_id, now_iso, event_id),
                 )
                 claimed.append(
-                    {
-                        "event_id": event_id,
-                        "provenance": row[1],
-                        "status": "processing",
-                        "attempts": int(row[3]) + 1,
-                        "last_error": row[4],
-                        "created_at": row[5],
-                        "updated_at": now_iso,
-                        "locked_at": now_iso,
-                        "lease_until": lease_until,
-                        "worker_id": worker_id,
-                    }
+                    claimed_ingress_row(
+                        row,
+                        now_iso=now_iso,
+                        lease_until=lease_until,
+                        worker_id=worker_id,
+                    )
                 )
             db.commit()
             return claimed

@@ -478,6 +478,8 @@ class MedreApp:
                     "worker_running": self._ingress_worker.running,
                     "processed": self._ingress_worker.processed,
                     "failures": self._ingress_worker.failures,
+                    "lost_leases": self._ingress_worker.lost_leases,
+                    "terminal_failures": self._ingress_worker.terminal_failures,
                 }
                 if self._ingress_worker is not None
                 else {"worker_running": False, "processed": 0, "failures": 0}
@@ -1881,13 +1883,17 @@ class MedreApp:
         intercept the re-raised ``CancelledError``, drain the restored
         count, and fold it into the outer ``start()`` handler's total.
         """
+        _cancelled: asyncio.CancelledError | None = None
+        _cleared_cancels = 0
+
         # Stop durable ingress worker if startup got far enough to create it.
         if self._ingress_worker is not None:
             try:
                 await self._ingress_worker.stop()
             except asyncio.CancelledError as c_exc:
-                _cancelled = c_exc
-                _total_drained += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _cleared_cancels += _drain_pending_cancellations()
                 _logger.debug(
                     "Cancelled while stopping durable ingress worker during startup cleanup"
                 )
@@ -1899,13 +1905,13 @@ class MedreApp:
 
         # Stop retry worker if it was started.  Defer CancelledError so
         # pipeline runner stop and storage close can still run.
-        _cancelled: asyncio.CancelledError | None = None
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
                 _logger.info("Retry worker stopped during startup cleanup")
             except asyncio.CancelledError as c_exc:
-                _cancelled = c_exc
+                if _cancelled is None:
+                    _cancelled = c_exc
                 _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error(
@@ -1915,9 +1921,8 @@ class MedreApp:
         # If the retry worker stop raised CE, the task likely has a
         # pending cancellation request that would prevent the awaits
         # below from actually running.  Drain it.
-        _cleared_cancels = 0
         if _cancelled is not None:
-            _cleared_cancels = _drain_pending_cancellations()
+            _cleared_cancels += _drain_pending_cancellations()
 
         try:
             await self.pipeline_runner.stop()

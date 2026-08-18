@@ -49,9 +49,11 @@ from medre.core.storage.sqlite.connection import (
     sync_create_indexes,
     sync_open,
     sync_open_readonly,
+    sync_find_schema_shape_mismatch,
     sync_read_all,
     sync_read_one,
     sync_write,
+    sync_write_rowcount,
     sync_write_batch,
 )
 from medre.core.storage.sqlite.schema import (
@@ -142,6 +144,14 @@ class _SQLiteStorageBase:
             (no silent migration or reset).
         """
         self._closed = False
+        mismatch = await asyncio.to_thread(
+            sync_find_schema_shape_mismatch, self._db_path, _REQUIRED_COLUMNS
+        )
+        if mismatch is not None:
+            table, missing = mismatch
+            raise PreReleaseSchemaMismatchError(
+                path=self._db_path, table=table, missing_columns=missing
+            )
         if self._use_aiosqlite:
             db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
             try:
@@ -489,6 +499,30 @@ class _SQLiteStorageBase:
                         raise
             else:
                 await self._run_in_thread(sync_write, db, self._lock, sql, params)
+        except sqlite3.Error as exc:
+            raise StorageError(f"Database write failed: {exc}") from exc
+
+    async def _write_rowcount(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> int:
+        """Execute one write and return its affected-row count."""
+        db = self._require_db()
+        try:
+            if self._use_aiosqlite:
+                async with self._async_write_lock:
+                    try:
+                        cursor = await db.execute(sql, params)
+                        await db.commit()
+                        return int(cursor.rowcount)
+                    except BaseException:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
+            return await self._run_in_thread(
+                sync_write_rowcount, db, self._lock, sql, params
+            )
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 

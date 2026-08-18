@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 IngressProvenance = Literal["live", "recovered", "history"]
 IngressWorkStatus = Literal[
@@ -11,7 +11,11 @@ IngressWorkStatus = Literal[
     "processing",
     "suppressed_history",
     "completed",
+    "failed",
 ]
+
+INGRESS_PROVENANCE_VALUES: frozenset[str] = frozenset(get_args(IngressProvenance))
+INGRESS_WORK_STATUS_VALUES: frozenset[str] = frozenset(get_args(IngressWorkStatus))
 
 
 @dataclass(frozen=True)

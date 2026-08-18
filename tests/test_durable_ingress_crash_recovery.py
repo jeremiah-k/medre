@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import msgspec
+import pytest
 
-from medre.core.events import NativeMessageRef, NativeRef
+from medre.core.events import CanonicalEvent, NativeMessageRef, NativeRef
+from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 
-def _event(event_id: str, native_id: str):
+def _event(event_id: str, native_id: str) -> CanonicalEvent:
     event = make_storage_event(event_id=event_id, source_adapter="matrix")
     return msgspec.structs.replace(
         event,
@@ -23,7 +25,9 @@ def _event(event_id: str, native_id: str):
     )
 
 
-def _ref(event_id: str, native_id: str, *, ref_id: str | None = None):
+def _ref(
+    event_id: str, native_id: str, *, ref_id: str | None = None
+) -> NativeMessageRef:
     return NativeMessageRef(
         id=ref_id or f"nref-{event_id}",
         event_id=event_id,
@@ -33,7 +37,7 @@ def _ref(event_id: str, native_id: str, *, ref_id: str | None = None):
         native_thread_id=None,
         native_relation_id=None,
         direction="inbound",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -45,16 +49,12 @@ async def test_failed_atomic_admission_rolls_back_canonical_event(tmp_path) -> N
         await storage.admit_ingress(first, _ref(first.event_id, "$first"), "live")
 
         second = _event("evt-second", "$second")
-        try:
+        with pytest.raises(StorageError, match="Durable ingress admission failed"):
             await storage.admit_ingress(
                 second,
                 _ref(second.event_id, "$second", ref_id="nref-evt-first"),
                 "live",
             )
-        except Exception:
-            pass
-        else:
-            raise AssertionError("expected native-ref primary-key collision")
 
         assert await storage.get(second.event_id) is None
         assert (

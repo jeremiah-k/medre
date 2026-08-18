@@ -347,6 +347,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.observability",
         "medre.core.lifecycle",
         "medre.core.identity",
+        "medre.core.ingress",
         "medre.core.rendering",
         "medre.core.policies",
         "medre.core.planning",

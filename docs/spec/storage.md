@@ -669,7 +669,7 @@ This closes the SQLite `NULL != NULL` gap for outbox uniqueness.
 CREATE TABLE durable_ingress_work (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     provenance TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
     created_at TEXT NOT NULL,
@@ -683,14 +683,18 @@ CREATE TABLE durable_ingress_work (
 This table is mutable operational state for inbound work that has crossed the
 durable-admission boundary but has not yet reached the delivery outbox boundary.
 `provenance` is one of `live`, `recovered`, or `history`. `status` is one of
-`pending`, `processing`, `suppressed_history`, or `completed`.
+`pending`, `processing`, `suppressed_history`, `completed`, or `failed`.
 
 Admission of a routable event creates the row as `pending` in the same transaction
 as the canonical event and inbound native ref. Cold-history admission creates
 `suppressed_history`; it is a durable record of intentional suppression and is never
 claimed by the worker. A worker atomically claims `pending` rows, or `processing`
-rows whose lease expired, and increments `attempts`. Processing failure returns the
-row to `pending`; successful routing/planning marks it `completed`.
+rows whose lease expired, and increments `attempts`. While processing is active, the
+worker renews its lease so a long-running route cannot be reclaimed concurrently.
+Processing failure returns the row to `pending` until the bounded retry budget is
+exhausted; poison work then moves to terminal `failed`. Successful routing/planning
+marks it `completed`. Ownership-guarded transitions report whether the lease was
+still held so a stale worker cannot count another generation's work as complete.
 
 The `event_id` primary key ensures one work marker per canonical ingress identity.
 The native-ref uniqueness rule remains the replay idempotency key for protocols such
@@ -905,7 +909,15 @@ Because `_EXPECTED_SCHEMA_VERSION` remains `1` during the entire prerelease peri
 
 ### 10.2 Column-Shape Validation
 
-After DDL execution, `initialize()` **MUST** inspect `PRAGMA table_info` for each required table and compare column names against `_REQUIRED_COLUMNS`. If any required column is missing, `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`) **MUST** be raised. The error message **MUST** identify the affected table, the missing columns, and the database file path. It **MUST NOT** suggest that automatic migration is available.
+For an already-stamped MEDRE database, `initialize()` **MUST** inspect
+`PRAGMA table_info` for every required table **before schema DDL executes**, then
+repeat normal shape validation after opening. This prevents
+`CREATE TABLE IF NOT EXISTS` from silently filling in newly introduced
+prerelease tables. If any required table or column is missing,
+`PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`)
+**MUST** be raised. The error message **MUST** identify the affected table, the
+missing columns, and the database file path. It **MUST NOT** suggest that
+automatic migration is available.
 
 This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape validation is the primary guard against stale prerelease databases.
 
@@ -1098,7 +1110,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `native_message_refs` | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                | None                                          | Forever                          |
 | `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
 | `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
-| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                  | Ingress worker (`pending`/`processing`/`completed`)      | None                                          | Forever                          |
+| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                  | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
 | `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                    | Cursor-owning adapters                                  | None                                          | Forever                          |
 | `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |
 | `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever                          |

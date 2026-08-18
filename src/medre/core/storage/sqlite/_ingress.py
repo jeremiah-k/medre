@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from medre.core.events import CanonicalEvent, NativeMessageRef
+from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef
 from medre.core.ingress import (
+    INGRESS_PROVENANCE_VALUES,
+    INGRESS_WORK_STATUS_VALUES,
     AdapterCheckpoint,
     AdmissionResult,
     IngressProvenance,
@@ -19,12 +22,41 @@ from medre.core.storage.sqlite.connection import (
     sync_claim_ingress_work,
     sync_upsert_checkpoint,
 )
+from medre.core.storage.sqlite.ingress_sql import (
+    CLAIM_INGRESS_SELECT,
+    CLAIM_INGRESS_UPDATE,
+    INSERT_INGRESS_WORK,
+    SELECT_CANONICAL_EVENT_ID,
+    SELECT_INGRESS_WORK_STATE,
+    SELECT_NATIVE_EVENT_ID,
+    claimed_ingress_row,
+)
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _serialize_metadata
 from medre.core.storage.sqlite.statements import _INSERT_EVENT
 
 
 class _IngressMixin:
     """Atomic durable ingress and checkpoint methods for ``SQLiteStorage``."""
+
+    if TYPE_CHECKING:
+        @staticmethod
+        def _relation_op(
+            event_id: str, relation: EventRelation
+        ) -> tuple[str, tuple[Any, ...]]: ...
+
+        def _require_db(self) -> Any: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
+
+        async def _write_rowcount(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
 
     def _event_admission_ops(
         self, event: CanonicalEvent
@@ -57,8 +89,10 @@ class _IngressMixin:
                 ),
             )
         ]
-        for rel in event.relations:
-            ops.append(self._relation_op(event.event_id, rel))
+        ops.extend(
+            self._relation_op(event.event_id, relation)
+            for relation in event.relations
+        )
         return ops
 
     async def admit_ingress(
@@ -75,13 +109,14 @@ class _IngressMixin:
         Duplicate native admission returns the original canonical event ID
         without creating a second event or work row.
         """
-        if provenance not in {"live", "recovered", "history"}:
+        if provenance not in INGRESS_PROVENANCE_VALUES:
             raise ValueError(f"unsupported ingress provenance: {provenance!r}")
         if inbound_ref is not None and inbound_ref.event_id != event.event_id:
             raise ValueError("inbound_ref.event_id must match event.event_id")
 
         now = _now_iso()
-        work_status = "suppressed_history" if suppress_routing else "pending"
+        suppress = suppress_routing or provenance == "history"
+        work_status = "suppressed_history" if suppress else "pending"
         event_ops = self._event_admission_ops(event)
         native_identity = None
         native_insert = None
@@ -111,15 +146,6 @@ class _IngressMixin:
                     inbound_ref.created_at.isoformat(),
                 ),
             )
-        work_insert = (
-            """
-            INSERT INTO durable_ingress_work
-                (event_id, provenance, status, attempts, created_at, updated_at)
-            VALUES (?, ?, ?, 0, ?, ?)
-            """,
-            (event.event_id, provenance, work_status, now, now),
-        )
-
         db = self._require_db()
         try:
             if self._use_aiosqlite:
@@ -129,26 +155,36 @@ class _IngressMixin:
                         existing_event_id: str | None = None
                         if native_identity is not None:
                             async with db.execute(
-                                """
-                                SELECT event_id FROM native_message_refs
-                                WHERE adapter = ? AND native_channel_id IS ?
-                                  AND native_message_id = ?
-                                """,
-                                native_identity,
+                                SELECT_NATIVE_EVENT_ID, native_identity,
                             ) as cur:
                                 row = await cur.fetchone()
                             if row is not None:
                                 existing_event_id = str(row[0])
                         else:
                             async with db.execute(
-                                "SELECT event_id FROM canonical_events WHERE event_id = ?",
-                                (event.event_id,),
+                                SELECT_CANONICAL_EVENT_ID, (event.event_id,),
                             ) as cur:
                                 row = await cur.fetchone()
                             if row is not None:
                                 existing_event_id = event.event_id
                         if existing_event_id is not None:
-                            await db.rollback()
+                            async with db.execute(
+                                "SELECT 1 FROM durable_ingress_work WHERE event_id = ?",
+                                (existing_event_id,),
+                            ) as cur:
+                                work_row = await cur.fetchone()
+                            if work_row is None:
+                                await db.execute(
+                                    INSERT_INGRESS_WORK,
+                                    (
+                                        existing_event_id,
+                                        provenance,
+                                        work_status,
+                                        now,
+                                        now,
+                                    ),
+                                )
+                            await db.commit()
                             return await self._admission_result_for_existing(
                                 existing_event_id, provenance
                             )
@@ -157,7 +193,10 @@ class _IngressMixin:
                             await db.execute(sql, params)
                         if native_insert is not None:
                             await db.execute(*native_insert)
-                        await db.execute(*work_insert)
+                        await db.execute(
+                            INSERT_INGRESS_WORK,
+                            (event.event_id, provenance, work_status, now, now),
+                        )
                         await db.commit()
                         return AdmissionResult(
                             event_id=event.event_id,
@@ -178,8 +217,10 @@ class _IngressMixin:
                 event_ops=event_ops,
                 native_identity=native_identity,
                 native_insert=native_insert,
-                work_insert=work_insert,
                 event_id=event.event_id,
+                provenance=provenance,
+                work_status=work_status,
+                now_iso=now,
             )
             if not created:
                 return await self._admission_result_for_existing(event_id, provenance)
@@ -201,22 +242,21 @@ class _IngressMixin:
         self, event_id: str, requested_provenance: IngressProvenance
     ) -> AdmissionResult:
         row = await self._read_one(
-            "SELECT provenance, status FROM durable_ingress_work WHERE event_id = ?",
+            SELECT_INGRESS_WORK_STATE,
             (event_id,),
         )
         provenance = requested_provenance
-        status = "completed"
+        if row is None:
+            raise StorageError(
+                f"durable ingress work missing for admitted event {event_id}"
+            )
+        status: str = "pending"
         if row is not None:
             stored_provenance = row.get("provenance")
-            if stored_provenance in {"live", "recovered", "history"}:
+            if stored_provenance in INGRESS_PROVENANCE_VALUES:
                 provenance = stored_provenance
             stored_status = row.get("status")
-            if stored_status in {
-                "pending",
-                "processing",
-                "suppressed_history",
-                "completed",
-            }:
+            if stored_status in INGRESS_WORK_STATUS_VALUES:
                 status = stored_status
         return AdmissionResult(
             event_id=event_id,
@@ -234,6 +274,12 @@ class _IngressMixin:
         metadata_json: str = "{}",
     ) -> None:
         """Persist an application-owned adapter cursor."""
+        try:
+            decoded_metadata = json.loads(metadata_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("metadata_json must contain valid JSON") from exc
+        if not isinstance(decoded_metadata, dict):
+            raise ValueError("metadata_json must encode a JSON object")
         now = _now_iso()
         params = (adapter_id, stream, cursor, metadata_json, now)
         db = self._require_db()
@@ -296,43 +342,23 @@ class _IngressMixin:
                     try:
                         await db.execute("BEGIN IMMEDIATE")
                         async with db.execute(
-                            """
-                            SELECT event_id, provenance, status, attempts, last_error,
-                                   created_at, updated_at, locked_at, lease_until, worker_id
-                            FROM durable_ingress_work
-                            WHERE status = 'pending'
-                               OR (status = 'processing' AND lease_until IS NOT NULL
-                                   AND lease_until <= ?)
-                            ORDER BY created_at, event_id LIMIT ?
-                            """,
-                            (now_iso, limit),
+                            CLAIM_INGRESS_SELECT, (now_iso, limit)
                         ) as cur:
                             rows = await cur.fetchall()
                         claimed: list[dict[str, Any]] = []
                         for row in rows:
                             event_id = str(row[0])
                             await db.execute(
-                                """
-                                UPDATE durable_ingress_work
-                                SET status='processing', attempts=attempts+1,
-                                    locked_at=?, lease_until=?, worker_id=?, updated_at=?
-                                WHERE event_id=?
-                                """,
+                                CLAIM_INGRESS_UPDATE,
                                 (now_iso, lease_until, worker_id, now_iso, event_id),
                             )
                             claimed.append(
-                                {
-                                    "event_id": event_id,
-                                    "provenance": row[1],
-                                    "status": "processing",
-                                    "attempts": int(row[3]) + 1,
-                                    "last_error": row[4],
-                                    "created_at": row[5],
-                                    "updated_at": now_iso,
-                                    "locked_at": now_iso,
-                                    "lease_until": lease_until,
-                                    "worker_id": worker_id,
-                                }
+                                claimed_ingress_row(
+                                    row,
+                                    now_iso=now_iso,
+                                    lease_until=lease_until,
+                                    worker_id=worker_id,
+                                )
                             )
                         await db.commit()
                     except BaseException:
@@ -369,9 +395,11 @@ class _IngressMixin:
         except sqlite3.Error as exc:
             raise StorageError(f"Ingress work claim failed: {exc}") from exc
 
-    async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> None:
+    async def complete_ingress_work(
+        self, event_id: str, *, worker_id: str
+    ) -> bool:
         """Mark owned ingress work complete after durable delivery planning."""
-        await self._write(
+        changed = await self._write_rowcount(
             """
             UPDATE durable_ingress_work
             SET status='completed', updated_at=?, locked_at=NULL,
@@ -380,12 +408,13 @@ class _IngressMixin:
             """,
             (_now_iso(), event_id, worker_id),
         )
+        return changed == 1
 
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
-    ) -> None:
+    ) -> bool:
         """Return owned ingress work to pending after a processing failure."""
-        await self._write(
+        changed = await self._write_rowcount(
             """
             UPDATE durable_ingress_work
             SET status='pending', updated_at=?, locked_at=NULL, lease_until=NULL,
@@ -394,6 +423,44 @@ class _IngressMixin:
             """,
             (_now_iso(), error[:1000], event_id, worker_id),
         )
+        return changed == 1
+
+    async def fail_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        """Move owned ingress work to terminal ``failed`` state."""
+        changed = await self._write_rowcount(
+            """
+            UPDATE durable_ingress_work
+            SET status='failed', updated_at=?, locked_at=NULL, lease_until=NULL,
+                worker_id=NULL, last_error=?
+            WHERE event_id=? AND status='processing' AND worker_id=?
+            """,
+            (_now_iso(), error[:1000], event_id, worker_id),
+        )
+        return changed == 1
+
+    async def renew_ingress_work_lease(
+        self,
+        event_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: float,
+    ) -> bool:
+        """Renew the lease for processing work still owned by ``worker_id``."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        now = datetime.now(timezone.utc)
+        lease_until = (now + timedelta(seconds=lease_seconds)).isoformat()
+        changed = await self._write_rowcount(
+            """
+            UPDATE durable_ingress_work
+            SET lease_until=?, updated_at=?
+            WHERE event_id=? AND status='processing' AND worker_id=?
+            """,
+            (lease_until, now.isoformat(), event_id, worker_id),
+        )
+        return changed == 1
 
     async def count_ingress_work_by_status(self) -> dict[str, int]:
         """Return durable ingress work counts grouped by status."""
