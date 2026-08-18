@@ -23,8 +23,8 @@ jobs:
       # Source of truth: docker-compose.integration.yaml (kept in sync by
       # tests/test_integration_image_alignment.py). Update digests when
       # bumping versions — verify with:
-      #   docker pull matrixdotorg/synapse:v1.155.0 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.155.0
-      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.155.0@sha256:a87d002fba8efba807af19a876f488f4a9d298d6b62f5bab66d14e311a355e99
+      #   docker pull matrixdotorg/synapse:v1.158.0 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.158.0
+      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.158.0@sha256:5f868df1f5772907c6dbe973a9b69ab530a5d6bb317c011a3788f7ad78eb1292
       MEDRE_MESHTASTICD_IMAGE: meshtastic/meshtasticd:2.7.26@sha256:23e92b1331a3a471eaef0c63cbca4365ca40b3111a9781cfdbe5a5114e5773d4
       MEDRE_CI_ARTIFACT_DIR: ${{ github.workspace }}/.ci-artifacts/docker-integration
       MEDRE_DOCKER_READY_TIMEOUT: "120"
