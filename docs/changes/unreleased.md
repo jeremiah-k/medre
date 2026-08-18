@@ -234,3 +234,16 @@ create per-commit fragment files.
   streams without a file descriptor (no crash on `io.StringIO` or
   process-substitution input). Documentation test-file references
   verified current. Durable-language enforcer prose neutralized.
+
+## Continuous Integration
+
+- **Docker integration images aligned and Renovate-managed.** Renovate
+  regex custom managers now update the Synapse and meshtasticd
+  integration images across every reference site (compose, CI workflow,
+  integration conftest, runtime env-fallbacks, runner script, and the
+  meshtastic bridge example) in a single PR, so future bumps can no
+  longer drift apart. The drift-guard test reads the compose source of
+  truth at test time — no per-bump test edits — and now covers
+  meshtasticd. Drifted meshtasticd sites were realigned to the
+  compose-pinned `2.7.26`, and the CI workflow now pins the meshtasticd
+  digest (matching compose) for deterministic runs.

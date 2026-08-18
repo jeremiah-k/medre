@@ -72,7 +72,7 @@ if _SKIP_DOCKER or not _DOCKER_AVAILABLE:
 # tests/test_integration_image_alignment.py.
 _SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.155.0")
 _MESHTASTICD_IMAGE = os.environ.get(
-    "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
+    "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.26"
 )
 _SYNAPSE_PORT = int(os.environ.get("MEDRE_SYNAPSE_PORT", "8008"))
 _MESHTASTICD_PORT = int(os.environ.get("MEDRE_MESHTASTICD_PORT", "4403"))
