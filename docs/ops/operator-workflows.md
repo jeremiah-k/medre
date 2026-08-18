@@ -503,7 +503,7 @@ Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`.
 
 ### "Matrix E2EE blocked"
 
-Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decryption failures. Common causes: crypto store missing room key, key rotation before bot received it, cross-signing not set up. MEDRE does not manage key distribution.
+Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decryption failures. Also inspect `cross_signing_chain_status`, `cross_signing_current_device_self_signed`, and `cross_signing_reset_required`. Cross-signing establishes MEDRE's own device identity but does not restore missing Megolm room keys; MEDRE does not manage room-key backup/import/export. If identity reset is required, back up the Matrix state directory and prefer restoring matching state before using the explicit password-authenticated reset command.
 
 ### "Meshtastic classifier ignored/dropped/deferred"
 

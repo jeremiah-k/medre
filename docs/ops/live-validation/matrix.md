@@ -81,11 +81,43 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
 | —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
 
+## Cross-Signing Validation
+
+Before an encrypted live run, prepare the runtime E2EE store with the same
+adapter ID used in configuration:
+
+```bash
+medre adapter matrix auth login \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com \
+  --adapter-id bridge
+```
+
+After startup, inspect adapter diagnostics. A fully established own-device
+identity should report:
+
+- `cross_signing_provider_supported=true`
+- `cross_signing_local_identity_present=true`
+- `cross_signing_server_identity_present=true`
+- `cross_signing_current_device_self_signed=true`
+- `cross_signing_chain_status=valid`
+- `cross_signing_reset_required=false`
+
+Also verify from a separate trusted Matrix client that the MEDRE device is
+shown as cross-signed/verified by the bot account. This validates the observable
+postcondition; do not treat a successful upload call alone as sufficient.
+
+If `cross_signing_reset_required=true`, do not delete the E2EE store casually.
+Back it up and restore matching state if possible. Use
+`--reset-cross-signing` only as explicit password-authenticated recovery.
+
 ## Known Gaps
 
 - Third-party inbound confirmed at Docker SDK-boundary only; external-live not confirmed.
 - No E2EE reactions, edits, deletes, or attachments.
-- No cross-signing support in `mindroom-nio`.
+- Own-device cross-signing is implemented, but live evidence must be refreshed against the pinned `mindroom-nio 0.40.0` baseline.
+- Peer-device trust remains permissive (`ignore_unverified_devices=True`) and is not yet operator-configurable.
+- No room-key backup/import/export workflow is managed by MEDRE.
 - Soak tests: NOT EXECUTED.
 
 ## See Also

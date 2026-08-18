@@ -441,13 +441,14 @@ class MatrixAdapter(AdapterContract):
         """Determine whether to pass ``ignore_unverified_devices=True`` to nio.
 
         MEDRE internally sets this to ``True`` when E2EE is active (i.e.
-        ``encryption_mode`` is not ``"plaintext"``).  This is required by the
-        upstream nio client, which lacks cross-signing support (MSC1756) and
-        provides no API for programmatic device verification.  For plaintext
-        mode the flag is ``False`` (nio strict default).
+        ``encryption_mode`` is not ``"plaintext"``).  This is an intentional
+        bot peer-device trust policy, not a cross-signing workaround.
+        Cross-signing authenticates MEDRE's own current device to other Matrix
+        clients; it does not make MEDRE trust every peer device in a room.
 
-        This is **not** an operator-configurable toggle — it is an internal
-        nio workaround.
+        MEDRE does not yet expose a configurable peer-device verification
+        policy, so encrypted sends remain permissive for compatibility.  For
+        plaintext mode the flag is ``False``.
         """
         return self._config.encryption_mode != "plaintext"
 

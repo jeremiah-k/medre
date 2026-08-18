@@ -51,10 +51,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 ### 2.1 Matrix
 
 - Multi-room concurrent inbound has not been tested against a real homeserver.
-- E2EE text messaging does not support reactions, edits, media, cross-signing, or
-  key backup.
-- `mindroom-nio` is a fork of `matrix-nio`. Its maintenance cadence relative to
-  upstream is unverified.
+- E2EE text messaging does not support reactions, edits, media, or a MEDRE-managed room-key backup/import/export workflow.
+- Own-device cross-signing is implemented against `mindroom-nio 0.40.0`. Peer-device trust is still intentionally permissive for bot operation and is not operator-configurable.
+- Missing/mismatched local cross-signing identity cannot be repaired destructively at runtime; explicit fresh-password authentication is required for reset/rotation.
 - `restore_login()` does not validate the token against the server at startup.
   An invalid token is only discovered on the first sync response (HTTP 401).
 

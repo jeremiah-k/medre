@@ -266,3 +266,31 @@ create per-commit fragment files.
   custom managers can reach the conftest and example-config reference
   sites — without it, the first synapse bump updated four of five sites
   and the drift guard correctly failed the PR.
+
+## Matrix E2EE Identity
+
+- **Own-device Matrix cross-signing lifecycle.** MEDRE now uses the pinned
+  `mindroom-nio 0.40.0` cross-signing surface through a dedicated identity
+  policy component. The policy verifies the server-visible master →
+  self-signing → current-device chain, repairs only the current-device
+  self-signature when the persisted identity matches, refuses automatic
+  master/self-signing rotation on mismatches, and exposes secret-free
+  diagnostics for provider/local/server/chain/recovery state.
+- **Authenticated E2EE bootstrap and explicit recovery.** `medre adapter
+  matrix auth login --adapter-id <id>` prepares the selected adapter's exact
+  runtime E2EE store and verifies cross-signing before credentials are
+  persisted. Passwords remain transient. `--reset-cross-signing` is an
+  explicitly destructive, fresh-password-authenticated recovery path; normal
+  runtime startup cannot bootstrap or rotate account cross-signing identity.
+- **Runtime identity reconciliation.** E2EE startup verifies existing
+  cross-signing state and may safely repair a missing current-device
+  signature. Missing/mismatched identity material is reported without
+  downgrading encryption or rotating identity. Session/adapter diagnostics now
+  expose cross-signing status without keys, signatures, passwords, tokens,
+  sidecar contents, or crypto objects.
+- **Peer-device trust policy clarified.** Cross-signing MEDRE's own device is
+  separate from trusting other Matrix devices. E2EE sends intentionally retain
+  `ignore_unverified_devices=True` for bot compatibility until a dedicated
+  peer-device verification policy is introduced. Operator, security,
+  transport-profile, limitations, install, and live-validation docs now match
+  that behavior.

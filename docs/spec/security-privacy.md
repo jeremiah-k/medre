@@ -170,11 +170,25 @@ Plugins operate within capability-scoped boundaries:
 Matrix encryption is controlled by `encryption_mode: "plaintext" |
 "e2ee_required" | "e2ee_optional"` (default `"plaintext"`).
 
-When set to a non-plaintext mode, MEDRE internally passes
-`ignore_unverified_devices=True` to nio's `room_send`. This is an upstream nio
-client limitation — nio lacks cross-signing support, providing no API for
-programmatic device verification. This flag is not operator-configurable; it is
-applied automatically based on `encryption_mode`.
+When set to a non-plaintext mode, MEDRE uses `mindroom-nio`'s persisted
+cross-signing identity to authenticate MEDRE's own current device. Authenticated
+login may bootstrap that identity; ordinary runtime startup can verify it and
+repair a missing current-device self-signature when the persisted master and
+self-signing keys match the homeserver. Runtime startup never supplies a
+password and never rotates master/self-signing identity material. A mismatch or
+lost local identity requires explicit operator recovery with fresh password
+authentication.
+
+Own-device cross-signing and peer-device trust are separate concerns. MEDRE
+currently passes `ignore_unverified_devices=True` to nio's `room_send` in E2EE
+modes as an intentional bot compatibility policy. Cross-signing the MEDRE device
+does not cause MEDRE to trust every device owned by other room members. Peer
+device verification is not yet operator-configurable.
+
+The Matrix E2EE store includes private Olm/Megolm and cross-signing material. It
+MUST be protected and backed up like private key material. Diagnostics expose
+only booleans/status categories about cross-signing state and MUST NOT expose
+keys, signatures, sidecar contents, access tokens, passwords, or crypto objects.
 
 ### 6.2 MeshCore
 
