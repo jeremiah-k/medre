@@ -90,7 +90,7 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 
-from .conftest import E2EETestEnvironment
+from .conftest import close_nio_client, close_nio_store, E2EETestEnvironment
 from .synapse_helpers import make_context as _make_context
 from .synapse_helpers import (
     send_client_side_encrypted_message,
@@ -201,7 +201,7 @@ async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
         access_token=env.bot_access_token,
     )
     if not client.logged_in or client.olm is None or client.store is None:
-        await client.close()
+        await close_nio_client(client)
         raise RuntimeError("Docker bot E2EE client failed to restore crypto state")
     return client
 
@@ -252,7 +252,7 @@ class TestSynapseE2EESmoke:
             assert bootstrap_diag.chain_status == "valid"
             assert bootstrap_diag.reset_required is False
         finally:
-            await client.close()
+            await close_nio_client(client)
 
         # Reopen the exact same E2EE store. Runtime reconciliation deliberately
         # receives no password and no bootstrap/reset authority.
@@ -269,7 +269,7 @@ class TestSynapseE2EESmoke:
             assert runtime_diag.repair_required is False
             assert runtime_diag.reset_required is False
         finally:
-            await runtime_client.close()
+            await close_nio_client(runtime_client)
 
         report: dict[str, Any] = {
             "transport": "matrix",
@@ -640,6 +640,17 @@ class TestSynapseE2EESmoke:
                 "was used and message was delivered."
             )
         finally:
+            # Capture the adapter's nio client before teardown: the
+            # production session stop path runs nio's close(), which does
+            # not close the store's SQLite connection (nio 0.40.0). Close
+            # it ourselves so the connection is never left to the garbage
+            # collector.
+            adapter_session = matrix_adapter._session
+            adapter_client = (
+                getattr(adapter_session, "_client", None)
+                if adapter_session is not None
+                else None
+            )
             # Clean up the second nio client.
             try:
                 await e2ee_env.close_test_e2ee_client()
@@ -656,6 +667,8 @@ class TestSynapseE2EESmoke:
                     await _stop_coro
                 except Exception:
                     logger.debug("%s cleanup error", _name, exc_info=True)
+            if adapter_client is not None:
+                close_nio_store(adapter_client)
             # Let pending tasks settle after teardown.
             await asyncio.sleep(0.1)
 

@@ -809,6 +809,42 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 # ---------------------------------------------------------------------------
 
 
+def close_nio_store(client: Any) -> None:
+    """Close the SQLite store database attached to an nio client.
+
+    nio 0.40.0's ``AsyncClient.close()`` drains recovery callbacks and the
+    HTTP session but never closes the peewee ``SqliteDatabase`` that
+    ``MatrixStore.__post_init__`` opened. The connection is otherwise left
+    to the garbage collector, which surfaces as an unraisable
+    ``sqlite3.Connection`` exception under ``filterwarnings = error`` in
+    whichever test the GC cycle lands in. Stop a queue database first,
+    then close — the same order nio uses internally for its schema-repair
+    path.
+    """
+    database = getattr(getattr(client, "store", None), "database", None)
+    if database is None:
+        return
+
+    from playhouse.sqliteq import SqliteQueueDatabase
+
+    if isinstance(database, SqliteQueueDatabase) and not database.is_stopped():
+        database.stop()
+    if not database.is_closed():
+        database.close()
+
+
+async def close_nio_client(client: Any) -> None:
+    """``await client.close()`` plus a deterministic store close.
+
+    See :func:`close_nio_store` for why the store database must be closed
+    explicitly.
+    """
+    try:
+        await client.close()
+    finally:
+        close_nio_store(client)
+
+
 class E2EETestEnvironment:
     """Holds all connection details for E2EE smoke tests.
 
@@ -911,23 +947,29 @@ class E2EETestEnvironment:
             config=client_config,
         )
 
-        client.restore_login(
-            user_id=self.test_user_id,
-            device_id=self.test_device_id,
-            access_token=self.test_access_token,
-        )
+        try:
+            client.restore_login(
+                user_id=self.test_user_id,
+                device_id=self.test_device_id,
+                access_token=self.test_access_token,
+            )
 
-        # Initial sync to learn room encryption state and device list.
-        await client.sync(full_state=True)
+            # Initial sync to learn room encryption state and device list.
+            await client.sync(full_state=True)
 
-        # Upload device keys if needed.
-        if client.should_upload_keys:
-            await client.keys_upload()
+            # Upload device keys if needed.
+            if client.should_upload_keys:
+                await client.keys_upload()
 
-        # Query keys for other users (e.g. the bot) so we can encrypt
-        # for their devices.
-        if client.should_query_keys:
-            await client.keys_query()
+            # Query keys for other users (e.g. the bot) so we can encrypt
+            # for their devices.
+            if client.should_query_keys:
+                await client.keys_query()
+        except Exception:
+            # Do not leak the client or its SQLite store when
+            # initialisation fails partway.
+            await close_nio_client(client)
+            raise
 
         # Claim keys for other users' devices (e.g. the bot) so that
         # Megolm outbound sessions can encrypt for them.
@@ -954,7 +996,7 @@ class E2EETestEnvironment:
         """Close the second nio client if it was created."""
         if self.test_e2ee_client is not None:
             try:
-                await self.test_e2ee_client.close()
+                await close_nio_client(self.test_e2ee_client)
             except Exception:
                 pass
             self.test_e2ee_client = None
