@@ -55,6 +55,16 @@ def _load_pyproject() -> dict[str, Any]:
         return tomllib.load(fh)
 
 
+def _dep_name(dependency: str) -> str:
+    """Extract the bare distribution name from a PEP 508 dependency string.
+
+    Tolerates extras and environment markers (``pyyaml[fast]>=6.0;
+    python_version>="3.11"``) as well as odd whitespace by splitting on
+    the first specifier, extras, marker, or space character.
+    """
+    return re.split(r"[<>=!~;[ ]", dependency.strip(), maxsplit=1)[0]
+
+
 # ===================================================================
 # 1. Editable-install command documentation
 # ===================================================================
@@ -688,7 +698,7 @@ class TestReproducibilityEvidence:
         intentionally not asserted here, so pin bumps need no test edit.
         """
         deps = self._project.get("dependencies", [])
-        names = {re.split(r"[<>=!~;[ ]", d.strip(), maxsplit=1)[0] for d in deps}
+        names = {_dep_name(d) for d in deps}
         assert names == {"msgspec", "pyyaml"}, (
             f"Base dependencies changed: expected {{msgspec, pyyaml}}, got {names}"
         )
@@ -697,6 +707,40 @@ class TestReproducibilityEvidence:
             f"Base dependencies must be exact pins (Renovate-maintained): "
             f"{unpinned}"
         )
+        malformed_pins = [d for d in deps if d.split("==", 1)[1].strip() == ""]
+        assert not malformed_pins, (
+            "Pinned base dependencies must have a non-empty version segment: "
+            f"{malformed_pins}"
+        )
+
+    @pytest.mark.parametrize(
+        ("dependency", "expected"),
+        [
+            # Simple pins
+            ("msgspec==1.0.0", "msgspec"),
+            ("pyyaml==6.0.3", "pyyaml"),
+            # Pin with extras
+            ("pyyaml[fast]==6.0.3", "pyyaml"),
+            # Floor with extras and an environment marker
+            ('pyyaml[fast]>=6.0; python_version>="3.11"', "pyyaml"),
+            # Odd whitespace around extras, operators, and markers
+            ('  pyyaml [fast]  >= 6.0  ;  python_version >= "3.11" ', "pyyaml"),
+            ("  msgspec  ==1.0.0  ", "msgspec"),
+            # Marker-only forms, including compound markers
+            ("msgspec==1.0.0; extra == 'dev'", "msgspec"),
+            (
+                "pyyaml[fast]>=6.0; python_version>='3.11' and os_name=='posix'",
+                "pyyaml",
+            ),
+            # Bare name
+            ("pyyaml", "pyyaml"),
+        ],
+    )
+    def test_dep_name_extracts_bare_name(
+        self, dependency: str, expected: str
+    ) -> None:
+        """_dep_name tolerates extras, markers, and odd whitespace."""
+        assert _dep_name(dependency) == expected
 
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""

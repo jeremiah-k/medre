@@ -245,7 +245,7 @@ create per-commit fragment files.
   2.7.11.post5, PyPubSub 4.0.7, meshcore 2.3.8, lxmf 1.1.1; Reticulum
   resolves to rns 1.4.2). `renovate.json` sets `rangeStrategy: pin`
   so Renovate maintains the exact pins going forward instead of leaving
-  `>=` floors untracked. Full resolution of every extra verified via
+  `>=` floors untracked. Full resolution of every extra is verified via
   `uv pip install --dry-run`; all four SDK extras import against the
   new pins.
 
