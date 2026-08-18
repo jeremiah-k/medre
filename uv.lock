@@ -939,22 +939,22 @@ meshtastic = [
 
 [package.metadata]
 requires-dist = [
-    { name = "build", marker = "extra == 'dev'", specifier = ">=1.0" },
-    { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0,<5.0" },
-    { name = "lxmf", marker = "extra == 'lxmf'", specifier = ">=0.9.6" },
-    { name = "meshcore", marker = "extra == 'meshcore'", specifier = ">=2.3.7" },
-    { name = "mindroom-nio", marker = "extra == 'matrix'", specifier = ">=0.25.3" },
-    { name = "mindroom-nio", extras = ["e2e"], marker = "extra == 'matrix-e2e'", specifier = ">=0.25.3" },
+    { name = "build", marker = "extra == 'dev'", specifier = "==1.5.0" },
+    { name = "coverage", marker = "extra == 'dev'", specifier = "==7.15.4" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
+    { name = "lxmf", marker = "extra == 'lxmf'", specifier = "==1.1.1" },
+    { name = "meshcore", marker = "extra == 'meshcore'", specifier = "==2.3.8" },
+    { name = "mindroom-nio", marker = "extra == 'matrix'", specifier = "==0.40.0" },
+    { name = "mindroom-nio", extras = ["e2e"], marker = "extra == 'matrix-e2e'", specifier = "==0.40.0" },
     { name = "msgspec", specifier = "==0.21.1" },
-    { name = "mtjk", marker = "extra == 'meshtastic'", specifier = ">=2.7.8" },
-    { name = "pypubsub", marker = "extra == 'meshtastic'", specifier = ">=4.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "setuptools", marker = "extra == 'dev'", specifier = ">=75.0" },
+    { name = "mtjk", marker = "extra == 'meshtastic'", specifier = "==2.7.11.post5" },
+    { name = "pypubsub", marker = "extra == 'meshtastic'", specifier = "==4.0.7" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==1.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.1.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = "==2.4.0" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "setuptools", marker = "extra == 'dev'", specifier = "==84.0.0" },
 ]
 provides-extras = ["dev", "matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"]
 
