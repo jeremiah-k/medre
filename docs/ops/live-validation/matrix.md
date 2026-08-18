@@ -47,7 +47,7 @@ pip install -e ".[matrix-e2e]"
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
 ```
 
-Expected: 3 passed. Confirms encrypted room creation, encrypted outbound send, and third-party inbound at Docker SDK-boundary via second nio client.
+Expected: 4 passed. Confirms cross-signing bootstrap persistence with passwordless runtime re-verification, encrypted room creation, encrypted outbound send, and third-party inbound at Docker SDK-boundary via second nio client.
 
 ## Third-Party Inbound Test
 
@@ -78,6 +78,7 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | H (historical) | External live (matrix.org)   | 2026-05-10 | 13/13 plaintext, 7/7 E2EE        |
 | R              | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
 | R              | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
+| R              | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
 | —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
 | —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
 

@@ -276,13 +276,35 @@ async def test_missing_signature_without_provider_repair_hook_stays_repairable()
     assert diag.last_failure_category == "signature_repair_unsupported"
 
 
-async def test_local_identity_is_uploaded_when_server_identity_is_missing() -> None:
+async def test_runtime_does_not_reupload_identity_when_server_identity_is_missing() -> None:
+    """Runtime reconciliation (no password) must not publish identity material.
+
+    Uploading master/self-signing keys is a user-interactive-authenticated
+    operation; runtime has no password, so the provider call cannot succeed
+    against a real homeserver. Runtime reports ``bootstrap_required`` instead.
+    """
     identity = _identity(uploaded=False)
     client = FakeClient(identity=identity, server_identity=False)
     service = MatrixCrossSigningService(client)
 
-    assert await service.reconcile() == "device_signed"
-    assert client.ensure_calls == [None]
+    assert await service.reconcile() is None
+    assert client.ensure_calls == []
+    diag = service.diagnostics()
+    assert diag.chain_status == "missing"
+    assert diag.last_failure_category == "bootstrap_required"
+    assert diag.repair_required is True
+
+
+async def test_authenticated_reconcile_reuploads_identity_when_server_identity_is_missing() -> None:
+    identity = _identity(uploaded=False)
+    client = FakeClient(identity=identity, server_identity=False)
+    service = MatrixCrossSigningService(client)
+
+    result = await service.reconcile(
+        password="fresh-password", allow_bootstrap=True
+    )
+    assert result == "device_signed"
+    assert client.ensure_calls == ["fresh-password"]
     assert service.diagnostics().chain_status == "valid"
 
 

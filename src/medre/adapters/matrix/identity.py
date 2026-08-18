@@ -211,8 +211,18 @@ class MatrixCrossSigningService:
             check = self._check_server_chain(payload, local_identity)
             return await self._apply_chain_check(check, local_identity)
 
-        # Local identity exists but the homeserver does not expose a master key.
-        # Re-uploading the same persisted identity is repair, not rotation.
+        # Local identity exists but the homeserver does not expose a master
+        # key. Re-uploading the persisted identity requires user-interactive
+        # authentication (uploading master/self-signing keys is a UIA
+        # operation), so it belongs to the authenticated bootstrap path only.
+        # Runtime reconciliation reports the actionable state instead.
+        if not allow_bootstrap:
+            self._fail(
+                "bootstrap_required",
+                chain_status="missing",
+                repair_required=True,
+            )
+            return None
         return await self._bootstrap_and_verify(
             ensure_method,
             password=password,
