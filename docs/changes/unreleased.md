@@ -246,4 +246,9 @@ create per-commit fragment files.
   truth at test time — no per-bump test edits — and now covers
   meshtasticd. Drifted meshtasticd sites were realigned to the
   compose-pinned `2.7.26`, and the CI workflow now pins the meshtasticd
-  digest (matching compose) for deterministic runs.
+  digest (matching compose) for deterministic runs. Renovate's
+  `config:best-practices`-inherited `ignorePaths` (which skips
+  `**/tests/**` and `**/examples/**`) is overridden to empty so the
+  custom managers can reach the conftest and example-config reference
+  sites — without it, the first synapse bump updated four of five sites
+  and the drift guard correctly failed the PR.
