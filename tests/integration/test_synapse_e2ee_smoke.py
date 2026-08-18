@@ -22,6 +22,9 @@ What this harness **does** prove:
 - nio crypto store initialisation (``crypto_enabled``, ``crypto_store_loaded``).
 - Bot adapter starts with ``encryption_mode="e2ee_required"`` and initial
   sync + key upload succeeds.
+- A dedicated identity test bootstraps the bot's own-device cross-signing with
+  password UIA, closes the provider, reopens the same E2EE store, and verifies
+  the server-visible chain without a password.
 - Second nio client performs genuine Megolm encryption of outbound messages.
 - When key exchange completes in time, the bot **decrypts** the inbound
   ``m.room.encrypted`` event back to the original plaintext body.
@@ -29,9 +32,10 @@ What this harness **does** prove:
 What this harness does **NOT** prove:
 
 - Docker loopback only — no live network or federation.
-- No cross-signing or interactive device verification flow.
+- No federation or external-network identity proof.
+- No peer-device verification/interactive trust policy.
 - Ephemeral crypto store — keys are discarded after each test run.
-- ``ignore_unverified_devices=True`` is used to skip verification prompts.
+- ``ignore_unverified_devices=True`` remains the peer-device send policy.
 - Key exchange timing is non-deterministic; decryption may not complete
   within the test timeout on every run.  The test uses ``pytest.xfail``
   with ``reason=...`` when this occurs rather than silently passing.
@@ -53,6 +57,7 @@ Each test produces a ``report`` dict classified as ``docker_sdk_boundary``:
 - ``encrypted_room_id``: the room ID with encryption enabled
 - ``device_ids``: redacted device IDs for bot and test user
 - ``crypto_enabled`` / ``crypto_store_loaded``: diagnostics fields
+- ``cross_signing_chain_status``: own-device identity postcondition where tested
 - ``client_side_encrypted``: whether the message was sent via nio encryption
 - ``decryption_succeeded``: whether the bot decrypted the message
 - ``limitations``: explicit list of what this run does NOT prove
@@ -176,6 +181,31 @@ def _redact_device_id(device_id: str | None) -> str:
     return device_id[:2] + "****" + device_id[-2:]
 
 
+async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
+    """Open the bot's real nio E2EE client against the Docker homeserver."""
+    import nio
+
+    if not env.bot_device_id:
+        raise RuntimeError("Docker E2EE environment has no bot device ID")
+    config = nio.AsyncClientConfig(encryption_enabled=True)
+    client = nio.AsyncClient(
+        homeserver=env.base_url,
+        user=env.bot_user_id,
+        device_id=env.bot_device_id,
+        store_path=env.bot_store_path,
+        config=config,
+    )
+    client.restore_login(
+        user_id=env.bot_user_id,
+        device_id=env.bot_device_id,
+        access_token=env.bot_access_token,
+    )
+    if not client.logged_in or client.olm is None or client.store is None:
+        await client.close()
+        raise RuntimeError("Docker bot E2EE client failed to restore crypto state")
+    return client
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -193,6 +223,70 @@ class TestSynapseE2EESmoke:
     complete within the test timeout, the test ``xfail``\\s with a clear
     reason rather than silently passing.
     """
+
+    async def test_cross_signing_bootstrap_persists_and_runtime_verifies(
+        self,
+        synapse_e2ee_env: E2EETestEnvironment,
+    ) -> None:
+        """Prove authenticated bootstrap and passwordless persisted verification."""
+        from medre.adapters.matrix.identity import MatrixCrossSigningService
+
+        env = synapse_e2ee_env
+        client = await _open_bot_e2ee_client(env)
+        try:
+            service = MatrixCrossSigningService(client, logger=logger)
+            bootstrap_result = await service.reconcile(
+                password=env.bot_password,
+                allow_bootstrap=True,
+            )
+            bootstrap_diag = service.diagnostics()
+            assert bootstrap_result in {
+                "already_signed",
+                "device_signed",
+                "uploaded_and_signed",
+            }
+            assert bootstrap_diag.provider_supported is True
+            assert bootstrap_diag.local_identity_present is True
+            assert bootstrap_diag.server_identity_present is True
+            assert bootstrap_diag.current_device_self_signed is True
+            assert bootstrap_diag.chain_status == "valid"
+            assert bootstrap_diag.reset_required is False
+        finally:
+            await client.close()
+
+        # Reopen the exact same E2EE store. Runtime reconciliation deliberately
+        # receives no password and no bootstrap/reset authority.
+        runtime_client = await _open_bot_e2ee_client(env)
+        try:
+            runtime_service = MatrixCrossSigningService(runtime_client, logger=logger)
+            runtime_result = await runtime_service.reconcile()
+            runtime_diag = runtime_service.diagnostics()
+            assert runtime_result == "already_signed"
+            assert runtime_diag.local_identity_present is True
+            assert runtime_diag.server_identity_present is True
+            assert runtime_diag.current_device_self_signed is True
+            assert runtime_diag.chain_status == "valid"
+            assert runtime_diag.repair_required is False
+            assert runtime_diag.reset_required is False
+        finally:
+            await runtime_client.close()
+
+        report: dict[str, Any] = {
+            "transport": "matrix",
+            "evidence_level": "docker_sdk_boundary",
+            "test": "test_cross_signing_bootstrap_persists_and_runtime_verifies",
+            "cross_signing_chain_status": runtime_diag.chain_status,
+            "current_device_self_signed": runtime_diag.current_device_self_signed,
+            "store_reopened": True,
+            "passwordless_runtime_verify": True,
+            "limitations": [
+                "Docker loopback only — no federation or external network proof.",
+                "No peer-device verification policy is exercised.",
+                "Ephemeral crypto store (keys discarded after run).",
+            ],
+        }
+        assert report["cross_signing_chain_status"] == "valid"
+        assert report["current_device_self_signed"] is True
 
     async def test_e2ee_encrypted_room_created(
         self,
@@ -249,9 +343,10 @@ class TestSynapseE2EESmoke:
             "test_store_path_exists": Path(env.test_store_path).is_dir(),
             "limitations": [
                 "Docker loopback only — no live network proof.",
-                "No cross-signing or device verification.",
+                "This case does not assert cross-signing; see the dedicated identity test.",
+                "No peer-device verification policy is exercised.",
                 "Ephemeral crypto store (keys discarded after run).",
-                "ignore_unverified_devices=True assumed.",
+                "ignore_unverified_devices=True remains the peer-device send policy.",
                 "This test only verifies encrypted room creation and "
                 "diagnostics — see test_e2ee_message_decryption for "
                 "Megolm decryption proof.",
@@ -453,9 +548,10 @@ class TestSynapseE2EESmoke:
             # 9. Build evidence report.
             limitations = [
                 "Docker loopback only — no live network proof.",
-                "No cross-signing or device verification.",
+                "This case does not assert cross-signing; see the dedicated identity test.",
+                "No peer-device verification policy is exercised.",
                 "Ephemeral crypto store (keys discarded after run).",
-                "ignore_unverified_devices=True assumed.",
+                "ignore_unverified_devices=True remains the peer-device send policy.",
                 "Single message only (not a throughput test).",
             ]
 
@@ -636,9 +732,10 @@ class TestSynapseE2EESmoke:
                 "test_device_id_redacted": _redact_device_id(e2ee_env.test_device_id),
                 "limitations": [
                     "Docker loopback only — no live network proof.",
-                    "No cross-signing or device verification.",
+                    "This case does not assert cross-signing; see the dedicated identity test.",
+                    "No peer-device verification policy is exercised.",
                     "Ephemeral crypto store (keys discarded after run).",
-                    "ignore_unverified_devices=True assumed.",
+                    "ignore_unverified_devices=True remains the peer-device send policy.",
                 ],
             }
 

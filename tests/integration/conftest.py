@@ -446,6 +446,7 @@ class SynapseEnvironment:
     port: int
     bot_user_id: str
     bot_access_token: str
+    bot_password: str
     test_room_id: str
     data_dir: Path
     test_user_id: str
@@ -463,6 +464,7 @@ class SynapseEnvironment:
         port: int,
         bot_user_id: str,
         bot_access_token: str,
+        bot_password: str,
         test_room_id: str,
         data_dir: Path,
         test_user_id: str = "",
@@ -476,6 +478,7 @@ class SynapseEnvironment:
         self.port = port
         self.bot_user_id = bot_user_id
         self.bot_access_token = bot_access_token
+        self.bot_password = bot_password
         self.test_room_id = test_room_id
         self.data_dir = data_dir
         self.test_user_id = test_user_id
@@ -764,6 +767,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         port=_SYNAPSE_PORT,
         bot_user_id=bot_user_id,
         bot_access_token=bot_access_token,
+        bot_password=bot_password,
         test_room_id=test_room_id,
         data_dir=data_dir,
         test_user_id=test_user_id,
@@ -845,6 +849,11 @@ class E2EETestEnvironment:
     @property
     def bot_access_token(self) -> str:
         return self.synapse_env.bot_access_token
+
+    @property
+    def bot_password(self) -> str:
+        """Ephemeral Docker-test password used only for authenticated UIA."""
+        return self.synapse_env.bot_password
 
     @property
     def bot_user_id(self) -> str:

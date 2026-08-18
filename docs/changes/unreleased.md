@@ -294,3 +294,9 @@ create per-commit fragment files.
   peer-device verification policy is introduced. Operator, security,
   transport-profile, limitations, install, and live-validation docs now match
   that behavior.
+- **Docker cross-signing postcondition coverage.** The Synapse E2EE harness now
+  includes a real-SDK identity test that performs password-authenticated
+  cross-signing bootstrap, closes the client, reopens the same crypto store,
+  and verifies the persisted server-visible chain without a password. The
+  evidence remains Docker-local and does not claim federation or peer-device
+  trust validation.
