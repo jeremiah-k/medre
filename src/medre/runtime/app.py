@@ -473,6 +473,15 @@ class MedreApp:
                 else None
             ),
             "runtime_state": self._state.value,
+            "durable_ingress": (
+                {
+                    "worker_running": self._ingress_worker.running,
+                    "processed": self._ingress_worker.processed,
+                    "failures": self._ingress_worker.failures,
+                }
+                if self._ingress_worker is not None
+                else {"worker_running": False, "processed": 0, "failures": 0}
+            ),
             "shutdown_drain_timeout_seconds": (
                 self.config.limits.shutdown_drain_timeout_seconds
             ),

@@ -129,3 +129,29 @@ Back it up and restore matching state if possible. Use
 
 - [transport-setup/matrix.md](../transport-setup/matrix.md) — adapter setup, config, and troubleshooting
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+
+### Durable Classic Sync checkpoint validation
+
+The Phase 2 durable-ingress contract has three validation layers:
+
+```bash
+pytest -q tests/test_durable_ingress_storage.py \
+  tests/test_durable_ingress_worker.py \
+  tests/test_durable_ingress_crash_recovery.py
+pytest -q tests/test_matrix_sync_checkpoint_ownership.py \
+  tests/test_matrix_durable_admission_boundary.py
+pytest -q tests/test_matrix_sync_recovery_sdk_contract.py
+```
+
+With the Matrix extra installed, the SDK-contract test verifies the pinned
+application-owned Classic Sync surfaces. The storage tests characterize the crash
+windows independently of a homeserver: admission is atomic, pending work and the
+committed cursor survive restart, stale leases are reclaimable, and native replay
+resolves to the original canonical identity.
+
+For Docker/live follow-up, verify a runtime-managed Matrix adapter reports
+`checkpoint_owned_by_medre=true`. During forced downtime, continuity-recovered events
+must increment `recovered_event_count`; initial cold history may increment
+`history_event_count` but must remain durably suppressed. Any unrecoverable room gap
+must increment `recovery_abandoned_room_count` and leave secret-free abandonment
+evidence in `recovery_last_abandonment`.

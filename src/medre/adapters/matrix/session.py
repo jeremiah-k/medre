@@ -954,6 +954,16 @@ class MatrixSession:
             await self._checkpoint_committer("classic_sync", next_batch, metadata_json)
             self._client.acknowledge_classic_sync(next_batch)
             self._committed_sync_token = next_batch
+            if abandoned:
+                settle = getattr(self._client, "acknowledge_unrecovered_rooms", None)
+                if callable(settle):
+                    try:
+                        settle(abandoned)
+                    except Exception:
+                        self._logger.warning(
+                            "Failed to settle recorded Matrix recovery abandonment",
+                            exc_info=True,
+                        )
         self._recovery_abandoned_rooms = abandoned
         if abandoned:
             self._recovery_last_abandonment = metadata_json

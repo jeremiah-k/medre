@@ -182,3 +182,35 @@ async def test_sync_failure_resets_uncommitted_state_before_retry() -> None:
     client.reset_classic_sync_state.assert_awaited_once_with()
     assert client.next_batch == "committed"
     assert attempts == 2
+
+
+async def test_recovery_abandonment_is_persisted_before_cursor_advances() -> None:
+    calls: list[str] = []
+    committed_metadata = ""
+
+    async def commit(_stream: str, _cursor: str, metadata: str) -> None:
+        nonlocal committed_metadata
+        committed_metadata = metadata
+        calls.append("commit")
+
+    session = _durable_session(checkpoint_committer=commit)
+    client = MagicMock()
+    client.acknowledge_classic_sync.side_effect = lambda _cursor: calls.append("ack")
+    client.acknowledge_unrecovered_rooms.side_effect = lambda _rooms: calls.append(
+        "settle"
+    )
+    session._client = client
+    response = SimpleNamespace(
+        next_batch="s-loss",
+        abandoned_rooms={
+            "!lost:example.org": [SimpleNamespace(value="fetch_failed")]
+        },
+    )
+
+    await session._on_sync_response(response)
+
+    assert calls == ["commit", "ack", "settle"]
+    assert '"!lost:example.org":["fetch_failed"]' in committed_metadata
+    diag = session.diagnostics()
+    assert diag.recovery_abandoned_room_count == 1
+    assert diag.recovery_last_abandonment == committed_metadata

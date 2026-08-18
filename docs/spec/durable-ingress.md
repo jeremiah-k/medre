@@ -52,3 +52,16 @@ The durable ingress guarantee is narrower and achievable: once an inbound event
 is accepted, MEDRE MUST NOT silently lose the event or forget that downstream
 work remains. Delivery remains at-least-once/idempotent where transport
 capabilities allow it.
+
+## Worker recovery and evidence
+
+Pending ingress work is claimed with a bounded lease. A clean processing failure
+returns the work to `pending`; cancellation or process death leaves the lease in
+place so another worker generation can reclaim it after expiry. Completing ingress
+work means routing/planning reached the existing durable outbox boundary; it does not
+mean every external target acknowledged delivery.
+
+Runtime diagnostics expose whether the durable-ingress worker is running plus its
+per-generation processed and failure counts. Protocol-specific continuity evidence,
+such as Matrix abandoned-room recovery causes, remains adapter/checkpoint metadata
+rather than being generalized into transport-neutral semantics.
