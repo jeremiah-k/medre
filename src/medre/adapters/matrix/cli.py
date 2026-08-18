@@ -25,6 +25,16 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     user_id = getattr(args, "user", None)
     password_cli = getattr(args, "password", None)
     password_stdin: bool = getattr(args, "password_stdin", False)
+    adapter_id = getattr(args, "adapter_id", None)
+    reset_cross_signing: bool = getattr(args, "reset_cross_signing", False)
+
+    if reset_cross_signing and not adapter_id:
+        print(
+            "Error: --reset-cross-signing requires --adapter-id so MEDRE can "
+            "target the runtime E2EE store.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Step 2: Tristate dispatch ----------------------------------------------
     # Count how many auth-relevant flags were explicitly provided.
@@ -161,7 +171,23 @@ async def _adapter_matrix_auth_login(args: object) -> None:
             )
             sys.exit(1)
 
-        # Step 7: Save credentials to sidecar JSON (always)
+        # Step 7: Optional E2EE identity bootstrap.  Basic auth remains
+        # stdlib-only unless an adapter store is explicitly selected.
+        cross_signing_result = None
+        if adapter_id:
+            from medre.adapters.matrix.e2ee_bootstrap import (
+                bootstrap_login_cross_signing,
+            )
+
+            cross_signing_result = await bootstrap_login_cross_signing(
+                result,
+                password,
+                adapter_id=adapter_id,
+                reset=reset_cross_signing,
+            )
+
+        # Step 8: Persist token/device credentials only after any requested
+        # cross-signing bootstrap has reached a verified postcondition.
         creds_path = save_credentials_json(result)
 
     except MatrixConnectionError as exc:
@@ -174,11 +200,14 @@ async def _adapter_matrix_auth_login(args: object) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 8: Print results — never the access token -------------------------
+    # Step 9: Print results — never the access token -------------------------
     print(f"Homeserver:  {result.homeserver}")
     print(f"User ID:     {result.user_id}")
     print(f"Device ID:   {result.device_id}")
     print(f"Credentials: {creds_path}")
+    if cross_signing_result is not None:
+        print("Cross-signing: verified")
+        print(f"E2EE store:    {cross_signing_result.store_path}")
 
 
 async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> None:
