@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import msgspec
+import pytest
 
 from medre.core.events import NativeMessageRef, NativeRef
 from medre.core.storage.sqlite.storage import SQLiteStorage
