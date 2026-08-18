@@ -628,14 +628,19 @@ class MatrixCrossSigningService:
         check = self._check_server_chain(payload, identity)
         verified = await self._apply_chain_check(check, identity)
         if verified is None:
-            # If the new provider identity was uploaded, restoring the old
-            # sidecar would knowingly create a local/server mismatch.  Keep the
-            # new material and remove the obsolete backup instead.
-            uploaded = bool(getattr(identity, "uploaded", False))
-            if uploaded:
-                backup.unlink(missing_ok=True)
-            else:
-                self._restore_reset_backup(sidecar, backup, had_sidecar)
+            # Failed post-reset verification. Keep the newly uploaded
+            # material only when the provider actually rotated and uploaded
+            # a new identity (restoring the old sidecar would knowingly
+            # create a local/server mismatch); otherwise restore the
+            # previous sidecar. _handle_failed_reset encodes both cases —
+            # in particular, a provider result that did not rotate the
+            # identity object must restore, not delete, the backup.
+            self._handle_failed_reset(
+                sidecar,
+                backup,
+                had_sidecar,
+                previous_identity=previous_identity,
+            )
             return None
 
         backup.unlink(missing_ok=True)

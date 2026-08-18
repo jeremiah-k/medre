@@ -373,7 +373,7 @@ class TestAdapterStartBehavior:
             with pytest.raises(
                 MatrixConnectionError, match="mindroom-nio not installed"
             ):
-                 await adapter.start(make_matrix_context())
+                await adapter.start(make_matrix_context())
 
 
 # ===================================================================

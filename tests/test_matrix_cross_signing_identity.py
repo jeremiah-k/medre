@@ -371,6 +371,40 @@ async def test_failed_reset_before_upload_restores_previous_sidecar(
     assert service.diagnostics().last_failure_category == "reset_failed"
 
 
+async def test_unrotated_reset_with_failed_verification_restores_previous_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid-but-unrotated reset result whose verification fails restores the backup.
+
+    Regression: the failed-verification branch used to check only the
+    identity's ``uploaded`` flag. When the provider returned a valid result
+    without rotating (the same persisted identity object, still flagged
+    ``uploaded=True`` from its original bootstrap), the branch deleted the
+    backup while the sidecar was still moved away — losing the previous
+    identity entirely.
+    """
+    identity = _identity(uploaded=True)
+    client = FakeClient(identity=identity, server_identity=True)
+    service = MatrixCrossSigningService(client)
+    sidecar = tmp_path / "identity.json"
+    sidecar.write_text('{"old": true}', encoding="utf-8")
+    monkeypatch.setattr(service, "_provider_sidecar_path", lambda: sidecar)
+
+    async def valid_but_unrotated(password: str | None = None) -> str:
+        assert not sidecar.exists()
+        # No rotation: cross_signing_identity is unchanged (same object,
+        # uploaded=True from the original bootstrap). The server now
+        # exposes no master key, so post-reset verification fails.
+        client.server_payload = client._payload(None, device_signed=True)
+        return "device_signed"
+
+    client.ensure_cross_signing = valid_but_unrotated  # type: ignore[method-assign]
+
+    assert await service.reconcile(password="pw", reset=True) is None
+    assert sidecar.read_text(encoding="utf-8") == '{"old": true}'
+    assert not sidecar.with_name(f"{sidecar.name}.pre-reset").exists()
+
+
 async def test_cancelled_reset_restores_previous_sidecar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
