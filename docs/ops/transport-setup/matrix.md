@@ -357,3 +357,20 @@ While the test waits (30 s window), send a message from the second account. If n
 - [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay
+
+### Classic Sync durability and recovery
+
+Runtime-managed Matrix adapters use MEDRE-owned Classic Sync checkpoints. The
+Matrix SDK may reconstruct a limited timeline before MEDRE sees its following live
+event, but the checkpoint does not advance until every relevant timeline event has
+passed durable admission. If admission fails, the SDK retains the event for replay.
+
+`LIVE` and `RECOVERED` events are admitted and routed. `HISTORY` is recorded as a
+durable suppression and is not routed. This replaces the older first-sync timestamp
+heuristic for runtime-managed Matrix adapters.
+
+The Matrix adapter intentionally does not enable nio-owned sync-token persistence or
+persisted recovery state. MEDRE stores the committed cursor in its primary SQLite
+database so plaintext and E2EE modes use the same checkpoint-ownership model.
+Recovery-abandonment metadata is stored with that checkpoint and exposed in adapter
+diagnostics.

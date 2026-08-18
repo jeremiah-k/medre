@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 from medre.core.events.canonical import CanonicalEvent
 
 if TYPE_CHECKING:
-    from medre.core.ingress import AdmissionResult, IngressProvenance
+    from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
     from medre.core.rendering.renderer import RenderingResult
 
 
@@ -483,6 +483,10 @@ class AdapterContext:
         Optional durable-admission callable. Protocol adapters with reliable
         cursor/provenance semantics may use this instead of ``publish_inbound``
         so external cursor advancement is decoupled from downstream routing.
+    load_checkpoint / commit_checkpoint:
+        Optional application-owned cursor persistence bound to this adapter
+        instance. The stream name is supplied by the adapter; checkpoint
+        metadata must already be JSON encoded and secret-free.
     logger:
         Pre-configured logger scoped to the adapter.
     clock:
@@ -515,6 +519,12 @@ class AdapterContext:
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
     admit_inbound: (
         Callable[[CanonicalEvent, IngressProvenance], Awaitable[AdmissionResult]] | None
+    ) = None
+    load_checkpoint: (
+        Callable[[str], Awaitable[AdapterCheckpoint | None]] | None
+    ) = None
+    commit_checkpoint: (
+        Callable[[str, str, str], Awaitable[None]] | None
     ) = None
     record_outbound_native_ref: (
         Callable[[OutboundNativeRefRecord], Awaitable[None]] | None

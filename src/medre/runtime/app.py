@@ -789,6 +789,8 @@ class MedreApp:
                         event_bus=self.event_bus,
                         publish_inbound=self._make_publish_inbound(),
                         admit_inbound=self._make_admit_inbound(),
+                        load_checkpoint=self._make_checkpoint_loader(adapter_id),
+                        commit_checkpoint=self._make_checkpoint_committer(adapter_id),
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
@@ -1983,6 +1985,30 @@ class MedreApp:
 
         for d in dirs_to_create:
             d.mkdir(parents=True, exist_ok=True)
+
+    def _make_checkpoint_loader(self, adapter_id: str) -> Any:
+        """Return a checkpoint reader bound to one adapter instance."""
+        storage = self.storage
+
+        async def _load(stream: str) -> Any:
+            if storage is None:
+                return None
+            return await storage.get_adapter_checkpoint(adapter_id, stream)
+
+        return _load
+
+    def _make_checkpoint_committer(self, adapter_id: str) -> Any:
+        """Return a checkpoint writer bound to one adapter instance."""
+        storage = self.storage
+
+        async def _commit(stream: str, cursor: str, metadata_json: str) -> None:
+            if storage is None:
+                raise RuntimeError("checkpoint persistence requires storage")
+            await storage.put_adapter_checkpoint(
+                adapter_id, stream, cursor, metadata_json=metadata_json
+            )
+
+        return _commit
 
     def _make_admit_inbound(self) -> Any:
         """Return a protocol-provenance durable ingress admission callable."""

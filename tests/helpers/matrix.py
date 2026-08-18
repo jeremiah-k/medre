@@ -86,19 +86,18 @@ def build_mock_nio_module() -> MagicMock:
     client.close = AsyncMock()
     client.rooms = {}
 
-    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
-
-    client.sync_forever = _sync_forever_stub
-
     async def _sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
         await asyncio.sleep(0)
         return SimpleNamespace(next_batch="mock_batch_token")
 
     client.sync = _sync_stub
+
+    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
+        while True:
+            await client.sync(*args, **kwargs)
+            await asyncio.sleep(0)
+
+    client.sync_forever = _sync_forever_stub
 
     async def _room_send(
         room_id: str, message_type: str, content: dict, **kwargs: object

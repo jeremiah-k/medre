@@ -356,6 +356,9 @@ class MatrixAdapter(AdapterContract):
         self._session = MatrixSession(
             config=self._config,
             message_callback=self._on_room_message,
+            admission_callback=self._on_room_message,
+            checkpoint_loader=ctx.load_checkpoint,
+            checkpoint_committer=ctx.commit_checkpoint,
             logger=session_logger,
             auto_join_rooms=self._config.auto_join_rooms,
         )
@@ -739,7 +742,9 @@ class MatrixAdapter(AdapterContract):
 
     # -- Inbound callback ---------------------------------------------------
 
-    async def _on_room_message(self, event: dict[str, Any]) -> None:
+    async def _on_room_message(
+        self, event: dict[str, Any], provenance: str | None = None
+    ) -> None:
         """Callback for inbound room events (normalized plain dict).
 
         Receives a normalized plain dict from the session boundary
@@ -781,7 +786,11 @@ class MatrixAdapter(AdapterContract):
         # dropped.  This check must happen before self-message suppression
         # so that pre-live self-messages are counted as startup-suppressed,
         # not self-suppressed.
-        if self._session is not None and not self._session.is_live:
+        if (
+            provenance is None
+            and self._session is not None
+            and not self._session.is_live
+        ):
             self._inbound_suppressed_startup += 1
             self.ctx.logger.debug(
                 "MatrixAdapter %s: suppressing startup backlog event from %s",
@@ -842,9 +851,22 @@ class MatrixAdapter(AdapterContract):
                         canonical, metadata=new_metadata
                     )
 
-            await self.publish_inbound(canonical)
+            if provenance is None:
+                await self.publish_inbound(canonical)
+            else:
+                result = await self.admit_inbound(canonical, provenance)
+                if not result.created:
+                    self.ctx.logger.debug(
+                        "MatrixAdapter %s: duplicate durable admission mapped to %s",
+                        self.adapter_id,
+                        result.event_id,
+                    )
             self._inbound_published += 1
+        except asyncio.CancelledError:
+            raise
         except Exception:
+            if provenance is not None:
+                raise
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "MatrixAdapter %s: error processing inbound event",
@@ -899,6 +921,14 @@ class MatrixAdapter(AdapterContract):
                 "reconnecting": diag.reconnecting,
                 "reconnect_attempts": diag.reconnect_attempts,
                 "last_successful_sync": diag.last_successful_sync,
+                "checkpoint_owned_by_medre": diag.checkpoint_owned_by_medre,
+                "committed_sync_token_present": diag.committed_sync_token_present,
+                "recovered_event_count": diag.recovered_event_count,
+                "history_event_count": diag.history_event_count,
+                "recovery_abandoned_room_count": (
+                    diag.recovery_abandoned_room_count
+                ),
+                "recovery_last_abandonment": diag.recovery_last_abandonment,
                 # Crypto-store continuity
                 "crypto_store_loaded": diag.crypto_store_loaded,
                 # E2EE key management diagnostics
@@ -961,6 +991,17 @@ class MatrixAdapter(AdapterContract):
             "reconnecting": False,
             "reconnect_attempts": 0,
             "last_successful_sync": None,
+            "checkpoint_owned_by_medre": bool(
+                self.ctx is not None
+                and self.ctx.admit_inbound is not None
+                and self.ctx.load_checkpoint is not None
+                and self.ctx.commit_checkpoint is not None
+            ),
+            "committed_sync_token_present": False,
+            "recovered_event_count": 0,
+            "history_event_count": 0,
+            "recovery_abandoned_room_count": 0,
+            "recovery_last_abandonment": None,
             # Crypto-store continuity
             "crypto_store_loaded": False,
             # E2EE key management diagnostics
