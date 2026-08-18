@@ -27,6 +27,7 @@ import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.adapters.matrix.identity import MatrixCrossSigningDiagnostics
 from medre.adapters.matrix.session import MatrixSession, MatrixSessionDiagnostics
 from tests.helpers.matrix_session import (
     make_matrix_config,
@@ -169,6 +170,14 @@ class TestMatrixSessionDiagnostics:
         assert diag.last_crypto_error is None
         assert diag.encrypted_room_seen is False
         assert diag.undecryptable_event_count == 0
+        assert diag.cross_signing_provider_supported is False
+        assert diag.cross_signing_local_identity_present is False
+        assert diag.cross_signing_server_identity_present is None
+        assert diag.cross_signing_current_device_self_signed is None
+        assert diag.cross_signing_chain_status == "unchecked"
+        assert diag.cross_signing_repair_required is False
+        assert diag.cross_signing_reset_required is False
+        assert diag.cross_signing_last_failure_category is None
 
     def test_diagnostics_with_store_and_device(self) -> None:
         config = make_matrix_config(store_path="/tmp/store", device_id="DEV")
@@ -331,6 +340,146 @@ class TestAdapterStartBehavior:
         finally:
             compat.HAS_E2EE = original
 
+    async def test_e2ee_runtime_reconciles_cross_signing_without_rotation(
+        self, mock_nio
+    ) -> None:
+        """Runtime verification never supplies bootstrap/reset authority."""
+        import medre.adapters.matrix.compat as compat
+
+        diagnostics = MatrixCrossSigningDiagnostics(
+            provider_supported=True,
+            local_identity_present=True,
+            server_identity_present=True,
+            current_device_self_signed=True,
+            chain_status="valid",
+        )
+        service = MagicMock()
+        service.reconcile = AsyncMock(return_value="already_signed")
+        service.diagnostics.return_value = diagnostics
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            with patch(
+                "medre.adapters.matrix.session.MatrixCrossSigningService",
+                return_value=service,
+            ) as service_cls:
+                session = MatrixSession(config)
+                try:
+                    await session.start()
+                    service_cls.assert_called_once_with(
+                        session._client, logger=session._logger
+                    )
+                    service.reconcile.assert_awaited_once_with()
+                    diag = session.diagnostics()
+                    assert diag.cross_signing_chain_status == "valid"
+                    assert diag.cross_signing_current_device_self_signed is True
+                finally:
+                    await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_runtime_identity_mismatch_is_nonfatal(self, mock_nio) -> None:
+        """An identity mismatch requires auth recovery but does not rotate at boot."""
+        import medre.adapters.matrix.compat as compat
+
+        diagnostics = MatrixCrossSigningDiagnostics(
+            provider_supported=True,
+            local_identity_present=True,
+            server_identity_present=True,
+            current_device_self_signed=False,
+            chain_status="mismatch",
+            reset_required=True,
+            last_failure_category="identity_mismatch",
+        )
+        service = MagicMock()
+        service.reconcile = AsyncMock(return_value=None)
+        service.diagnostics.return_value = diagnostics
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            with patch(
+                "medre.adapters.matrix.session.MatrixCrossSigningService",
+                return_value=service,
+            ):
+                session = MatrixSession(config)
+                try:
+                    await session.start()
+                    assert session.connected is True
+                    diag = session.diagnostics()
+                    assert diag.cross_signing_chain_status == "mismatch"
+                    assert diag.cross_signing_reset_required is True
+                    assert (
+                        diag.cross_signing_last_failure_category
+                        == "identity_mismatch"
+                    )
+                finally:
+                    await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_plaintext_runtime_does_not_create_cross_signing_service(
+        self, mock_nio
+    ) -> None:
+        config = make_matrix_config(encryption_mode="plaintext")
+        with patch(
+            "medre.adapters.matrix.session.MatrixCrossSigningService"
+        ) as service_cls:
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                service_cls.assert_not_called()
+                assert session.diagnostics().cross_signing_chain_status == "unchecked"
+            finally:
+                await session.stop()
+
+    async def test_e2ee_stop_releases_service_and_retains_diagnostics(
+        self, mock_nio
+    ) -> None:
+        import medre.adapters.matrix.compat as compat
+
+        diagnostics = MatrixCrossSigningDiagnostics(
+            provider_supported=True,
+            local_identity_present=True,
+            server_identity_present=True,
+            current_device_self_signed=True,
+            chain_status="valid",
+        )
+        service = MagicMock()
+        service.reconcile = AsyncMock(return_value="already_signed")
+        service.diagnostics.return_value = diagnostics
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            with patch(
+                "medre.adapters.matrix.session.MatrixCrossSigningService",
+                return_value=service,
+            ):
+                session = MatrixSession(config)
+                await session.start()
+                await session.stop()
+                assert session._cross_signing_service is None
+                assert session.diagnostics().cross_signing_chain_status == "valid"
+        finally:
+            compat.HAS_E2EE = original
+
     async def test_e2ee_optional_falls_back_on_crypto_failure(self, mock_nio) -> None:
         """e2ee_optional falls back to plaintext when crypto setup fails."""
         import medre.adapters.matrix.compat as compat
@@ -389,6 +538,14 @@ class TestAdapterDiagnostics:
         assert diag["last_crypto_error"] is None
         assert diag["encrypted_room_seen"] is False
         assert diag["undecryptable_event_count"] == 0
+        assert diag["cross_signing_provider_supported"] is False
+        assert diag["cross_signing_local_identity_present"] is False
+        assert diag["cross_signing_server_identity_present"] is None
+        assert diag["cross_signing_current_device_self_signed"] is None
+        assert diag["cross_signing_chain_status"] == "unchecked"
+        assert diag["cross_signing_repair_required"] is False
+        assert diag["cross_signing_reset_required"] is False
+        assert diag["cross_signing_last_failure_category"] is None
 
     async def test_diagnostics_after_start(self, mock_nio) -> None:
         config = make_matrix_config()

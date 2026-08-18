@@ -908,6 +908,27 @@ class MatrixAdapter(AdapterContract):
                 "device_id_in_use": diag.device_id_in_use,
                 "store_path_exists": diag.store_path_exists,
                 "initial_sync_completed": diag.initial_sync_completed,
+                # Own-device cross-signing (separate from peer-device trust)
+                "cross_signing_provider_supported": (
+                    diag.cross_signing_provider_supported
+                ),
+                "cross_signing_local_identity_present": (
+                    diag.cross_signing_local_identity_present
+                ),
+                "cross_signing_server_identity_present": (
+                    diag.cross_signing_server_identity_present
+                ),
+                "cross_signing_current_device_self_signed": (
+                    diag.cross_signing_current_device_self_signed
+                ),
+                "cross_signing_chain_status": diag.cross_signing_chain_status,
+                "cross_signing_repair_required": (
+                    diag.cross_signing_repair_required
+                ),
+                "cross_signing_reset_required": diag.cross_signing_reset_required,
+                "cross_signing_last_failure_category": (
+                    diag.cross_signing_last_failure_category
+                ),
                 # Room counts (no room IDs)
                 "encrypted_room_count": diag.encrypted_room_count,
                 "plaintext_room_count": diag.plaintext_room_count,
@@ -951,6 +972,15 @@ class MatrixAdapter(AdapterContract):
             "device_id_in_use": None,
             "store_path_exists": False,
             "initial_sync_completed": False,
+            # Own-device cross-signing (separate from peer-device trust)
+            "cross_signing_provider_supported": False,
+            "cross_signing_local_identity_present": False,
+            "cross_signing_server_identity_present": None,
+            "cross_signing_current_device_self_signed": None,
+            "cross_signing_chain_status": "unchecked",
+            "cross_signing_repair_required": False,
+            "cross_signing_reset_required": False,
+            "cross_signing_last_failure_category": None,
             # Room counts
             "encrypted_room_count": 0,
             "plaintext_room_count": 0,
