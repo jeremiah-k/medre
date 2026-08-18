@@ -75,7 +75,8 @@ async def bootstrap_login_cross_signing(
     import nio
 
     store_path = matrix_store_path_for_adapter(adapter_id)
-    store_path.mkdir(parents=True, exist_ok=True)
+    store_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    store_path.chmod(0o700)
     try:
         client_config = nio.AsyncClientConfig(encryption_enabled=True)
         client = nio.AsyncClient(
@@ -127,4 +128,30 @@ async def bootstrap_login_cross_signing(
         try:
             await client.close()
         except Exception:
-            pass
+            (logger or logging.getLogger(__name__)).debug(
+                "Matrix E2EE bootstrap client close failed", exc_info=True
+            )
+        finally:
+            _close_store_database(client, logger)
+
+
+def _close_store_database(
+    client: object, logger: logging.Logger | None = None
+) -> None:
+    """Close the database opened by nio's MatrixStore."""
+    database = getattr(getattr(client, "store", None), "database", None)
+    if database is None:
+        return
+    try:
+        stop = getattr(database, "stop", None)
+        is_stopped = getattr(database, "is_stopped", None)
+        if callable(stop) and callable(is_stopped) and not is_stopped():
+            stop()
+        close = getattr(database, "close", None)
+        is_closed = getattr(database, "is_closed", None)
+        if callable(close) and (not callable(is_closed) or not is_closed()):
+            close()
+    except Exception:
+        (logger or logging.getLogger(__name__)).debug(
+            "Matrix E2EE store close failed", exc_info=True
+        )

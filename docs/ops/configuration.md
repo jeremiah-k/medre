@@ -883,7 +883,9 @@ export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 | Access token | Set via `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` env var or Matrix credential sidecar. Never logged. Never committed. |
 | E2EE/cross-signing store | Runtime state under `{state_dir}/adapters/{adapter_id}/matrix/store`. Contains private crypto/signing material; back up securely and never commit. |
 
-The runtime derives device ID via `whoami()` and uses an internal store path. The crypto store directory contains sensitive Olm/Megolm and cross-signing material — exclude it from version control and include it in protected state backups.
+The runtime derives device ID via `whoami()` and uses an internal store path. The crypto
+store directory contains sensitive Olm/Megolm and cross-signing material — exclude it
+from version control and include it in protected state backups.
 
 **Token rotation procedure:**
 

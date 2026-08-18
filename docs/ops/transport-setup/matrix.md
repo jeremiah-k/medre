@@ -237,18 +237,33 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 ### E2EE Limitations
 
 - Text messages only in encrypted rooms. No reactions, edits, media, or attachments.
-- Own-device cross-signing is supported with `mindroom-nio 0.40.0`, but MEDRE does not yet expose a peer-device verification policy. Encrypted sends intentionally use `ignore_unverified_devices=True` for compatibility.
-- Cross-signing MEDRE's own device does **not** imply that MEDRE trusts every peer device in a room. Peer-device trust remains a separate future policy surface.
-- No room-key backup/import/export or interactive verification workflow is managed by MEDRE.
-- Access token is a plain string in config/credential sidecar (no automatic token rotation).
+- Own-device cross-signing is supported with `mindroom-nio 0.40.0`, but MEDRE does not
+  yet expose a peer-device verification policy. Encrypted sends intentionally use
+  `ignore_unverified_devices=True` for compatibility.
+- Cross-signing MEDRE's own device does **not** imply that MEDRE trusts every peer
+  device in a room. Peer-device trust remains a separate future policy surface.
+- No room-key backup/import/export or interactive verification workflow is managed by
+  MEDRE.
+- Access token is a plain string in config/credential sidecar (no automatic token
+  rotation).
 
 ## Device Identity, Cross-Signing, and Crypto Store
 
-The adapter manages device identity and crypto store paths internally. Operators do not configure `device_id` or `store_path`.
+The adapter manages device identity and crypto store paths internally. Operators do not
+configure `device_id` or `store_path`.
 
-When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami()` to discover the device ID. The crypto store path is derived automatically from the resolved state directory: `{state_dir}/adapters/{adapter_id}/matrix/store`. The store contains sensitive Olm/Megolm and cross-signing material and must be backed up and protected like a private key store.
+When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami()` to
+discover the device ID. The crypto store path is derived automatically from the resolved
+state directory: `{state_dir}/adapters/{adapter_id}/matrix/store`. The store contains
+sensitive Olm/Megolm and cross-signing material and must be backed up and protected like
+a private key store.
 
-At runtime MEDRE performs a non-destructive own-device cross-signing reconciliation. It may verify the existing chain or repair a missing current-device self-signature when the persisted master/self-signing identity matches the homeserver. Runtime startup has no password and will not bootstrap or rotate master/self-signing keys. Missing/mismatched identity material is reported through diagnostics and must be handled through the authenticated auth workflow above.
+At runtime MEDRE performs a non-destructive own-device cross-signing reconciliation. It
+may verify the existing chain or repair a missing current-device self-signature when the
+persisted master/self-signing identity matches the homeserver. Runtime startup has no
+password and will not bootstrap or rotate master/self-signing keys. Missing/mismatched
+identity material is reported through diagnostics and must be handled through the
+authenticated auth workflow above.
 
 ### Cross-signing diagnostics
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import getpass
 import sys
 from pathlib import Path
@@ -154,6 +155,7 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     from medre.adapters.matrix.auth import (
         MatrixConnectionError,
         matrix_login,
+        matrix_logout,
         matrix_whoami,
         save_credentials_json,
     )
@@ -179,12 +181,29 @@ async def _adapter_matrix_auth_login(args: object) -> None:
                 bootstrap_login_cross_signing,
             )
 
-            cross_signing_result = await bootstrap_login_cross_signing(
-                result,
-                password,
-                adapter_id=adapter_id,
-                reset=reset_cross_signing,
-            )
+            def _invalidate_failed_session() -> None:
+                try:
+                    matrix_logout(result.homeserver, result.access_token)
+                except MatrixConnectionError as logout_exc:
+                    print(
+                        "Warning: failed to invalidate the Matrix session after "
+                        f"cross-signing setup failed: {logout_exc}",
+                        file=sys.stderr,
+                    )
+
+            try:
+                cross_signing_result = await bootstrap_login_cross_signing(
+                    result,
+                    password,
+                    adapter_id=adapter_id,
+                    reset=reset_cross_signing,
+                )
+            except asyncio.CancelledError:
+                _invalidate_failed_session()
+                raise
+            except Exception:
+                _invalidate_failed_session()
+                raise
 
         # Step 8: Persist token/device credentials only after any requested
         # cross-signing bootstrap has reached a verified postcondition.

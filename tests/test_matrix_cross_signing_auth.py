@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import builtins
 import io
+import stat
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +106,7 @@ async def test_bootstrap_prepares_runtime_store_and_verifies_identity(
     )
 
     assert store_path.is_dir()
+    assert stat.S_IMODE(store_path.stat().st_mode) == 0o700
     assert nio.config_calls == [True]
     assert nio.client_calls[0]["store_path"] == str(store_path)
     assert client.restore_login.call_args.kwargs == {
@@ -119,6 +122,49 @@ async def test_bootstrap_prepares_runtime_store_and_verifies_identity(
     assert result.provider_result == "uploaded_and_signed"
     assert result.diagnostics.chain_status == "valid"
     client.close.assert_awaited_once()
+
+
+async def test_bootstrap_restricts_existing_store_and_closes_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import medre.adapters.matrix.e2ee_bootstrap as bootstrap_mod
+
+    database = SimpleNamespace(
+        is_stopped=MagicMock(return_value=False),
+        stop=MagicMock(),
+        is_closed=MagicMock(return_value=False),
+        close=MagicMock(),
+    )
+    client = _FakeBootstrapClient()
+    client.store = SimpleNamespace(database=database)
+    nio = _FakeNioModule(client)
+    store_path = tmp_path / "store"
+    store_path.mkdir(mode=0o755)
+    store_path.chmod(0o755)
+
+    class FakeService:
+        def __init__(self, provider: object, *, logger=None) -> None:
+            pass
+
+        async def reconcile(self, **kwargs: object) -> str:
+            return "already_signed"
+
+        def diagnostics(self) -> MatrixCrossSigningDiagnostics:
+            return MatrixCrossSigningDiagnostics(chain_status="valid")
+
+    monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_NIO", True)
+    monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_E2EE", True)
+    monkeypatch.setattr(bootstrap_mod, "matrix_store_path_for_adapter", lambda _: store_path)
+    monkeypatch.setattr(bootstrap_mod, "MatrixCrossSigningService", FakeService)
+    monkeypatch.setitem(sys.modules, "nio", nio)  # type: ignore[arg-type]
+
+    await bootstrap_login_cross_signing(
+        _login_result(), "fresh-password", adapter_id="main"
+    )
+
+    assert stat.S_IMODE(store_path.stat().st_mode) == 0o700
+    database.stop.assert_called_once_with()
+    database.close.assert_called_once_with()
 
 
 async def test_bootstrap_propagates_explicit_reset_to_policy(
@@ -292,6 +338,7 @@ async def test_login_does_not_persist_credentials_when_bootstrap_fails(
     )
     result = _login_result()
     save = MagicMock()
+    logout = MagicMock()
 
     with (
         patch("medre.adapters.matrix.auth.matrix_login", return_value=result),
@@ -300,6 +347,7 @@ async def test_login_does_not_persist_credentials_when_bootstrap_fails(
             return_value="@bot:example.com",
         ),
         patch("medre.adapters.matrix.auth.save_credentials_json", save),
+        patch("medre.adapters.matrix.auth.matrix_logout", logout),
         patch(
             "medre.adapters.matrix.e2ee_bootstrap.bootstrap_login_cross_signing",
             side_effect=MatrixConnectionError("cross-signing failed"),
@@ -310,6 +358,7 @@ async def test_login_does_not_persist_credentials_when_bootstrap_fails(
 
     assert exc_info.value.code == 1
     save.assert_not_called()
+    logout.assert_called_once_with(result.homeserver, result.access_token)
 
 
 async def test_reset_flag_without_adapter_id_is_rejected_before_login() -> None:
@@ -346,6 +395,13 @@ async def test_basic_login_without_adapter_id_remains_sdk_free(tmp_path: Path) -
         reset_cross_signing=False,
     )
     result = _login_result()
+    real_import = builtins.__import__
+
+    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "nio" or name == "medre.adapters.matrix.e2ee_bootstrap":
+            raise AssertionError(f"basic login imported Matrix E2EE dependency {name}")
+        return real_import(name, *args, **kwargs)
+
     with (
         patch("medre.adapters.matrix.auth.matrix_login", return_value=result),
         patch(
@@ -356,5 +412,6 @@ async def test_basic_login_without_adapter_id_remains_sdk_free(tmp_path: Path) -
             "medre.adapters.matrix.auth.save_credentials_json",
             return_value=tmp_path / "matrix.json",
         ),
+        patch("builtins.__import__", side_effect=guarded_import),
     ):
         await _adapter_matrix_auth_login(args)

@@ -18,9 +18,10 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol, cast
+from typing import Any, Protocol, cast
 
 __all__ = [
     "MatrixCrossSigningDiagnostics",
@@ -569,13 +570,19 @@ class MatrixCrossSigningService:
         had_sidecar = sidecar.exists()
         if had_sidecar:
             os.replace(sidecar, backup)
+        previous_identity = getattr(self._client, "cross_signing_identity", None)
 
         try:
             result = await ensure_method(password=password)
         except asyncio.CancelledError:
+            self._handle_failed_reset(
+                sidecar, backup, had_sidecar, previous_identity=previous_identity
+            )
             raise
         except Exception as exc:
-            self._handle_failed_reset(sidecar, backup, had_sidecar)
+            self._handle_failed_reset(
+                sidecar, backup, had_sidecar, previous_identity=previous_identity
+            )
             self._fail(
                 "reset_failed",
                 chain_status="reset_required",
@@ -585,7 +592,9 @@ class MatrixCrossSigningService:
             return None
 
         if result not in _VALID_PROVIDER_RESULTS:
-            self._handle_failed_reset(sidecar, backup, had_sidecar)
+            self._handle_failed_reset(
+                sidecar, backup, had_sidecar, previous_identity=previous_identity
+            )
             self._fail(
                 "unexpected_provider_result",
                 chain_status="reset_required",
@@ -595,7 +604,9 @@ class MatrixCrossSigningService:
 
         identity = getattr(self._client, "cross_signing_identity", None)
         if identity is None:
-            self._handle_failed_reset(sidecar, backup, had_sidecar)
+            self._handle_failed_reset(
+                sidecar, backup, had_sidecar, previous_identity=previous_identity
+            )
             self._fail(
                 "local_identity_missing_after_reset",
                 chain_status="reset_required",
@@ -640,13 +651,19 @@ class MatrixCrossSigningService:
         sidecar: Path,
         backup: Path,
         had_sidecar: bool,
+        *,
+        previous_identity: object | None,
     ) -> None:
         identity = None
         try:
             identity = getattr(self._client, "cross_signing_identity", None)
         except Exception:
             pass
-        if identity is not None and bool(getattr(identity, "uploaded", False)):
+        if (
+            identity is not None
+            and identity is not previous_identity
+            and bool(getattr(identity, "uploaded", False))
+        ):
             backup.unlink(missing_ok=True)
             return
         self._restore_reset_backup(sidecar, backup, had_sidecar)

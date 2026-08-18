@@ -965,29 +965,29 @@ class E2EETestEnvironment:
             # for their devices.
             if client.should_query_keys:
                 await client.keys_query()
+
+            # Claim keys for other users' devices (e.g. the bot) so that
+            # Megolm outbound sessions can encrypt for them.
+            if client.should_claim_keys:
+                try:
+                    users = client.get_users_for_key_claiming()
+                    if users:
+                        self._logger.debug(
+                            "E2EE test client claiming keys for %d user(s)", len(users)
+                        )
+                        await client.keys_claim(users)
+                except Exception as exc:
+                    self._logger.debug(
+                        "E2EE test client key claim failed (non-fatal): %s", exc
+                    )
+
+            # Process any pending to-device messages (key shares).
+            await client.send_to_device_messages()
         except Exception:
             # Do not leak the client or its SQLite store when
             # initialisation fails partway.
             await close_nio_client(client)
             raise
-
-        # Claim keys for other users' devices (e.g. the bot) so that
-        # Megolm outbound sessions can encrypt for them.
-        if client.should_claim_keys:
-            try:
-                users = client.get_users_for_key_claiming()
-                if users:
-                    self._logger.debug(
-                        "E2EE test client claiming keys for %d user(s)", len(users)
-                    )
-                    await client.keys_claim(users)
-            except Exception as exc:
-                self._logger.debug(
-                    "E2EE test client key claim failed (non-fatal): %s", exc
-                )
-
-        # Process any pending to-device messages (key shares).
-        await client.send_to_device_messages()
 
         self.test_e2ee_client = client
         return client

@@ -113,10 +113,13 @@ Back it up and restore matching state if possible. Use
 
 ## Known Gaps
 
-- Third-party inbound confirmed at Docker SDK-boundary only; external-live not confirmed.
+- Third-party inbound confirmed at Docker SDK-boundary only; external-live not
+  confirmed.
 - No E2EE reactions, edits, deletes, or attachments.
-- Own-device cross-signing is implemented, but live evidence must be refreshed against the pinned `mindroom-nio 0.40.0` baseline.
-- Peer-device trust remains permissive (`ignore_unverified_devices=True`) and is not yet operator-configurable.
+- Own-device cross-signing is implemented, but live evidence must be refreshed against
+  the pinned `mindroom-nio 0.40.0` baseline.
+- Peer-device trust remains permissive (`ignore_unverified_devices=True`) and is not yet
+  operator-configurable.
 - No room-key backup/import/export workflow is managed by MEDRE.
 - Soak tests: NOT EXECUTED.
 

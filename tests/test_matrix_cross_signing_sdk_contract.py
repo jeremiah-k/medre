@@ -19,10 +19,19 @@ def test_mindroom_nio_exposes_cross_signing_contract() -> None:
         pytest.skip("nio E2EE support is not enabled")
 
     ensure = getattr(nio.AsyncClient, "ensure_cross_signing", None)
+    send = getattr(nio.AsyncClient, "send", None)
     identity = getattr(nio.AsyncClient, "cross_signing_identity", None)
     assert callable(ensure)
+    assert callable(send)
     assert isinstance(identity, property)
     assert "password" in inspect.signature(ensure).parameters
+    assert list(inspect.signature(send).parameters)[:5] == [
+        "self",
+        "method",
+        "path",
+        "data",
+        "headers",
+    ]
 
     cross_signing = pytest.importorskip("nio.crypto.cross_signing")
     identity_cls = cross_signing.CrossSigningIdentity

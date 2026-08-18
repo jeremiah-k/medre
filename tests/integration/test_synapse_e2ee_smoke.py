@@ -645,7 +645,7 @@ class TestSynapseE2EESmoke:
             # not close the store's SQLite connection (nio 0.40.0). Close
             # it ourselves so the connection is never left to the garbage
             # collector.
-            adapter_session = matrix_adapter._session
+            adapter_session = getattr(matrix_adapter, "_session", None)
             adapter_client = (
                 getattr(adapter_session, "_client", None)
                 if adapter_session is not None

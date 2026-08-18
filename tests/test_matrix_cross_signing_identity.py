@@ -349,6 +349,29 @@ async def test_failed_reset_before_upload_restores_previous_sidecar(
     assert service.diagnostics().last_failure_category == "reset_failed"
 
 
+async def test_cancelled_reset_restores_previous_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = _identity()
+    client = FakeClient(identity=identity, server_identity=True)
+    service = MatrixCrossSigningService(client)
+    sidecar = tmp_path / "identity.json"
+    sidecar.write_text('{"old": true}', encoding="utf-8")
+    monkeypatch.setattr(service, "_provider_sidecar_path", lambda: sidecar)
+
+    async def cancelled(password: str | None = None) -> str:
+        sidecar.write_text('{"new": false}', encoding="utf-8")
+        raise asyncio.CancelledError
+
+    client.ensure_cross_signing = cancelled  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.reconcile(password="pw", reset=True)
+
+    assert sidecar.read_text(encoding="utf-8") == '{"old": true}'
+    assert not sidecar.with_name(f"{sidecar.name}.pre-reset").exists()
+
+
 async def test_cancellation_from_provider_bootstrap_propagates() -> None:
     client = FakeClient(identity=None, server_identity=False)
 

@@ -213,6 +213,39 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
     return user_id
 
 
+def matrix_logout(homeserver: str, access_token: str) -> None:
+    """Invalidate an authenticated Matrix client session."""
+    homeserver = _normalize_homeserver(homeserver).rstrip("/")
+    url = f"{homeserver}/_matrix/client/v3/logout"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(
+            req
+        ):  # nosec: homeserver validated by _normalize_homeserver()
+            pass
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            raw = exc.read().decode("utf-8", errors="replace")
+            detail = _redact_token(access_token, raw)
+        except Exception:
+            pass
+        finally:
+            exc.close()
+        raise MatrixConnectionError(
+            f"Logout failed (HTTP {exc.code}): {detail}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise MatrixConnectionError(
+            f"Logout failed (network error): {exc.reason}"
+        ) from exc
+
+
 def extract_domain_from_mxid(user_id: str) -> str | None:
     """Extract the domain part from a Matrix user ID.
 

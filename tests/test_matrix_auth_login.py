@@ -21,6 +21,7 @@ from medre.adapters.matrix.auth import (
     discover_well_known,
     extract_domain_from_mxid,
     matrix_login,
+    matrix_logout,
     matrix_whoami,
     save_credentials_json,
 )
@@ -319,6 +320,19 @@ class TestMatrixWhoami:
 
         with pytest.raises(MatrixConnectionError, match="missing user_id"):
             matrix_whoami("https://m.org", "tok")
+
+
+def test_matrix_logout_posts_with_bearer_token() -> None:
+    with patch(
+        "medre.adapters.matrix.auth.urllib.request.urlopen",
+        return_value=_FakeResponse({}),
+    ) as urlopen:
+        matrix_logout("https://matrix.org", "syt_token")
+
+    request = urlopen.call_args.args[0]
+    assert request.full_url == "https://matrix.org/_matrix/client/v3/logout"
+    assert request.method == "POST"
+    assert request.get_header("Authorization") == "Bearer syt_token"
 
 
 # ---------------------------------------------------------------------------
