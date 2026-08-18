@@ -211,6 +211,66 @@ async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
 # ---------------------------------------------------------------------------
 
 
+async def test_cross_signing_bootstrap_persists_and_runtime_verifies(
+    synapse_e2ee_env: E2EETestEnvironment,
+) -> None:
+    """Prove authenticated bootstrap and passwordless persisted verification."""
+    from medre.adapters.matrix.identity import MatrixCrossSigningService
+
+    env = synapse_e2ee_env
+    client = await _open_bot_e2ee_client(env)
+    try:
+        service = MatrixCrossSigningService(client, logger=logger)
+        bootstrap_result = await service.reconcile(
+            password=env.bot_password,
+            allow_bootstrap=True,
+        )
+        bootstrap_diag = service.diagnostics()
+        assert bootstrap_result == "uploaded_and_signed"
+        assert bootstrap_diag.provider_supported is True
+        assert bootstrap_diag.local_identity_present is True
+        assert bootstrap_diag.server_identity_present is True
+        assert bootstrap_diag.current_device_self_signed is True
+        assert bootstrap_diag.chain_status == "valid"
+        assert bootstrap_diag.reset_required is False
+    finally:
+        await close_nio_client(client)
+
+    # Reopen the exact same E2EE store. Runtime reconciliation deliberately
+    # receives no password and no bootstrap/reset authority.
+    runtime_client = await _open_bot_e2ee_client(env)
+    try:
+        runtime_service = MatrixCrossSigningService(runtime_client, logger=logger)
+        runtime_result = await runtime_service.reconcile()
+        runtime_diag = runtime_service.diagnostics()
+        assert runtime_result == "already_signed"
+        assert runtime_diag.local_identity_present is True
+        assert runtime_diag.server_identity_present is True
+        assert runtime_diag.current_device_self_signed is True
+        assert runtime_diag.chain_status == "valid"
+        assert runtime_diag.repair_required is False
+        assert runtime_diag.reset_required is False
+    finally:
+        await close_nio_client(runtime_client)
+
+    report: dict[str, Any] = {
+        "transport": "matrix",
+        "evidence_level": "docker_sdk_boundary",
+        "test": "test_cross_signing_bootstrap_persists_and_runtime_verifies",
+        "cross_signing_chain_status": runtime_diag.chain_status,
+        "current_device_self_signed": runtime_diag.current_device_self_signed,
+        "store_reopened": True,
+        "passwordless_runtime_verify": True,
+        "limitations": [
+            "Docker loopback only — no federation or external network proof.",
+            "No peer-device verification policy is exercised.",
+            "Ephemeral crypto store (keys discarded after run).",
+        ],
+    }
+    assert report["cross_signing_chain_status"] == "valid"
+    assert report["current_device_self_signed"] is True
+
+
 class TestSynapseE2EESmoke:
     r"""Docker-local Synapse E2EE smoke tests.
 
@@ -223,70 +283,6 @@ class TestSynapseE2EESmoke:
     complete within the test timeout, the test ``xfail``\\s with a clear
     reason rather than silently passing.
     """
-
-    async def test_cross_signing_bootstrap_persists_and_runtime_verifies(
-        self,
-        synapse_e2ee_env: E2EETestEnvironment,
-    ) -> None:
-        """Prove authenticated bootstrap and passwordless persisted verification."""
-        from medre.adapters.matrix.identity import MatrixCrossSigningService
-
-        env = synapse_e2ee_env
-        client = await _open_bot_e2ee_client(env)
-        try:
-            service = MatrixCrossSigningService(client, logger=logger)
-            bootstrap_result = await service.reconcile(
-                password=env.bot_password,
-                allow_bootstrap=True,
-            )
-            bootstrap_diag = service.diagnostics()
-            assert bootstrap_result in {
-                "already_signed",
-                "device_signed",
-                "uploaded_and_signed",
-            }
-            assert bootstrap_diag.provider_supported is True
-            assert bootstrap_diag.local_identity_present is True
-            assert bootstrap_diag.server_identity_present is True
-            assert bootstrap_diag.current_device_self_signed is True
-            assert bootstrap_diag.chain_status == "valid"
-            assert bootstrap_diag.reset_required is False
-        finally:
-            await close_nio_client(client)
-
-        # Reopen the exact same E2EE store. Runtime reconciliation deliberately
-        # receives no password and no bootstrap/reset authority.
-        runtime_client = await _open_bot_e2ee_client(env)
-        try:
-            runtime_service = MatrixCrossSigningService(runtime_client, logger=logger)
-            runtime_result = await runtime_service.reconcile()
-            runtime_diag = runtime_service.diagnostics()
-            assert runtime_result == "already_signed"
-            assert runtime_diag.local_identity_present is True
-            assert runtime_diag.server_identity_present is True
-            assert runtime_diag.current_device_self_signed is True
-            assert runtime_diag.chain_status == "valid"
-            assert runtime_diag.repair_required is False
-            assert runtime_diag.reset_required is False
-        finally:
-            await close_nio_client(runtime_client)
-
-        report: dict[str, Any] = {
-            "transport": "matrix",
-            "evidence_level": "docker_sdk_boundary",
-            "test": "test_cross_signing_bootstrap_persists_and_runtime_verifies",
-            "cross_signing_chain_status": runtime_diag.chain_status,
-            "current_device_self_signed": runtime_diag.current_device_self_signed,
-            "store_reopened": True,
-            "passwordless_runtime_verify": True,
-            "limitations": [
-                "Docker loopback only — no federation or external network proof.",
-                "No peer-device verification policy is exercised.",
-                "Ephemeral crypto store (keys discarded after run).",
-            ],
-        }
-        assert report["cross_signing_chain_status"] == "valid"
-        assert report["current_device_self_signed"] is True
 
     async def test_e2ee_encrypted_room_created(
         self,
@@ -668,7 +664,10 @@ class TestSynapseE2EESmoke:
                 except Exception:
                     logger.debug("%s cleanup error", _name, exc_info=True)
             if adapter_client is not None:
-                close_nio_store(adapter_client)
+                try:
+                    close_nio_store(adapter_client)
+                except Exception:
+                    logger.debug("adapter store cleanup error", exc_info=True)
             # Let pending tasks settle after teardown.
             await asyncio.sleep(0.1)
 
