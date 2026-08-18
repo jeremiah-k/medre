@@ -751,13 +751,27 @@ class TestReproducibilityEvidence:
         every other supported Python; a Renovate pin attempt did exactly
         that. Renovate is disabled for this field in renovate.json; this
         guard makes an accidental re-pinning fail at PR time.
+
+        Validation is a full PEP 440 parse (via ``packaging``, itself a
+        guaranteed transitive of pytest) rather than substring checks, so
+        compound specifiers, markers, and whitespace cannot smuggle a
+        non-floor operator past the guard.
         """
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+
         rp = str(self._project.get("requires-python", ""))
-        assert rp.startswith(">="), (
-            f"requires-python must be a '>=...' floor, got {rp!r}"
-        )
-        assert "==" not in rp, (
-            f"requires-python must not contain '==': {rp!r}"
+        try:
+            specifiers = list(SpecifierSet(rp))
+        except InvalidSpecifier as exc:
+            raise AssertionError(
+                f"requires-python is not a valid PEP 440 specifier set: "
+                f"{rp!r} ({exc})"
+            ) from exc
+        assert specifiers, f"requires-python must not be empty: {rp!r}"
+        non_floor = [s for s in specifiers if s.operator != ">="]
+        assert not non_floor, (
+            f"requires-python must be a '>=...' floor only; found "
+            f"non-floor operators: {[str(s) for s in non_floor]}"
         )
 
     def test_build_system_has_exactly_two_keys(self) -> None:
@@ -814,18 +828,37 @@ class TestCIPythonPolicy:
     """
 
     _WORKFLOWS = sorted(
-        (Path(__file__).resolve().parent.parent / ".github" / "workflows")
-        .glob("*.yml")
+        wf
+        for pattern in ("*.yml", "*.yaml")
+        for wf in (
+            Path(__file__).resolve().parent.parent
+            / ".github"
+            / "workflows"
+        ).glob(pattern)
     )
 
     def test_workflow_python_versions_are_minor_level(self) -> None:
-        """Every python-version literal is ``MAJOR.MINOR`` — never patch."""
+        """Every python-version literal is ``MAJOR.MINOR`` — never patch.
+
+        Covers both quoting styles, bare YAML scalars, and inline arrays;
+        ``${{ ... }}`` template lines are references, not literals, and
+        are skipped.
+        """
         seen: list[str] = []
         for workflow in self._WORKFLOWS:
             for line in workflow.read_text(encoding="utf-8").splitlines():
                 if "python-version" not in line or "${{" in line:
                     continue
-                seen.extend(re.findall(r'"(\d[^"]*)"', line))
+                # Quoted literals, single or double style (also covers
+                # every element of inline arrays like ["3.11", "3.12"]).
+                quoted = re.findall(r"'(\d[^']*)'|\"(\d[^\"]*)\"", line)
+                if quoted:
+                    seen.extend(a or b for a, b in quoted)
+                else:
+                    # Bare scalar: `python-version: 3.14` (strip comments).
+                    bare = re.search(r"python-version:\s*(\d[^\s#]*)", line)
+                    if bare:
+                        seen.append(bare.group(1))
         assert seen, "no python-version literals found in workflows"
         pinned = [v for v in seen if not re.fullmatch(r"\d+\.\d+", v)]
         assert not pinned, (
