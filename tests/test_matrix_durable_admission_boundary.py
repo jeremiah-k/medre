@@ -79,4 +79,4 @@ async def test_recovered_provenance_overrides_generic_start_timestamp_filter() -
     )
 
     ctx.admit_inbound.assert_awaited_once()
-    assert adapter.stale_events_dropped == 0
+    assert adapter._stale_events_dropped == 0
