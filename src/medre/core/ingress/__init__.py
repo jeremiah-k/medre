@@ -14,4 +14,7 @@ __all__ = [
     "IngressProvenance",
     "IngressWorkItem",
     "IngressWorkStatus",
+    "DurableIngressWorker",
 ]
+
+from medre.core.ingress.worker import DurableIngressWorker

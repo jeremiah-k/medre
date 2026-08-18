@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from medre.core.events import CanonicalEvent, NativeMessageRef
-from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
+from medre.core.ingress import (
+    AdapterCheckpoint,
+    AdmissionResult,
+    IngressProvenance,
+    IngressWorkItem,
+)
 from medre.core.storage.backend import DuplicateEventError, StorageError
-from medre.core.storage.sqlite.connection import sync_admit_ingress, sync_upsert_checkpoint
+from medre.core.storage.sqlite.connection import (
+    sync_admit_ingress,
+    sync_claim_ingress_work,
+    sync_upsert_checkpoint,
+)
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _serialize_metadata
 from medre.core.storage.sqlite.statements import _INSERT_EVENT
 
@@ -268,3 +278,126 @@ class _IngressMixin:
             metadata_json=row["metadata"],
             updated_at=row["updated_at"],
         )
+    async def claim_ingress_work(
+        self,
+        *,
+        worker_id: str,
+        limit: int = 25,
+        lease_seconds: float = 30.0,
+    ) -> list[IngressWorkItem]:
+        """Claim pending or lease-expired ingress work atomically."""
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+        lease_until = (now + timedelta(seconds=lease_seconds)).isoformat()
+        db = self._require_db()
+        try:
+            if self._use_aiosqlite:
+                async with self._async_write_lock:
+                    try:
+                        await db.execute("BEGIN IMMEDIATE")
+                        async with db.execute(
+                            """
+                            SELECT event_id, provenance, status, attempts, last_error,
+                                   created_at, updated_at, locked_at, lease_until, worker_id
+                            FROM durable_ingress_work
+                            WHERE status = 'pending'
+                               OR (status = 'processing' AND lease_until IS NOT NULL
+                                   AND lease_until <= ?)
+                            ORDER BY created_at, event_id LIMIT ?
+                            """,
+                            (now_iso, limit),
+                        ) as cur:
+                            rows = await cur.fetchall()
+                        claimed: list[dict[str, Any]] = []
+                        for row in rows:
+                            event_id = str(row[0])
+                            await db.execute(
+                                """
+                                UPDATE durable_ingress_work
+                                SET status='processing', attempts=attempts+1,
+                                    locked_at=?, lease_until=?, worker_id=?, updated_at=?
+                                WHERE event_id=?
+                                """,
+                                (now_iso, lease_until, worker_id, now_iso, event_id),
+                            )
+                            claimed.append(
+                                {
+                                    "event_id": event_id,
+                                    "provenance": row[1],
+                                    "status": "processing",
+                                    "attempts": int(row[3]) + 1,
+                                    "last_error": row[4],
+                                    "created_at": row[5],
+                                    "updated_at": now_iso,
+                                    "locked_at": now_iso,
+                                    "lease_until": lease_until,
+                                    "worker_id": worker_id,
+                                }
+                            )
+                        await db.commit()
+                    except BaseException:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
+            else:
+                claimed = await self._run_in_thread(
+                    sync_claim_ingress_work,
+                    db,
+                    self._lock,
+                    now_iso=now_iso,
+                    lease_until=lease_until,
+                    worker_id=worker_id,
+                    limit=limit,
+                )
+            return [
+                IngressWorkItem(
+                    event_id=row["event_id"],
+                    provenance=row["provenance"],
+                    status=row["status"],
+                    attempts=row["attempts"],
+                    last_error=row["last_error"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                    locked_at=row["locked_at"],
+                    lease_until=row["lease_until"],
+                    worker_id=row["worker_id"],
+                )
+                for row in claimed
+            ]
+        except sqlite3.Error as exc:
+            raise StorageError(f"Ingress work claim failed: {exc}") from exc
+
+    async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> None:
+        """Mark owned ingress work complete after durable delivery planning."""
+        await self._write(
+            """
+            UPDATE durable_ingress_work
+            SET status='completed', updated_at=?, locked_at=NULL,
+                lease_until=NULL, worker_id=NULL, last_error=NULL
+            WHERE event_id=? AND status='processing' AND worker_id=?
+            """,
+            (_now_iso(), event_id, worker_id),
+        )
+
+    async def release_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> None:
+        """Return owned ingress work to pending after a processing failure."""
+        await self._write(
+            """
+            UPDATE durable_ingress_work
+            SET status='pending', updated_at=?, locked_at=NULL, lease_until=NULL,
+                worker_id=NULL, last_error=?
+            WHERE event_id=? AND status='processing' AND worker_id=?
+            """,
+            (_now_iso(), error[:1000], event_id, worker_id),
+        )
+
+    async def count_ingress_work_by_status(self) -> dict[str, int]:
+        """Return durable ingress work counts grouped by status."""
+        rows = await self._read_all(
+            "SELECT status, COUNT(*) AS count FROM durable_ingress_work GROUP BY status"
+        )
+        return {str(row["status"]): int(row["count"]) for row in rows}

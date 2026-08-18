@@ -199,3 +199,65 @@ def sync_upsert_checkpoint(
             except Exception:
                 pass
             raise
+
+
+def sync_claim_ingress_work(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    now_iso: str,
+    lease_until: str,
+    worker_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Atomically claim pending or stale durable-ingress work."""
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                """
+                SELECT event_id, provenance, status, attempts, last_error,
+                       created_at, updated_at, locked_at, lease_until, worker_id
+                FROM durable_ingress_work
+                WHERE status = 'pending'
+                   OR (status = 'processing' AND lease_until IS NOT NULL
+                       AND lease_until <= ?)
+                ORDER BY created_at, event_id
+                LIMIT ?
+                """,
+                (now_iso, limit),
+            ).fetchall()
+            claimed: list[dict[str, Any]] = []
+            for row in rows:
+                event_id = str(row[0])
+                db.execute(
+                    """
+                    UPDATE durable_ingress_work
+                    SET status='processing', attempts=attempts+1,
+                        locked_at=?, lease_until=?, worker_id=?, updated_at=?
+                    WHERE event_id=?
+                    """,
+                    (now_iso, lease_until, worker_id, now_iso, event_id),
+                )
+                claimed.append(
+                    {
+                        "event_id": event_id,
+                        "provenance": row[1],
+                        "status": "processing",
+                        "attempts": int(row[3]) + 1,
+                        "last_error": row[4],
+                        "created_at": row[5],
+                        "updated_at": now_iso,
+                        "locked_at": now_iso,
+                        "lease_until": lease_until,
+                        "worker_id": worker_id,
+                    }
+                )
+            db.commit()
+            return claimed
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise

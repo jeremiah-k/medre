@@ -48,6 +48,7 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.events.kinds import EventKind
+from medre.core.ingress import AdmissionResult, IngressProvenance
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
@@ -686,6 +687,64 @@ class PipelineRunner:
 
         return outcomes
 
+    async def admit_ingress(
+        self, event: CanonicalEvent, provenance: IngressProvenance
+    ) -> AdmissionResult:
+        """Durably admit one inbound event without routing it inline.
+
+        Relation and conversation identity are resolved before the atomic
+        storage boundary.  Storage then commits the canonical event, inbound
+        native reference, and durable work marker in one transaction.
+        """
+        self._validate_event(event)
+        event = await self._resolve_relations(event)
+        event = await self._assign_conversation_identity(
+            event, get_fn=self._config.storage.get
+        )
+        inbound_ref = self._build_inbound_native_ref(event)
+        suppress_routing = provenance == "history"
+        result = await self._config.storage.admit_ingress(
+            event,
+            inbound_ref,
+            provenance,
+            suppress_routing=suppress_routing,
+        )
+        if self._runtime_accounting is not None:
+            if result.created:
+                self._runtime_accounting.record_inbound_accepted()
+            else:
+                self._runtime_accounting.record_loop_prevented()
+        return result
+
+    async def process_admitted_event(
+        self, event_id: str
+    ) -> list[DeliveryOutcome]:
+        """Route and deliver a previously admitted durable ingress event.
+
+        This method deliberately performs no event/native-ref persistence.
+        The durable ingress worker calls it after claiming the work marker.
+        Delivery creates deterministic outbox identities before each external
+        send, so replay after a worker crash remains idempotent at the MEDRE
+        work-state boundary.
+        """
+        event = await self._config.storage.get(event_id)
+        if event is None:
+            raise RuntimeError(f"admitted ingress event is missing: {event_id}")
+
+        if await self._is_reaction_to_reaction(event):
+            self._log.info(
+                "Reaction-to-reaction suppressed from durable ingress: event_id=%s",
+                event.event_id,
+            )
+            return []
+
+        event, deliveries = await self.route_event(event)
+        if not deliveries:
+            self._log.info("No routes matched for event_id=%s", event.event_id)
+            return []
+
+        return await self.deliver_to_targets(event, deliveries)
+
     # -- Stage 1: Validation -----------------------------------------------
 
     @staticmethod
@@ -797,8 +856,17 @@ class PipelineRunner:
         if snr is None or not snr.native_message_id:
             return
 
-        now = datetime.now(tz=timezone.utc)
-        inbound_ref = NativeMessageRef(
+        inbound_ref = self._build_inbound_native_ref(event)
+        if inbound_ref is not None:
+            await self._config.storage.store_native_ref(inbound_ref)
+
+    @staticmethod
+    def _build_inbound_native_ref(event: CanonicalEvent) -> NativeMessageRef | None:
+        """Build the persisted inbound native-ref record for *event*."""
+        snr = event.source_native_ref
+        if snr is None or not snr.native_message_id:
+            return None
+        return NativeMessageRef(
             id=f"nref-inbound-{uuid.uuid4()}",
             event_id=event.event_id,
             adapter=snr.adapter,
@@ -808,9 +876,8 @@ class PipelineRunner:
             native_relation_id=None,
             direction="inbound",
             metadata=_native_metadata_for_ref(event),
-            created_at=now,
+            created_at=datetime.now(tz=timezone.utc),
         )
-        await self._config.storage.store_native_ref(inbound_ref)
 
     # -- Per-ingress lookup cache helpers ------------------------------------
 

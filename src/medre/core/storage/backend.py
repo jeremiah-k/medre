@@ -16,7 +16,12 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
-from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
+from medre.core.ingress import (
+    AdapterCheckpoint,
+    AdmissionResult,
+    IngressProvenance,
+    IngressWorkItem,
+)
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -403,6 +408,32 @@ class StorageBackend(Protocol):
         self, adapter_id: str, stream: str
     ) -> AdapterCheckpoint | None:
         """Return the last committed cursor for an adapter stream."""
+        ...
+
+    async def claim_ingress_work(
+        self,
+        *,
+        worker_id: str,
+        limit: int = 25,
+        lease_seconds: float = 30.0,
+    ) -> list[IngressWorkItem]:
+        """Atomically claim pending or lease-expired ingress work."""
+        ...
+
+    async def complete_ingress_work(
+        self, event_id: str, *, worker_id: str
+    ) -> None:
+        """Mark owned durable ingress work complete."""
+        ...
+
+    async def release_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> None:
+        """Release failed durable ingress work for a later retry."""
+        ...
+
+    async def count_ingress_work_by_status(self) -> dict[str, int]:
+        """Return durable ingress work counts grouped by status."""
         ...
 
     # -- Native ref correlation ---------------------------------------------

@@ -29,8 +29,10 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
+from medre.core.events.canonical import CanonicalEvent
+
 if TYPE_CHECKING:
-    from medre.core.events.canonical import CanonicalEvent
+    from medre.core.ingress import AdmissionResult, IngressProvenance
     from medre.core.rendering.renderer import RenderingResult
 
 
@@ -477,6 +479,10 @@ class AdapterContext:
     publish_inbound:
         Async callable that publishes a :class:`CanonicalEvent` into
         the framework's inbound event stream.
+    admit_inbound:
+        Optional durable-admission callable. Protocol adapters with reliable
+        cursor/provenance semantics may use this instead of ``publish_inbound``
+        so external cursor advancement is decoupled from downstream routing.
     logger:
         Pre-configured logger scoped to the adapter.
     clock:
@@ -507,6 +513,9 @@ class AdapterContext:
     logger: logging.Logger
     clock: Callable[[], datetime]
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
+    admit_inbound: (
+        Callable[[CanonicalEvent, IngressProvenance], Awaitable[AdmissionResult]] | None
+    ) = None
     record_outbound_native_ref: (
         Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
     ) = None
@@ -764,6 +773,20 @@ class AdapterContract(ABC):
         ctx = getattr(self, "ctx", None)
         if ctx is not None:
             await ctx.publish_inbound(event)
+
+    async def admit_inbound(
+        self, event: CanonicalEvent, provenance: IngressProvenance
+    ) -> AdmissionResult:
+        """Durably admit an event using protocol-supplied provenance.
+
+        Unlike :meth:`publish_inbound`, this path intentionally does not apply
+        the generic adapter-start timestamp filter. Protocol evidence such as
+        Matrix ``RECOVERED`` provenance is authoritative for continuity.
+        """
+        ctx = getattr(self, "ctx", None)
+        if ctx is None or ctx.admit_inbound is None:
+            raise RuntimeError("durable ingress admission is not wired")
+        return await ctx.admit_inbound(event, provenance)
 
     def get_codec(self) -> AdapterCodec | None:
         """Return the adapter's codec, if it supports the codec pattern.
