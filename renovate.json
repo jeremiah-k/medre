@@ -11,6 +11,7 @@
     "custom.regex"
   ],
   "ignorePaths": [],
+  "rangeStrategy": "pin",
   "timezone": "America/Chicago",
   "updateNotScheduled": true,
   "dependencyDashboard": true,

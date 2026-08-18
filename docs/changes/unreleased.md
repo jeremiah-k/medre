@@ -235,6 +235,20 @@ create per-commit fragment files.
   process-substitution input). Documentation test-file references
   verified current. Durable-language enforcer prose neutralized.
 
+## Dependencies
+
+- **All dependencies pinned to exact versions; Renovate now bumps them.**
+  Runtime, dev, and optional SDK extras moved from `>=` floors to exact
+  pins (msgspec 0.21.1, pyyaml 6.0.3, pytest 9.1.1, pytest-asyncio 1.4.0,
+  pytest-timeout 2.4.0, pytest-cov 7.1.0, coverage 7.15.4, build 1.5.0,
+  setuptools 84.0.0, jsonschema 4.26.0, mindroom-nio 0.40.0, mtjk
+  2.7.11.post5, PyPubSub 4.0.7, meshcore 2.3.8, lxmf 1.1.1; Reticulum
+  resolves to rns 1.4.2). `renovate.json` sets `rangeStrategy: pin`
+  so Renovate maintains the exact pins going forward instead of leaving
+  `>=` floors untracked. Full resolution of every extra verified via
+  `uv pip install --dry-run`; all four SDK extras import against the
+  new pins.
+
 ## Continuous Integration
 
 - **Docker integration images aligned and Renovate-managed.** Renovate
