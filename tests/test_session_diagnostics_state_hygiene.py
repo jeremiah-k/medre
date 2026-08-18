@@ -322,7 +322,8 @@ class TestMatrixReconnectErrorStateRecovery:
         Pre-sets stale ``_reconnect_attempts`` and ``_last_reconnect_error``
         (simulating state left by a prior failed reconnect), then drives
         the production recovery method with a fake client whose
-        ``sync()`` returns a successful response. Asserts the recovery
+        ``sync_forever()`` delivers a successful response to
+        ``_on_sync_response()``. Asserts the recovery
         code at ``src/medre/adapters/matrix/session.py`` clears both
         fields and drops the reconnecting flag.
         """

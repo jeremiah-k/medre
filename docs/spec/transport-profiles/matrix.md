@@ -309,12 +309,12 @@ bootstrap/rotate master or self-signing identity material.
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
-| `checkpoint_owned_by_medre`                  | `bool`          | MEDRE owns the Classic Sync checkpoint               |
-| `committed_checkpoint_present`               | `bool`          | A committed Classic cursor has been restored/stored  |
-| `recovered_event_count`                      | `int`           | Recovered timeline events seen at admission           |
-| `history_event_count`                        | `int`           | Cold-history timeline events seen at admission        |
-| `recovery_abandoned_room_count`              | `int`           | Rooms with recorded unrecoverable history             |
-| `recovery_last_abandonment`                  | `str \| None` | Identifier-free room/cause-count abandonment summary   |
+| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint               |
+| `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored  |
+| `recovered_event_count`                    | `int`           | Recovered timeline events seen at admission          |
+| `history_event_count`                      | `int`           | Cold-history timeline events seen at admission       |
+| `recovery_abandoned_room_count`            | `int`           | Rooms with recorded unrecoverable history            |
+| `recovery_last_abandonment`                | `str \| None`   | Identifier-free room/cause-count abandonment summary |
 | `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
 | `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
 | `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
@@ -330,6 +330,7 @@ bootstrap/rotate master or self-signing identity material.
 | `transient_delivery_failures`              | `int`           | Transient outbound errors                            |
 | `permanent_delivery_failures`              | `int`           | Permanent outbound errors                            |
 | `inbound_published`                        | `int`           | Events published inbound                             |
+| `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                         |
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
 | `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
 | `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |

@@ -149,6 +149,12 @@ def _has_live_marker(path: Path) -> bool:
     return bool(re.search(r"pytest\.mark\.live", source))
 
 
+def _has_sdk_opt_in_marker(path: Path) -> bool:
+    """Return whether SDK imports are gated from the default suite."""
+    source = _file_source(path)
+    return bool(re.search(r"pytest\.mark\.(?:live|matrix_sdk)", source))
+
+
 def _has_hardware_marker(path: Path) -> bool:
     """Return True if the test file declares a hardware marker.
 
@@ -612,7 +618,7 @@ class TestSoakFrameworkFakeOnly:
 
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
-    tests and that all SDK-importing test files carry the live marker.
+    tests and that SDK-importing files carry ``live`` or ``matrix_sdk``.
     Also enforces the ``hardware`` marker discipline.
     """
 
@@ -706,10 +712,10 @@ class TestNoLiveTestsRunByDefault:
         ), f"{filename} is a live test file but is missing pytest.mark.live"
 
     def test_non_live_test_files_no_sdk_imports(self) -> None:
-        """Test files that import SDKs without a live marker are violations.
+        """SDK imports require an explicit ``live`` or ``matrix_sdk`` tier.
 
         Scans all ``test_*.py`` files for SDK imports.  Any file that
-        imports an SDK must have ``pytest.mark.live`` in its source.
+        imports an SDK must be excluded from the default suite.
 
         This test intentionally ignores boundary test files — they
         reference SDKs in string patterns for scanning, not as actual
@@ -751,12 +757,12 @@ class TestNoLiveTestsRunByDefault:
                 if has_sdk_import:
                     break
 
-            if has_sdk_import and not _has_live_marker(path):
+            if has_sdk_import and not _has_sdk_opt_in_marker(path):
                 violations.append(path.name)
 
         assert (
             violations == []
-        ), "Test files import transport SDKs without pytest.mark.live:\n" + "\n".join(
+        ), "Test files import transport SDKs without an opt-in marker:\n" + "\n".join(
             f"  - {v}" for v in violations
         )
 
@@ -860,11 +866,11 @@ class TestHardwareMarkerDiscipline:
             + "\n".join(f"  - {v}" for v in violations)
         )
 
-    def test_addopts_excludes_all_three_markers(self) -> None:
-        """``pyproject.toml`` addopts must exclude live, docker, and hardware."""
+    def test_addopts_excludes_all_opt_in_markers(self) -> None:
+        """``pyproject.toml`` must exclude every opt-in test tier."""
         pyproject = _REPO_ROOT / "pyproject.toml"
         content = _file_source(pyproject)
-        for marker in ("live", "docker", "hardware"):
+        for marker in ("live", "docker", "hardware", "matrix_sdk"):
             assert (
                 f"not {marker}" in content
             ), f"pyproject.toml addopts must exclude '{marker}' marker"

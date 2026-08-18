@@ -208,6 +208,42 @@ async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recove
     client.clear_persisted_sync_recovery.assert_called_once_with()
 
 
+@pytest.mark.parametrize(
+    "metadata_json",
+    [
+        "[]",
+        '{"abandoned_rooms":[]}',
+        '{"abandoned_rooms":{"!room:example.org":"fetch_failed"}}',
+        '{"abandoned_rooms":{"!room:example.org":[1]}}',
+    ],
+)
+async def test_load_checkpoint_warns_and_discards_malformed_nested_metadata(
+    metadata_json: str,
+) -> None:
+    checkpoint = AdapterCheckpoint(
+        adapter_id="matrix-test",
+        stream="classic_sync",
+        cursor="s41",
+        metadata_json=metadata_json,
+        updated_at="2026-08-18T00:00:00Z",
+    )
+
+    async def load(_stream: str) -> AdapterCheckpoint:
+        return checkpoint
+
+    logger = MagicMock()
+    session = _durable_session(checkpoint_loader=load, logger=logger)
+    session._client = MagicMock(store=None)
+
+    await session._load_classic_checkpoint()
+
+    assert session._recovery_abandoned_rooms == {}
+    assert session._recovery_last_abandonment is None
+    logger.warning.assert_called_once_with(
+        "Ignoring malformed Matrix checkpoint recovery metadata"
+    )
+
+
 async def test_sync_failure_resets_uncommitted_state_before_retry() -> None:
     session = _durable_session()
     session._committed_sync_token = "committed"

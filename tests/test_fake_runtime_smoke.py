@@ -425,6 +425,21 @@ class TestRuntimeSnapshotCapturesState:
             await clean_stop(app)
 
 
+def test_durable_ingress_diagnostics_have_stable_disabled_shape(
+    tmp_paths: MedrePaths,
+) -> None:
+    """Disabled and running worker snapshots expose the same counter keys."""
+    app = RuntimeBuilder(make_multi_adapter_config(), tmp_paths).build()
+
+    assert app.diagnostic_snapshot()["durable_ingress"] == {
+        "worker_running": False,
+        "processed": 0,
+        "failures": 0,
+        "lost_leases": 0,
+        "terminal_failures": 0,
+    }
+
+
 class TestDiagnosticsAccessible:
     """Runtime diagnostics are accessible and truthful."""
 

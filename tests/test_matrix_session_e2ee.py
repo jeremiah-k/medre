@@ -656,77 +656,69 @@ class TestInitialSyncDoneBehavior:
 # ===================================================================
 
 
-class TestE2EEKeyManagement:
-    """mindroom-nio owns E2EE key sequencing inside ``sync_forever``.
+def _install_key_operation_mocks(client: MagicMock) -> None:
+    """Install nio-owned E2EE operation mocks on a fake client."""
+    client.olm = MagicMock(name="olm")
+    client.store = MagicMock(name="store")
+    client.should_upload_keys = True
+    client.should_query_keys = True
+    client.should_claim_keys = True
+    client.get_users_for_key_claiming = MagicMock(
+        return_value=["@alice:example.com"]
+    )
+    client.keys_upload = AsyncMock()
+    client.keys_query = AsyncMock()
+    client.keys_claim = AsyncMock()
+    client.send_to_device_messages = AsyncMock()
 
-    MEDRE configures the client and supervises the sync loop; it must not
-    duplicate ``keys_upload``, ``keys_query``, ``keys_claim``, or
-    ``send_to_device_messages`` after each response.
-    """
 
-    @staticmethod
-    def _install_key_operation_mocks(client: MagicMock) -> None:
-        client.olm = MagicMock(name="olm")
-        client.store = MagicMock(name="store")
-        client.should_upload_keys = True
-        client.should_query_keys = True
-        client.should_claim_keys = True
-        client.get_users_for_key_claiming = MagicMock(
-            return_value=["@alice:example.com"]
-        )
-        client.keys_upload = AsyncMock()
-        client.keys_query = AsyncMock()
-        client.keys_claim = AsyncMock()
-        client.send_to_device_messages = AsyncMock()
+async def test_e2ee_session_does_not_duplicate_nio_key_operations(mock_nio) -> None:
+    """MEDRE leaves E2EE key sequencing to mindroom-nio's sync loop."""
+    import medre.adapters.matrix.compat as compat
 
-    async def test_e2ee_session_does_not_duplicate_nio_key_operations(
-        self, mock_nio
-    ) -> None:
-        import medre.adapters.matrix.compat as compat
-
-        client = mock_nio.AsyncClient.return_value
-        self._install_key_operation_mocks(client)
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            session = MatrixSession(
-                make_matrix_config(
-                    encryption_mode="e2ee_required",
-                    store_path="/tmp/test_e2ee_store",
-                    device_id="DEV1",
-                )
+    client = mock_nio.AsyncClient.return_value
+    _install_key_operation_mocks(client)
+    original = compat.HAS_E2EE
+    try:
+        compat.HAS_E2EE = True
+        session = MatrixSession(
+            make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/test_e2ee_store",
+                device_id="DEV1",
             )
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-        finally:
-            compat.HAS_E2EE = original
-
-        client.keys_upload.assert_not_awaited()
-        client.keys_query.assert_not_awaited()
-        client.keys_claim.assert_not_awaited()
-        client.send_to_device_messages.assert_not_awaited()
-
-    async def test_plaintext_session_does_not_run_key_operations(
-        self, mock_nio
-    ) -> None:
-        client = mock_nio.AsyncClient.return_value
-        self._install_key_operation_mocks(client)
-        session = MatrixSession(make_matrix_config())
+        )
         with fast_sleep_patch():
             try:
                 await session.start()
                 await _run_session_ticks(session, ticks=6)
             finally:
                 await session.stop()
+    finally:
+        compat.HAS_E2EE = original
 
-        client.keys_upload.assert_not_awaited()
-        client.keys_query.assert_not_awaited()
-        client.keys_claim.assert_not_awaited()
-        client.send_to_device_messages.assert_not_awaited()
+    client.keys_upload.assert_not_awaited()
+    client.keys_query.assert_not_awaited()
+    client.keys_claim.assert_not_awaited()
+    client.send_to_device_messages.assert_not_awaited()
+
+
+async def test_plaintext_session_does_not_run_key_operations(mock_nio) -> None:
+    """Plaintext sessions do not invoke E2EE key operations from MEDRE."""
+    client = mock_nio.AsyncClient.return_value
+    _install_key_operation_mocks(client)
+    session = MatrixSession(make_matrix_config())
+    with fast_sleep_patch():
+        try:
+            await session.start()
+            await _run_session_ticks(session, ticks=6)
+        finally:
+            await session.stop()
+
+    client.keys_upload.assert_not_awaited()
+    client.keys_query.assert_not_awaited()
+    client.keys_claim.assert_not_awaited()
+    client.send_to_device_messages.assert_not_awaited()
 
 
 # ===================================================================

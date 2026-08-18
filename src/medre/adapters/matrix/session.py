@@ -1000,6 +1000,11 @@ class MatrixSession:
             self._logger.warning(
                 "Matrix gap recovery abandoned history in %d room(s)", len(abandoned)
             )
+        if not self._live_sync_started and self._suppressed_backlog_undecryptable:
+            self._logger.debug(
+                "Sync boundary reached — suppressed %d undecryptable backlog events",
+                self._suppressed_backlog_undecryptable,
+            )
         self._initial_sync_done = True
         self._live_sync_started = True
         self._last_successful_sync = time.monotonic()
@@ -1024,18 +1029,22 @@ class MatrixSession:
         if checkpoint is not None and checkpoint.metadata_json:
             try:
                 stored = json.loads(checkpoint.metadata_json)
-                raw_rooms = stored.get("abandoned_rooms", {}) if isinstance(stored, dict) else {}
-                if isinstance(raw_rooms, dict):
-                    restored: dict[str, tuple[str, ...]] = {}
-                    for room_id, reasons in raw_rooms.items():
-                        if isinstance(reasons, (list, tuple)):
-                            restored[str(room_id)] = tuple(
-                                sorted(str(reason) for reason in reasons)
-                            )
-                    self._recovery_abandoned_rooms = restored
-                    self._recovery_last_abandonment = self._abandonment_diagnostic(
-                        restored
-                    )
+                if not isinstance(stored, dict):
+                    raise ValueError("checkpoint metadata must be an object")
+                raw_rooms = stored.get("abandoned_rooms", {})
+                if not isinstance(raw_rooms, dict):
+                    raise ValueError("abandoned_rooms must be an object")
+                restored: dict[str, tuple[str, ...]] = {}
+                for room_id, reasons in raw_rooms.items():
+                    if not isinstance(reasons, (list, tuple)) or not all(
+                        isinstance(reason, str) for reason in reasons
+                    ):
+                        raise ValueError("abandoned room reasons must be strings")
+                    restored[str(room_id)] = tuple(sorted(reasons))
+                self._recovery_abandoned_rooms = restored
+                self._recovery_last_abandonment = self._abandonment_diagnostic(
+                    restored
+                )
             except (TypeError, ValueError):
                 self._logger.warning(
                     "Ignoring malformed Matrix checkpoint recovery metadata"

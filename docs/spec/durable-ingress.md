@@ -66,6 +66,7 @@ work means routing/planning reached the existing durable outbox boundary; it doe
 mean every external target acknowledged delivery.
 
 Runtime diagnostics expose whether the durable-ingress worker is running plus its
-per-generation processed and failure counts. Protocol-specific continuity evidence,
+per-generation processed, failure, lost-lease, and terminal-failure counts.
+Protocol-specific continuity evidence,
 such as Matrix abandoned-room recovery causes, remains adapter/checkpoint metadata
 rather than being generalized into transport-neutral semantics.

@@ -144,9 +144,14 @@ class _SQLiteStorageBase:
             (no silent migration or reset).
         """
         self._closed = False
-        mismatch = await asyncio.to_thread(
-            sync_find_schema_shape_mismatch, self._db_path, _REQUIRED_COLUMNS
-        )
+        try:
+            mismatch = await asyncio.to_thread(
+                sync_find_schema_shape_mismatch, self._db_path, _REQUIRED_COLUMNS
+            )
+        except sqlite3.Error as exc:
+            raise StorageInitializationError(
+                f"Storage database is unreadable or corrupt: {self._db_path}: {exc}"
+            ) from exc
         if mismatch is not None:
             table, missing = mismatch
             raise PreReleaseSchemaMismatchError(
@@ -511,9 +516,10 @@ class _SQLiteStorageBase:
             if self._use_aiosqlite:
                 async with self._async_write_lock:
                     try:
-                        cursor = await db.execute(sql, params)
+                        async with db.execute(sql, params) as cursor:
+                            changed = int(cursor.rowcount)
                         await db.commit()
-                        return int(cursor.rowcount)
+                        return changed
                     except BaseException:
                         try:
                             await db.rollback()

@@ -105,10 +105,16 @@ def build_mock_nio_module() -> MagicMock:
 
     async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
         stop_sync.clear()
+        current_kwargs = dict(kwargs)
         while not stop_sync.is_set():
-            response = await client.sync(*args, **kwargs)
+            response = await client.sync(*args, **current_kwargs)
             for callback in tuple(response_callbacks):
                 await callback(response)
+            if getattr(response, "next_batch", None):
+                # Match nio: initial-only arguments are cleared after the
+                # first successful response inside one sync_forever call.
+                current_kwargs["since"] = None
+                current_kwargs["full_state"] = None
             await asyncio.sleep(0)
 
     client.sync_forever = _sync_forever_stub

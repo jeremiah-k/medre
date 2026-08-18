@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +41,15 @@ class _IngressMixin:
     """Atomic durable ingress and checkpoint methods for ``SQLiteStorage``."""
 
     if TYPE_CHECKING:
+        _db_path: str
+        _lock: threading.Lock
+        _async_write_lock: asyncio.Lock
+        _use_aiosqlite: bool
+
+        async def _run_in_thread(
+            self, func: Any, *args: Any, **kwargs: Any
+        ) -> Any: ...
+
         @staticmethod
         def _relation_op(
             event_id: str, relation: EventRelation
@@ -245,19 +256,18 @@ class _IngressMixin:
             SELECT_INGRESS_WORK_STATE,
             (event_id,),
         )
-        provenance = requested_provenance
         if row is None:
             raise StorageError(
                 f"durable ingress work missing for admitted event {event_id}"
             )
+        provenance = requested_provenance
         status: str = "pending"
-        if row is not None:
-            stored_provenance = row.get("provenance")
-            if stored_provenance in INGRESS_PROVENANCE_VALUES:
-                provenance = stored_provenance
-            stored_status = row.get("status")
-            if stored_status in INGRESS_WORK_STATUS_VALUES:
-                status = stored_status
+        stored_provenance = row.get("provenance")
+        if stored_provenance in INGRESS_PROVENANCE_VALUES:
+            provenance = stored_provenance
+        stored_status = row.get("status")
+        if stored_status in INGRESS_WORK_STATUS_VALUES:
+            status = stored_status
         return AdmissionResult(
             event_id=event_id,
             created=False,

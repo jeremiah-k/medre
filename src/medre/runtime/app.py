@@ -482,7 +482,13 @@ class MedreApp:
                     "terminal_failures": self._ingress_worker.terminal_failures,
                 }
                 if self._ingress_worker is not None
-                else {"worker_running": False, "processed": 0, "failures": 0}
+                else {
+                    "worker_running": False,
+                    "processed": 0,
+                    "failures": 0,
+                    "lost_leases": 0,
+                    "terminal_failures": 0,
+                }
             ),
             "shutdown_drain_timeout_seconds": (
                 self.config.limits.shutdown_drain_timeout_seconds
