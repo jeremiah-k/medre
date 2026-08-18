@@ -140,6 +140,28 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
 );
 
+CREATE TABLE IF NOT EXISTS durable_ingress_work (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    provenance TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    locked_at TEXT,
+    lease_until TEXT,
+    worker_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS adapter_checkpoints (
+    adapter_id TEXT NOT NULL,
+    stream TEXT NOT NULL,
+    cursor TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(adapter_id, stream)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -193,6 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_event_created
     ON delivery_outbox(event_id, created_at, outbox_id);
+CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
+    ON durable_ingress_work(status, lease_until, created_at);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
 -- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.
@@ -330,6 +354,23 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "error_summary",
             "metadata",
         }
+    ),
+    "durable_ingress_work": frozenset(
+        {
+            "event_id",
+            "provenance",
+            "status",
+            "attempts",
+            "last_error",
+            "created_at",
+            "updated_at",
+            "locked_at",
+            "lease_until",
+            "worker_id",
+        }
+    ),
+    "adapter_checkpoints": frozenset(
+        {"adapter_id", "stream", "cursor", "metadata", "updated_at"}
     ),
     "plugin_state": frozenset(
         {

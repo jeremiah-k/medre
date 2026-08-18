@@ -16,6 +16,7 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -372,6 +373,36 @@ class StorageBackend(Protocol):
         returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
         one.
         """
+        ...
+
+    # -- Durable ingress -----------------------------------------------------
+
+    async def admit_ingress(
+        self,
+        event: CanonicalEvent,
+        inbound_ref: NativeMessageRef | None,
+        provenance: IngressProvenance,
+        *,
+        suppress_routing: bool = False,
+    ) -> AdmissionResult:
+        """Atomically persist event, native identity, and pending work."""
+        ...
+
+    async def put_adapter_checkpoint(
+        self,
+        adapter_id: str,
+        stream: str,
+        cursor: str,
+        *,
+        metadata_json: str = "{}",
+    ) -> None:
+        """Persist an application-owned adapter stream cursor."""
+        ...
+
+    async def get_adapter_checkpoint(
+        self, adapter_id: str, stream: str
+    ) -> AdapterCheckpoint | None:
+        """Return the last committed cursor for an adapter stream."""
         ...
 
     # -- Native ref correlation ---------------------------------------------

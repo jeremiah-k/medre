@@ -116,3 +116,86 @@ def sync_read_all(
     """Read all rows as dicts."""
     with lock:
         return [dict(r) for r in db.execute(sql, params).fetchall()]
+
+
+def sync_admit_ingress(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    event_ops: list[tuple[str, tuple[Any, ...]]],
+    native_identity: tuple[str, str | None, str] | None,
+    native_insert: tuple[str, tuple[Any, ...]] | None,
+    work_insert: tuple[str, tuple[Any, ...]],
+    event_id: str,
+) -> tuple[str, bool]:
+    """Atomically admit an event/native ref/work marker.
+
+    Returns ``(canonical_event_id, created)``.  Native identity is the
+    idempotency key when present; otherwise ``event_id`` is used.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            if native_identity is not None:
+                row = db.execute(
+                    """
+                    SELECT event_id FROM native_message_refs
+                    WHERE adapter = ? AND native_channel_id IS ?
+                      AND native_message_id = ?
+                    """,
+                    native_identity,
+                ).fetchone()
+                if row is not None:
+                    db.rollback()
+                    return str(row[0]), False
+            else:
+                row = db.execute(
+                    "SELECT event_id FROM canonical_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if row is not None:
+                    db.rollback()
+                    return event_id, False
+
+            for sql, params in event_ops:
+                db.execute(sql, params)
+            if native_insert is not None:
+                db.execute(*native_insert)
+            db.execute(*work_insert)
+            db.commit()
+            return event_id, True
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_upsert_checkpoint(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    params: tuple[Any, ...],
+) -> None:
+    """Persist one application-owned adapter checkpoint."""
+    with lock:
+        try:
+            db.execute(
+                """
+                INSERT INTO adapter_checkpoints
+                    (adapter_id, stream, cursor, metadata, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(adapter_id, stream) DO UPDATE SET
+                    cursor=excluded.cursor,
+                    metadata=excluded.metadata,
+                    updated_at=excluded.updated_at
+                """,
+                params,
+            )
+            db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
