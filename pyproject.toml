@@ -16,33 +16,32 @@ classifiers = [
   "Topic :: Communications",
   "Typing :: Typed",
 ]
-dependencies = ["msgspec==0.21.1", "pyyaml>=6.0"]
+dependencies = ["msgspec==0.21.1", "pyyaml==6.0.3"]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0",
-  "pytest-asyncio>=0.24",
-  "pytest-timeout>=2.0",
-  "pytest-cov>=5.0",
-  "coverage>=7.0",
-  "build>=1.0",
-  "setuptools>=75.0",
-  "jsonschema>=4.0,<5.0",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "pytest-timeout==2.4.0",
+  "pytest-cov==7.1.0",
+  "coverage==7.15.4",
+  "build==1.5.0",
+  "setuptools==84.0.0",
+  "jsonschema==4.26.0",
 ]
-# mindroom-nio v0.25.3 — fork of matrix-nio with MindRoom patches.
-matrix = ["mindroom-nio>=0.25.3"]
-matrix-e2e = ["mindroom-nio[e2e]>=0.25.3"]
+# mindroom-nio v0.40.0 — fork of matrix-nio with MindRoom patches.
+matrix = ["mindroom-nio==0.40.0"]
+matrix-e2e = ["mindroom-nio[e2e]==0.40.0"]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".
-# Version 2.7.8 verified from local reference repo / pip show.
 # PyPubSub is required by mtjk for callback-based packet reception but is not
 # declared as a dependency by the mtjk distribution. Included here explicitly.
-meshtastic = ["mtjk>=2.7.8", "PyPubSub>=4.0"]
-# meshcore v2.3.7 — verified from /home/jeremiah/dev/meshcore/meshcore_py/pyproject.toml.
+meshtastic = ["mtjk==2.7.11.post5", "PyPubSub==4.0.7"]
+# meshcore v2.3.8.
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
-meshcore = ["meshcore>=2.3.7"]
-# lxmf v0.9.6 — verified from /home/jeremiah/dev/LXMF/LXMF/_version.py.
-# Requires Reticulum (rns) as a transitive dep (v1.2.5 at time of pin).
-lxmf = ["lxmf>=0.9.6"]
+meshcore = ["meshcore==2.3.8"]
+# lxmf v1.1.1.
+# Requires Reticulum (rns) as a transitive dep (v1.4.2 at time of pin).
+lxmf = ["lxmf==1.1.1"]
 
 [project.scripts]
 medre = "medre.cli:main"
