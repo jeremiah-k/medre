@@ -245,7 +245,7 @@ The Matrix renderer (`MatrixRenderer`) produces:
 ### Classic Sync ownership and recovery
 
 MEDRE uses application-owned Classic Sync checkpointing when the adapter is created
-by the runtime. The pinned mindroom-nio client is configured with
+by the runtime with storage available. The pinned mindroom-nio client is configured with
 `backfill_limited_timelines=True`, `store_sync_tokens=False`,
 `backfill_persist_recovery=False`, and `max_timeouts=3`. This establishes one owner
 per concern:
@@ -256,6 +256,12 @@ per concern:
 - MEDRE storage owns canonical admission, deduplication, pending ingress work, and
   the committed Classic cursor; and
 - MEDRE's core pipeline owns routing, outbox creation, and delivery retries.
+
+When storage is unavailable, the runtime MUST omit all three durable callbacks
+(admission, checkpoint load, and checkpoint commit). In that non-durable mode,
+limited-timeline recovery is disabled and mindroom-nio retains ordinary Classic
+cursor ownership with `store_sync_tokens=True`; MEDRE MUST NOT advertise a partial
+durability mode that cannot commit its cursor.
 
 Protocol provenance is authoritative. The generic adapter-start timestamp filter does
 not override Matrix recovery evidence. `LIVE` and `RECOVERED` events are routed;

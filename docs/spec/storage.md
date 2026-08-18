@@ -130,14 +130,26 @@ class StorageBackend(Protocol):
 
     async def complete_ingress_work(
         self, event_id: str, *, worker_id: str,
-    ) -> None:
+    ) -> bool:
         """Mark owned durable ingress work complete."""
         ...
 
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str,
-    ) -> None:
+    ) -> bool:
         """Release failed durable ingress work for retry."""
+        ...
+
+    async def fail_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str,
+    ) -> bool:
+        """Mark owned durable ingress work terminally failed."""
+        ...
+
+    async def renew_ingress_work_lease(
+        self, event_id: str, *, worker_id: str, lease_seconds: float,
+    ) -> bool:
+        """Renew an owned processing lease."""
         ...
 
     async def count_ingress_work_by_status(self) -> dict[str, int]:
@@ -1103,17 +1115,17 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 ### 16.1 Ownership Summary
 
-| Table / category      | Creator                                                                            | Mutator                                                 | Deleter                                       | Retention                        |
-| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
-| `canonical_events`    | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                      | None                                          | Forever                          |
-| `event_relations`     | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                      | None                                          | Forever                          |
-| `native_message_refs` | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                | None                                          | Forever                          |
-| `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
-| `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
-| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                  | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
-| `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                    | Cursor-owning adapters                                  | None                                          | Forever                          |
-| `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |
-| `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever                          |
+| Table / category       | Creator                                                                            | Mutator                                                      | Deleter                                       | Retention                        |
+| ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------- | -------------------------------- |
+| `canonical_events`     | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                           | None                                          | Forever                          |
+| `event_relations`      | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                           | None                                          | Forever                          |
+| `native_message_refs`  | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                     | None                                          | Forever                          |
+| `delivery_receipts`    | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                           | None                                          | Forever                          |
+| `delivery_outbox`      | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)      | None (terminal rows become immutable history) | Forever                          |
+| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`) | None                                          | Forever                          |
+| `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                       | None                                          | Forever                          |
+| `plugin_state`         | Schema-reserved (no current API exposed)                                           | Not exposed                                                  | None                                          | Reserved / future plugin-defined |
+| `_medre_schema_meta`   | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                 | None                                          | Forever                          |
 
 ### 16.2 Ownership Rules
 

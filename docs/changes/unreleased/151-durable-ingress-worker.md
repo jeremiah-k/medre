@@ -4,3 +4,5 @@
 - Add a pipeline path that routes already-admitted events without re-storing them.
 - Wire protocol-provenance admission into adapter runtime context without changing
   existing adapter ingress behavior.
+- Claim each work item immediately before sequential processing so a batch cannot
+  leave later items waiting on already-expiring leases.

@@ -55,12 +55,13 @@ capabilities allow it.
 
 ## Worker recovery and evidence
 
-Pending ingress work is claimed with a bounded lease. The active worker renews the
-lease while routing/planning is still running so another generation cannot reclaim
-the same event merely because one processing attempt exceeds the initial lease. A
-clean processing failure returns the work to `pending` until the bounded retry
-budget is exhausted, after which the row becomes terminal `failed`; cancellation
-or process death leaves the lease in
+Pending ingress work is claimed with a bounded lease immediately before processing;
+the configured batch size caps work per cycle rather than creating a queue of
+pre-leased items. The active worker renews the lease while routing/planning is still
+running so another generation cannot reclaim the same event merely because one
+processing attempt exceeds the initial lease. A clean processing failure returns
+the work to `pending` until the bounded retry budget is exhausted, after which the
+row becomes terminal `failed`; cancellation or process death leaves the lease in
 place so another worker generation can reclaim it after expiry. Completing ingress
 work means routing/planning reached the existing durable outbox boundary; it does not
 mean every external target acknowledged delivery.

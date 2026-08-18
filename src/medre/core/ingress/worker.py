@@ -18,9 +18,7 @@ class _IngressStorage(Protocol):
         self, *, worker_id: str, limit: int, lease_seconds: float
     ) -> list[IngressWorkItem]: ...
 
-    async def complete_ingress_work(
-        self, event_id: str, *, worker_id: str
-    ) -> bool: ...
+    async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> bool: ...
 
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
@@ -65,6 +63,8 @@ class DurableIngressWorker:
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         if max_attempts <= 0:
             raise ValueError("max_attempts must be positive")
         self._storage = storage
@@ -171,14 +171,21 @@ class DurableIngressWorker:
                     await processing
 
     async def run_once(self) -> int:
-        """Claim one batch and process it, returning completed count."""
-        work = await self._storage.claim_ingress_work(
-            worker_id=self._worker_id,
-            limit=self._batch_size,
-            lease_seconds=self._lease_seconds,
-        )
+        """Claim and process up to one batch, returning completed count.
+
+        Work is claimed one item at a time so no unstarted item waits behind
+        another event while its lease is already counting down.
+        """
         completed = 0
-        for item in work:
+        for _ in range(self._batch_size):
+            work = await self._storage.claim_ingress_work(
+                worker_id=self._worker_id,
+                limit=1,
+                lease_seconds=self._lease_seconds,
+            )
+            if not work:
+                break
+            item = work[0]
             try:
                 await self._process_with_lease(item)
             except asyncio.CancelledError:

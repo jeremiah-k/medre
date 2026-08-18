@@ -465,5 +465,10 @@ class TestAppStartupStorageErrors:
             assert app.boot_summary is not None
             assert app.boot_summary.storage_backend == "none"
             assert app.boot_summary.storage_path is None
+            adapter = app.adapters["solo"]
+            assert adapter.ctx is not None
+            assert adapter.ctx.admit_inbound is None
+            assert adapter.ctx.load_checkpoint is None
+            assert adapter.ctx.commit_checkpoint is None
         finally:
             await app.stop()

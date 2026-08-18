@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import msgspec
 import pytest
 
-from medre.core.events import NativeMessageRef, NativeRef
+from medre.core.events import CanonicalEvent, NativeMessageRef, NativeRef
+from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 
-def _event(event_id: str, native_id: str):
+def _event(event_id: str, native_id: str) -> CanonicalEvent:
     event = make_storage_event(event_id=event_id, source_adapter="matrix")
     return msgspec.structs.replace(
         event,
@@ -34,7 +35,7 @@ def _ref(event_id: str, native_id: str) -> NativeMessageRef:
         native_thread_id=None,
         native_relation_id=None,
         direction="inbound",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -86,10 +87,8 @@ async def test_mismatched_inbound_ref_event_id_is_rejected(tmp_path) -> None:
     await storage.initialize()
     try:
         event = _event("evt-mismatch", "$mismatch")
-        with pytest.raises(ValueError, match="inbound_ref.event_id"):
-            await storage.admit_ingress(
-                event, _ref("evt-other", "$mismatch"), "live"
-            )
+        with pytest.raises(ValueError, match=r"inbound_ref\.event_id"):
+            await storage.admit_ingress(event, _ref("evt-other", "$mismatch"), "live")
     finally:
         await storage.close()
 
@@ -116,6 +115,49 @@ async def test_duplicate_native_admission_returns_original_identity(tmp_path) ->
         assert result.event_id == first.event_id
         assert result.provenance == "live"
         assert await storage.get(replay.event_id) is None
+    finally:
+        await storage.close()
+
+
+@pytest.mark.parametrize(
+    ("update_sql", "invalid_value", "error_match"),
+    [
+        (
+            "UPDATE durable_ingress_work SET provenance = ? WHERE event_id = ?",
+            "unknown",
+            "invalid durable ingress provenance",
+        ),
+        (
+            "UPDATE durable_ingress_work SET status = ? WHERE event_id = ?",
+            "unknown",
+            "invalid durable ingress work status",
+        ),
+    ],
+)
+async def test_duplicate_admission_rejects_corrupt_persisted_state(
+    tmp_path, update_sql: str, invalid_value: str, error_match: str
+) -> None:
+    storage = SQLiteStorage(str(tmp_path / "medre.db"))
+    await storage.initialize()
+    try:
+        first = _event("evt-corrupt", "$corrupt-native")
+        await storage.admit_ingress(
+            first,
+            _ref(first.event_id, "$corrupt-native"),
+            "live",
+        )
+        await storage._write(
+            update_sql,
+            (invalid_value, first.event_id),
+        )
+
+        replay = _event("evt-redecoded", "$corrupt-native")
+        with pytest.raises(StorageError, match=error_match):
+            await storage.admit_ingress(
+                replay,
+                _ref(replay.event_id, "$corrupt-native"),
+                "recovered",
+            )
     finally:
         await storage.close()
 
@@ -150,14 +192,13 @@ async def test_adapter_checkpoint_round_trips_and_updates(tmp_path) -> None:
         await storage.put_adapter_checkpoint(
             "matrix-main", "classic_sync", "s2", metadata_json='{"abandoned":["!r"]}'
         )
-        checkpoint = await storage.get_adapter_checkpoint(
-            "matrix-main", "classic_sync"
-        )
+        checkpoint = await storage.get_adapter_checkpoint("matrix-main", "classic_sync")
         assert checkpoint is not None
         assert checkpoint.cursor == "s2"
         assert checkpoint.metadata_json == '{"abandoned":["!r"]}'
     finally:
         await storage.close()
+
 
 async def test_duplicate_legacy_ref_repairs_missing_durable_work(tmp_path) -> None:
     storage = SQLiteStorage(str(tmp_path / "medre.db"))

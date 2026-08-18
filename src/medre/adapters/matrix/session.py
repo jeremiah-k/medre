@@ -27,7 +27,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import MatrixConnectionError
@@ -36,6 +36,7 @@ from medre.adapters.matrix.identity import (
     MatrixCrossSigningService,
 )
 from medre.config.adapters.matrix import MatrixConfig
+from medre.core.ingress import INGRESS_PROVENANCE_VALUES, IngressProvenance
 
 _logger = logging.getLogger(__name__)
 
@@ -527,15 +528,13 @@ class MatrixSession:
         else:
             await self._start_plaintext()
 
-    def _build_client_config(
-        self, nio_module: Any, *, encryption_enabled: bool
-    ) -> Any:
+    def _build_client_config(self, nio_module: Any, *, encryption_enabled: bool) -> Any:
         """Build the pinned mindroom-nio Classic Sync ownership policy."""
         return nio_module.AsyncClientConfig(
             encryption_enabled=encryption_enabled,
             max_timeouts=3,
             backfill_limited_timelines=self._durable_sync_enabled,
-            store_sync_tokens=False,
+            store_sync_tokens=not self._durable_sync_enabled,
             backfill_persist_recovery=False,
         )
 
@@ -551,9 +550,7 @@ class MatrixSession:
         """
         import nio
 
-        client_config = self._build_client_config(
-            nio, encryption_enabled=False
-        )
+        client_config = self._build_client_config(nio, encryption_enabled=False)
         self._client = nio.AsyncClient(
             homeserver=self._config.homeserver,
             user=self._config.user_id,
@@ -603,9 +600,7 @@ class MatrixSession:
         Path(store_path).mkdir(parents=True, exist_ok=True)
 
         try:
-            client_config: Any = self._build_client_config(
-                nio, encryption_enabled=True
-            )
+            client_config: Any = self._build_client_config(nio, encryption_enabled=True)
         except Exception as exc:
             raise MatrixConnectionError(f"Failed to configure E2EE: {exc}") from exc
 
@@ -893,9 +888,7 @@ class MatrixSession:
             self._track_room(room_id)
         await self._message_callback(normalized)
 
-    async def _on_nio_admission(
-        self, room: Any, event: Any, provenance: Any
-    ) -> None:
+    async def _on_nio_admission(self, room: Any, event: Any, provenance: Any) -> None:
         """Durably admit a nio timeline event before ordinary callback fanout."""
         if self._admission_callback is None:
             return
@@ -904,12 +897,17 @@ class MatrixSession:
         if isinstance(room_id, str) and room_id:
             self._track_room(room_id)
         provenance_value = getattr(provenance, "value", str(provenance)).lower()
-        if provenance_value == "recovered":
-            self._recovered_event_count += 1
-        elif provenance_value == "history":
-            self._history_event_count += 1
         try:
-            await self._admission_callback(normalized, provenance_value)
+            if provenance_value not in INGRESS_PROVENANCE_VALUES:
+                raise ValueError(
+                    f"unsupported Matrix ingress provenance: {provenance_value!r}"
+                )
+            ingress_provenance = cast(IngressProvenance, provenance_value)
+            if provenance_value == "recovered":
+                self._recovered_event_count += 1
+            elif provenance_value == "history":
+                self._history_event_count += 1
+            await self._admission_callback(normalized, ingress_provenance)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -920,7 +918,7 @@ class MatrixSession:
                 try:
                     from nio.exceptions import CallbackNotAcceptedError as rejection
                 except ImportError:
-                    raise exc
+                    raise exc from None
             if isinstance(exc, rejection):
                 raise
             raise rejection(f"MEDRE durable ingress admission failed: {exc}") from exc
@@ -1023,7 +1021,9 @@ class MatrixSession:
         if loader is None:
             raise RuntimeError("durable Matrix sync has no checkpoint loader")
         checkpoint = await loader("classic_sync")
-        self._committed_sync_token = checkpoint.cursor if checkpoint is not None else None
+        self._committed_sync_token = (
+            checkpoint.cursor if checkpoint is not None else None
+        )
         self._recovery_abandoned_rooms = {}
         self._recovery_last_abandonment = None
         if checkpoint is not None and checkpoint.metadata_json:
@@ -1042,9 +1042,7 @@ class MatrixSession:
                         raise ValueError("abandoned room reasons must be strings")
                     restored[str(room_id)] = tuple(sorted(reasons))
                 self._recovery_abandoned_rooms = restored
-                self._recovery_last_abandonment = self._abandonment_diagnostic(
-                    restored
-                )
+                self._recovery_last_abandonment = self._abandonment_diagnostic(restored)
             except (TypeError, ValueError):
                 self._logger.warning(
                     "Ignoring malformed Matrix checkpoint recovery metadata"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -82,9 +83,11 @@ def build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
-    response_callbacks: list[Any] = []
+    response_callbacks: list[Callable[[Any], Awaitable[Any]]] = []
 
-    def _add_response_callback(callback: Any, *_classes: object) -> None:
+    def _add_response_callback(
+        callback: Callable[[Any], Awaitable[Any]], *_classes: object
+    ) -> None:
         response_callbacks.append(callback)
 
     client.add_response_callback = MagicMock(side_effect=_add_response_callback)

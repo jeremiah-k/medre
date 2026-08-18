@@ -39,6 +39,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.events.metadata import NativeMetadata
+from medre.core.ingress import IngressProvenance
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -748,7 +749,9 @@ class MatrixAdapter(AdapterContract):
     # -- Inbound callback ---------------------------------------------------
 
     async def _on_room_message(
-        self, event: dict[str, Any], provenance: str | None = None
+        self,
+        event: dict[str, Any],
+        provenance: IngressProvenance | None = None,
     ) -> None:
         """Callback for inbound room events (normalized plain dict).
 
@@ -933,9 +936,7 @@ class MatrixAdapter(AdapterContract):
                 "committed_checkpoint_present": diag.committed_checkpoint_present,
                 "recovered_event_count": diag.recovered_event_count,
                 "history_event_count": diag.history_event_count,
-                "recovery_abandoned_room_count": (
-                    diag.recovery_abandoned_room_count
-                ),
+                "recovery_abandoned_room_count": (diag.recovery_abandoned_room_count),
                 "recovery_last_abandonment": diag.recovery_last_abandonment,
                 # Crypto-store continuity
                 "crypto_store_loaded": diag.crypto_store_loaded,

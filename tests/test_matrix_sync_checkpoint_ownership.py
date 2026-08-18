@@ -58,6 +58,63 @@ def test_durable_client_config_selects_application_owned_classic_state() -> None
     }
 
 
+def test_classic_client_config_selects_nio_owned_classic_state() -> None:
+    captured: dict[str, object] = {}
+
+    def config_factory(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    session = MatrixSession(make_matrix_config())
+    nio = SimpleNamespace(AsyncClientConfig=config_factory)
+    session._build_client_config(nio, encryption_enabled=False)
+
+    assert captured == {
+        "encryption_enabled": False,
+        "max_timeouts": 3,
+        "backfill_limited_timelines": False,
+        "store_sync_tokens": True,
+        "backfill_persist_recovery": False,
+    }
+
+
+async def test_unsupported_admission_provenance_is_rejected_before_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CallbackNotAcceptedError(Exception):
+        pass
+
+    admission = AsyncMock()
+    session = _durable_session(admission_callback=admission)
+    monkeypatch.setitem(
+        sys.modules,
+        "nio",
+        SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError),
+    )
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$event",
+        body="hello",
+        source={
+            "event_id": "$event",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.text", "body": "hello"},
+        },
+    )
+
+    with pytest.raises(
+        CallbackNotAcceptedError, match="unsupported Matrix ingress provenance"
+    ) as rejected:
+        await session._on_nio_admission(
+            room, event, SimpleNamespace(value="unsupported")
+        )
+
+    admission.assert_not_awaited()
+    assert isinstance(rejected.value.__cause__, ValueError)
+
+
 async def test_admission_failure_rejects_event_for_nio_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -84,9 +141,7 @@ async def test_admission_failure_rejects_event_for_nio_replay(
     )
 
     with pytest.raises(CallbackNotAcceptedError, match="durable ingress"):
-        await session._on_nio_admission(
-            room, event, SimpleNamespace(value="recovered")
-        )
+        await session._on_nio_admission(room, event, SimpleNamespace(value="recovered"))
     assert session._recovered_event_count == 1
 
 
@@ -116,9 +171,7 @@ async def test_admission_failure_preserves_original_error_when_rejection_missing
     )
 
     with pytest.raises(RuntimeError, match="sqlite write failed") as caught:
-        await session._on_nio_admission(
-            room, event, SimpleNamespace(value="live")
-        )
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
 
     assert caught.value is original
 
@@ -176,7 +229,9 @@ async def test_stopping_session_does_not_commit_or_ack_sync_response() -> None:
     client.acknowledge_classic_sync.assert_not_called()
 
 
-async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recovery() -> None:
+async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recovery() -> (
+    None
+):
     checkpoint = AdapterCheckpoint(
         adapter_id="matrix-test",
         stream="classic_sync",
@@ -198,9 +253,7 @@ async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recove
     await session._load_classic_checkpoint()
 
     assert session._committed_sync_token == "s41"
-    assert session._recovery_abandoned_rooms == {
-        "!lost:example.org": ("fetch_failed",)
-    }
+    assert session._recovery_abandoned_rooms == {"!lost:example.org": ("fetch_failed",)}
     assert json.loads(session._recovery_last_abandonment or "{}") == {
         "causes": {"fetch_failed": 1},
         "room_count": 1,
@@ -297,9 +350,7 @@ async def test_recovery_abandonment_is_persisted_before_cursor_advances() -> Non
     session._client = client
     response = SimpleNamespace(
         next_batch="s-loss",
-        abandoned_rooms={
-            "!lost:example.org": [SimpleNamespace(value="fetch_failed")]
-        },
+        abandoned_rooms={"!lost:example.org": [SimpleNamespace(value="fetch_failed")]},
     )
 
     await session._on_sync_response(response)

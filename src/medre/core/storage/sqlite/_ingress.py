@@ -17,6 +17,7 @@ from medre.core.ingress import (
     AdmissionResult,
     IngressProvenance,
     IngressWorkItem,
+    IngressWorkStatus,
 )
 from medre.core.storage.backend import DuplicateEventError, StorageError
 from medre.core.storage.sqlite.connection import (
@@ -46,9 +47,7 @@ class _IngressMixin:
         _async_write_lock: asyncio.Lock
         _use_aiosqlite: bool
 
-        async def _run_in_thread(
-            self, func: Any, *args: Any, **kwargs: Any
-        ) -> Any: ...
+        async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
 
         @staticmethod
         def _relation_op(
@@ -101,8 +100,7 @@ class _IngressMixin:
             )
         ]
         ops.extend(
-            self._relation_op(event.event_id, relation)
-            for relation in event.relations
+            self._relation_op(event.event_id, relation) for relation in event.relations
         )
         return ops
 
@@ -166,14 +164,16 @@ class _IngressMixin:
                         existing_event_id: str | None = None
                         if native_identity is not None:
                             async with db.execute(
-                                SELECT_NATIVE_EVENT_ID, native_identity,
+                                SELECT_NATIVE_EVENT_ID,
+                                native_identity,
                             ) as cur:
                                 row = await cur.fetchone()
                             if row is not None:
                                 existing_event_id = str(row[0])
                         else:
                             async with db.execute(
-                                SELECT_CANONICAL_EVENT_ID, (event.event_id,),
+                                SELECT_CANONICAL_EVENT_ID,
+                                (event.event_id,),
                             ) as cur:
                                 row = await cur.fetchone()
                             if row is not None:
@@ -197,7 +197,7 @@ class _IngressMixin:
                                 )
                             await db.commit()
                             return await self._admission_result_for_existing(
-                                existing_event_id, provenance
+                                existing_event_id
                             )
 
                         for sql, params in event_ops:
@@ -234,7 +234,7 @@ class _IngressMixin:
                 now_iso=now,
             )
             if not created:
-                return await self._admission_result_for_existing(event_id, provenance)
+                return await self._admission_result_for_existing(event_id)
             return AdmissionResult(
                 event_id=event_id,
                 created=True,
@@ -249,9 +249,7 @@ class _IngressMixin:
         except sqlite3.Error as exc:
             raise StorageError(f"Durable ingress admission failed: {exc}") from exc
 
-    async def _admission_result_for_existing(
-        self, event_id: str, requested_provenance: IngressProvenance
-    ) -> AdmissionResult:
+    async def _admission_result_for_existing(self, event_id: str) -> AdmissionResult:
         row = await self._read_one(
             SELECT_INGRESS_WORK_STATE,
             (event_id,),
@@ -260,14 +258,20 @@ class _IngressMixin:
             raise StorageError(
                 f"durable ingress work missing for admitted event {event_id}"
             )
-        provenance = requested_provenance
-        status: str = "pending"
         stored_provenance = row.get("provenance")
-        if stored_provenance in INGRESS_PROVENANCE_VALUES:
-            provenance = stored_provenance
+        if stored_provenance not in INGRESS_PROVENANCE_VALUES:
+            raise StorageError(
+                "invalid durable ingress provenance for admitted event "
+                f"{event_id}: {stored_provenance!r}"
+            )
         stored_status = row.get("status")
-        if stored_status in INGRESS_WORK_STATUS_VALUES:
-            status = stored_status
+        if stored_status not in INGRESS_WORK_STATUS_VALUES:
+            raise StorageError(
+                "invalid durable ingress work status for admitted event "
+                f"{event_id}: {stored_status!r}"
+            )
+        provenance: IngressProvenance = stored_provenance
+        status: IngressWorkStatus = stored_status
         return AdmissionResult(
             event_id=event_id,
             created=False,
@@ -310,7 +314,9 @@ class _IngressMixin:
                     )
                     await db.commit()
             else:
-                await self._run_in_thread(sync_upsert_checkpoint, db, self._lock, params)
+                await self._run_in_thread(
+                    sync_upsert_checkpoint, db, self._lock, params
+                )
         except sqlite3.Error as exc:
             raise StorageError(f"Checkpoint write failed: {exc}") from exc
 
@@ -334,6 +340,7 @@ class _IngressMixin:
             metadata_json=row["metadata"],
             updated_at=row["updated_at"],
         )
+
     async def claim_ingress_work(
         self,
         *,
@@ -405,9 +412,7 @@ class _IngressMixin:
         except sqlite3.Error as exc:
             raise StorageError(f"Ingress work claim failed: {exc}") from exc
 
-    async def complete_ingress_work(
-        self, event_id: str, *, worker_id: str
-    ) -> bool:
+    async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> bool:
         """Mark owned ingress work complete after durable delivery planning."""
         changed = await self._write_rowcount(
             """

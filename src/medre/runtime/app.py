@@ -806,9 +806,21 @@ class MedreApp:
                         adapter_id=adapter_id,
                         event_bus=self.event_bus,
                         publish_inbound=self._make_publish_inbound(),
-                        admit_inbound=self._make_admit_inbound(),
-                        load_checkpoint=self._make_checkpoint_loader(adapter_id),
-                        commit_checkpoint=self._make_checkpoint_committer(adapter_id),
+                        admit_inbound=(
+                            self._make_admit_inbound()
+                            if self.storage is not None
+                            else None
+                        ),
+                        load_checkpoint=(
+                            self._make_checkpoint_loader(adapter_id)
+                            if self.storage is not None
+                            else None
+                        ),
+                        commit_checkpoint=(
+                            self._make_checkpoint_committer(adapter_id)
+                            if self.storage is not None
+                            else None
+                        ),
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,

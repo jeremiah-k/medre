@@ -32,6 +32,7 @@ from medre.cli import main
 from medre.cli.exit_codes import EXIT_BUILD
 from medre.core.storage.backend import (
     PreReleaseSchemaMismatchError,
+    StorageInitializationError,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
@@ -439,10 +440,9 @@ def test_storage_reset_refuses_directories(tmp_path: Path) -> None:
             with suppress(Exception):
                 await storage.close()
 
-    # Initializing with a directory path should raise an error.
-    with pytest.raises(
-        (PreReleaseSchemaMismatchError, sqlite3.OperationalError, OSError)
-    ):
+    # Initialization exposes the storage abstraction's stable error type
+    # rather than leaking a platform-specific sqlite exception.
+    with pytest.raises(StorageInitializationError, match="unreadable or corrupt"):
         asyncio.run(_attempt_init())
 
     # Directory must still exist and be unchanged.

@@ -8,3 +8,5 @@
   acknowledging the staged Classic response to mindroom-nio.
 - Reject failed durable admissions at nio's admission boundary so replay remains
   possible after storage errors or crashes.
+- Enable the durable callback trio only when runtime storage is available; otherwise
+  leave Classic checkpoint ownership with mindroom-nio.

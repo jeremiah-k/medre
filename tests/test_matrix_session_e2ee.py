@@ -16,6 +16,7 @@ import pytest
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError
+from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
@@ -663,9 +664,7 @@ def _install_key_operation_mocks(client: MagicMock) -> None:
     client.should_upload_keys = True
     client.should_query_keys = True
     client.should_claim_keys = True
-    client.get_users_for_key_claiming = MagicMock(
-        return_value=["@alice:example.com"]
-    )
+    client.get_users_for_key_claiming = MagicMock(return_value=["@alice:example.com"])
     client.keys_upload = AsyncMock()
     client.keys_query = AsyncMock()
     client.keys_claim = AsyncMock()
@@ -678,6 +677,7 @@ async def test_e2ee_session_does_not_duplicate_nio_key_operations(mock_nio) -> N
 
     client = mock_nio.AsyncClient.return_value
     _install_key_operation_mocks(client)
+    client.sync = AsyncMock(wraps=client.sync)
     original = compat.HAS_E2EE
     try:
         compat.HAS_E2EE = True
@@ -691,7 +691,11 @@ async def test_e2ee_session_does_not_duplicate_nio_key_operations(mock_nio) -> N
         with fast_sleep_patch():
             try:
                 await session.start()
-                await _run_session_ticks(session, ticks=6)
+                assert await wait_until(
+                    lambda: client.sync.await_count > 0,
+                    timeout=1,
+                    interval=0,
+                )
             finally:
                 await session.stop()
     finally:
@@ -707,11 +711,16 @@ async def test_plaintext_session_does_not_run_key_operations(mock_nio) -> None:
     """Plaintext sessions do not invoke E2EE key operations from MEDRE."""
     client = mock_nio.AsyncClient.return_value
     _install_key_operation_mocks(client)
+    client.sync = AsyncMock(wraps=client.sync)
     session = MatrixSession(make_matrix_config())
     with fast_sleep_patch():
         try:
             await session.start()
-            await _run_session_ticks(session, ticks=6)
+            assert await wait_until(
+                lambda: client.sync.await_count > 0,
+                timeout=1,
+                interval=0,
+            )
         finally:
             await session.stop()
 

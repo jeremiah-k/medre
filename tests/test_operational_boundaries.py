@@ -27,6 +27,11 @@ from typing import Any
 import pytest
 
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.pytest_markers import (
+    declared_pytest_markers,
+    marker_is_explicitly_excluded,
+    pytest_addopts_marker_expression,
+)
 from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
 from tests.helpers.source_reader import source_of as _source_of
 
@@ -128,14 +133,12 @@ def _has_live_marker(path: Path) -> bool:
     - ``pytestmark = [ ..., pytest.mark.live, ... ]``
     - ``@pytest.mark.live`` decorator
     """
-    source = _file_source(path)
-    return bool(re.search(r"pytest\.mark\.live", source))
+    return "live" in declared_pytest_markers(path)
 
 
 def _has_sdk_opt_in_marker(path: Path) -> bool:
     """Return whether SDK imports are gated from the default suite."""
-    source = _file_source(path)
-    return bool(re.search(r"pytest\.mark\.(?:live|matrix_sdk)", source))
+    return not declared_pytest_markers(path).isdisjoint({"live", "matrix_sdk"})
 
 
 # ===================================================================
@@ -445,8 +448,8 @@ class TestNoLiveTestsRunByDefault:
         """``pyproject.toml`` must have ``addopts = "-m 'not live'"``."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         assert pyproject.exists(), "pyproject.toml not found"
-        content = _file_source(pyproject)
-        assert "not live" in content, (
+        expression = pytest_addopts_marker_expression(pyproject)
+        assert marker_is_explicitly_excluded(expression, "live"), (
             "pyproject.toml addopts must exclude live marker "
             "(expected: addopts = \"-m 'not live'\")"
         )
@@ -455,11 +458,20 @@ class TestNoLiveTestsRunByDefault:
         """``pyproject.toml`` must have ``addopts`` excluding ``hardware``."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         assert pyproject.exists(), "pyproject.toml not found"
-        content = _file_source(pyproject)
-        assert "not hardware" in content, (
+        expression = pytest_addopts_marker_expression(pyproject)
+        assert marker_is_explicitly_excluded(expression, "hardware"), (
             "pyproject.toml addopts must exclude hardware marker "
             "(expected: addopts = \"-m 'not live and not docker and not hardware'\")"
         )
+
+    def test_pytest_config_excludes_matrix_sdk_marker(self) -> None:
+        """``pyproject.toml`` must exclude SDK-contract tests by default."""
+        pyproject = _TESTS_DIR.parent / "pyproject.toml"
+        assert pyproject.exists(), "pyproject.toml not found"
+        expression = pytest_addopts_marker_expression(pyproject)
+        assert marker_is_explicitly_excluded(
+            expression, "matrix_sdk"
+        ), "pyproject.toml addopts must exclude matrix_sdk marker"
 
     def test_hardware_marker_registered(self) -> None:
         """``pyproject.toml`` must register the ``hardware`` marker."""
