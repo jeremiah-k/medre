@@ -9,8 +9,10 @@ Covers:
   - ensure_joined / ensure_joined_rooms / invite handling
   - Concurrent join deduplication and cancellation safety
 
-Sync-boundary, undecryptable dedup, and RoomEncryptionEvent logging tests
-live in test_matrix_session_sync_boundary.py.
+Runtime cross-signing reconciliation tests live in
+test_matrix_cross_signing_runtime.py. Sync-boundary, undecryptable dedup,
+and RoomEncryptionEvent logging tests live in
+test_matrix_session_sync_boundary.py.
 
 No test requires mindroom-nio[e2e].
 """
@@ -169,6 +171,14 @@ class TestMatrixSessionDiagnostics:
         assert diag.last_crypto_error is None
         assert diag.encrypted_room_seen is False
         assert diag.undecryptable_event_count == 0
+        assert diag.cross_signing_provider_supported is False
+        assert diag.cross_signing_local_identity_present is False
+        assert diag.cross_signing_server_identity_present is None
+        assert diag.cross_signing_current_device_self_signed is None
+        assert diag.cross_signing_chain_status == "unchecked"
+        assert diag.cross_signing_repair_required is False
+        assert diag.cross_signing_reset_required is False
+        assert diag.cross_signing_last_failure_category is None
 
     def test_diagnostics_with_store_and_device(self) -> None:
         config = make_matrix_config(store_path="/tmp/store", device_id="DEV")
@@ -389,6 +399,14 @@ class TestAdapterDiagnostics:
         assert diag["last_crypto_error"] is None
         assert diag["encrypted_room_seen"] is False
         assert diag["undecryptable_event_count"] == 0
+        assert diag["cross_signing_provider_supported"] is False
+        assert diag["cross_signing_local_identity_present"] is False
+        assert diag["cross_signing_server_identity_present"] is None
+        assert diag["cross_signing_current_device_self_signed"] is None
+        assert diag["cross_signing_chain_status"] == "unchecked"
+        assert diag["cross_signing_repair_required"] is False
+        assert diag["cross_signing_reset_required"] is False
+        assert diag["cross_signing_last_failure_category"] is None
 
     async def test_diagnostics_after_start(self, mock_nio) -> None:
         config = make_matrix_config()

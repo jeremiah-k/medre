@@ -47,7 +47,10 @@ pip install -e ".[matrix-e2e]"
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
 ```
 
-Expected: 3 passed. Confirms encrypted room creation, encrypted outbound send, and third-party inbound at Docker SDK-boundary via second nio client.
+Expected: 4 passed. Confirms cross-signing bootstrap persistence with
+passwordless runtime re-verification, encrypted room creation, encrypted
+outbound send, and third-party inbound at Docker SDK-boundary via second nio
+client.
 
 ## Third-Party Inbound Test
 
@@ -78,14 +81,48 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | H (historical) | External live (matrix.org)   | 2026-05-10 | 13/13 plaintext, 7/7 E2EE        |
 | R              | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
 | R              | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
+| R              | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
 | —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
 | —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
 
+## Cross-Signing Validation
+
+Before an encrypted live run, prepare the runtime E2EE store with the same
+adapter ID used in configuration:
+
+```bash
+medre adapter matrix auth login \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com \
+  --adapter-id bridge
+```
+
+After startup, inspect adapter diagnostics. A fully established own-device
+identity should report:
+
+- `cross_signing_provider_supported=true`
+- `cross_signing_local_identity_present=true`
+- `cross_signing_server_identity_present=true`
+- `cross_signing_current_device_self_signed=true`
+- `cross_signing_chain_status=valid`
+- `cross_signing_reset_required=false`
+
+Also verify from a separate trusted Matrix client that the MEDRE device is
+shown as cross-signed/verified by the bot account. This validates the observable
+postcondition; do not treat a successful upload call alone as sufficient.
+
+If `cross_signing_reset_required=true`, do not delete the E2EE store casually.
+Back it up and restore matching state if possible. Use
+`--reset-cross-signing` only as explicit password-authenticated recovery.
+
 ## Known Gaps
 
-- Third-party inbound confirmed at Docker SDK-boundary only; external-live not confirmed.
+- Third-party inbound confirmed at Docker SDK-boundary only; external-live not
+  confirmed.
 - No E2EE reactions, edits, deletes, or attachments.
-- No cross-signing support in `mindroom-nio`.
+- Peer-device trust remains permissive (`ignore_unverified_devices=True`) and
+  is not yet operator-configurable.
+- No room-key backup/import/export workflow is managed by MEDRE.
 - Soak tests: NOT EXECUTED.
 
 ## See Also

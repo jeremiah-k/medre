@@ -50,7 +50,7 @@ def _register_matrix_contributions(subparsers) -> None:
     # -- adapter matrix auth --------------------------------------------------
     adapter_matrix_auth_p = adapter_matrix_sub.add_parser(
         "auth",
-        help="Matrix credential setup (no runtime). Mutates config file. Writes homeserver, user_id, access_token. Never prints token. Prompts for password securely.",
+        help="Matrix credential and E2EE identity setup (no runtime). Writes the credentials sidecar and never prints tokens or passwords.",
     )
     adapter_matrix_auth_sub = adapter_matrix_auth_p.add_subparsers(
         dest="adapter_matrix_auth_command",
@@ -88,6 +88,18 @@ def _register_matrix_contributions(subparsers) -> None:
             "    medre adapter matrix auth login \\\n"
             "      --user @bot:example.com\n"
             "\n"
+            "  Prepare the E2EE store and cross-sign the runtime device. The\n"
+            "  adapter ID must match the configured Matrix adapter key:\n"
+            "    medre adapter matrix auth login \\\n"
+            "      --user @bot:example.com --adapter-id main \\\n"
+            "      --password-stdin < /run/secrets/matrix_password\n"
+            "\n"
+            "  Destructive recovery is explicit and password-authenticated:\n"
+            "    medre adapter matrix auth login \\\n"
+            "      --user @bot:example.com --adapter-id main \\\n"
+            "      --reset-cross-signing \\\n"
+            "      --password-stdin < /run/secrets/matrix_password\n"
+            "\n"
             "  --password reads the password from the command line. This is\n"
             "  supported for automation that cannot pipe stdin, but the value is\n"
             "  visible in shell history, process listings, and audit logs; prefer\n"
@@ -119,6 +131,24 @@ def _register_matrix_contributions(subparsers) -> None:
         action="store_true",
         default=False,
         help="Read password from stdin instead of interactive prompt",
+    )
+    auth_login_p.add_argument(
+        "--adapter-id",
+        required=False,
+        default=None,
+        help=(
+            "Prepare cross-signing state in this Matrix adapter's runtime E2EE "
+            "store (must match the adapter key in config)"
+        ),
+    )
+    auth_login_p.add_argument(
+        "--reset-cross-signing",
+        action="store_true",
+        default=False,
+        help=(
+            "Explicitly replace conflicting/lost cross-signing identity material; "
+            "requires --adapter-id and fresh password authentication"
+        ),
     )
 
 

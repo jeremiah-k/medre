@@ -231,11 +231,23 @@ The Matrix renderer (`MatrixRenderer`) produces:
 5. **Reconnecting** — Sync failure triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 consecutive attempts).
 6. **Stopped** — `stop()` cancels sync task, disconnects client, nulls session. Idempotent.
 
-**E2EE modes:**
+**E2EE modes and identity policy:**
 
-- `plaintext` — No crypto; `ignore_unverified_devices=False`.
-- `e2ee_required` — Fails if `mindroom-nio[e2e]` not installed or crypto subsystem broken.
-- `e2ee_optional` — Attempts crypto; falls back to plaintext with `crypto_enabled=False` on failure.
+- `plaintext` — No crypto; `ignore_unverified_devices=False`; no cross-signing
+  reconciliation.
+- `e2ee_required` — Fails if `mindroom-nio[e2e]` is not installed or the Olm/store
+  subsystem is broken. Once crypto state loads, runtime performs non-destructive
+  own-device cross-signing reconciliation.
+- `e2ee_optional` — Attempts the same crypto + identity path; falls back to plaintext
+  with `crypto_enabled=False` only when crypto startup itself fails. A cross-signing
+  mismatch is diagnostic state and does not downgrade transport encryption.
+
+Cross-signing and peer-device trust are separate policies. MEDRE cross-signs its own
+current device so other Matrix clients can authenticate the bot device. Encrypted
+outbound sends still use `ignore_unverified_devices=True` as an intentional permissive
+peer-device policy; cross-signing the MEDRE device does not automatically verify or
+trust other users' devices. Runtime reconciliation has no password and cannot
+bootstrap/rotate master or self-signing identity material.
 
 ---
 
@@ -243,34 +255,42 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 `adapter.diagnostics()` returns a dict (no secrets):
 
-| Key                           | Type            | Description                              |
-| ----------------------------- | --------------- | ---------------------------------------- |
-| `connected`                   | `bool`          | Session has active client                |
-| `logged_in`                   | `bool`          | Client reports authenticated             |
-| `sync_task_running`           | `bool`          | Sync asyncio task alive                  |
-| `last_sync_error`             | `str \| None`   | Last sync failure message                |
-| `store_path_configured`       | `bool`          | E2EE store path set                      |
-| `device_id_configured`        | `bool`          | Device ID known                          |
-| `encryption_mode`             | `str`           | Current E2EE mode                        |
-| `crypto_enabled`              | `bool`          | Crypto subsystem active                  |
-| `last_crypto_error`           | `str \| None`   | Last crypto error                        |
-| `encrypted_room_seen`         | `bool`          | At least one encrypted room detected     |
-| `undecryptable_event_count`   | `int`           | MegolmEvents that could not be decrypted |
-| `sync_running`                | `bool`          | Sync loop active                         |
-| `reconnecting`                | `bool`          | Reconnect backoff in progress            |
-| `reconnect_attempts`          | `int`           | Consecutive reconnect attempts           |
-| `last_successful_sync`        | `float \| None` | Monotonic time of last good sync         |
-| `crypto_store_loaded`         | `bool`          | Olm/store initialised                    |
-| `olm_loaded`                  | `bool`          | Olm subsystem loaded                     |
-| `encrypted_room_count`        | `int`           | Rooms tracked as encrypted               |
-| `plaintext_room_count`        | `int`           | Rooms tracked as plaintext               |
-| `transient_delivery_failures` | `int`           | Transient outbound errors                |
-| `permanent_delivery_failures` | `int`           | Permanent outbound errors                |
-| `inbound_published`           | `int`           | Events published inbound                 |
-| `inbound_suppressed_self`     | `int`           | Self-message suppressions                |
-| `inbound_suppressed_envelope` | `int`           | MEDRE-origin loop hint suppressions      |
-| `inbound_filtered_allowlist`  | `int`           | Room allowlist rejections                |
-| `inbound_suppressed_startup`  | `int`           | Backlog events before first live sync    |
+| Key                                        | Type            | Description                                          |
+| ------------------------------------------ | --------------- | ---------------------------------------------------- |
+| `connected`                                | `bool`          | Session has active client                            |
+| `logged_in`                                | `bool`          | Client reports authenticated                         |
+| `sync_task_running`                        | `bool`          | Sync asyncio task alive                              |
+| `last_sync_error`                          | `str \| None`   | Last sync failure message                            |
+| `store_path_configured`                    | `bool`          | E2EE store path set                                  |
+| `device_id_configured`                     | `bool`          | Device ID known                                      |
+| `encryption_mode`                          | `str`           | Current E2EE mode                                    |
+| `crypto_enabled`                           | `bool`          | Crypto subsystem active                              |
+| `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
+| `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
+| `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
+| `sync_running`                             | `bool`          | Sync loop active                                     |
+| `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
+| `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
+| `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
+| `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
+| `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
+| `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
+| `plaintext_room_count`                     | `int`           | Rooms tracked as plaintext                           |
+| `cross_signing_provider_supported`         | `bool`          | SDK exposes MEDRE's required cross-signing API       |
+| `cross_signing_local_identity_present`     | `bool`          | Persisted local own-device identity is available     |
+| `cross_signing_server_identity_present`    | `bool \| None`  | Homeserver exposes an own-account master identity    |
+| `cross_signing_current_device_self_signed` | `bool \| None`  | Current device has expected self-signing signature   |
+| `cross_signing_chain_status`               | `str`           | Secret-free server-visible identity-chain state      |
+| `cross_signing_repair_required`            | `bool`          | Safe bootstrap/repair remains                        |
+| `cross_signing_reset_required`             | `bool`          | Explicit authenticated identity recovery is required |
+| `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category          |
+| `transient_delivery_failures`              | `int`           | Transient outbound errors                            |
+| `permanent_delivery_failures`              | `int`           | Permanent outbound errors                            |
+| `inbound_published`                        | `int`           | Events published inbound                             |
+| `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
+| `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
+| `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |
+| `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                |
 
 ---
 
@@ -298,9 +318,17 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Known Limitations
 
-- **No edits or deletes.** The capabilities declare `edits="unsupported"` and `deletes="unsupported"`.
-- **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the homeserver's dedup window, but duplicates are still possible across restarts, replay, or changed delivery identity.
-- **nio cross-signing.** `mindroom-nio` lacks MSC1756 cross-signing support; `ignore_unverified_devices=True` is set internally when E2EE is active.
+- **No edits or deletes.** The capabilities declare `edits="unsupported"` and
+  `deletes="unsupported"`.
+- **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
+  homeserver's dedup window, but duplicates are still possible across restarts, replay,
+  or changed delivery identity.
+- **Peer-device trust is permissive.** Own-device cross-signing is implemented with
+  `mindroom-nio 0.40.0`, but MEDRE does not yet expose an operator-configurable policy
+  for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
+  E2EE sends.
+- **No room-key backup workflow.** MEDRE does not manage Matrix room-key
+  backup/import/export or interactive verification ceremonies.
 - **No attachment support.** `attachments=False` in capabilities.
 - **Room-state tracking cap.** Maximum 10 000 rooms tracked in session `_room_states`; oldest evicted on overflow.
 - **Self-message suppression** only matches `config.user_id`; bot-to-bot echoes from other Matrix users are not suppressed.
@@ -315,9 +343,16 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Validation Status
 
-- Config validation enforces: non-empty `homeserver` (http/https), `user_id` starting with `@`, non-empty `access_token`, valid `encryption_mode`, valid `auto_join_rooms` entries (canonical `!localpart:server` form).
-- Sidecar credential fallback from `~/.config/medre/credentials/matrix.json` when config fields are empty.
-- Adapter unit tests cover codec decode for all three event categories, renderer output, session lifecycle, delivery retry, and E2EE mode guards.
+- Config validation enforces: non-empty `homeserver` (http/https), `user_id` starting
+  with `@`, non-empty `access_token`, valid `encryption_mode`, valid `auto_join_rooms`
+  entries (canonical `!localpart:server` form).
+- Sidecar credential fallback from `~/.config/medre/credentials/matrix.json` when config
+  fields are empty.
+- Adapter unit tests cover codec decode for all three event categories, renderer output,
+  session lifecycle, delivery retry, E2EE mode guards, cross-signing policy/recovery,
+  and auth bootstrap behavior.
+- An SDK-contract test checks the `mindroom-nio 0.40.0` cross-signing surface when the
+  E2EE dependency is installed.
 
 ---
 

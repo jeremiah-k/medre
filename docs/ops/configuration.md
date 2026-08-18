@@ -878,11 +878,14 @@ export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 
 **Matrix:**
 
-| Secret       | Handling                                                                            |
-| ------------ | ----------------------------------------------------------------------------------- |
-| Access token | Set via `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` env var. Never logged. Never committed. |
+| Secret                   | Handling                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Access token             | Set via `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` env var or Matrix credential sidecar. Never logged. Never committed.                                   |
+| E2EE/cross-signing store | Runtime state under `{state_dir}/adapters/{adapter_id}/matrix/store`. Contains private crypto/signing material; back up securely and never commit. |
 
-The runtime derives device ID via `whoami()` and uses an internal store path. The crypto store directory contains sensitive key material — exclude it from version control.
+The runtime derives device ID via `whoami()` and uses an internal store path. The crypto
+store directory contains sensitive Olm/Megolm and cross-signing material — exclude it
+from version control and include it in protected state backups.
 
 **Token rotation procedure:**
 
@@ -914,7 +917,15 @@ medre adapter matrix auth login \
 The command keeps the token out of terminal output and saves credentials to
 the Matrix sidecar JSON file. The runtime reads credentials from this sidecar
 at startup. Accepted flags: `--homeserver`, `--user`, `--password`,
-`--password-stdin`.
+`--password-stdin`, `--adapter-id`, and `--reset-cross-signing`.
+
+For an encrypted adapter, add `--adapter-id <id>` where `<id>` is the Matrix
+adapter key from configuration. MEDRE then prepares the exact runtime E2EE store
+and verifies master → self-signing → current-device cross-signing before saving
+credentials. The password is transient and is not persisted. Use
+`--reset-cross-signing` only for explicit recovery after backing up Matrix state;
+it may replace account cross-signing identity material and therefore requires a
+fresh password. Ordinary runtime startup never performs that rotation.
 
 `--password` reads the password from the command line. It is supported for
 automation that cannot pipe stdin, but the value is visible in shell history,
@@ -1073,10 +1084,12 @@ medre storage reset [--storage-path PATH]
     Storage management (destructive). Deletes the database; accepts
     --backup and --yes.
 
-medre adapter matrix auth login
-    Matrix credential management (no runtime). Authenticates with
-    the homeserver and saves credentials to a sidecar JSON file; it never
-    prints the access token.
+medre adapter matrix auth login [--adapter-id ID] [--reset-cross-signing]
+    Matrix credential and E2EE identity setup (no runtime). Authenticates with
+    the homeserver, optionally prepares/verifies the selected adapter's
+    cross-signing store, and saves credentials to a sidecar JSON file; it never
+    prints the access token or password. Identity reset is explicit and
+    password-authenticated.
 
 medre adapter matrix auth status
     Matrix credential management (no runtime). Shows credential file

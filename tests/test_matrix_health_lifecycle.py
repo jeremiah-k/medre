@@ -386,6 +386,15 @@ async def test_diagnostics_json_safe():
         initial_sync_completed=False,
         encrypted_room_count=0,
         plaintext_room_count=0,
+        # Own-device cross-signing diagnostics (plaintext runtime: unset)
+        cross_signing_provider_supported=None,
+        cross_signing_local_identity_present=None,
+        cross_signing_server_identity_present=None,
+        cross_signing_current_device_self_signed=None,
+        cross_signing_chain_status="unchecked",
+        cross_signing_repair_required=False,
+        cross_signing_reset_required=False,
+        cross_signing_last_failure_category=None,
     )
     adapter._session = mock_session
     # Trigger health_check so _last_health is set

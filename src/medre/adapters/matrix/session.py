@@ -30,6 +30,10 @@ from typing import Any, Callable, Iterable, Literal
 
 import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.adapters.matrix.identity import (
+    MatrixCrossSigningDiagnostics,
+    MatrixCrossSigningService,
+)
 from medre.config.adapters.matrix import MatrixConfig
 
 _logger = logging.getLogger(__name__)
@@ -137,6 +141,15 @@ class MatrixSessionDiagnostics:
     device_id_in_use: str | None
     store_path_exists: bool
     initial_sync_completed: bool
+    # Own-device cross-signing diagnostics (never peer-device trust)
+    cross_signing_provider_supported: bool
+    cross_signing_local_identity_present: bool
+    cross_signing_server_identity_present: bool | None
+    cross_signing_current_device_self_signed: bool | None
+    cross_signing_chain_status: str
+    cross_signing_repair_required: bool
+    cross_signing_reset_required: bool
+    cross_signing_last_failure_category: str | None
 
 
 class MatrixSession:
@@ -192,6 +205,9 @@ class MatrixSession:
         "_encryption_event_seen_rooms",
         # E2EE key management — initial sync tracking
         "_initial_sync_done",
+        # Own-device cross-signing lifecycle
+        "_cross_signing_service",
+        "_cross_signing_diagnostics",
     )
 
     _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
@@ -237,6 +253,11 @@ class MatrixSession:
         self._encryption_event_seen_rooms: set[str] = set()
         # E2EE key management — initial sync tracking
         self._initial_sync_done: bool = False
+        # Cross-signing is a separate identity policy component.  The session
+        # owns its runtime lifetime but never supplies a password or permits
+        # master/self-signing bootstrap or rotation during ordinary startup.
+        self._cross_signing_service: MatrixCrossSigningService | None = None
+        self._cross_signing_diagnostics = MatrixCrossSigningDiagnostics()
 
     # -- Properties -----------------------------------------------------------
 
@@ -454,6 +475,9 @@ class MatrixSession:
         self._encryption_event_seen_rooms = set()
         # E2EE key management — initial sync tracking
         self._initial_sync_done = False
+        # Each start performs a fresh server-visible cross-signing check.
+        self._cross_signing_service = None
+        self._cross_signing_diagnostics = MatrixCrossSigningDiagnostics()
 
         mode = self._config.encryption_mode
         if mode == "e2ee_required":
@@ -599,7 +623,46 @@ class MatrixSession:
                 )
             raise MatrixConnectionError("E2EE required but crypto store failed to load")
 
+        await self._reconcile_cross_signing_runtime()
         await self._finalize_start()
+
+    async def _reconcile_cross_signing_runtime(self) -> None:
+        """Verify/repair own-device cross-signing without identity rotation.
+
+        Runtime startup deliberately has no password and does not opt into
+        bootstrap.  The identity policy may verify an existing chain or repair
+        the current-device self-signature when the persisted master/self-signing
+        identity matches the homeserver.  Missing or mismatched identity material
+        is diagnostic state only; recovery/rotation belongs to the authenticated
+        Matrix auth workflow.
+        """
+        if not self._crypto_enabled or self._client is None:
+            return
+
+        service = MatrixCrossSigningService(self._client, logger=self._logger)
+        self._cross_signing_service = service
+        try:
+            result = await service.reconcile()
+        finally:
+            # Snapshot the secret-free state even when cancellation interrupts
+            # startup.  The service itself propagates CancelledError.
+            self._cross_signing_diagnostics = service.diagnostics()
+
+        diagnostics = self._cross_signing_diagnostics
+        if diagnostics.chain_status == "valid":
+            self._logger.debug(
+                "Matrix own-device cross-signing verified (%s)", result or "verified"
+            )
+        elif diagnostics.reset_required:
+            self._logger.warning(
+                "Matrix own-device cross-signing requires authenticated recovery; "
+                "runtime startup will not rotate identity material"
+            )
+        elif diagnostics.repair_required:
+            self._logger.info(
+                "Matrix own-device cross-signing needs operator bootstrap/repair; "
+                "continuing without identity rotation"
+            )
 
     async def _start_e2ee_optional(self) -> None:
         """E2EE-optional startup.
@@ -1372,6 +1435,13 @@ class MatrixSession:
             await asyncio.sleep(0)
             self._client = None
 
+        # Release the service's provider reference after caching its latest
+        # secret-free diagnostics so a stopped session does not retain the SDK
+        # client solely through the identity-policy object.
+        if self._cross_signing_service is not None:
+            self._cross_signing_diagnostics = self._cross_signing_service.diagnostics()
+            self._cross_signing_service = None
+
         self._closed = True
         self._reconnecting = False
         self._live_sync_started = False
@@ -1470,6 +1540,11 @@ class MatrixSession:
         store_path_exists = (
             os.path.isdir(self._config.store_path) if self._config.store_path else False
         )
+        cross_signing = (
+            self._cross_signing_service.diagnostics()
+            if self._cross_signing_service is not None
+            else self._cross_signing_diagnostics
+        )
 
         return MatrixSessionDiagnostics(
             connected=self.connected,
@@ -1501,4 +1576,14 @@ class MatrixSession:
             device_id_in_use=device_id_in_use,
             store_path_exists=store_path_exists,
             initial_sync_completed=self._initial_sync_done,
+            cross_signing_provider_supported=cross_signing.provider_supported,
+            cross_signing_local_identity_present=cross_signing.local_identity_present,
+            cross_signing_server_identity_present=cross_signing.server_identity_present,
+            cross_signing_current_device_self_signed=(
+                cross_signing.current_device_self_signed
+            ),
+            cross_signing_chain_status=cross_signing.chain_status,
+            cross_signing_repair_required=cross_signing.repair_required,
+            cross_signing_reset_required=cross_signing.reset_required,
+            cross_signing_last_failure_category=(cross_signing.last_failure_category),
         )

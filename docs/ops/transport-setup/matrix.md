@@ -47,7 +47,65 @@ docker run -d --name synapse -p 8008:8008 \
   matrixdotorg/synapse:latest
 ```
 
-## Token Generation
+## Token Generation and E2EE Identity Setup
+
+### MEDRE auth login (recommended for E2EE)
+
+For an encrypted Matrix adapter, use MEDRE's auth command with the adapter ID
+that appears under `adapters.matrix` in the runtime configuration. The password
+is used transiently for Matrix login and any homeserver UIA challenge needed to
+bootstrap cross-signing; MEDRE persists the access token/device ID and E2EE
+crypto state, but never persists the password.
+
+```bash
+medre adapter matrix auth login \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com \
+  --adapter-id bridge
+```
+
+For automation, pipe the password instead of placing it on the command line:
+
+```bash
+printf '%s\n' "$MATRIX_PASSWORD" | \
+  medre adapter matrix auth login \
+    --homeserver https://matrix.example.com \
+    --user @bot:example.com \
+    --adapter-id bridge \
+    --password-stdin
+```
+
+The `--adapter-id` is important: it selects the same runtime E2EE store used by
+the configured adapter at `{state_dir}/adapters/{adapter_id}/matrix/store`.
+Without `--adapter-id`, the command keeps its older SDK-free behavior and only
+obtains/verifies/persists Matrix credentials; it does not prepare cross-signing
+state.
+
+Cross-signing bootstrap verifies the complete server-visible chain before the
+credential sidecar is written: MEDRE master key → self-signing key → current
+MEDRE device. Existing matching identity material is reused. Ordinary startup
+will never replace master/self-signing identity material.
+
+### Explicit cross-signing recovery
+
+If diagnostics report `cross_signing_reset_required=true`, first back up the
+Matrix state directory. Then run the same authenticated login with the explicit
+reset switch:
+
+```bash
+medre adapter matrix auth login \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com \
+  --adapter-id bridge \
+  --reset-cross-signing
+```
+
+This operation is intentionally destructive: it may replace the account's
+master/self-signing identity and therefore change how other Matrix clients view
+the bot device. It requires a fresh password. Do not use it merely because the
+local cross-signing sidecar is missing; restore the backed-up E2EE store first
+when possible. MEDRE refuses automatic rotation when the homeserver already has
+an identity that does not match local state.
 
 ### Login API (curl)
 
@@ -179,16 +237,49 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 ### E2EE Limitations
 
 - Text messages only in encrypted rooms. No reactions, edits, media, or attachments.
-- No cross-signing support in `mindroom-nio`. The adapter sets `ignore_unverified_devices=True` for non-plaintext modes — required by upstream nio.
-- No room key backup, import/export, or interactive device verification.
-- Access token is a plain string in config (no secure storage or rotation).
-- `mindroom-nio` is a fork; maintenance status relative to upstream is unverified.
+- Own-device cross-signing is supported with `mindroom-nio 0.40.0`, but MEDRE does not
+  yet expose a peer-device verification policy. Encrypted sends intentionally use
+  `ignore_unverified_devices=True` for compatibility.
+- Cross-signing MEDRE's own device does **not** imply that MEDRE trusts every peer
+  device in a room. Peer-device trust remains a separate future policy surface.
+- No room-key backup/import/export or interactive verification workflow is managed by
+  MEDRE.
+- Access token is a plain string in config/credential sidecar (no automatic token
+  rotation).
 
-## Device Identity and Crypto Store
+## Device Identity, Cross-Signing, and Crypto Store
 
-The adapter manages device identity and crypto store paths internally. Operators do not configure `device_id` or `store_path`.
+The adapter manages device identity and crypto store paths internally. Operators do not
+configure `device_id` or `store_path`.
 
-When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami()` to discover the device ID. The crypto store path is derived automatically from the resolved state directory: `{state_dir}/adapters/{adapter_id}/matrix/store`.
+When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami()` to
+discover the device ID. The crypto store path is derived automatically from the resolved
+state directory: `{state_dir}/adapters/{adapter_id}/matrix/store`. The store contains
+sensitive Olm/Megolm and cross-signing material and must be backed up and protected like
+a private key store.
+
+At runtime MEDRE performs a non-destructive own-device cross-signing reconciliation. It
+may verify the existing chain or repair a missing current-device self-signature when the
+persisted master/self-signing identity matches the homeserver. Runtime startup has no
+password and will not bootstrap or rotate master/self-signing keys. Missing/mismatched
+identity material is reported through diagnostics and must be handled through the
+authenticated auth workflow above.
+
+### Cross-signing diagnostics
+
+| Key                                        | Meaning                                                                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `cross_signing_provider_supported`         | The installed Matrix SDK exposes the required cross-signing lifecycle API.                                              |
+| `cross_signing_local_identity_present`     | The runtime E2EE store contains persisted local cross-signing identity material.                                        |
+| `cross_signing_server_identity_present`    | The homeserver exposes a master cross-signing identity for the bot account.                                             |
+| `cross_signing_current_device_self_signed` | The server-visible current device carries the expected self-signing signature.                                          |
+| `cross_signing_chain_status`               | `unchecked`, `unsupported`, `missing`, `repairable`, `valid`, `mismatch`, `unverifiable`, `reset_required`, or `error`. |
+| `cross_signing_repair_required`            | Safe bootstrap/repair work remains; ordinary runtime will not rotate identity material.                                 |
+| `cross_signing_reset_required`             | Local/server identity disagreement or lost local identity requires operator recovery.                                   |
+| `cross_signing_last_failure_category`      | Secret-free category for the latest reconciliation failure.                                                             |
+
+These fields never include cross-signing keys, signatures, access tokens, room
+keys, sidecar contents, or crypto objects.
 
 ## Validation Procedures
 
@@ -248,15 +339,17 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ## Troubleshooting
 
-| Symptom                                      | Likely cause                                       | Fix                                                              |
-| -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
-| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                    | Generate a new token via login API or Element                    |
-| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                  | Verify user ID and password encoding                             |
-| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget | Check logs, fix underlying cause, restart                        |
-| No inbound events received                   | Room not in allowlist                              | Add room ID to `MATRIX_ROOM_ALLOWLIST`                           |
-| Self-messages not suppressed                 | sender mismatch                                    | Verify `MATRIX_USER_ID` matches bot's MXID exactly               |
-| `OlmUnverifiedDeviceError` in encrypted room | `ignore_unverified_devices` not applied            | Update to current MEDRE version which handles this automatically |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                      | `pip install -e ".[matrix-e2e]"`                                 |
+| Symptom                                      | Likely cause                                        | Fix                                                                                                      |
+| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                     | Generate a new token via login API or Element                                                            |
+| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                   | Verify user ID and password encoding                                                                     |
+| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget  | Check logs, fix underlying cause, restart                                                                |
+| No inbound events received                   | Room not in allowlist                               | Add room ID to `MATRIX_ROOM_ALLOWLIST`                                                                   |
+| Self-messages not suppressed                 | sender mismatch                                     | Verify `MATRIX_USER_ID` matches bot's MXID exactly                                                       |
+| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied      | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                 |
+| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees    | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow |
+| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                         |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                       | `pip install -e ".[matrix-e2e]"`                                                                         |
 
 ## See Also
 

@@ -446,6 +446,7 @@ class SynapseEnvironment:
     port: int
     bot_user_id: str
     bot_access_token: str
+    bot_password: str
     test_room_id: str
     data_dir: Path
     test_user_id: str
@@ -463,6 +464,7 @@ class SynapseEnvironment:
         port: int,
         bot_user_id: str,
         bot_access_token: str,
+        bot_password: str,
         test_room_id: str,
         data_dir: Path,
         test_user_id: str = "",
@@ -476,6 +478,7 @@ class SynapseEnvironment:
         self.port = port
         self.bot_user_id = bot_user_id
         self.bot_access_token = bot_access_token
+        self.bot_password = bot_password
         self.test_room_id = test_room_id
         self.data_dir = data_dir
         self.test_user_id = test_user_id
@@ -764,6 +767,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         port=_SYNAPSE_PORT,
         bot_user_id=bot_user_id,
         bot_access_token=bot_access_token,
+        bot_password=bot_password,
         test_room_id=test_room_id,
         data_dir=data_dir,
         test_user_id=test_user_id,
@@ -803,6 +807,42 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 # ---------------------------------------------------------------------------
 # Synapse E2EE fixtures
 # ---------------------------------------------------------------------------
+
+
+def close_nio_store(client: Any) -> None:
+    """Close the SQLite store database attached to an nio client.
+
+    nio 0.40.0's ``AsyncClient.close()`` drains recovery callbacks and the
+    HTTP session but never closes the peewee ``SqliteDatabase`` that
+    ``MatrixStore.__post_init__`` opened. The connection is otherwise left
+    to the garbage collector, which surfaces as an unraisable
+    ``sqlite3.Connection`` exception under ``filterwarnings = error`` in
+    whichever test the GC cycle lands in. Stop a queue database first,
+    then close — the same order nio uses internally for its schema-repair
+    path.
+    """
+    database = getattr(getattr(client, "store", None), "database", None)
+    if database is None:
+        return
+
+    from playhouse.sqliteq import SqliteQueueDatabase
+
+    if isinstance(database, SqliteQueueDatabase) and not database.is_stopped():
+        database.stop()
+    if not database.is_closed():
+        database.close()
+
+
+async def close_nio_client(client: Any) -> None:
+    """``await client.close()`` plus a deterministic store close.
+
+    See :func:`close_nio_store` for why the store database must be closed
+    explicitly.
+    """
+    try:
+        await client.close()
+    finally:
+        close_nio_store(client)
 
 
 class E2EETestEnvironment:
@@ -845,6 +885,11 @@ class E2EETestEnvironment:
     @property
     def bot_access_token(self) -> str:
         return self.synapse_env.bot_access_token
+
+    @property
+    def bot_password(self) -> str:
+        """Ephemeral Docker-test password used only for authenticated UIA."""
+        return self.synapse_env.bot_password
 
     @property
     def bot_user_id(self) -> str:
@@ -902,41 +947,47 @@ class E2EETestEnvironment:
             config=client_config,
         )
 
-        client.restore_login(
-            user_id=self.test_user_id,
-            device_id=self.test_device_id,
-            access_token=self.test_access_token,
-        )
+        try:
+            client.restore_login(
+                user_id=self.test_user_id,
+                device_id=self.test_device_id,
+                access_token=self.test_access_token,
+            )
 
-        # Initial sync to learn room encryption state and device list.
-        await client.sync(full_state=True)
+            # Initial sync to learn room encryption state and device list.
+            await client.sync(full_state=True)
 
-        # Upload device keys if needed.
-        if client.should_upload_keys:
-            await client.keys_upload()
+            # Upload device keys if needed.
+            if client.should_upload_keys:
+                await client.keys_upload()
 
-        # Query keys for other users (e.g. the bot) so we can encrypt
-        # for their devices.
-        if client.should_query_keys:
-            await client.keys_query()
+            # Query keys for other users (e.g. the bot) so we can encrypt
+            # for their devices.
+            if client.should_query_keys:
+                await client.keys_query()
 
-        # Claim keys for other users' devices (e.g. the bot) so that
-        # Megolm outbound sessions can encrypt for them.
-        if client.should_claim_keys:
-            try:
-                users = client.get_users_for_key_claiming()
-                if users:
+            # Claim keys for other users' devices (e.g. the bot) so that
+            # Megolm outbound sessions can encrypt for them.
+            if client.should_claim_keys:
+                try:
+                    users = client.get_users_for_key_claiming()
+                    if users:
+                        self._logger.debug(
+                            "E2EE test client claiming keys for %d user(s)", len(users)
+                        )
+                        await client.keys_claim(users)
+                except Exception as exc:
                     self._logger.debug(
-                        "E2EE test client claiming keys for %d user(s)", len(users)
+                        "E2EE test client key claim failed (non-fatal): %s", exc
                     )
-                    await client.keys_claim(users)
-            except Exception as exc:
-                self._logger.debug(
-                    "E2EE test client key claim failed (non-fatal): %s", exc
-                )
 
-        # Process any pending to-device messages (key shares).
-        await client.send_to_device_messages()
+            # Process any pending to-device messages (key shares).
+            await client.send_to_device_messages()
+        except Exception:
+            # Do not leak the client or its SQLite store when
+            # initialisation fails partway.
+            await close_nio_client(client)
+            raise
 
         self.test_e2ee_client = client
         return client
@@ -945,7 +996,7 @@ class E2EETestEnvironment:
         """Close the second nio client if it was created."""
         if self.test_e2ee_client is not None:
             try:
-                await self.test_e2ee_client.close()
+                await close_nio_client(self.test_e2ee_client)
             except Exception:
                 pass
             self.test_e2ee_client = None
